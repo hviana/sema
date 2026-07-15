@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>© Sema — the mind without weights</title>
+    <meta
+      name="description"
+      content="© Sema: a deterministic, auditable, weight-free reasoning engine. No neural network, no GPU, no hallucination."
+    >
+    <style>
+      /* ———————————————————————————— tokens ———————————————————————————— */
+      :root {
+        --bg: #02040c;
+        --ink: #f2f7ff;
+        --dim: #93a7cf;
+        --cyan: #39e6ff;
+        --violet: #a878ff;
+        --magenta: #ff4fd8;
+        --amber: #ffc24b;
+      }
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      html, body {
+        height: 100%;
+      }
+      body {
+        font-family:
+          ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        min-height: 100svh;
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      a {
+        color: inherit;
+      }
+
+      /* ═══════════════════════ THE FIELD (fixed, full-bleed) ═══════════ */
+      .field {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        background: var(--bg);
+      }
+
+      /* — colour weather: two huge drifting orbs + aurora sweep — */
+      .orb {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(70px);
+        mix-blend-mode: screen;
+      }
+      .orb.a {
+        width: 75vmax;
+        height: 75vmax;
+        left: -25vmax;
+        top: -30vmax;
+        background: radial-gradient(
+          circle at 50% 50%,
+          rgba(57, 230, 255, 0.30),
+          rgba(57, 120, 255, 0.10) 45%,
+          transparent 70%
+        );
+        animation: orbA 26s ease-in-out infinite alternate;
+      }
+      .orb.b {
+        width: 70vmax;
+        height: 70vmax;
+        right: -28vmax;
+        bottom: -32vmax;
+        background: radial-gradient(
+          circle at 50% 50%,
+          rgba(255, 79, 216, 0.22),
+          rgba(168, 120, 255, 0.12) 45%,
+          transparent 70%
+        );
+        animation: orbB 32s ease-in-out infinite alternate;
+      }
+      .orb.c {
+        width: 44vmax;
+        height: 44vmax;
+        left: 34%;
+        top: 56%;
+        background: radial-gradient(
+          circle at 50% 50%,
+          rgba(255, 194, 75, 0.14),
+          transparent 65%
+        );
+        animation: orbA 40s ease-in-out infinite alternate-reverse;
+      }
+      @keyframes orbA {
+        from {
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+        to {
+          transform: translate3d(9vmax, 7vmax, 0) scale(1.15);
+        }
+      }
+      @keyframes orbB {
+        from {
+          transform: translate3d(0, 0, 0) scale(1.1);
+        }
+        to {
+          transform: translate3d(-8vmax, -6vmax, 0) scale(0.95);
+        }
+      }
+
+      .aurora {
+        position: absolute;
+        inset: -40%;
+        background: conic-gradient(
+          from 180deg at 50% 50%,
+          transparent 0deg,
+          rgba(57, 230, 255, 0.07) 40deg,
+          transparent 105deg,
+          rgba(168, 120, 255, 0.09) 165deg,
+          transparent 230deg,
+          rgba(255, 79, 216, 0.06) 300deg,
+          transparent 360deg
+        );
+        animation: spin 70s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(1turn);
+        }
+      }
+
+      /* — the addressable lattice — */
+      .lattice {
+        position: absolute;
+        inset: -80px;
+        background-image:
+          radial-gradient(rgba(147, 167, 207, 0.28) 1px, transparent 1.7px),
+          radial-gradient(rgba(147, 167, 207, 0.14) 1px, transparent 1.7px);
+        background-size: 64px 64px, 16px 16px;
+        background-position: 0 0, 8px 8px;
+        mask-image: radial-gradient(
+          closest-side at 50% 46%,
+          #000 20%,
+          transparent 100%
+        );
+        -webkit-mask-image: radial-gradient(
+          closest-side at 50% 46%,
+          #000 20%,
+          transparent 100%
+        );
+        animation: drift 50s linear infinite alternate;
+        opacity: 0.8;
+      }
+      @keyframes drift {
+        to {
+          transform: translate3d(64px, 32px, 0);
+        }
+      }
+
+      /* — the memory graph: full-viewport SVG, curved learned edges — */
+      .graph {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .graph svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .layerA {
+        animation: sway 30s ease-in-out infinite alternate;
+        transform-origin: 50% 50%;
+      }
+      .layerB {
+        animation: sway 44s ease-in-out infinite alternate-reverse;
+        transform-origin: 50% 50%;
+      }
+      @keyframes sway {
+        from {
+          transform: translate(0, 0) rotate(0.001deg);
+        }
+        to {
+          transform: translate(26px, -18px) rotate(0.4deg);
+        }
+      }
+
+      .graph path {
+        fill: none;
+        stroke-linecap: round;
+      }
+      .wire {
+        stroke-width: 1.6;
+        stroke-dasharray: 7 15;
+        animation: flow 2.4s linear infinite;
+        filter: drop-shadow(0 0 6px rgba(57, 230, 255, 0.55));
+      }
+      .wire.v {
+        filter: drop-shadow(0 0 6px rgba(168, 120, 255, 0.55));
+      }
+      .wire.m {
+        filter: drop-shadow(0 0 6px rgba(255, 79, 216, 0.45));
+      }
+      .wire.g {
+        filter: drop-shadow(0 0 6px rgba(255, 194, 75, 0.5));
+      }
+      .wire.slow {
+        animation-duration: 3.6s;
+      }
+      .wire.rev {
+        animation-direction: reverse;
+      }
+      @keyframes flow {
+        to {
+          stroke-dashoffset: -44;
+        }
+      }
+
+      .dot {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: beat 4s ease-in-out infinite;
+      }
+      .dot.d1 {
+        animation-delay: -0.7s;
+      }
+      .dot.d2 {
+        animation-delay: -1.4s;
+      }
+      .dot.d3 {
+        animation-delay: -2.1s;
+      }
+      .dot.d4 {
+        animation-delay: -2.8s;
+      }
+      .dot.d5 {
+        animation-delay: -3.5s;
+      }
+      @keyframes beat {
+        0%, 100% {
+          transform: scale(0.8);
+          opacity: 0.65;
+        }
+        50% {
+          transform: scale(1.25);
+          opacity: 1;
+        }
+      }
+
+      .ring {
+        transform-box: fill-box;
+        transform-origin: center;
+        fill: none;
+        stroke-width: 1.4;
+        animation: ripple 5s cubic-bezier(0.2, 0.65, 0.3, 1) infinite;
+      }
+      .ring.r2 {
+        animation-delay: -1.6s;
+      }
+      .ring.r3 {
+        animation-delay: -3.2s;
+      }
+      @keyframes ripple {
+        0% {
+          transform: scale(0.4);
+          opacity: 0.9;
+        }
+        80%, 100% {
+          transform: scale(3.4);
+          opacity: 0;
+        }
+      }
+
+      /* — cinematic finish: vignette + grain + scanline shimmer — */
+      .vignette {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            120vmax 90vmax at 50% 42%,
+            transparent 30%,
+            rgba(2, 4, 12, 0.6) 75%,
+            rgba(2, 4, 12, 0.95) 100%
+          ),
+          linear-gradient(
+          180deg,
+          rgba(2, 4, 12, 0.5),
+          transparent 18% 82%,
+          rgba(2, 4, 12, 0.75)
+        );
+      }
+      .grain {
+        position: absolute;
+        inset: 0;
+        opacity: 0.5;
+        mix-blend-mode: overlay;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+      }
+
+      /* ═══════════════════════════ THE HERO ═══════════════════════════ */
+      .hero {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: clamp(4rem, 10vh, 7rem) 1.2rem clamp(3rem, 8vh, 5rem);
+        text-align: center;
+      }
+      .stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+
+      /* — counter-rotating hexagon rings behind the wordmark — */
+      .hexring {
+        position: absolute;
+        z-index: -1;
+        width: min(78vmin, 620px);
+        aspect-ratio: 1;
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+        background: conic-gradient(
+          from 0deg,
+          var(--cyan),
+          var(--violet),
+          var(--magenta),
+          var(--amber),
+          var(--cyan)
+        );
+        opacity: 0.5;
+        animation: spin 40s linear infinite;
+        filter: drop-shadow(0 0 30px rgba(57, 230, 255, 0.3));
+      }
+      .hexring::before {
+        content: "";
+        position: absolute;
+        inset: 2px;
+        clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+        background: var(--bg);
+      }
+      .hexring.inner {
+        width: min(58vmin, 460px);
+        opacity: 0.35;
+        animation: spinrev 28s linear infinite;
+      }
+      @keyframes spinrev {
+        to {
+          transform: rotate(-1turn);
+        }
+      }
+
+      .hex-glow {
+        position: absolute;
+        z-index: -2;
+        width: min(70vmin, 560px);
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          rgba(57, 230, 255, 0.16),
+          rgba(168, 120, 255, 0.08) 45%,
+          transparent 70%
+        );
+        animation: breath 7s ease-in-out infinite;
+      }
+      @keyframes breath {
+        0%, 100% {
+          transform: scale(0.94);
+          opacity: 0.7;
+        }
+        50% {
+          transform: scale(1.06);
+          opacity: 1;
+        }
+      }
+
+      .kicker {
+        font-size: clamp(0.72rem, 1.8vw, 0.9rem);
+        letter-spacing: 0.55em;
+        padding-left: 0.55em;
+        text-transform: uppercase;
+        color: var(--dim);
+        animation: up 0.9s 0.1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .kicker b {
+        color: var(--cyan);
+        font-weight: 600;
+      }
+
+      h1 {
+        position: relative;
+        font-size: clamp(4.6rem, 19vw, 13rem);
+        font-weight: 900;
+        line-height: 0.95;
+        letter-spacing: 0.08em;
+        margin-left: 0.08em;
+        background: linear-gradient(
+          95deg,
+          #8ff2ff 0%,
+          #fff 22%,
+          var(--cyan) 42%,
+          var(--violet) 68%,
+          var(--magenta) 100%
+        );
+        background-size: 250% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation:
+          up 1s 0.2s cubic-bezier(0.2, 0.7, 0.2, 1) both,
+          sheen 8s 1.2s ease-in-out infinite;
+        filter: drop-shadow(0 0 22px rgba(57, 230, 255, 0.35)) drop-shadow(
+          0 8px 60px rgba(168, 120, 255, 0.25)
+        );
+      }
+      @keyframes sheen {
+        0%, 100% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+      }
+
+      /* ghost echo behind the wordmark */
+      .echo {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        z-index: -1;
+        user-select: none;
+        pointer-events: none;
+        font-size: clamp(4.6rem, 19vw, 13rem);
+        font-weight: 900;
+        line-height: 0.95;
+        letter-spacing: 0.08em;
+        padding-left: 0.08em;
+        white-space: nowrap;
+        color: transparent;
+        -webkit-text-stroke: 1px rgba(57, 230, 255, 0.22);
+        animation: echo 8s ease-in-out infinite;
+      }
+      @keyframes echo {
+        0%, 100% {
+          transform: translate(-50%, -50%) scale(1.07);
+          opacity: 0.5;
+        }
+        50% {
+          transform: translate(-50%, -50%) scale(1.13);
+          opacity: 0.9;
+        }
+      }
+
+      .tag {
+        margin-top: 1.1rem;
+        font-size: clamp(1.25rem, 4.2vw, 2rem);
+        font-weight: 650;
+        letter-spacing: 0.01em;
+        animation: up 1s 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .tag em {
+        font-style: normal;
+        background: linear-gradient(90deg, var(--cyan), var(--violet));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .sub {
+        margin: 1.1rem auto 0;
+        max-width: 36em;
+        color: var(--dim);
+        font-size: clamp(0.98rem, 2.6vw, 1.15rem);
+        line-height: 1.7;
+        animation: up 1s 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .sub b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      @keyframes up {
+        from {
+          opacity: 0;
+          transform: translateY(26px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        justify-content: center;
+        margin-top: 2.4rem;
+        animation: up 1s 0.65s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .btn {
+        position: relative;
+        display: inline-block;
+        text-decoration: none;
+        padding: 0.95em 2em;
+        border-radius: 999px;
+        font-weight: 750;
+        font-size: clamp(0.95rem, 2.6vw, 1.06rem);
+        letter-spacing: 0.03em;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease,
+          background 0.2s ease;
+      }
+      .btn:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 4px;
+      }
+      .btn.primary {
+        color: #021018;
+        background: linear-gradient(
+          110deg,
+          var(--cyan),
+          var(--violet) 60%,
+          var(--magenta)
+        );
+        background-size: 200% 100%;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.25) inset,
+          0 12px 40px rgba(57, 230, 255, 0.35);
+        animation: sheen 5s ease-in-out infinite;
+      }
+      .btn.primary:hover {
+        transform: translateY(-3px) scale(1.02);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.3) inset,
+          0 18px 60px rgba(57, 230, 255, 0.55);
+      }
+      .btn.ghost {
+        color: var(--ink);
+        background:
+          linear-gradient(var(--bg), var(--bg)) padding-box,
+          linear-gradient(
+          120deg,
+          rgba(57, 230, 255, 0.7),
+          rgba(168, 120, 255, 0.7)
+        ) border-box;
+        border: 1px solid transparent;
+        box-shadow: 0 0 24px rgba(57, 230, 255, 0.10);
+      }
+      .btn.ghost:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0 34px rgba(57, 230, 255, 0.28);
+      }
+
+      /* ═══════════════════════ TICKER + FOOTER ════════════════════════ */
+      .ticker {
+        position: relative;
+        z-index: 1;
+        overflow: hidden;
+        border-top: 1px solid rgba(147, 167, 207, 0.15);
+        border-bottom: 1px solid rgba(147, 167, 207, 0.15);
+        background: linear-gradient(
+          90deg,
+          rgba(57, 230, 255, 0.05),
+          rgba(168, 120, 255, 0.05)
+        );
+        mask-image: linear-gradient(
+          90deg,
+          transparent,
+          #000 12% 88%,
+          transparent
+        );
+        -webkit-mask-image: linear-gradient(
+          90deg,
+          transparent,
+          #000 12% 88%,
+          transparent
+        );
+      }
+      .ticker .rail {
+        display: inline-flex;
+        white-space: nowrap;
+        width: max-content;
+        animation: scroll 34s linear infinite;
+      }
+      .ticker span {
+        padding: 0.72em 0;
+        font-size: 0.8rem;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      .ticker span::after {
+        content: "⬡";
+        margin: 0 1.6em;
+        color: var(--cyan);
+        opacity: 0.7;
+      }
+      @keyframes scroll {
+        to {
+          transform: translateX(-50%);
+        }
+      }
+
+      footer {
+        position: relative;
+        z-index: 1;
+        padding: 1.4rem 1.2rem 1.8rem;
+        text-align: center;
+        color: var(--dim);
+        font-size: 0.83rem;
+        line-height: 1.9;
+      }
+      footer a {
+        color: var(--cyan);
+        text-decoration: none;
+      }
+      footer a:hover {
+        text-decoration: underline;
+        text-shadow: 0 0 12px rgba(57, 230, 255, 0.6);
+      }
+      footer .lic {
+        opacity: 0.85;
+      }
+
+      /* ————————————————————————— small screens ————————————————————————— */
+      @media (max-width: 640px) {
+        .lattice {
+          background-size: 44px 44px, 11px 11px;
+        }
+        .hexring {
+          width: 92vmin;
+        }
+        .hexring.inner {
+          width: 70vmin;
+        }
+        .kicker {
+          letter-spacing: 0.28em;
+          padding-left: 0.28em;
+        }
+      }
+
+      /* ————————————————————————— reduced motion ———————————————————————— */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ═════════════════════ the living memory (decorative) ═══════════ -->
+    <div class="field" aria-hidden="true">
+      <div class="aurora"></div>
+      <div class="orb a"></div>
+      <div class="orb b"></div>
+      <div class="orb c"></div>
+      <div class="lattice"></div>
+
+      <div class="graph">
+        <svg
+          viewBox="0 0 1600 900"
+          preserveAspectRatio="xMidYMid slice"
+          role="presentation"
+        >
+          <defs>
+            <linearGradient id="gc" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#39e6ff" stop-opacity=".9" />
+              <stop offset="1" stop-color="#a878ff" stop-opacity=".55" />
+            </linearGradient>
+            <linearGradient id="gv" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#a878ff" stop-opacity=".85" />
+              <stop offset="1" stop-color="#ff4fd8" stop-opacity=".5" />
+            </linearGradient>
+            <linearGradient id="gg" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#ffc24b" stop-opacity=".85" />
+              <stop offset="1" stop-color="#39e6ff" stop-opacity=".5" />
+            </linearGradient>
+            <radialGradient id="nd" cx=".35" cy=".35" r=".8">
+              <stop offset="0" stop-color="#fff" />
+              <stop offset=".45" stop-color="#39e6ff" />
+              <stop offset="1" stop-color="#39e6ff" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="nv" cx=".35" cy=".35" r=".8">
+              <stop offset="0" stop-color="#fff" />
+              <stop offset=".45" stop-color="#a878ff" />
+              <stop offset="1" stop-color="#a878ff" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="nm" cx=".35" cy=".35" r=".8">
+              <stop offset="0" stop-color="#fff" />
+              <stop offset=".45" stop-color="#ff4fd8" />
+              <stop offset="1" stop-color="#ff4fd8" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="ng" cx=".35" cy=".35" r=".8">
+              <stop offset="0" stop-color="#fff" />
+              <stop offset=".45" stop-color="#ffc24b" />
+              <stop offset="1" stop-color="#ffc24b" stop-opacity="0" />
+            </radialGradient>
+          </defs>
+
+          <!-- back layer : long sweeping learned edges -->
+          <g class="layerB" opacity=".55">
+            <path
+              class="wire slow"
+              stroke="url(#gc)"
+              d="M-60,700 C260,560 420,760 700,640 S1150,420 1420,540 S1680,660 1720,600"
+            />
+            <path
+              class="wire v slow rev"
+              stroke="url(#gv)"
+              d="M-40,180 C300,300 520,120 820,220 S1300,340 1660,180"
+            />
+            <path
+              class="wire g slow"
+              stroke="url(#gg)"
+              d="M200,-40 C160,260 420,420 380,700 S300,880 340,960"
+            />
+            <path
+              class="wire m slow rev"
+              stroke="url(#gv)"
+              d="M1380,-60 C1300,240 1520,420 1440,660 S1360,880 1400,980"
+            />
+            <circle class="dot d2" cx="700" cy="640" r="7" fill="url(#nd)" />
+            <circle class="dot d4" cx="820" cy="220" r="7" fill="url(#nv)" />
+            <circle class="dot d1" cx="380" cy="700" r="6" fill="url(#ng)" />
+            <circle class="dot d3" cx="1440" cy="660" r="6" fill="url(#nm)" />
+          </g>
+
+          <!-- front layer : the constellations -->
+          <g class="layerA">
+            <!-- left weave -->
+            <path
+              class="wire"
+              stroke="url(#gc)"
+              d="M120,260 C200,180 300,200 360,140"
+            />
+            <path
+              class="wire g"
+              stroke="url(#gg)"
+              d="M360,140 C450,90 540,170 610,120"
+            />
+            <path
+              class="wire v rev"
+              stroke="url(#gv)"
+              d="M120,260 C180,360 320,340 400,420"
+            />
+            <circle class="dot" cx="120" cy="260" r="9" fill="url(#nd)" />
+            <circle class="dot d2" cx="360" cy="140" r="8" fill="url(#ng)" />
+            <circle class="dot d4" cx="610" cy="120" r="7" fill="url(#nv)" />
+            <circle class="dot d3" cx="400" cy="420" r="8" fill="url(#nm)" />
+            <circle class="ring" cx="120" cy="260" r="16" stroke="#39e6ff" />
+            <circle class="ring r2" cx="120" cy="260" r="16" stroke="#39e6ff" />
+
+            <!-- right weave -->
+            <path
+              class="wire m"
+              stroke="url(#gv)"
+              d="M1480,300 C1380,240 1300,320 1200,270"
+            />
+            <path
+              class="wire"
+              stroke="url(#gc)"
+              d="M1200,270 C1120,220 1060,300 980,260"
+            />
+            <path
+              class="wire g rev"
+              stroke="url(#gg)"
+              d="M1480,300 C1440,420 1300,440 1260,540"
+            />
+            <circle class="dot d1" cx="1480" cy="300" r="9" fill="url(#nm)" />
+            <circle class="dot d3" cx="1200" cy="270" r="8" fill="url(#nd)" />
+            <circle class="dot d5" cx="980" cy="260" r="7" fill="url(#nv)" />
+            <circle class="dot d2" cx="1260" cy="540" r="8" fill="url(#ng)" />
+            <circle
+              class="ring r3"
+              cx="1480"
+              cy="300"
+              r="16"
+              stroke="#a878ff"
+            />
+
+            <!-- bottom weave -->
+            <path
+              class="wire v"
+              stroke="url(#gv)"
+              d="M520,780 C640,720 760,800 900,740"
+            />
+            <path
+              class="wire rev"
+              stroke="url(#gc)"
+              d="M900,740 C1020,690 1100,770 1200,720"
+            />
+            <circle class="dot d5" cx="520" cy="780" r="8" fill="url(#nv)" />
+            <circle class="dot d1" cx="900" cy="740" r="9" fill="url(#nd)" />
+            <circle class="dot d3" cx="1200" cy="720" r="7" fill="url(#ng)" />
+            <circle class="ring r2" cx="900" cy="740" r="16" stroke="#39e6ff" />
+
+            <!-- top weave -->
+            <path
+              class="wire g"
+              stroke="url(#gg)"
+              d="M760,90 C880,130 1000,60 1120,110"
+            />
+            <circle class="dot d4" cx="760" cy="90" r="7" fill="url(#ng)" />
+            <circle class="dot d2" cx="1120" cy="110" r="7" fill="url(#nm)" />
+          </g>
+        </svg>
+      </div>
+
+      <div class="vignette"></div>
+      <div class="grain"></div>
+    </div>
+
+    <!-- ═══════════════════════════════ hero ═══════════════════════════ -->
+    <main class="hero">
+      <div class="stage">
+        <div class="hex-glow"></div>
+        <div class="hexring"></div>
+        <div class="hexring inner"></div>
+
+        <p class="kicker">
+          deterministic <b>·</b> auditable <b>·</b> weight-free
+        </p>
+        <div style="position: relative">
+          <span class="echo" aria-hidden="true">© SEMA</span>
+          <h1>SEMA</h1>
+        </div>
+        <p class="tag">The mind <em>without weights</em>.</p>
+        <p class="sub">
+          A reasoning engine that <b>keeps knowledge as knowledge</b> — exact,
+          content-addressed, inspectable — and derives every answer as a
+          <b>traceable proof</b> over what it was taught. No neural network. No
+          GPU. No hallucination.
+        </p>
+
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/hviana/sema"
+          >View on GitHub</a>
+          <a class="btn ghost" href="mailto:rogernact@gmail.com">Contact</a>
+        </div>
+      </div>
+    </main>
+
+    <!-- ═══════════════════════════ ticker ═════════════════════════════ -->
+    <div class="ticker" aria-hidden="true">
+      <div class="rail">
+        <span>no gpu bills</span><span>no hallucinations</span><span>audit-ready
+          answers</span><span>runs on your hardware</span><span>total data
+          sovereignty</span><span>train in one pass</span><span>no api
+          costs</span><span>reproducible results</span><span>compliance
+          friendly</span>
+        <span>no gpu bills</span><span>no hallucinations</span><span>audit-ready
+          answers</span><span>runs on your hardware</span><span>total data
+          sovereignty</span><span>train in one pass</span><span>no api
+          costs</span><span>reproducible results</span><span>compliance
+          friendly</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ footer ═════════════════════════════ -->
+    <footer>
+      <div>
+        © Henrique Viana — creator · academic contact:
+        <a href="mailto:hv5088@gmail.com">hv5088@gmail.com</a>
+      </div>
+      <div>
+        commercial licensing:
+        <a href="mailto:reis.marcelo@gmail.com">reis.marcelo@gmail.com</a> ·
+        <a href="mailto:rogernact@gmail.com">rogernact@gmail.com</a>
+      </div>
+      <div class="lic">
+        Released under the
+        <a href="https://github.com/hviana/sema/blob/main/LICENSE.md"
+        >PolyForm Noncommercial License 1.0.0</a>
+        — commercial use requires a
+        <a href="https://github.com/hviana/sema/blob/main/COMMERCIAL-LICENSE.md"
+        >separate license</a>.
+      </div>
+    </footer>
+  </body>
+</html>

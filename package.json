@@ -1,0 +1,22 @@
+{
+  "name": "sema",
+  "version": "0.1.0",
+  "description": "An elementary, recursive, weight-free multimodal mind: one structure, two verbs, one memory. Zero runtime dependencies, pure web standards.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "demo": "tsc && node dist/example/demo.js",
+    "test": "tsc && node --test test/**/*.test.mjs"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "hyparquet": "^1.26.2",
+    "hyparquet-compressors": "^1.1.1"
+  }
+}

@@ -1,0 +1,10 @@
+.claude
+package-lock.json
+node_modules
+dist
+sema.*
+cache
+:memory:
+backup
+analyze_training.ts
+sema-article
