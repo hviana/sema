@@ -670,6 +670,53 @@
         }
       }
 
+      /* ——————————————————— mobile / touch performance ——————————————————
+         Phones can't sustain the per-frame repaint work: SVG dash/scale
+         animations and background-position sheens repaint every frame, and
+         each pass runs through blur/drop-shadow filters. Strip the filters
+         and the repaint-driven animations; keep every compositor-friendly
+         transform/opacity animation so the page stays alive. */
+      @media (max-width: 820px), (pointer: coarse) {
+        .orb {
+          filter: blur(40px);
+        }
+        .aurora {
+          animation: none;
+        }
+        .grain {
+          display: none;
+        }
+        .wire,
+        .wire.v,
+        .wire.m,
+        .wire.g {
+          filter: none;
+          animation: none;
+          stroke-dasharray: none;
+          stroke-width: 1.2;
+          opacity: 0.75;
+        }
+        .layerA,
+        .layerB {
+          animation: none;
+        }
+        .ring {
+          animation-duration: 7s;
+        }
+        .hexring {
+          filter: none;
+        }
+        h1 {
+          animation: up 1s 0.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+          background-position: 35% 50%;
+          filter: drop-shadow(0 0 22px rgba(57, 230, 255, 0.35));
+        }
+        .btn.primary {
+          animation: none;
+          background-position: 50% 50%;
+        }
+      }
+
       /* ————————————————————————— reduced motion ———————————————————————— */
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after {
