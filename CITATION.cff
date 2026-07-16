@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+message: >-
+  If you use Sema in academic work, please cite the accompanying preprint.
+  For software-specific references, you may also cite this repository.
+title: "Sema"
+abstract: >-
+  Sema is a non-parametric, instance-based reasoning system built as a
+  Vector Symbolic Architecture over content-addressable memory, with
+  inference performed by weighted automated deduction.
+type: software
+authors:
+  - family-names: "Viana"
+    given-names: "Henrique Emanoel"
+    orcid: "https://orcid.org/0000-0002-7119-5867"
+    affiliation: "NONE"
+repository-code: "https://github.com/hviana/sema"
+url: "https://github.com/hviana/sema"
+license: "PolyForm-Noncommercial-1.0.0"
+version: "0.1.0"
+date-released: "2026-07-16"
+keywords:
+  - artificial intelligence
+  - cognitive architecture
+  - non-parametric reasoning
+  - instance-based reasoning
+  - vector symbolic architecture
+  - hyperdimensional computing
+  - content-addressable memory
+  - weighted automated deduction
+  - symbolic reasoning
+  - explainable artificial intelligence
+  - TypeScript
+
+preferred-citation:
+  type: article
+  title: "Sema: Reasoning by Example over a Vector-Symbolic Memory"
+  authors:
+    - family-names: "Viana"
+      given-names: "Henrique Emanoel"
+      orcid: "https://orcid.org/0000-0002-7119-5867"
+      affiliation: "NONE"
+  year: 2026
+  month: 7
+  day: 16
+  version: "0.1.0"
+  doi: "10.5281/zenodo.21385723"
+  url: "https://doi.org/10.5281/zenodo.21385723"
+  publisher:
+    name: "Zenodo"
