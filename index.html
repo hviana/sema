@@ -52,6 +52,10 @@
         z-index: 0;
         overflow: hidden;
         background: var(--bg);
+        /* own stacking context + GPU layer: keeps the blend-mode orbs from
+           forcing full-page re-rasterization every frame on mobile */
+        isolation: isolate;
+        transform: translateZ(0);
       }
 
       /* — colour weather: two huge drifting orbs + aurora sweep — */
@@ -60,6 +64,7 @@
         border-radius: 50%;
         filter: blur(70px);
         mix-blend-mode: screen;
+        will-change: transform;
       }
       .orb.a {
         width: 75vmax;
@@ -130,6 +135,7 @@
           transparent 360deg
         );
         animation: spin 70s linear infinite;
+        will-change: transform;
       }
       @keyframes spin {
         to {
@@ -158,6 +164,7 @@
         );
         animation: drift 50s linear infinite alternate;
         opacity: 0.8;
+        will-change: transform;
       }
       @keyframes drift {
         to {
@@ -180,10 +187,12 @@
       .layerA {
         animation: sway 30s ease-in-out infinite alternate;
         transform-origin: 50% 50%;
+        will-change: transform;
       }
       .layerB {
         animation: sway 44s ease-in-out infinite alternate-reverse;
         transform-origin: 50% 50%;
+        will-change: transform;
       }
       @keyframes sway {
         from {
@@ -341,6 +350,7 @@
         opacity: 0.5;
         animation: spin 40s linear infinite;
         filter: drop-shadow(0 0 30px rgba(57, 230, 255, 0.3));
+        will-change: transform;
       }
       .hexring::before {
         content: "";
@@ -373,6 +383,7 @@
           transparent 70%
         );
         animation: breath 7s ease-in-out infinite;
+        will-change: transform, opacity;
       }
       @keyframes breath {
         0%, 100% {
@@ -423,6 +434,11 @@
         filter: drop-shadow(0 0 22px rgba(57, 230, 255, 0.35)) drop-shadow(
           0 8px 60px rgba(168, 120, 255, 0.25)
         );
+        /* gradient-clipped text flickers on iOS while its background animates
+           unless the element sits on its own composited layer */
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        transform: translateZ(0);
       }
       @keyframes sheen {
         0%, 100% {
@@ -450,6 +466,7 @@
         color: transparent;
         -webkit-text-stroke: 1px rgba(57, 230, 255, 0.22);
         animation: echo 8s ease-in-out infinite;
+        will-change: transform, opacity;
       }
       @keyframes echo {
         0%, 100% {
@@ -594,6 +611,7 @@
         white-space: nowrap;
         width: max-content;
         animation: scroll 34s linear infinite;
+        will-change: transform;
       }
       .ticker span {
         padding: 0.72em 0;
