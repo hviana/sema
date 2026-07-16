@@ -1,8 +1,7 @@
 .claude
 package-lock.json
 node_modules
-dist
-sema.*
+/sema.*
 cache
 :memory:
 backup
