@@ -14,17 +14,21 @@ export declare function normalize(v: Vec): Vec;
 export declare function cosine(a: Vec, b: Vec): number;
 /** Set vector epsilon thresholds. Called once by Mind at construction. */
 export declare function setVecConfig(cfg: {
-    normalizeEpsilon?: number;
-    cosineEpsilon?: number;
+  normalizeEpsilon?: number;
+  cosineEpsilon?: number;
 }): void;
 export interface Permutation {
-    fwd: Uint32Array;
-    inv: Uint32Array;
+  fwd: Uint32Array;
+  inv: Uint32Array;
 }
 /** The keyring: one independent permutation per seat.
  *  Independent keys do not commute, so an address in a tree is the
  *  path itself — "seat 2 inside seat 1" ≠ "seat 1 inside seat 2". */
-export declare function makeKeyring(D: number, seats: number, rand: () => number): Permutation[];
+export declare function makeKeyring(
+  D: number,
+  seats: number,
+  rand: () => number,
+): Permutation[];
 /** Apply permutation: out[i] = v[table[i]]. */
 export declare function permute(v: Vec, table: Uint32Array): Vec;
 /** Permute into existing buffer — zero allocation. */

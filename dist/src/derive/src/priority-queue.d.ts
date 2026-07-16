@@ -9,12 +9,12 @@
  * of objects) keep the hot path allocation-free.
  */
 export declare class MinHeap<T> {
-    private readonly keys;
-    private readonly vals;
-    get size(): number;
-    push(priority: number, value: T): void;
-    pop(): {
-        priority: number;
-        value: T;
-    } | undefined;
+  private readonly keys;
+  private readonly vals;
+  get size(): number;
+  push(priority: number, value: T): void;
+  pop(): {
+    priority: number;
+    value: T;
+  } | undefined;
 }

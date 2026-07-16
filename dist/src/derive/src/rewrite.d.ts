@@ -21,22 +21,22 @@
  */
 /** A candidate span over a sequence, carrying caller payload. */
 export interface CandidateSpan<P> {
-    /** Start offset (inclusive). */
-    start: number;
-    /** End offset (exclusive); must be > start. */
-    end: number;
-    /** Relative cost of using this span (default 1). Lower wins ties. */
-    weight?: number;
-    /** Caller data, returned on the chosen spans. */
-    payload: P;
+  /** Start offset (inclusive). */
+  start: number;
+  /** End offset (exclusive); must be > start. */
+  end: number;
+  /** Relative cost of using this span (default 1). Lower wins ties. */
+  weight?: number;
+  /** Caller data, returned on the chosen spans. */
+  payload: P;
 }
 export interface Cover<P> {
-    /** Chosen non-overlapping spans, left to right. */
-    spans: Array<CandidateSpan<P>>;
-    /** Symbols covered by the chosen spans. */
-    covered: number;
-    /** Symbols left uncovered. */
-    uncovered: number;
+  /** Chosen non-overlapping spans, left to right. */
+  spans: Array<CandidateSpan<P>>;
+  /** Symbols covered by the chosen spans. */
+  covered: number;
+  /** Symbols left uncovered. */
+  uncovered: number;
 }
 /**
  * The lightest non-overlapping cover of `[0, length)` drawn from `candidates`.
@@ -53,4 +53,7 @@ export interface Cover<P> {
  * items, each finalised once, with one "skip" edge plus the candidates that
  * start there. No quadratic span structure.
  */
-export declare function coverSequence<P>(length: number, candidates: ReadonlyArray<CandidateSpan<P>>): Cover<P>;
+export declare function coverSequence<P>(
+  length: number,
+  candidates: ReadonlyArray<CandidateSpan<P>>,
+): Cover<P>;

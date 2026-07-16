@@ -10,20 +10,20 @@ import { STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
 /** Wrap the ALU as a {@link PipelineMechanism}. */
 export function aluToMechanism(alu) {
-    return {
-        name: "alu",
-        provenance: "cover",
-        parse: (query) => alu.parse(query),
-        async floor(_ctx, _query, pre, _worthRunning) {
-            return pre.computed.length > 0 ? 0 : null;
-        },
-        async run(_ctx, query, pre) {
-            return pre.computed.map((u) => ({
-                bytes: u.bytes,
-                accounted: [[u.i, u.j]],
-                moves: STEP,
-                unexplained: unexplainedLabel(query, [[u.i, u.j]]),
-            }));
-        },
-    };
+  return {
+    name: "alu",
+    provenance: "cover",
+    parse: (query) => alu.parse(query),
+    async floor(_ctx, _query, pre, _worthRunning) {
+      return pre.computed.length > 0 ? 0 : null;
+    },
+    async run(_ctx, query, pre) {
+      return pre.computed.map((u) => ({
+        bytes: u.bytes,
+        accounted: [[u.i, u.j]],
+        moves: STEP,
+        unexplained: unexplainedLabel(query, [[u.i, u.j]]),
+      }));
+    },
+  };
 }

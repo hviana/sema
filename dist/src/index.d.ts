@@ -10,6 +10,21 @@ export * from "./store-sqlite.js";
 export * from "./config.js";
 export * from "./extension.js";
 export * from "./ingest-cache.js";
-export { Heap, HnswIndex, Prng, RaBitQuantizer, VectorDatabase, } from "./rabitq-hnsw/src/index.js";
-export type { DatabaseOptions, ExternalId, HnswParams, KnnHit, QueryContext, QueryResult, RaBitQOptions, StorageStats, } from "./rabitq-hnsw/src/index.js";
+export {
+  Heap,
+  HnswIndex,
+  Prng,
+  RaBitQuantizer,
+  VectorDatabase,
+} from "./rabitq-hnsw/src/index.js";
+export type {
+  DatabaseOptions,
+  ExternalId,
+  HnswParams,
+  KnnHit,
+  QueryContext,
+  QueryResult,
+  RaBitQOptions,
+  StorageStats,
+} from "./rabitq-hnsw/src/index.js";
 export * from "./derive/src/index.js";

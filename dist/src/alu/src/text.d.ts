@@ -25,7 +25,11 @@ export declare function matchBracket(b: Uint8Array, open: number): number;
 /** The maximal non-whitespace runs of `bytes` within [from, to) — the spacing
  *  floor's reading of "the tokens", shared by the structural host's segmenter
  *  and the parser's term lexing so neither re-implements the walk. */
-export declare function nonSpaceRuns(bytes: Uint8Array, from?: number, to?: number): Array<{
-    i: number;
-    j: number;
+export declare function nonSpaceRuns(
+  bytes: Uint8Array,
+  from?: number,
+  to?: number,
+): Array<{
+  i: number;
+  j: number;
 }>;

@@ -17,5 +17,11 @@ export * from "./ingest-cache.js";
 // `store.js` / `config.js` exports, and sema code that needs the rabitq ones
 // imports them from the subpath directly. Re-export the public vector-DB
 // surface under the sema root, omitting the three colliding names.
-export { Heap, HnswIndex, Prng, RaBitQuantizer, VectorDatabase, } from "./rabitq-hnsw/src/index.js";
+export {
+  Heap,
+  HnswIndex,
+  Prng,
+  RaBitQuantizer,
+  VectorDatabase,
+} from "./rabitq-hnsw/src/index.js";
 export * from "./derive/src/index.js";

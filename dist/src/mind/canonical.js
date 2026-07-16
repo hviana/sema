@@ -26,44 +26,46 @@
  *  ids: W−1 and W (the river's grouping quantum and its off-by-one neighbour,
  *  so a form straddling a group boundary is reachable from either cut). */
 export function canonicalWindows(W) {
-    return [W - 1, W];
+  return [W - 1, W];
 }
 /** The READ side's chain reach: how many leaf ids a canonical chain may grow
  *  to from one position — W², the deepest two-level composite the write side's
  *  windows can spell. */
 export function chainReach(W) {
-    return W * W;
+  return W * W;
 }
 /** The id of the single-byte leaf at position `p`, or null when that byte was
  *  never interned. */
 export function leafIdAt(ctx, bytes, p) {
-    return ctx.store.findLeaf(bytes.subarray(p, p + 1));
+  return ctx.store.findLeaf(bytes.subarray(p, p + 1));
 }
 /** The leaf ids of the window `[from, to)`, or null the moment ANY byte in it
  *  is unknown — the all-or-nothing read {@link canonicalChunkId} anchors on. */
 export function leafIdRun(ctx, bytes, from, to) {
-    const ids = [];
-    for (let i = from; i < to; i++) {
-        const lid = leafIdAt(ctx, bytes, i);
-        if (lid === null)
-            return null;
-        ids.push(lid);
+  const ids = [];
+  for (let i = from; i < to; i++) {
+    const lid = leafIdAt(ctx, bytes, i);
+    if (lid === null) {
+      return null;
     }
-    return ids;
+    ids.push(lid);
+  }
+  return ids;
 }
 /** The leaf ids of the LONGEST KNOWN PREFIX of `bytes` — stops at the first
  *  unknown byte and returns what it has (possibly empty).  The caller decides
  *  what a partial prefix means (deposit only interns the whole-stream flat
  *  branch when the prefix covers everything). */
 export function leafIdPrefix(ctx, bytes) {
-    const ids = [];
-    for (let i = 0; i < bytes.length; i++) {
-        const lid = leafIdAt(ctx, bytes, i);
-        if (lid === null)
-            break;
-        ids.push(lid);
+  const ids = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const lid = leafIdAt(ctx, bytes, i);
+    if (lid === null) {
+      break;
     }
-    return ids;
+    ids.push(lid);
+  }
+  return ids;
 }
 /** The canonical W-window node ids of a byte stream, offset → id — the
  *  CONTENT-ADDRESSED IDENTITY of every W-sized slice, under which any content
@@ -74,15 +76,17 @@ export function leafIdPrefix(ctx, bytes) {
  *  frame detection both read shared/common content through this — never
  *  through a byte scan. */
 export function windowIds(ctx, bytes) {
-    const W = ctx.space.maxGroup;
-    const out = new Map();
-    for (let off = 0; off + W <= bytes.length; off++) {
-        const ids = leafIdRun(ctx, bytes, off, off + W);
-        if (ids === null)
-            continue;
-        const wid = ctx.store.findBranch(ids);
-        if (wid !== null)
-            out.set(off, wid);
+  const W = ctx.space.maxGroup;
+  const out = new Map();
+  for (let off = 0; off + W <= bytes.length; off++) {
+    const ids = leafIdRun(ctx, bytes, off, off + W);
+    if (ids === null) {
+      continue;
     }
-    return out;
+    const wid = ctx.store.findBranch(ids);
+    if (wid !== null) {
+      out.set(off, wid);
+    }
+  }
+  return out;
 }

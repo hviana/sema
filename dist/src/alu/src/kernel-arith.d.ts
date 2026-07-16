@@ -13,4 +13,8 @@ export declare function matMul(a: number[][], b: number[][]): number[][];
 /** Solve A·x = b by Gaussian elimination with partial pivoting — structured
  *  arithmetic (add / multiply / divide / compare for the pivot), not a new
  *  primitive.  Returns x, or null if A is singular to tolerance `tol`. */
-export declare function linsolve(A: number[][], b: number[], tol?: number): number[] | null;
+export declare function linsolve(
+  A: number[][],
+  b: number[],
+  tol?: number,
+): number[] | null;

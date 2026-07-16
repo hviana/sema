@@ -1,6 +1,6 @@
 export interface Episode {
-    context: string;
-    continuation: string;
+  context: string;
+  continuation: string;
 }
 export type TrainingItem = string | Episode;
 /** Dedup + trim a concept's items: drop empty/degenerate pairs and exact
@@ -8,10 +8,10 @@ export type TrainingItem = string | Episode;
 export declare function refineItems(items: TrainingItem[]): TrainingItem[];
 /** One normalized SmolSent row. */
 export interface SmolSentRow {
-    src: string;
-    trg: string;
-    sl: string;
-    tl: string;
+  src: string;
+  trg: string;
+  sl: string;
+  tl: string;
 }
 /** Normalize a raw datasets-server row into a SmolSentRow, or null when it lacks
  *  both sides or a side is implausibly large (a dump, not a sentence). */
@@ -22,9 +22,9 @@ export declare function toSmolSentRow(row: unknown): SmolSentRow | null;
 export declare function smolSentRowToItems(row: SmolSentRow): TrainingItem[];
 /** One normalized Aya row. */
 export interface AyaRow {
-    inputs: string;
-    targets: string;
-    language: string;
+  inputs: string;
+  targets: string;
+  language: string;
 }
 /** Normalize a raw datasets-server row object into an AyaRow, or null when it
  *  lacks a usable prompt/answer or a field is implausibly large (a dump, not a
@@ -38,16 +38,16 @@ export declare function toAyaRow(row: unknown): AyaRow | null;
 export declare function ayaRowToItems(row: AyaRow): TrainingItem[];
 /** A single oasst2 message node (the fields we use; the tree nests via replies). */
 interface OasstNode {
-    role?: string;
-    text?: string;
-    rank?: number | null;
-    deleted?: boolean;
-    replies?: OasstNode[];
+  role?: string;
+  text?: string;
+  rank?: number | null;
+  deleted?: boolean;
+  replies?: OasstNode[];
 }
 /** One conversational turn extracted from a tree. */
 export interface OasstTurn {
-    role: string;
-    text: string;
+  role: string;
+  text: string;
 }
 /** Collapse a conversation tree to ONE linear path: at each node, descend into
  *  its best-ranked, non-deleted reply (rank 0 preferred; unranked sorts last).
@@ -72,11 +72,13 @@ export declare function bestOasstPath(root: OasstNode): OasstTurn[];
  *
  *  Returns [] for a conversation below the multi-turn threshold, so callers can
  *  simply skip empties. */
-export declare function oasstConversationToItems(turns: OasstTurn[]): TrainingItem[];
+export declare function oasstConversationToItems(
+  turns: OasstTurn[],
+): TrainingItem[];
 /** One normalized General-Knowledge row. */
 export interface GenKnowRow {
-    question: string;
-    answer: string;
+  question: string;
+  answer: string;
 }
 /** Normalize a raw datasets-server row into a GenKnowRow, or null when it lacks
  *  a usable question/answer or a side is implausibly large (corruption). */

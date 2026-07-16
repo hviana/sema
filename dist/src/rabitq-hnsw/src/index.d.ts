@@ -1,5 +1,10 @@
 export { VectorDatabase } from "./database.js";
-export type { DatabaseOptions, ExternalId, QueryResult, StorageStats, } from "./database.js";
+export type {
+  DatabaseOptions,
+  ExternalId,
+  QueryResult,
+  StorageStats,
+} from "./database.js";
 export { HnswIndex } from "./hnsw.js";
 export type { HnswParams, KnnHit } from "./hnsw.js";
 export { RaBitQuantizer } from "./rabitq.js";

@@ -36,65 +36,73 @@ import { lightestDerivation } from "./deduction.js";
  * start there. No quadratic span structure.
  */
 export function coverSequence(length, candidates) {
-    if (length <= 0)
-        return { spans: [], covered: 0, uncovered: 0 };
-    // Candidates indexed by where they start, and by their exact (start,end) edge
-    // for reconstruction. Both are O(|candidates|) to build and to read.
-    const byStart = Array.from({ length }, () => []);
-    const byEdge = new Map();
-    let maxWeight = 1;
-    for (const c of candidates) {
-        if (c.end <= c.start || c.start < 0 || c.end > length)
-            continue;
-        const w = c.weight ?? 1;
-        if (w > maxWeight)
-            maxWeight = w;
-        byStart[c.start].push(c);
-        const edge = c.start * (length + 1) + c.end;
-        const prev = byEdge.get(edge);
-        if (!prev || w < (prev.weight ?? 1))
-            byEdge.set(edge, c);
+  if (length <= 0) {
+    return { spans: [], covered: 0, uncovered: 0 };
+  }
+  // Candidates indexed by where they start, and by their exact (start,end) edge
+  // for reconstruction. Both are O(|candidates|) to build and to read.
+  const byStart = Array.from({ length }, () => []);
+  const byEdge = new Map();
+  let maxWeight = 1;
+  for (const c of candidates) {
+    if (c.end <= c.start || c.start < 0 || c.end > length) {
+      continue;
     }
-    // One uncovered symbol must outweigh any sum of span weights, so coverage is
-    // strictly the primary objective and weight only breaks ties.
-    const skipCost = maxWeight * length + 1;
-    const system = {
-        key: (p) => "" + p,
-        axioms: () => [{ item: 0, cost: 0 }],
-        isGoal: (p) => p === length,
-        // No nonzero admissible bound is available here: a single candidate can
-        // cover the whole remainder for unit cost, so any per-symbol estimate would
-        // overestimate. With h = 0 this is exact Knuth/Dijkstra over the frontier —
-        // optimal, and linear in the positions. (The A* outside bound is for systems
-        // whose remaining cost can be genuinely lower-bounded; see the engine.)
-        *rules(p) {
-            if (p >= length)
-                return;
-            yield { premises: [p], conclusion: p + 1, cost: skipCost }; // leave uncovered
-            for (const c of byStart[p]) {
-                yield { premises: [p], conclusion: c.end, cost: c.weight ?? 1 };
-            }
-        },
-    };
-    const best = lightestDerivation(system);
-    if (!best)
-        return { spans: [], covered: 0, uncovered: length };
-    // Walk the frontier chain back to the axiom; an edge p→q is a chosen span iff
-    // a candidate spans exactly [p, q) (a covering edge is always cheaper than the
-    // skips it replaces, so it appears on the optimal path wherever it is used).
-    const spans = [];
-    let node = best;
-    while (node && node.rule) {
-        const to = node.item;
-        const from = node.premises[0].item;
-        const span = byEdge.get(from * (length + 1) + to);
-        if (span)
-            spans.push(span);
-        node = node.premises[0];
+    const w = c.weight ?? 1;
+    if (w > maxWeight) {
+      maxWeight = w;
     }
-    spans.reverse();
-    let covered = 0;
-    for (const s of spans)
-        covered += s.end - s.start;
-    return { spans, covered, uncovered: length - covered };
+    byStart[c.start].push(c);
+    const edge = c.start * (length + 1) + c.end;
+    const prev = byEdge.get(edge);
+    if (!prev || w < (prev.weight ?? 1)) {
+      byEdge.set(edge, c);
+    }
+  }
+  // One uncovered symbol must outweigh any sum of span weights, so coverage is
+  // strictly the primary objective and weight only breaks ties.
+  const skipCost = maxWeight * length + 1;
+  const system = {
+    key: (p) => "" + p,
+    axioms: () => [{ item: 0, cost: 0 }],
+    isGoal: (p) => p === length,
+    // No nonzero admissible bound is available here: a single candidate can
+    // cover the whole remainder for unit cost, so any per-symbol estimate would
+    // overestimate. With h = 0 this is exact Knuth/Dijkstra over the frontier —
+    // optimal, and linear in the positions. (The A* outside bound is for systems
+    // whose remaining cost can be genuinely lower-bounded; see the engine.)
+    *rules(p) {
+      if (p >= length) {
+        return;
+      }
+      yield { premises: [p], conclusion: p + 1, cost: skipCost }; // leave uncovered
+      for (const c of byStart[p]) {
+        yield { premises: [p], conclusion: c.end, cost: c.weight ?? 1 };
+      }
+    },
+  };
+  const best = lightestDerivation(system);
+  if (!best) {
+    return { spans: [], covered: 0, uncovered: length };
+  }
+  // Walk the frontier chain back to the axiom; an edge p→q is a chosen span iff
+  // a candidate spans exactly [p, q) (a covering edge is always cheaper than the
+  // skips it replaces, so it appears on the optimal path wherever it is used).
+  const spans = [];
+  let node = best;
+  while (node && node.rule) {
+    const to = node.item;
+    const from = node.premises[0].item;
+    const span = byEdge.get(from * (length + 1) + to);
+    if (span) {
+      spans.push(span);
+    }
+    node = node.premises[0];
+  }
+  spans.reverse();
+  let covered = 0;
+  for (const s of spans) {
+    covered += s.end - s.start;
+  }
+  return { spans, covered, uncovered: length - covered };
 }

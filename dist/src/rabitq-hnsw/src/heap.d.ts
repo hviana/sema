@@ -7,16 +7,16 @@
  * allocation in the search hot path.
  */
 export declare class Heap {
-    readonly keys: number[];
-    readonly vals: number[];
-    private readonly minHeap;
-    constructor(minHeap: boolean);
-    get size(): number;
-    clear(): void;
-    topKey(): number;
-    topVal(): number;
-    /** true if `a` belongs closer to the root than `b`. */
-    private higher;
-    push(key: number, val: number): void;
-    pop(): void;
+  readonly keys: number[];
+  readonly vals: number[];
+  private readonly minHeap;
+  constructor(minHeap: boolean);
+  get size(): number;
+  clear(): void;
+  topKey(): number;
+  topVal(): number;
+  /** true if `a` belongs closer to the root than `b`. */
+  private higher;
+  push(key: number, val: number): void;
+  pop(): void;
 }

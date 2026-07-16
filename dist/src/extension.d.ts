@@ -1,9 +1,9 @@
 /** A half-open byte span of a query an extension computed, and the canonical
  *  result bytes it is authoritative for. */
 export interface ComputedSpan {
-    i: number;
-    j: number;
-    bytes: Uint8Array;
+  i: number;
+  j: number;
+  bytes: Uint8Array;
 }
 /** The generic capabilities the mind lends every extension — nothing here
  *  names any particular extension, and every member is machinery the mind
@@ -24,14 +24,17 @@ export interface ComputedSpan {
  *   • reach — the river's grouping capacity (maxGroup), bounding how far apart
  *     two spans may sit and still be read as one construction. */
 export interface ExtensionHost {
-    meaningOf(bytes: Uint8Array, anchors: ReadonlyArray<{
-        name: string;
-        form: Uint8Array;
-    }>): Promise<string | null>;
-    continuation(bytes: Uint8Array): Promise<Uint8Array | null>;
-    segment(bytes: Uint8Array): Array<{
-        i: number;
-        j: number;
-    }>;
-    reach: number;
+  meaningOf(
+    bytes: Uint8Array,
+    anchors: ReadonlyArray<{
+      name: string;
+      form: Uint8Array;
+    }>,
+  ): Promise<string | null>;
+  continuation(bytes: Uint8Array): Promise<Uint8Array | null>;
+  segment(bytes: Uint8Array): Array<{
+    i: number;
+    j: number;
+  }>;
+  reach: number;
 }

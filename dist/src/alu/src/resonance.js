@@ -43,8 +43,8 @@ import { latin1 } from "../../bytes.js";
  *  so the kernel runs fully decoupled (operations resolve by literal forms only,
  *  and a symbol inverse is left unchanged). */
 export const NO_ALU_RESONANCE = {
-    recogniseOp: async () => null,
-    opposite: async () => null,
+  recogniseOp: async () => null,
+  opposite: async () => null,
 };
 /** Pre-resolve the resonant opposite of each symbol in `symbols`, awaiting the
  *  host's async resonance once per distinct span, and return a SYNCHRONOUS
@@ -53,23 +53,25 @@ export const NO_ALU_RESONANCE = {
  *  chart uses).  This is the async→sync bridge for the polymorphic inverse,
  *  mirroring how a concept hop's target is pre-resolved and read synchronously. */
 export async function prefetchOpposites(resonance, symbols) {
-    const table = new Map();
-    const seen = new Set();
-    for (const bytes of symbols) {
-        const key = latin1(bytes);
-        if (seen.has(key))
-            continue;
-        seen.add(key);
-        const opp = await resonance.opposite(bytes);
-        if (opp)
-            table.set(key, opp);
+  const table = new Map();
+  const seen = new Set();
+  for (const bytes of symbols) {
+    const key = latin1(bytes);
+    if (seen.has(key)) {
+      continue;
     }
-    return {
-        opposite: (bytes) => table.get(latin1(bytes)) ?? null,
-        // Opposites-only prefetch carries no op recognition; a higher-order nd op
-        // resolving through this falls back to literal forms / canonical names.
-        recogniseOp: () => null,
-    };
+    seen.add(key);
+    const opp = await resonance.opposite(bytes);
+    if (opp) {
+      table.set(key, opp);
+    }
+  }
+  return {
+    opposite: (bytes) => table.get(latin1(bytes)) ?? null,
+    // Opposites-only prefetch carries no op recognition; a higher-order nd op
+    // resolving through this falls back to literal forms / canonical names.
+    recogniseOp: () => null,
+  };
 }
 /** Pre-resolve BOTH capabilities a computation may need synchronously — the
  *  resonant opposite of a symbol (for the polymorphic inverse) AND the operation
@@ -81,27 +83,30 @@ export async function prefetchOpposites(resonance, symbols) {
  *  null for a span that resonates with nothing, so callbacks decline rather than
  *  guess. */
 export async function prefetchResonance(resonance, spans) {
-    const opposites = new Map();
-    const ops = new Map();
-    const seen = new Set();
-    for (const bytes of spans) {
-        const key = latin1(bytes);
-        if (seen.has(key))
-            continue;
-        seen.add(key);
-        const [opp, op] = await Promise.all([
-            resonance.opposite(bytes),
-            resonance.recogniseOp(bytes),
-        ]);
-        if (opp)
-            opposites.set(key, opp);
-        if (op)
-            ops.set(key, op);
+  const opposites = new Map();
+  const ops = new Map();
+  const seen = new Set();
+  for (const bytes of spans) {
+    const key = latin1(bytes);
+    if (seen.has(key)) {
+      continue;
     }
-    return {
-        opposite: (bytes) => opposites.get(latin1(bytes)) ?? null,
-        recogniseOp: (bytes) => ops.get(latin1(bytes)) ?? null,
-    };
+    seen.add(key);
+    const [opp, op] = await Promise.all([
+      resonance.opposite(bytes),
+      resonance.recogniseOp(bytes),
+    ]);
+    if (opp) {
+      opposites.set(key, opp);
+    }
+    if (op) {
+      ops.set(key, op);
+    }
+  }
+  return {
+    opposite: (bytes) => opposites.get(latin1(bytes)) ?? null,
+    recogniseOp: (bytes) => ops.get(latin1(bytes)) ?? null,
+  };
 }
 /** Pre-resolve, for each candidate span, the operation its MEANING names —
  *  awaiting the host's async gist resonance once per distinct span — and return
@@ -111,16 +116,18 @@ export async function prefetchResonance(resonance, spans) {
  *  resonates with an operation's concept.  Spans that resonate with nothing are
  *  omitted, so the caller treats a miss as "not an operation". */
 export async function prefetchRecognisedOps(resonance, spans) {
-    const table = new Map();
-    const seen = new Set();
-    for (const bytes of spans) {
-        const key = latin1(bytes);
-        if (seen.has(key))
-            continue;
-        seen.add(key);
-        const op = await resonance.recogniseOp(bytes);
-        if (op)
-            table.set(key, op);
+  const table = new Map();
+  const seen = new Set();
+  for (const bytes of spans) {
+    const key = latin1(bytes);
+    if (seen.has(key)) {
+      continue;
     }
-    return table;
+    seen.add(key);
+    const op = await resonance.recogniseOp(bytes);
+    if (op) {
+      table.set(key, op);
+    }
+  }
+  return table;
 }
