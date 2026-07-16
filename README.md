@@ -1,3 +1,5 @@
+[![npm version](https://img.shields.io/npm/v/@hviana/sema.svg)](https://www.npmjs.com/package/@hviana/sema)
+
 <div align="center">
 
 ```
