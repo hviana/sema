@@ -1,19 +1,10 @@
-import {
-  addInto,
-  normalize,
-  permute,
-  permuteInto,
-  randomUnit,
-  rng,
-  zeros,
-} from "./vec.js";
+import { addInto, normalize, permute, permuteInto, randomUnit, rng, zeros, } from "./vec.js";
 export const sema = (v, leaf = null, kids = null) => ({ v, leaf, kids });
 /** Whether a node is a CHUNK — a leaf-parent whose children are ALL leaves,
  *  the perception tree's smallest grouped unit.  The one predicate behind
  *  region collection, canonical segmentation seams, and sub-span indexing;
  *  named here beside the type so no consumer restates the shape inline. */
-export const isChunk = (n) =>
-  n.kids !== null && n.kids.every((k) => k.kids === null);
+export const isChunk = (n) => n.kids !== null && n.kids.every((k) => k.kids === null);
 // Reusable permute buffer for fold.
 let _foldBuf = null;
 /** Bind one vector into a seat — the elementary half of fold. Used to index an
@@ -41,37 +32,32 @@ const _sigCache = new WeakMap();
 const SIG_CACHE_MAX = 65_536;
 /** The company signature of node `id` — the halo's pour unit (see above). */
 export function companySignature(space, id) {
-  let cache = _sigCache.get(space);
-  if (!cache) {
-    _sigCache.set(space, cache = new Map());
-  }
-  const hit = cache.get(id);
-  if (hit) {
-    return hit;
-  }
-  const v = randomUnit(space.D, rng((id ^ 0x9e3779b9) >>> 0));
-  if (cache.size >= SIG_CACHE_MAX) {
-    cache.clear(); // flat cap; regeneration is cheap
-  }
-  cache.set(id, v);
-  return v;
+    let cache = _sigCache.get(space);
+    if (!cache)
+        _sigCache.set(space, cache = new Map());
+    const hit = cache.get(id);
+    if (hit)
+        return hit;
+    const v = randomUnit(space.D, rng((id ^ 0x9e3779b9) >>> 0));
+    if (cache.size >= SIG_CACHE_MAX)
+        cache.clear(); // flat cap; regeneration is cheap
+    cache.set(id, v);
+    return v;
 }
 /** fold — combine ordered children into one gist.
  *  Each child is turned with its seat's own key, superposed, normalized. */
 export function fold(space, kids) {
-  if (kids.length > space.seats.length) {
-    throw new Error(
-      `fold: ${kids.length} children but the keyring has only ${space.seats.length} seats`,
-    );
-  }
-  const out = zeros(space.D);
-  if (!_foldBuf || _foldBuf.length !== space.D) {
-    _foldBuf = new Float32Array(space.D);
-  }
-  const buf = _foldBuf;
-  for (let i = 0; i < kids.length; i++) {
-    permuteInto(buf, kids[i], space.seats[i].fwd);
-    addInto(out, buf);
-  }
-  return normalize(out);
+    if (kids.length > space.seats.length) {
+        throw new Error(`fold: ${kids.length} children but the keyring has only ${space.seats.length} seats`);
+    }
+    const out = zeros(space.D);
+    if (!_foldBuf || _foldBuf.length !== space.D) {
+        _foldBuf = new Float32Array(space.D);
+    }
+    const buf = _foldBuf;
+    for (let i = 0; i < kids.length; i++) {
+        permuteInto(buf, kids[i], space.seats[i].fwd);
+        addInto(out, buf);
+    }
+    return normalize(out);
 }

@@ -575,11 +575,13 @@ controlled amount of recall for sub-linear query time.
 
 Sema uses two established techniques in combination:
 
-- **HNSW** — Hierarchical Navigable Small World graphs (Malkov & Yashunin 2018).
-  Vectors are connected into a multi-layer proximity graph; a query descends
-  greedily from a sparse top layer to a dense bottom layer, examining only a
-  logarithmic-ish neighbourhood of the collection. Empirically the work grows
-  around N^0.3 in Sema's configuration — decisively sub-linear.
+- **IVF (inverted-file partitioning)** — the collection is split into clusters,
+  each with a binary pivot code; a query ranks the pivots and scans only the few
+  nearest clusters. Cluster size is bounded (an oversized cluster
+  deterministically splits in two), so the work per query is set by the number
+  of probes, not by the collection — decisively sub-linear. Inserting is
+  route-and-append: one RAM scan of the pivot table, no graph maintenance, so
+  ingestion cost stays flat as the collection grows.
 - **RaBitQ 1-bit quantization** (Gao & Long 2024). Each stored vector is
   randomly rotated and reduced to one _sign bit_ per dimension — a 32×
   compression — with an unbiased, theoretically-grounded estimator of the
@@ -663,7 +665,7 @@ RELATIONS             │  continuation edges (what follows what)  │
 (distributional, §4)  │  halos (what company each node keeps)    │
                       ├─────────────────────────────────────────┤
 INDEXES               │  gist index + halo index                 │
-(ANN, §6)             │  (HNSW over 1-bit RaBitQ codes)          │
+(ANN, §6)             │  (IVF over 1-bit RaBitQ codes)           │
                       └──────────────────┬──────────────────────┘
                                          │ axioms & rule candidates
                                          ▼
@@ -1696,7 +1698,7 @@ requirements:
 
 - **ANN index: 1-bit RaBitQ, irreversible.** The same halo vector, projected
   through a random rotation and reduced to one sign bit per dimension (32×
-  compression), serves as a search code in the HNSW index. This code is _never_
+  compression), serves as a search code in the IVF index. This code is _never_
   decoded back — it only answers "which halos are near this query?" The
   estimator is unbiased (expected cosine is recoverable from the bit count), so
   ranking quality is preserved despite the loss of reversibility.
@@ -4124,8 +4126,8 @@ terms of art borrowed from the literature.
   §4.
 - **Hash-consing** — constructing structures modulo equality so equal
   substructures are shared. §3.2.
-- **HNSW** — Hierarchical Navigable Small World graph; sub-linear ANN search
-  (Malkov & Yashunin 2018). §6.1.
+- **IVF** — inverted-file partitioned ANN index; bounded-probe sub-linear search
+  over clustered codes. §6.1.
 - **Hilbert curve** — the locality-preserving space-filling curve used to
   linearize grids. §6.3.
 - **Hyperdimensional computing** — Kanerva's (2009) umbrella term for computing
@@ -4193,9 +4195,6 @@ Foundations cited in this document, in alphabetical order:
   Processing Letters 6(1), 1–5.
 - Kolodner, J. L. (1992). _An Introduction to Case-Based Reasoning._ Artificial
   Intelligence Review 6, 3–34.
-- Malkov, Y. A. & Yashunin, D. A. (2018). _Efficient and Robust Approximate
-  Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs._ IEEE
-  TPAMI 42(4), 824–836.
 - Merkle, R. C. (1987). _A Digital Signature Based on a Conventional Encryption
   Function._ Proc. CRYPTO.
 - Plate, T. A. (1995). _Holographic Reduced Representations._ IEEE Transactions

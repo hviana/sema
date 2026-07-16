@@ -225,11 +225,11 @@ Pablo Picasso co-founded the Cubist movement
 Sema is composed of three self-contained, independently documented engines. They
 are fully decoupled — Sema reaches them only through interfaces.
 
-| Engine            | What it solves                                                                             | Result                                                                                                                       |
-| :---------------- | :----------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
-| **`rabitq-hnsw`** | _"Given a vector, find the nodes whose gist resonates with it — fast, at scale, on disk."_ | HNSW over 1-bit RaBitQ codes · ~32× compression · bounded RAM · sub-linear queries                                           |
-| **`derive`**      | _"Explore a huge implicit space of derivations and return the single lightest one."_       | adapted A\*LD (adapted A\* Lightest Derivation) over a weighted deduction hypergraph — Sema's thinking _is_ one call to this |
-| **`alu`**         | _"Compute, exactly and symbolically, the things that are rules, not facts."_               | A tiny irreducible kernel from which arithmetic, logic, and n-dimensional computation are derived                            |
+| Engine           | What it solves                                                                             | Result                                                                                                                       |
+| :--------------- | :----------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
+| **`rabitq-ivf`** | _"Given a vector, find the nodes whose gist resonates with it — fast, at scale, on disk."_ | Partitioned (IVF) index over 1-bit RaBitQ codes · ~32× compression · bounded RAM · flat inserts, bounded queries             |
+| **`derive`**     | _"Explore a huge implicit space of derivations and return the single lightest one."_       | adapted A\*LD (adapted A\* Lightest Derivation) over a weighted deduction hypergraph — Sema's thinking _is_ one call to this |
+| **`alu`**        | _"Compute, exactly and symbolically, the things that are rules, not facts."_               | A tiny irreducible kernel from which arithmetic, logic, and n-dimensional computation are derived                            |
 
 ---
 

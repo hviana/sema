@@ -6,20 +6,20 @@ export type Domain = "bit" | "int" | "real" | "symbol" | "nd";
  *  Values of any domain, so nesting (a matrix = an nd of nd) and heterogeneity
  *  (a list mixing numbers, symbols, sub-lists) are the same case. */
 export type Value = {
-  domain: "bit";
-  b: 0 | 1;
+    domain: "bit";
+    b: 0 | 1;
 } | {
-  domain: "int";
-  n: bigint;
+    domain: "int";
+    n: bigint;
 } | {
-  domain: "real";
-  x: number;
+    domain: "real";
+    x: number;
 } | {
-  domain: "symbol";
-  bytes: Uint8Array;
+    domain: "symbol";
+    bytes: Uint8Array;
 } | {
-  domain: "nd";
-  items: Value[];
+    domain: "nd";
+    items: Value[];
 };
 export declare const bit: (b: 0 | 1) => Value;
 export declare const int: (n: bigint) => Value;
@@ -36,8 +36,8 @@ export declare const tagOf: (v: Value) => Domain;
 export declare function isNumeric(v: Value): boolean;
 /** Whether a value is the n-dimensional container. */
 export declare function isNd(v: Value): v is {
-  domain: "nd";
-  items: Value[];
+    domain: "nd";
+    items: Value[];
 };
 /** Collect, into `out`, every SYMBOL byte span reachable inside a value — itself
  *  when it is a symbol, or each element recursively when it is an nd.  These are
@@ -70,8 +70,8 @@ export declare function joinDomain(args: Value[]): "bit" | "int" | "real";
  *  bytes only through this, so the surrounding system owns how a number is
  *  spelled.  A default ({@link decimalCodec}) is provided. */
 export interface ValueCodec {
-  encode(v: Value): Uint8Array;
-  decode(bytes: Uint8Array): Value | null;
+    encode(v: Value): Uint8Array;
+    decode(bytes: Uint8Array): Value | null;
 }
 /** Parse a byte span into a SCALAR value: a clean integer numeral → exact int, a
  *  fractional/exponent numeral → real, anything else → a symbol carrying its

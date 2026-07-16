@@ -710,7 +710,7 @@ export abstract class AbstractStore implements Store {
 
   // -- Vector DB: content (gist) index --
   protected abstract _vecContentUpsert(
-    entries: Array<{ id: NodeId; vector: Float32Array; ef?: number }>,
+    entries: Array<{ id: NodeId; vector: Float32Array }>,
   ): void;
   protected abstract _vecContentQuery(
     v: Float32Array,
@@ -767,9 +767,6 @@ export abstract class AbstractStore implements Store {
   protected _maxGroup: number;
   protected readonly minHaloMass: number;
   protected readonly efSearch: number;
-  protected readonly m: number;
-  protected readonly efConstruction: number;
-  protected readonly efConstructionInterior: number;
   protected readonly overfetch: number;
   protected readonly batchSize: number;
   protected readonly compactEveryNWrites: number;
@@ -829,7 +826,7 @@ export abstract class AbstractStore implements Store {
   protected _coveredIds!: BoundedMap<NodeId, true>;
   /** Live content-index id set, LRU-bounded so a massive ingest never leaks
    *  memory; an evicted entry is still indexed (the row is durable), so the
-   *  only cost of an eviction is a duplicate HNSW probe on next visit. */
+   *  only cost of an eviction is a duplicate index probe on next visit. */
   protected _indexedIds!: BoundedMap<NodeId, true>;
 
   // ── ANN read cache ─────────────────────────────────────────────────────
@@ -846,12 +843,8 @@ export abstract class AbstractStore implements Store {
 
   // ── Write buffers ──────────────────────────────────────────────────────
 
-  /** Content (gist) index write buffer.  `ef` is the per-entry HNSW
-   *  construction budget: reach-only interiors carry the reduced
-   *  `efConstructionInterior`; dedup targets omit it (full budget). */
-  protected _contentBuffer: Array<
-    { id: NodeId; vector: Float32Array; ef?: number }
-  > = [];
+  /** Content (gist) index write buffer. */
+  protected _contentBuffer: Array<{ id: NodeId; vector: Float32Array }> = [];
   /** Halo index write buffer — keyed by id so repeats within a batch coalesce. */
   protected _haloBuffer = new Map<NodeId, Float32Array>();
   /** Containment write buffer: child → new parents, merged on flush cadence. */
@@ -889,12 +882,6 @@ export abstract class AbstractStore implements Store {
     this._maxGroup = maxGroup;
     this.minHaloMass = config.minHaloMass;
     this.efSearch = config.efSearch;
-    this.m = config.m;
-    this.efConstruction = config.efConstruction;
-    this.efConstructionInterior = Math.max(
-      1,
-      Math.min(config.efConstructionInterior, config.efConstruction),
-    );
     this.overfetch = config.overfetch;
     this.batchSize = config.batchSize;
     this.compactEveryNWrites = config.compactEveryNWrites;
@@ -1339,7 +1326,7 @@ export abstract class AbstractStore implements Store {
     //    leaf, and near-merging distinct leaves only corrupts bytes for no real
     //    saving. Real near-dedup compression lives in subtree (branch) fusion.
     //
-    //    There is deliberately NO HNSW probe of the FLUSHED index here. It used
+    //    There is deliberately NO ANN probe of the FLUSHED index here. It used
     //    to fire for EVERY new branch that the buffer scan didn't settle — i.e.
     //    ~every interior branch, since interiors are never dedup targets —
     //    making one ANN query per branch the dominant training cost (it dwarfed
@@ -1447,7 +1434,7 @@ export abstract class AbstractStore implements Store {
     // Capture the gist; it is pushed into the content index lazily, the first
     // time this node becomes a resonance target (link / pourHalo). A node that
     // never does (a pure intermediate DAG node — ~99.5% of them) is never
-    // indexed: it costs one persistence row, no HNSW slot and no merge probe.
+    // indexed: it costs one persistence row, no vector-index slot and no merge probe.
     this._pendingGist.set(id, normalize(copy(gist)));
     await this.maybeFlush();
     return id;
@@ -1527,14 +1514,7 @@ export abstract class AbstractStore implements Store {
       return;
     }
     this._indexedIds.set(id, true);
-    // Reach-only interiors build with the reduced construction budget — the
-    // one deliberate speed-for-quality trade of ingestion (see
-    // {@link StoreConfig.efConstructionInterior}); targets keep the full one.
-    this._contentBuffer.push(
-      dedupTarget
-        ? { id, vector: v }
-        : { id, vector: v, ef: this.efConstructionInterior },
-    );
+    this._contentBuffer.push({ id, vector: v });
     this._bufferedIds.add(id);
     // A node indexed AS a dedup target enters the candidate set immediately.
     if (dedupTarget) this._nearDedupBuf.set(id, v);
@@ -1840,11 +1820,7 @@ export abstract class AbstractStore implements Store {
       // Index it — same code path as indexGist, but the vector is injected
       // directly rather than read from the (empty) pending-gist cache.
       this._indexedIds.set(id, true);
-      this._contentBuffer.push({
-        id,
-        vector: gist,
-        ef: this.efConstructionInterior,
-      });
+      this._contentBuffer.push({ id, vector: gist });
       this._bufferedIds.add(id);
       // Repaired nodes are reach-indexed, never dedup targets: their gist is
       // regenerated (may differ numerically from the original) and they are

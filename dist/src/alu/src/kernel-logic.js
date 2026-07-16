@@ -24,67 +24,37 @@ import { asBit, bit } from "./value.js";
 /** Register the logic layer into `r`.  Idempotent in effect (re-registering
  *  overwrites with the same definitions). */
 export function registerLogic(r) {
-  // The one irreducible gate.  ¬(a ∧ b).
-  r.prim("nand", 2, [], (args) => {
-    const a = asBit(args[0]);
-    const b = asBit(args[1]);
-    return bit(a & b ? 0 : 1);
-  });
-  // Exposed-but-derived basic gates.
-  r.derive(
-    "not",
-    1,
-    ["not", "!", "~", "¬"],
-    (args, ctx) => ctx.apply("nand", [args[0], args[0]]),
-  );
-  r.derive(
-    "and",
-    2,
-    ["and", "&", "&&", "∧"],
-    (args, ctx) => ctx.apply("not", [ctx.apply("nand", [args[0], args[1]])]),
-  );
-  r.derive("or", 2, ["or", "|", "||", "∨"], (args, ctx) => {
-    const na = ctx.apply("not", [args[0]]);
-    const nb = ctx.apply("not", [args[1]]);
-    return ctx.apply("nand", [na, nb]);
-  });
-  // Fully derived gates.
-  r.derive(
-    "nor",
-    2,
-    ["nor", "⊽"],
-    (args, ctx) => ctx.apply("not", [ctx.apply("or", [args[0], args[1]])]),
-  );
-  r.derive("xor", 2, ["xor", "^", "⊕"], (args, ctx) => {
-    const a = args[0], b = args[1];
-    const left = ctx.apply("and", [a, ctx.apply("not", [b])]);
-    const right = ctx.apply("and", [ctx.apply("not", [a]), b]);
-    return ctx.apply("or", [left, right]);
-  });
-  r.derive(
-    "xnor",
-    2,
-    ["xnor", "⊙"],
-    (args, ctx) => ctx.apply("not", [ctx.apply("xor", [args[0], args[1]])]),
-  );
-  r.derive(
-    "implies",
-    2,
-    ["implies", "=>", "→", "⇒"],
-    (args, ctx) => ctx.apply("or", [ctx.apply("not", [args[0]]), args[1]]),
-  );
-  r.derive(
-    "iff",
-    2,
-    ["iff", "<=>", "↔", "⇔"],
-    (args, ctx) => ctx.apply("xnor", [args[0], args[1]]),
-  );
-  // mux(s, a, b): select a when s = 0, b when s = 1.  The bridge to control
-  // flow — conditional selection, and (with recursion in the caller) looping.
-  r.derive("mux", 3, ["mux", "select", "?:"], (args, ctx) => {
-    const s = args[0], a = args[1], b = args[2];
-    const lo = ctx.apply("and", [ctx.apply("not", [s]), a]);
-    const hi = ctx.apply("and", [s, b]);
-    return ctx.apply("or", [lo, hi]);
-  });
+    // The one irreducible gate.  ¬(a ∧ b).
+    r.prim("nand", 2, [], (args) => {
+        const a = asBit(args[0]);
+        const b = asBit(args[1]);
+        return bit(a & b ? 0 : 1);
+    });
+    // Exposed-but-derived basic gates.
+    r.derive("not", 1, ["not", "!", "~", "¬"], (args, ctx) => ctx.apply("nand", [args[0], args[0]]));
+    r.derive("and", 2, ["and", "&", "&&", "∧"], (args, ctx) => ctx.apply("not", [ctx.apply("nand", [args[0], args[1]])]));
+    r.derive("or", 2, ["or", "|", "||", "∨"], (args, ctx) => {
+        const na = ctx.apply("not", [args[0]]);
+        const nb = ctx.apply("not", [args[1]]);
+        return ctx.apply("nand", [na, nb]);
+    });
+    // Fully derived gates.
+    r.derive("nor", 2, ["nor", "⊽"], (args, ctx) => ctx.apply("not", [ctx.apply("or", [args[0], args[1]])]));
+    r.derive("xor", 2, ["xor", "^", "⊕"], (args, ctx) => {
+        const a = args[0], b = args[1];
+        const left = ctx.apply("and", [a, ctx.apply("not", [b])]);
+        const right = ctx.apply("and", [ctx.apply("not", [a]), b]);
+        return ctx.apply("or", [left, right]);
+    });
+    r.derive("xnor", 2, ["xnor", "⊙"], (args, ctx) => ctx.apply("not", [ctx.apply("xor", [args[0], args[1]])]));
+    r.derive("implies", 2, ["implies", "=>", "→", "⇒"], (args, ctx) => ctx.apply("or", [ctx.apply("not", [args[0]]), args[1]]));
+    r.derive("iff", 2, ["iff", "<=>", "↔", "⇔"], (args, ctx) => ctx.apply("xnor", [args[0], args[1]]));
+    // mux(s, a, b): select a when s = 0, b when s = 1.  The bridge to control
+    // flow — conditional selection, and (with recursion in the caller) looping.
+    r.derive("mux", 3, ["mux", "select", "?:"], (args, ctx) => {
+        const s = args[0], a = args[1], b = args[2];
+        const lo = ctx.apply("and", [ctx.apply("not", [s]), a]);
+        const hi = ctx.apply("and", [s, b]);
+        return ctx.apply("or", [lo, hi]);
+    });
 }

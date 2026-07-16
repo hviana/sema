@@ -39,18 +39,9 @@ export interface AlphabetConfig {
 
 export interface StoreConfig {
   minHaloMass: number;
-  m: number;
-  efConstruction: number;
-  /** Construction budget for REACH-ONLY interior gists — the ~90% of content
-   *  index inserts that exist so a partial query can resonate a sub-region
-   *  and climb, never as dedup targets.  Deposit roots and halo-bearing
-   *  targets always build with the full `efConstruction`.  A smaller budget
-   *  here is the one deliberate speed-for-quality trade in ingestion (an
-   *  interior's layer-0 wiring is built from a narrower candidate beam);
-   *  the recall suite (partial recall, multi-topic attention, counterfactual
-   *  anchoring) is the gate for its value.  Set equal to `efConstruction`
-   *  to disable the trade. */
-  efConstructionInterior: number;
+  /** Query breadth of the IVF vector indices: clusters probed per query =
+   *  ceil(efSearch / 4).  Inserts have no quality knob — the partitioned
+   *  index routes and appends, so ingestion cost is flat by construction. */
   efSearch: number;
   /** Compact the in-memory vector indices after this many vectors are written.
    *  Compaction rebuilds an index from its live codes to reclaim the slots left
@@ -58,7 +49,7 @@ export interface StoreConfig {
    *  (not on a flush count that goes quiet during repeat-heavy training) keeps
    *  the index dense and query cost bounded. */
   compactEveryNWrites: number;
-  /** Over-fetch factor for HNSW queries (ANN recall cushion). */
+  /** Over-fetch factor for vector-index queries (ANN recall cushion). */
   overfetch: number;
   /** Combined buffered-write ceiling before a flush of both vector indices
    *  (content + halo). Higher ⇒ fewer, larger flushes into the in-memory
@@ -91,14 +82,20 @@ export interface StoreConfig {
    *  round-trips through the quantizer. An eviction or a reopen reads the
    *  2-bit row — the fidelity every cross-session consumer already gets. */
   haloCacheBytes: number;
-  /** Size, in MiB, of each `rabitq-hnsw` `VectorDatabase`'s memory budget
-   *  (forwarded as its `cacheSizeMb`).  It is the index's SINGLE memory knob: it
-   *  sizes both SQLite's page cache and the derived immutable-code LRU.  A PURE
-   *  latency optimisation — the index reads codes from SQLite on demand, so its
-   *  correctness and its asymptotic per-operation storage-read count are identical
-   *  with the budget at 0.  Exposed so a scaling test can set it to 0 and measure
+  /** Size, in MiB, of each `rabitq-ivf` `VectorDatabase`'s memory budget
+   *  (forwarded as its `cacheSizeMb` — its SQLite page cache).  A PURE latency
+   *  optimisation — the index reads chunk blobs from SQLite on demand, so its
+   *  correctness and its per-operation storage-read count are identical with
+   *  the budget at 0.  Exposed so a scaling test can set it to 0 and measure
    *  the honest, cache-independent cost. */
   vectorCacheMb: number;
+  /** Size, in MiB, of the MAIN DAG database's SQLite page cache.  The node /
+   *  kid / edge / contain tables serve millions of point probes per training
+   *  session (content-addressed findLeaf/findBranch, parent probes, contain
+   *  appends); SQLite's default cache (~2 MiB) thrashes once the DB outgrows
+   *  it, so every probe pays a file read.  A PURE latency knob — correctness
+   *  and result identical at any value. */
+  sqliteCacheMb: number;
   /** Max entries in the skipped-interior LRU set.  Interiors that
    *  {@link Store.indexSubtree} has already visited (indexed or skipped) are
    *  remembered here so subsequent calls prune their subtrees.  Session-local
@@ -151,9 +148,6 @@ export const DEFAULT_CONFIG: MindConfig = {
   },
   store: {
     minHaloMass: 1,
-    m: 8,
-    efConstruction: 64,
-    efConstructionInterior: 16,
     efSearch: 64,
     compactEveryNWrites: 50_000,
     overfetch: 4,
@@ -165,6 +159,7 @@ export const DEFAULT_CONFIG: MindConfig = {
     pendingGistBytes: 16_000_000,
     haloCacheBytes: 16_000_000,
     vectorCacheMb: 64,
+    sqliteCacheMb: 64,
     coveredIdsMax: 100_000,
     chainCacheBytes: 16_000_000,
   },
@@ -194,11 +189,6 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     },
     store: {
       minHaloMass: opts.store?.minHaloMass ?? DEFAULT_CONFIG.store.minHaloMass,
-      m: opts.store?.m ?? DEFAULT_CONFIG.store.m,
-      efConstruction: opts.store?.efConstruction ??
-        DEFAULT_CONFIG.store.efConstruction,
-      efConstructionInterior: opts.store?.efConstructionInterior ??
-        DEFAULT_CONFIG.store.efConstructionInterior,
       efSearch: opts.store?.efSearch ?? DEFAULT_CONFIG.store.efSearch,
       compactEveryNWrites: opts.store?.compactEveryNWrites ??
         DEFAULT_CONFIG.store.compactEveryNWrites,
@@ -218,6 +208,8 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
         DEFAULT_CONFIG.store.haloCacheBytes,
       vectorCacheMb: opts.store?.vectorCacheMb ??
         DEFAULT_CONFIG.store.vectorCacheMb,
+      sqliteCacheMb: opts.store?.sqliteCacheMb ??
+        DEFAULT_CONFIG.store.sqliteCacheMb,
       coveredIdsMax: opts.store?.coveredIdsMax ??
         DEFAULT_CONFIG.store.coveredIdsMax,
       chainCacheBytes: opts.store?.chainCacheBytes ??

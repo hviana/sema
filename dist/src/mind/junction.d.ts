@@ -1,10 +1,10 @@
 import type { MindContext } from "./types.js";
 export interface Junction {
-  /** The node whose learnt bytes evidence this junction (a container form,
-   *  a continuation, or a context). */
-  id: number;
-  /** The bytes that belong between left and right. */
-  interior: Uint8Array;
+    /** The node whose learnt bytes evidence this junction (a container form,
+     *  a continuation, or a context). */
+    id: number;
+    /** The bytes that belong between left and right. */
+    interior: Uint8Array;
 }
 /** Seed node ids to ascend from for one side of a junction: the side's own
  *  node when it is a stored form, plus — when the node has no structural
@@ -15,10 +15,7 @@ export interface Junction {
  *  the window-id path is only taken when the node alone cannot ascend.
  *  Exported for callers (synonym junctions) that hold one side FIXED across
  *  several calls and so compute its seeds once instead of per call. */
-export declare function junctionSeeds(
-  ctx: MindContext,
-  b: Uint8Array,
-): number[];
+export declare function junctionSeeds(ctx: MindContext, b: Uint8Array): number[];
 /** Per-response cache of the identity walks' pure reads (capped bytes,
  *  parent pages, container pages), keyed by the response lifecycle object
  *  (ctx.climbMemo).  One response issues many walks whose ancestries overlap
@@ -27,22 +24,17 @@ export declare function junctionSeeds(
  *  so every one of these reads is a pure function of the id — repeats cost a
  *  Map hit instead of a SQL statement or a byte reconstruction. */
 export interface WalkCache {
-  /** id → prefix bytes read so far + whether they are the COMPLETE bytes
-   *  (shorter than the cap that read them). */
-  reads: Map<number, {
-    b: Uint8Array;
-    complete: boolean;
-  }>;
-  parents: Map<number, number[]>;
-  containers: Map<number, number[]>;
+    /** id → prefix bytes read so far + whether they are the COMPLETE bytes
+     *  (shorter than the cap that read them). */
+    reads: Map<number, {
+        b: Uint8Array;
+        complete: boolean;
+    }>;
+    parents: Map<number, number[]>;
+    containers: Map<number, number[]>;
 }
 export declare function walkCache(ctx: MindContext): WalkCache | null;
-export declare function cachedRead(
-  ctx: MindContext,
-  cache: WalkCache | null,
-  id: number,
-  cap: number,
-): Uint8Array;
+export declare function cachedRead(ctx: MindContext, cache: WalkCache | null, id: number, cap: number): Uint8Array;
 /** Tier 1 body, parameterised on already-resolved seed lists so a caller
  *  holding one side FIXED across several calls (synonym junctions) pays for
  *  that side's seeds once, not once per call.  The byte-containment check
@@ -67,39 +59,26 @@ export declare function cachedRead(
  *   • per-node hub guards — parent fan-outs beyond √N are hubs (not
  *     expanded); each node contributes at most one √N page of containers;
  *     √N collected candidates decide. */
-export declare function junctionContainersFrom(
-  ctx: MindContext,
-  left: Uint8Array,
-  right: Uint8Array,
-  maxContainer: number,
-  leftSeeds: number[],
-  rightSeeds: number[],
-  /** Shared expansion budget — a TIER's √N pops, not each walk's, when one
-   *  tier issues several walks (synonym junctions try up to 2·haloQueryK
-   *  siblings; without a shared budget each sibling would spend its own √N). */
-  budget?: {
+export declare function junctionContainersFrom(ctx: MindContext, left: Uint8Array, right: Uint8Array, maxContainer: number, leftSeeds: number[], rightSeeds: number[], 
+/** Shared expansion budget — a TIER's √N pops, not each walk's, when one
+ *  tier issues several walks (synonym junctions try up to 2·haloQueryK
+ *  siblings; without a shared budget each sibling would spend its own √N). */
+budget?: {
     n: number;
-  },
-  /** ORDER-FREE containment: also accept containers holding right-then-left.
-   *  A junction is evidence that the two forms were LEARNT TOGETHER; which
-   *  one the query happened to mention first is a fact about the query, not
-   *  about the learnt whole.  The walk is identical (the seed ascent does not
-   *  depend on order) — only the byte-containment test gains a second probe,
-   *  so order-freedom costs two indexOf calls per visited node, never a
-   *  second walk. */
-  unordered?: boolean,
-): Junction[];
+}, 
+/** ORDER-FREE containment: also accept containers holding right-then-left.
+ *  A junction is evidence that the two forms were LEARNT TOGETHER; which
+ *  one the query happened to mention first is a fact about the query, not
+ *  about the learnt whole.  The walk is identical (the seed ascent does not
+ *  depend on order) — only the byte-containment test gains a second probe,
+ *  so order-freedom costs two indexOf calls per visited node, never a
+ *  second walk. */
+unordered?: boolean): Junction[];
 /** Tier 1 entry point: every learnt whole that literally contains
  *  left-then-right, found by ascending the structural DAG (parents +
  *  containment links) from the two sides' content-addressed identities.
  *  Both sides' seeds resolved fresh, one call. */
-export declare function junctionContainers(
-  ctx: MindContext,
-  left: Uint8Array,
-  right: Uint8Array,
-  maxContainer: number,
-  unordered?: boolean,
-): Junction[];
+export declare function junctionContainers(ctx: MindContext, left: Uint8Array, right: Uint8Array, maxContainer: number, unordered?: boolean): Junction[];
 /** Tier 2.5: synonym junctions — the container ascent (tier 1) applied to
  *  halo siblings of left and right.  When a distributional synonym of one
  *  form participates in a learnt whole with the other form, the container
@@ -113,10 +92,4 @@ export declare function junctionContainers(
  *  cost is bounded at √N·W pops total regardless of how many siblings are
  *  tried.  A sibling whose bytes exceed `maxInterior` is skipped (it
  *  cannot be junction-sized). */
-export declare function junctionSynonyms(
-  ctx: MindContext,
-  left: Uint8Array,
-  right: Uint8Array,
-  maxInterior: number,
-  unordered?: boolean,
-): Promise<Junction[]>;
+export declare function junctionSynonyms(ctx: MindContext, left: Uint8Array, right: Uint8Array, maxInterior: number, unordered?: boolean): Promise<Junction[]>;

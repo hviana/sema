@@ -277,7 +277,7 @@ test("a node resonates to itself once it is a resonance TARGET", async () => {
   // never-linked node is intentionally NOT indexed (it is reached only by the
   // structural DAG climb, never by direct resonance), so it costs no index slot.
   // This is the store's core compression: the exploded intermediate DAG (~99.5%
-  // of nodes) is never poured into the HNSW. So before any edge/halo, resonate
+  // of nodes) is never poured into the vector index. So before any edge/halo, resonate
   // finds nothing.
   assert.equal(
     (await s.resonate(v, 1)).length,
@@ -809,7 +809,7 @@ test("compression: on-disk footprint is the three files, bounded in input", asyn
 // STORAGE-AMPLIFICATION GUARD (the regression this whole change fixes). Folding
 // text into a Merkle DAG explodes it into ~0.2 nodes/byte, most of which are
 // intermediate branches that recall reaches by CLIMBING the structural graph,
-// never by direct resonance. Indexing every one into the content HNSW made the
+// never by direct resonance. Indexing every one into the content index made the
 // on-disk store ~50× the learned content and training crawl at a few KB/s. The
 // fix indexes a form's gist only when it becomes a resonance target AND it is
 // not already covered by the content index — the index adds a
@@ -868,7 +868,7 @@ test("compression: post-hoc compaction bounds content-index footprint", async ()
     // only nodes that bridge multiple experiences (2+ parents) or are
     // experience roots (1 parent + edges).  This is a small minority of
     // the exploded DAG.  Vector-similarity gating previously tried to achieve this during
-    // training via expensive HNSW probes, but was rigid, dimensionally
+    // training via expensive index probes, but was rigid, dimensionally
     // fragile, and a no-op at typical D.  Post-hoc structural compaction
     // is adaptive (the data decides what's shared) and doesn't slow training.
     assert.ok(

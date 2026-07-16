@@ -11,8 +11,4 @@ export declare function concat2(a: Uint8Array, b: Uint8Array): Uint8Array;
 export declare function latin1(b: Uint8Array): string;
 /** First index ≥ `from` at which `needle` occurs in `hay`, or -1.  A short naive
  *  scan — used only to locate a result span inside a learnt framing form. */
-export declare function indexOf(
-  hay: Uint8Array,
-  needle: Uint8Array,
-  from: number,
-): number;
+export declare function indexOf(hay: Uint8Array, needle: Uint8Array, from: number): number;

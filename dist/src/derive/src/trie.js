@@ -29,193 +29,189 @@
  */
 const ROOT = 0;
 export class Trie {
-  // ── compact transition storage ──────────────────────────────────────────
-  // _nxt[s]  —  -1   terminal (no outgoing transition)
-  //             -2   multi-transition → _multi.get(s)
-  //             >=0  singleton target; the symbol is _sym[s]
-  _nxt;
-  _sym;
-  _multi = null;
-  // _end[s] is the pattern id ending exactly at s, or -1.
-  _end;
-  // Per-pattern data, indexed by pattern id.
-  _lens = [];
-  _vals = [];
-  _len = 1; // next free state (state 0 = root)
-  constructor() {
-    const c = 256;
-    this._nxt = new Int32Array(c);
-    this._sym = new Uint8Array(c);
-    this._end = new Int32Array(c);
-    this._nxt[ROOT] = -1;
-    this._end[ROOT] = -1;
-  }
-  /** The root state, for cursor walks. */
-  get root() {
-    return ROOT;
-  }
-  /** Number of distinct patterns stored. */
-  get size() {
-    return this._lens.length;
-  }
-  // ── internal helpers ────────────────────────────────────────────────────
-  /** Allocate a fresh state, growing the typed arrays by a fixed increment
-   *  when full.  No power-of-2 doubling — the transient double-memory spike
-   *  during growth is bounded to the increment. */
-  _state() {
-    const s = this._len++;
-    if (s >= this._nxt.length) {
-      const c = s + 4096;
-      const nn = new Int32Array(c);
-      nn.set(this._nxt);
-      this._nxt = nn;
-      const ns = new Uint8Array(c);
-      ns.set(this._sym);
-      this._sym = ns;
-      const ne = new Int32Array(c);
-      ne.set(this._end);
-      this._end = ne;
+    // ── compact transition storage ──────────────────────────────────────────
+    // _nxt[s]  —  -1   terminal (no outgoing transition)
+    //             -2   multi-transition → _multi.get(s)
+    //             >=0  singleton target; the symbol is _sym[s]
+    _nxt;
+    _sym;
+    _multi = null;
+    // _end[s] is the pattern id ending exactly at s, or -1.
+    _end;
+    // Per-pattern data, indexed by pattern id.
+    _lens = [];
+    _vals = [];
+    _len = 1; // next free state (state 0 = root)
+    constructor() {
+        const c = 256;
+        this._nxt = new Int32Array(c);
+        this._sym = new Uint8Array(c);
+        this._end = new Int32Array(c);
+        this._nxt[ROOT] = -1;
+        this._end[ROOT] = -1;
     }
-    this._nxt[s] = -1;
-    this._end[s] = -1;
-    return s;
-  }
-  /** Follow symbol `c` from state `s`.  Returns the next state, or -1. */
-  _follow(s, c) {
-    const n = this._nxt[s];
-    if (n >= 0) {
-      return this._sym[s] === c ? n : -1;
+    /** The root state, for cursor walks. */
+    get root() {
+        return ROOT;
     }
-    if (n === -2) {
-      return this._multi.get(s).get(c) ?? -1;
+    /** Number of distinct patterns stored. */
+    get size() {
+        return this._lens.length;
     }
-    return -1; // n === -1
-  }
-  // ── cursor API (allocation-free) ─────────────────────────────────────────
-  /** Follow one symbol from `state`; returns the next state or -1 if none. */
-  step(state, symbol) {
-    return this._follow(state, symbol);
-  }
-  /** The pattern ending exactly at `state`, or null. */
-  terminal(state) {
-    const id = this._end[state];
-    return id === -1 ? null : { id, payload: this._vals[id] };
-  }
-  /** Length of the pattern with this id. */
-  lengthOf(id) {
-    return this._lens[id];
-  }
-  // ── build ───────────────────────────────────────────────────────────────
-  /**
-   * Insert a pattern, returning its id. Inserting the same symbol-sequence
-   * twice returns the first id and keeps the first payload (patterns are keyed
-   * by content). Empty patterns are ignored and return -1.
-   */
-  insert(pattern, payload) {
-    const n = pattern.length;
-    if (n === 0) {
-      return -1;
-    }
-    let s = ROOT;
-    for (let i = 0; i < n; i++) {
-      const c = pattern[i];
-      const t = this._nxt[s];
-      if (t === -1) {
-        // Terminal — place first transition as a singleton.
-        const ns = this._state();
-        this._nxt[s] = ns;
-        this._sym[s] = c;
-        s = ns;
-      } else if (t >= 0) {
-        // Singleton — either advance on match, or expand to multi.
-        if (this._sym[s] === c) {
-          s = t;
-        } else {
-          const map = new Map();
-          map.set(this._sym[s], t);
-          const ns = this._state();
-          map.set(c, ns);
-          if (!this._multi) {
-            this._multi = new Map();
-          }
-          this._multi.set(s, map);
-          this._nxt[s] = -2;
-          s = ns;
+    // ── internal helpers ────────────────────────────────────────────────────
+    /** Allocate a fresh state, growing the typed arrays by a fixed increment
+     *  when full.  No power-of-2 doubling — the transient double-memory spike
+     *  during growth is bounded to the increment. */
+    _state() {
+        const s = this._len++;
+        if (s >= this._nxt.length) {
+            const c = s + 4096;
+            const nn = new Int32Array(c);
+            nn.set(this._nxt);
+            this._nxt = nn;
+            const ns = new Uint8Array(c);
+            ns.set(this._sym);
+            this._sym = ns;
+            const ne = new Int32Array(c);
+            ne.set(this._end);
+            this._end = ne;
         }
-      } else {
-        // Multi (t === -2) — extend the existing Map.
-        const map = this._multi.get(s);
-        let ns = map.get(c);
-        if (ns === undefined) {
-          ns = this._state();
-          map.set(c, ns);
+        this._nxt[s] = -1;
+        this._end[s] = -1;
+        return s;
+    }
+    /** Follow symbol `c` from state `s`.  Returns the next state, or -1. */
+    _follow(s, c) {
+        const n = this._nxt[s];
+        if (n >= 0)
+            return this._sym[s] === c ? n : -1;
+        if (n === -2)
+            return this._multi.get(s).get(c) ?? -1;
+        return -1; // n === -1
+    }
+    // ── cursor API (allocation-free) ─────────────────────────────────────────
+    /** Follow one symbol from `state`; returns the next state or -1 if none. */
+    step(state, symbol) {
+        return this._follow(state, symbol);
+    }
+    /** The pattern ending exactly at `state`, or null. */
+    terminal(state) {
+        const id = this._end[state];
+        return id === -1 ? null : { id, payload: this._vals[id] };
+    }
+    /** Length of the pattern with this id. */
+    lengthOf(id) {
+        return this._lens[id];
+    }
+    // ── build ───────────────────────────────────────────────────────────────
+    /**
+     * Insert a pattern, returning its id. Inserting the same symbol-sequence
+     * twice returns the first id and keeps the first payload (patterns are keyed
+     * by content). Empty patterns are ignored and return -1.
+     */
+    insert(pattern, payload) {
+        const n = pattern.length;
+        if (n === 0)
+            return -1;
+        let s = ROOT;
+        for (let i = 0; i < n; i++) {
+            const c = pattern[i];
+            const t = this._nxt[s];
+            if (t === -1) {
+                // Terminal — place first transition as a singleton.
+                const ns = this._state();
+                this._nxt[s] = ns;
+                this._sym[s] = c;
+                s = ns;
+            }
+            else if (t >= 0) {
+                // Singleton — either advance on match, or expand to multi.
+                if (this._sym[s] === c) {
+                    s = t;
+                }
+                else {
+                    const map = new Map();
+                    map.set(this._sym[s], t);
+                    const ns = this._state();
+                    map.set(c, ns);
+                    if (!this._multi)
+                        this._multi = new Map();
+                    this._multi.set(s, map);
+                    this._nxt[s] = -2;
+                    s = ns;
+                }
+            }
+            else {
+                // Multi (t === -2) — extend the existing Map.
+                const map = this._multi.get(s);
+                let ns = map.get(c);
+                if (ns === undefined) {
+                    ns = this._state();
+                    map.set(c, ns);
+                }
+                s = ns;
+            }
         }
-        s = ns;
-      }
+        if (this._end[s] !== -1)
+            return this._end[s]; // already present
+        const id = this._lens.length;
+        this._lens.push(n);
+        this._vals.push(payload);
+        this._end[s] = id;
+        return id;
     }
-    if (this._end[s] !== -1) {
-      return this._end[s]; // already present
-    }
-    const id = this._lens.length;
-    this._lens.push(n);
-    this._vals.push(payload);
-    this._end[s] = id;
-    return id;
-  }
-  // ── matching ───────────────────────────────────────────────────────────
-  /**
-   * Every stored pattern that begins exactly at `pos` in `seq`, shortest first.
-   * Walks forward from the root in O(longest match); reports nothing about any
-   * other position. This is the on-demand probe the search uses.
-   */
-  matchesAt(seq, pos) {
-    const out = [];
-    let s = ROOT;
-    for (let i = pos, n = seq.length; i < n; i++) {
-      s = this._follow(s, seq[i]);
-      if (s === -1) {
-        break;
-      }
-      const id = this._end[s];
-      if (id !== -1) {
-        out.push({
-          start: pos,
-          end: i + 1,
-          length: this._lens[id],
-          id,
-          payload: this._vals[id],
-        });
-      }
-    }
-    return out;
-  }
-  /**
-   * Every occurrence of every pattern anywhere in `seq` (eager form, the union
-   * of {@link matchesAt} over all start positions). O(seq · longest pattern),
-   * independent of how many patterns are stored. Use {@link matchesAt} when the
-   * search only needs the sites at a particular position.
-   */
-  scan(seq) {
-    const out = [];
-    for (let pos = 0, n = seq.length; pos < n; pos++) {
-      let s = ROOT;
-      for (let i = pos; i < n; i++) {
-        s = this._follow(s, seq[i]);
-        if (s === -1) {
-          break;
+    // ── matching ───────────────────────────────────────────────────────────
+    /**
+     * Every stored pattern that begins exactly at `pos` in `seq`, shortest first.
+     * Walks forward from the root in O(longest match); reports nothing about any
+     * other position. This is the on-demand probe the search uses.
+     */
+    matchesAt(seq, pos) {
+        const out = [];
+        let s = ROOT;
+        for (let i = pos, n = seq.length; i < n; i++) {
+            s = this._follow(s, seq[i]);
+            if (s === -1)
+                break;
+            const id = this._end[s];
+            if (id !== -1) {
+                out.push({
+                    start: pos,
+                    end: i + 1,
+                    length: this._lens[id],
+                    id,
+                    payload: this._vals[id],
+                });
+            }
         }
-        const id = this._end[s];
-        if (id !== -1) {
-          out.push({
-            start: pos,
-            end: i + 1,
-            length: this._lens[id],
-            id,
-            payload: this._vals[id],
-          });
-        }
-      }
+        return out;
     }
-    return out;
-  }
+    /**
+     * Every occurrence of every pattern anywhere in `seq` (eager form, the union
+     * of {@link matchesAt} over all start positions). O(seq · longest pattern),
+     * independent of how many patterns are stored. Use {@link matchesAt} when the
+     * search only needs the sites at a particular position.
+     */
+    scan(seq) {
+        const out = [];
+        for (let pos = 0, n = seq.length; pos < n; pos++) {
+            let s = ROOT;
+            for (let i = pos; i < n; i++) {
+                s = this._follow(s, seq[i]);
+                if (s === -1)
+                    break;
+                const id = this._end[s];
+                if (id !== -1) {
+                    out.push({
+                        start: pos,
+                        end: i + 1,
+                        length: this._lens[id],
+                        id,
+                        payload: this._vals[id],
+                    });
+                }
+            }
+        }
+        return out;
+    }
 }

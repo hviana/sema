@@ -15,7 +15,7 @@ search as authoritative axioms (at `STEP` cost, like a learned edge).
 
 It has no dependency on the rest of the codebase except the pure byte helpers in
 `../bytes.ts`, and is intended to be reused as a self-contained sublibrary in
-the spirit of `derive/` and `rabitq-hnsw/`.
+the spirit of `derive/` and `rabitq-ivf/`.
 
 ## The thesis: one tiny kernel, everything else is a rewrite
 

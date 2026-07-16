@@ -12,11 +12,7 @@ export declare function mulBits(ctx: OpContext, a: bigint, b: bigint): bigint;
 export declare function signBits(ctx: OpContext, a: bigint): bigint;
 /** Compare via sign(subtract): −1 if a<b, 0 if a=b, +1 if a>b, where subtract is
  *  add ∘ negate — so comparison is structured arithmetic, not a new primitive. */
-export declare function compareBits(
-  ctx: OpContext,
-  a: bigint,
-  b: bigint,
-): bigint;
+export declare function compareBits(ctx: OpContext, a: bigint, b: bigint): bigint;
 /** Register the bit-bootstrap ops (int domain) into `r`.  They have no surface
  *  forms — they are an internal exhibit, exercised by the tests and by anyone
  *  who wants to walk the nand→arithmetic chain, not matched from a query. */

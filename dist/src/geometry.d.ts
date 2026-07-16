@@ -21,11 +21,7 @@ export declare function mergeThreshold(D: number): number;
  *  fraction, the span's MAGNITUDE (√len, the linear fold's own norm) converts
  *  the tolerated fraction into tolerated bytes.  Derived from W, D and the
  *  span; never tuned. */
-export declare function identityBar(
-  D: number,
-  maxGroup: number,
-  len: number,
-): number;
+export declare function identityBar(D: number, maxGroup: number, len: number): number;
 /** The reach bar: half a river quantum, derived from the fold's own geometry.
  *  A branch folds up to `maxGroup` children, so two forms that differ in ONE
  *  whole child — the smallest distinction perception can mean — sit at cosine
@@ -95,30 +91,20 @@ export declare function consensusFloor(N: number): number;
  *  structurally-isolated entries.  Derived, never tuned. */
 export declare function coverageBar(_maxGroup: number, D: number): number;
 export interface Grid {
-  width: number;
-  height: number;
-  channels: number;
-  data: Uint8Array;
-  dims?: number[];
+    width: number;
+    height: number;
+    channels: number;
+    data: Uint8Array;
+    dims?: number[];
 }
 /** Find the longest prefix of `bytes` whose leaf-id signature matches a
  *  known branch via `lookup`.  Returns the byte-length of that prefix, or 0. */
-export declare function knownPrefixLength(
-  bytes: Uint8Array,
-  leafAt: (i: number) => number | null,
-  lookup: (leafIds: number[]) => number | null,
-): number;
+export declare function knownPrefixLength(bytes: Uint8Array, leafAt: (i: number) => number | null, lookup: (leafIds: number[]) => number | null): number;
 /** Bytes → Sema tree.  `leafAt` and `lookup` are store capabilities for
  *  detecting previously-stored prefixes so the river can split at the
  *  correct boundary.  Pass them through from `perceive`; the geometry
  *  computes the stable prefix internally. */
-export declare function bytesToTree(
-  space: Space,
-  alphabet: Alphabet,
-  bytes: Uint8Array,
-  leafAt?: (i: number) => number | null,
-  lookup?: (leafIds: number[]) => number | null,
-): Sema;
+export declare function bytesToTree(space: Space, alphabet: Alphabet, bytes: Uint8Array, leafAt?: (i: number) => number | null, lookup?: (leafIds: number[]) => number | null): Sema;
 /** The PLAIN fold's full level pyramid — every level's item list, bottom
  *  (leaves) to top (root).  Left-grouped folding is RADIX-ALIGNED: the item
  *  at level L, index i, covers exactly bytes [i·mg^L, (i+1)·mg^L) whenever
@@ -132,31 +118,20 @@ export declare function bytesToTree(
  *  never mutated).  Purely an implementation cache: structure and numerics
  *  never depend on whether a pyramid was available. */
 export interface FoldPyramid {
-  levels: Array<
-    Array<{
-      tree: Sema;
-      len: number;
-    }>
-  >;
-  bytes: number;
+    levels: Array<Array<{
+        tree: Sema;
+        len: number;
+    }>>;
+    bytes: number;
 }
 /** Plain bytes→tree (identical to capability-less {@link bytesToTree}) that
  *  also RETURNS its pyramid, reusing `prev` — the pyramid of a PROPER
  *  prefix of `bytes` (caller guarantees content match and
  *  prev.bytes < bytes.length). */
-export declare function bytesToTreePyramid(
-  space: Space,
-  alphabet: Alphabet,
-  bytes: Uint8Array,
-  prev?: FoldPyramid,
-): {
-  tree: Sema;
-  pyramid: FoldPyramid;
+export declare function bytesToTreePyramid(space: Space, alphabet: Alphabet, bytes: Uint8Array, prev?: FoldPyramid): {
+    tree: Sema;
+    pyramid: FoldPyramid;
 };
 export declare function hilbertBytes(grid: Grid): Uint8Array;
-export declare function gridToTree(
-  space: Space,
-  alphabet: Alphabet,
-  grid: Grid,
-): Sema;
+export declare function gridToTree(space: Space, alphabet: Alphabet, grid: Grid): Sema;
 export declare function stackGrids(frames: Grid[]): Grid;

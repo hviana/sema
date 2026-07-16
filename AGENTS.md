@@ -44,7 +44,7 @@ store.ts             AbstractStore: ALL domain logic of the DAG store
 store-sqlite.ts      the one concrete backend (thin SQL wrappers)
 geometry.ts + vec/alphabet/sema
                      vectors, the fold, and every derived threshold
-derive/ · alu/ · rabitq-hnsw/
+derive/ · alu/ · rabitq-ivf/
                      firewalled sublibraries with their own READMEs and tests
 ```
 
@@ -80,7 +80,8 @@ D, the perception window W, or the corpus size N, defined once in
 `src/geometry.ts` (`mergeThreshold`, `identityBar`, `reachThreshold`,
 `significanceBar`, `estimatorNoise`, `conceptThreshold`, `consensusFloor`,
 `dominates`, …). `src/config.ts` holds **capacities and budgets only** (cache
-byte budgets, batch sizes, HNSW parameters, query k, ALU precision, the seed).
+byte budgets, batch sizes, vector-index parameters, query k, ALU precision, the
+seed).
 
 _Follow it:_ if you are about to add a tunable cutoff to config, derive it in
 `geometry.ts` instead. A threshold knob is a design bug here — one was already
@@ -360,7 +361,7 @@ story of the fix.
 | Post-grounding (reason, fuse, articulate)     | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                    |
 | Rationale / trace                             | `src/mind/rationale.ts`, `src/mind/trace.ts`                           |
 | Extension host types                          | `src/extension.ts`                                                     |
-| Sublibraries (own READMEs, own tests)         | `src/derive/`, `src/alu/`, `src/rabitq-hnsw/`                          |
+| Sublibraries (own READMEs, own tests)         | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                           |
 
 Mind functions are **free functions over `MindContext`** (`mind/types.ts`), not
 methods — `mind.ts` is a thin assembly that implements the context and
@@ -453,9 +454,9 @@ against the built `dist/` (`npm test`; one suite:
   silence). A "simplification" that fails an existing test is wrong until you
   can argue the _test_ is wrong — several guards exist precisely because a
   plausible simplification once failed a dozen suites.
-- Sublibraries test themselves (`src/{alu,derive,rabitq-hnsw}/test/`) with zero
+- Sublibraries test themselves (`src/{alu,derive,rabitq-ivf}/test/`) with zero
   Sema dependency. Keep it so.
-- Performance claims are tested (the rabitq-hnsw benchmark asserts sub-linear
+- Performance claims are tested (the rabitq-ivf benchmark asserts sub-linear
   scaling and compression). Changing index behaviour means running it.
 
 ---

@@ -11,10 +11,7 @@ import type { MindContext, Recognition, Segment } from "./types.js";
  *     query's own cut cannot, and records sub-leaf boundaries as `splits`.
  *
  *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus. */
-export declare function recognise(
-  ctx: MindContext,
-  bytes: Uint8Array,
-): Recognition;
+export declare function recognise(ctx: MindContext, bytes: Uint8Array): Recognition;
 /** Segment bytes using the geometry's own groupings — leaf-parent
  *  nodes from the perceived tree, with consecutive bare leaves merged
  *  into one segment.  Each segment's gist is perceived from its bytes

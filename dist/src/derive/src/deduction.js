@@ -44,118 +44,112 @@ import { MinHeap } from "./priority-queue.js";
  * `cost` on the returned root is the total derivation cost.
  */
 export function lightestDerivation(system) {
-  const g = new Map(); // best known cost per item
-  const proof = new Map(); // producing rule per item
-  const items = new Map(); // key → the item it stands for
-  const hCache = new Map();
-  const agenda = new MinHeap();
-  const heuristic = system.heuristic;
-  const h = (item, key) => {
-    if (!heuristic) {
-      return 0;
-    }
-    let v = hCache.get(key);
-    if (v === undefined) {
-      v = heuristic(item);
-      hCache.set(key, v);
-    }
-    return v;
-  };
-  const costOf = (item) => g.get(system.key(item)) ?? Infinity;
-  const relax = (item, cost, rule) => {
-    const key = system.key(item);
-    if (rule?.combine === "sum" && system.pool) {
-      // Evidence pooling: accumulate this firing rather than compete for the
-      // cheapest — see {@link Rule.combine}.  The premises are already
-      // finalised (the caller only relaxes a rule once every premise's cost
-      // is known), so their derivations can be read back immediately.
-      const premises = rule.premises.map((p) =>
-        reconstruct(p, system, g, proof)
-      );
-      const prior = system.pool.get(key);
-      system.pool.set(key, {
-        item,
-        cost: (prior?.cost ?? 0) + cost,
-        contributions: [...(prior?.contributions ?? []), { rule, premises }],
-      });
-      return;
-    }
-    const current = g.get(key);
-    if (current === undefined || cost < current) {
-      g.set(key, cost);
-      proof.set(key, rule);
-      items.set(key, item);
-      agenda.push(cost + h(item, key), { key, g: cost });
-    }
-  };
-  for (const { item, cost } of system.axioms()) {
-    relax(item, cost, null);
-  }
-  while (agenda.size > 0) {
-    const { value } = agenda.pop();
-    const key = value.key;
-    // Lazy deletion: an entry is stale if a cheaper derivation has since been
-    // recorded for the same item.
-    if (value.g !== g.get(key)) {
-      continue;
-    }
-    const item = items.get(key);
-    if (system.isGoal(item)) {
-      return reconstruct(item, system, g, proof);
-    }
-    for (const rule of system.rules(item, costOf)) {
-      let sum = rule.cost;
-      let ready = true;
-      for (const p of rule.premises) {
-        const pc = g.get(system.key(p));
-        if (pc === undefined) {
-          ready = false;
-          break;
+    const g = new Map(); // best known cost per item
+    const proof = new Map(); // producing rule per item
+    const items = new Map(); // key → the item it stands for
+    const hCache = new Map();
+    const agenda = new MinHeap();
+    const heuristic = system.heuristic;
+    const h = (item, key) => {
+        if (!heuristic)
+            return 0;
+        let v = hCache.get(key);
+        if (v === undefined) {
+            v = heuristic(item);
+            hCache.set(key, v);
         }
-        sum += pc;
-      }
-      if (ready) {
-        relax(rule.conclusion, sum, rule);
-      }
+        return v;
+    };
+    const costOf = (item) => g.get(system.key(item)) ?? Infinity;
+    const relax = (item, cost, rule) => {
+        const key = system.key(item);
+        if (rule?.combine === "sum" && system.pool) {
+            // Evidence pooling: accumulate this firing rather than compete for the
+            // cheapest — see {@link Rule.combine}.  The premises are already
+            // finalised (the caller only relaxes a rule once every premise's cost
+            // is known), so their derivations can be read back immediately.
+            const premises = rule.premises.map((p) => reconstruct(p, system, g, proof));
+            const prior = system.pool.get(key);
+            system.pool.set(key, {
+                item,
+                cost: (prior?.cost ?? 0) + cost,
+                contributions: [...(prior?.contributions ?? []), { rule, premises }],
+            });
+            return;
+        }
+        const current = g.get(key);
+        if (current === undefined || cost < current) {
+            g.set(key, cost);
+            proof.set(key, rule);
+            items.set(key, item);
+            agenda.push(cost + h(item, key), { key, g: cost });
+        }
+    };
+    for (const { item, cost } of system.axioms())
+        relax(item, cost, null);
+    while (agenda.size > 0) {
+        const { value } = agenda.pop();
+        const key = value.key;
+        // Lazy deletion: an entry is stale if a cheaper derivation has since been
+        // recorded for the same item.
+        if (value.g !== g.get(key))
+            continue;
+        const item = items.get(key);
+        if (system.isGoal(item)) {
+            return reconstruct(item, system, g, proof);
+        }
+        for (const rule of system.rules(item, costOf)) {
+            let sum = rule.cost;
+            let ready = true;
+            for (const p of rule.premises) {
+                const pc = g.get(system.key(p));
+                if (pc === undefined) {
+                    ready = false;
+                    break;
+                }
+                sum += pc;
+            }
+            if (ready)
+                relax(rule.conclusion, sum, rule);
+        }
     }
-  }
-  return null;
+    return null;
 }
 function reconstruct(item, system, g, proof) {
-  // Iterative post-order over the derivation hypergraph.  In the rewrite
-  // search every rule has one premise, so the derivation is a chain whose
-  // length equals the number of frontier edges — which, with long inputs,
-  // can exceed the call stack.  Multi-premise rules (the test-suite bridge
-  // case) are handled by the same explicit stack.
-  const done = new Map();
-  const stack = [item];
-  while (stack.length > 0) {
-    const cur = stack[stack.length - 1]; // peek
-    const key = system.key(cur);
-    if (done.has(key)) {
-      stack.pop();
-      continue;
+    // Iterative post-order over the derivation hypergraph.  In the rewrite
+    // search every rule has one premise, so the derivation is a chain whose
+    // length equals the number of frontier edges — which, with long inputs,
+    // can exceed the call stack.  Multi-premise rules (the test-suite bridge
+    // case) are handled by the same explicit stack.
+    const done = new Map();
+    const stack = [item];
+    while (stack.length > 0) {
+        const cur = stack[stack.length - 1]; // peek
+        const key = system.key(cur);
+        if (done.has(key)) {
+            stack.pop();
+            continue;
+        }
+        const rule = proof.get(key) ?? null;
+        const premises = rule?.premises ?? [];
+        // Push any unresolved premises (rightmost first → leftmost resolves first).
+        let pending = false;
+        for (let i = premises.length - 1; i >= 0; i--) {
+            if (!done.has(system.key(premises[i]))) {
+                stack.push(premises[i]);
+                pending = true;
+            }
+        }
+        if (!pending) {
+            stack.pop(); // this item
+            const kids = premises.map((p) => done.get(system.key(p)));
+            done.set(key, {
+                item: cur,
+                cost: g.get(key),
+                rule,
+                premises: kids,
+            });
+        }
     }
-    const rule = proof.get(key) ?? null;
-    const premises = rule?.premises ?? [];
-    // Push any unresolved premises (rightmost first → leftmost resolves first).
-    let pending = false;
-    for (let i = premises.length - 1; i >= 0; i--) {
-      if (!done.has(system.key(premises[i]))) {
-        stack.push(premises[i]);
-        pending = true;
-      }
-    }
-    if (!pending) {
-      stack.pop(); // this item
-      const kids = premises.map((p) => done.get(system.key(p)));
-      done.set(key, {
-        item: cur,
-        cost: g.get(key),
-        rule,
-        premises: kids,
-      });
-    }
-  }
-  return done.get(system.key(item));
+    return done.get(system.key(item));
 }

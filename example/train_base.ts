@@ -1610,20 +1610,23 @@ async function saveProgress(store: Store, p: SavedProgress): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════
 
 async function main(): Promise<void> {
-  // The vector indices' single memory knob (MiB) — sizes both the SQLite page
-  // cache and the decoded-code LRU of each index.  Training is HNSW-insert
-  // bound at scale (profiled at >80% of ingest wall-clock on a 5.5M-vector
-  // store, nearly all of it cache-missing code reads), and inserts walk the
-  // graph, so a cache that covers the indexed codes cuts wall-clock directly
-  // (measured ~1.6× at 1 GB vs 64 MB on a 2M-node store).  1 GB caches ~5.8M
-  // D=1024 codes — the whole content index of a 350 MB-corpus store — and is
-  // the default; override with VECTOR_CACHE_MB (e.g. 256 on a small-RAM
-  // machine, 64 for the library default).
-  const VECTOR_CACHE_MB = Math.max(0, Number(env("VECTOR_CACHE_MB", "1024")));
+  // The vector indices' memory knob (MiB) — each index's SQLite page cache.
+  // The IVF index routes inserts through a RAM-resident pivot table and
+  // appends to chunk blobs, so this cache mostly serves query-time cluster
+  // scans; 256 MiB comfortably covers the probed working set of a trained
+  // store.  Override with VECTOR_CACHE_MB (64 is the library default).
+  const VECTOR_CACHE_MB = Math.max(0, Number(env("VECTOR_CACHE_MB", "256")));
+  // Page cache for the MAIN DAG database (node/kid/edge/contain tables).
+  // Training issues millions of content-addressed point probes per session
+  // against a GB-scale file; the library default (64 MiB) is sized for a
+  // small machine — a training box affords more.  Override with
+  // SQLITE_CACHE_MB.
+  const SQLITE_CACHE_MB = Math.max(0, Number(env("SQLITE_CACHE_MB", "256")));
   const store = new SQliteStore({
     path: DB_PATH,
     D,
     vectorCacheMb: VECTOR_CACHE_MB,
+    sqliteCacheMb: SQLITE_CACHE_MB,
   });
 
   // The store IS the model: memories, progress, and metadata all persist in

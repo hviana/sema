@@ -4,14 +4,14 @@ import type { MindContext } from "../types.js";
  *  the ladder cost of the acts the taken branch performed (STEP per
  *  projection, CONCEPT for the halo-mediated analogy gate). */
 export interface CastResult {
-  bytes: Uint8Array;
-  used: ReadonlySet<number>;
-  accounted: Array<[number, number]>;
-  moves: number;
-  /** A human-readable label for the query bytes this schema left
-   *  unexplained — purely diagnostic, never priced (see the module's
-   *  Task 2 note in pipeline.ts's Candidate interface). */
-  unexplained: string;
+    bytes: Uint8Array;
+    used: ReadonlySet<number>;
+    accounted: Array<[number, number]>;
+    moves: number;
+    /** A human-readable label for the query bytes this schema left
+     *  unexplained — purely diagnostic, never priced (see the module's
+     *  Task 2 note in pipeline.ts's Candidate interface). */
+    unexplained: string;
 }
 /** CAST's own entry gates, checked once here and reused by
 /** The main CAST entry point.  Given a query and its pre-computed pre.rec.sites,
@@ -30,10 +30,6 @@ export interface CastResult {
  *  other's admissible lower bound, checked before this runs.
  *
  *  Returns the array of {@link CastResult}s that fired (possibly empty). */
-export declare function counterfactualTransfer(
-  ctx: MindContext,
-  query: Uint8Array,
-  pre: Precomputed,
-): Promise<CastResult[]>;
+export declare function counterfactualTransfer(ctx: MindContext, query: Uint8Array, pre: Precomputed): Promise<CastResult[]>;
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 export declare const castMechanism: PipelineMechanism;

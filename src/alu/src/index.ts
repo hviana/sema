@@ -1,7 +1,7 @@
 // alu — the ALU sub-library: a tiny irreducible kernel from which arithmetic,
 // logic, and numerical computation are all DERIVED.
 //
-// Self-contained in the spirit of derive/ and rabitq-hnsw/: it imports only the
+// Self-contained in the spirit of derive/ and rabitq-ivf/: it imports only the
 // pure byte helpers (../../bytes.js) and nothing else from SEMA.  The host
 // reaches meaning (operator synonymy, the symbolic inverse) through the injected
 // AluResonance, pre-resolved into a synchronous snapshot before the search runs.

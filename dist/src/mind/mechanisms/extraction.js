@@ -31,174 +31,130 @@ import { rItem, rNode, traceFail } from "../trace.js";
  *  the answers' merits, decided the grounding.)  Null when no skill
  *  applies. */
 export async function extractBySkill(ctx, query, pre) {
-  const t = ctx.trace?.enter("extractBySkill", [
-    rItem(query, "query"),
-  ]);
-  const fail = traceFail(t);
-  // Use climbAttentionAll to get the FULL ranked list, not just the
-  // roots that cleared commitVotes' significance floor.  The floor
-  // gates further points of attention for fusion, but extraction only
-  // needs ONE anchor that IS a span-shaped skill exemplar — and on
-  // some seeds the top-voted anchor is not one (e.g. a concept-merge
-  // nickname outvotes the painting exemplars on shared substrings,
-  // while the exemplars' votes fall below the floor).  Iterating the
-  // ranked list instead of just the roots lets extraction reach the
-  // first painting-exemplar anchor regardless of its floor status.
-  //
-  const { ranked } = await pre.attention();
-  if (ranked.length === 0) {
-    return fail("no consensus anchor — no skill to apply");
-  }
-  let exemplar = null;
-  let chosenAnchor = null;
-  let skipped = 0;
-  for (const cand of ranked) {
-    const ex = await pre.spanShapedOf(cand.anchor);
-    if (ex) {
-      exemplar = ex;
-      chosenAnchor = cand.anchor;
-      break;
+    const t = ctx.trace?.enter("extractBySkill", [
+        rItem(query, "query"),
+    ]);
+    const fail = traceFail(t);
+    // Use climbAttentionAll to get the FULL ranked list, not just the
+    // roots that cleared commitVotes' significance floor.  The floor
+    // gates further points of attention for fusion, but extraction only
+    // needs ONE anchor that IS a span-shaped skill exemplar — and on
+    // some seeds the top-voted anchor is not one (e.g. a concept-merge
+    // nickname outvotes the painting exemplars on shared substrings,
+    // while the exemplars' votes fall below the floor).  Iterating the
+    // ranked list instead of just the roots lets extraction reach the
+    // first painting-exemplar anchor regardless of its floor status.
+    //
+    const { ranked } = await pre.attention();
+    if (ranked.length === 0) {
+        return fail("no consensus anchor — no skill to apply");
     }
-    skipped++;
-  }
-  if (exemplar === null) {
-    ctx.trace?.step(
-      "trySkillAnchors",
-      [],
-      [],
-      `none of ${ranked.length} ranked anchor(s) is a span-shaped skill exemplar`,
-    );
-    return fail("no consensus root is a span-shaped skill exemplar");
-  }
-  if (skipped > 0) {
-    ctx.trace?.step(
-      "trySkillAnchors",
-      [
-        rItem(query.subarray(0, 0), `skipped ${skipped}`),
-        rNode(ctx, chosenAnchor, "chosen"),
-      ],
-      [],
-      `skipped ${skipped} anchor(s) that are not skill exemplars`,
-    );
-  }
-  const { contextBytes, answerBytes } = exemplar;
-  const ansCtxRuns = answerRunsInContext(ctx, contextBytes, answerBytes);
-  if (ansCtxRuns === null || ansCtxRuns.length === 0) {
-    return fail("answer is not a subsequence of the context");
-  }
-  if (ansCtxRuns.length > 1) {
-    ctx.trace?.step(
-      "decomposeAnswer",
-      [rItem(answerBytes, "multi-piece-answer")],
-      ansCtxRuns.map((r) =>
-        rItem(contextBytes.subarray(r.start, r.end), "piece", undefined, [
-          r.start,
-          r.end,
-        ])
-      ),
-      `answer splits into ${ansCtxRuns.length} piece(s) within the exemplar context`,
-    );
-  }
-  const pieces = [];
-  const accounted = [];
-  for (let ri = 0; ri < ansCtxRuns.length; ri++) {
-    const run = ansCtxRuns[ri];
-    const isLast = ri === ansCtxRuns.length - 1;
-    const framePreLen = Math.min(run.start, ctx.space.maxGroup);
-    const framePre = run.start > 0
-      ? contextBytes.subarray(run.start - framePreLen, run.start)
-      : null;
-    const frames = [];
-    let start = 0;
-    if (framePre) {
-      const prePos = locate(ctx, query, framePre, 0, pre.rec.sites);
-      if (prePos < 0) {
-        continue;
-      }
-      start = prePos + framePre.length;
-      frames.push([prePos, start]); // the located frame IS matched evidence
-    }
-    let end;
-    if (isLast) {
-      if (run.end < contextBytes.length) {
-        const framePostLen = Math.min(
-          contextBytes.length - run.end,
-          ctx.space.maxGroup,
-        );
-        const framePost = contextBytes.subarray(
-          run.end,
-          run.end + framePostLen,
-        );
-        const postPos = locate(
-          ctx,
-          query.subarray(start),
-          framePost,
-          0,
-          pre.rec.sites,
-        );
-        if (postPos < 0) {
-          continue;
+    let exemplar = null;
+    let chosenAnchor = null;
+    let skipped = 0;
+    for (const cand of ranked) {
+        const ex = await pre.spanShapedOf(cand.anchor);
+        if (ex) {
+            exemplar = ex;
+            chosenAnchor = cand.anchor;
+            break;
         }
-        end = start + postPos;
-        frames.push([end, end + framePost.length]); // matched post-frame
-      } else {
-        end = query.length;
-      }
-    } else {
-      const nextRun = ansCtxRuns[ri + 1];
-      const nextPreLen = Math.min(nextRun.start, ctx.space.maxGroup);
-      const nextPre = contextBytes.subarray(
-        nextRun.start - nextPreLen,
-        nextRun.start,
-      );
-      const nextPos = locate(
-        ctx,
-        query.subarray(start),
-        nextPre,
-        0,
-        pre.rec.sites,
-      );
-      if (nextPos < 0) {
-        end = start + run.ansLen;
-      } else {
-        end = start + nextPos;
-        frames.push([end, end + nextPre.length]); // matched next-frame
-      }
+        skipped++;
     }
-    if (start >= end) {
-      continue;
+    if (exemplar === null) {
+        ctx.trace?.step("trySkillAnchors", [], [], `none of ${ranked.length} ranked anchor(s) is a span-shaped skill exemplar`);
+        return fail("no consensus root is a span-shaped skill exemplar");
     }
-    pieces.push(query.subarray(start, end));
-    accounted.push(...frames);
-    // Bounded on both sides ⇒ the read span itself is explained (see doc).
-    // frames carries the pre-border (when the answer is not at the context's
-    // start) and the located right border (post-frame or next piece's
-    // pre-frame); only when BOTH borders were located is the read bounded.
-    const preBounded = run.start === 0 || frames.some(([, e]) => e === start);
-    const postBounded = frames.some(([b]) => b === end);
-    if (preBounded && postBounded) {
-      accounted.push([start, end]);
+    if (skipped > 0) {
+        ctx.trace?.step("trySkillAnchors", [
+            rItem(query.subarray(0, 0), `skipped ${skipped}`),
+            rNode(ctx, chosenAnchor, "chosen"),
+        ], [], `skipped ${skipped} anchor(s) that are not skill exemplars`);
     }
-  }
-  if (pieces.length === 0) {
-    return fail("no answer piece's frame located in the query");
-  }
-  const out = pieces.length === 1 ? pieces[0] : concatBytes(pieces);
-  t?.done(
-    [rItem(out, "extracted")],
-    pieces.length === 1
-      ? `apply a learnt extraction skill — read the analogous span of the query` +
-        ` framed like "${decodeText(answerBytes)}" sits in its exemplar`
-      : `apply a learnt MULTI-PIECE skill — read ${pieces.length} analogous` +
-        ` pieces of the query and synthesize them like "${
-          decodeText(answerBytes)
-        }"`,
-  );
-  return {
-    bytes: out,
-    accounted,
-    unexplained: unexplainedLabel(query, accounted),
-  };
+    const { contextBytes, answerBytes } = exemplar;
+    const ansCtxRuns = answerRunsInContext(ctx, contextBytes, answerBytes);
+    if (ansCtxRuns === null || ansCtxRuns.length === 0) {
+        return fail("answer is not a subsequence of the context");
+    }
+    if (ansCtxRuns.length > 1) {
+        ctx.trace?.step("decomposeAnswer", [rItem(answerBytes, "multi-piece-answer")], ansCtxRuns.map((r) => rItem(contextBytes.subarray(r.start, r.end), "piece", undefined, [
+            r.start,
+            r.end,
+        ])), `answer splits into ${ansCtxRuns.length} piece(s) within the exemplar context`);
+    }
+    const pieces = [];
+    const accounted = [];
+    for (let ri = 0; ri < ansCtxRuns.length; ri++) {
+        const run = ansCtxRuns[ri];
+        const isLast = ri === ansCtxRuns.length - 1;
+        const framePreLen = Math.min(run.start, ctx.space.maxGroup);
+        const framePre = run.start > 0
+            ? contextBytes.subarray(run.start - framePreLen, run.start)
+            : null;
+        const frames = [];
+        let start = 0;
+        if (framePre) {
+            const prePos = locate(ctx, query, framePre, 0, pre.rec.sites);
+            if (prePos < 0)
+                continue;
+            start = prePos + framePre.length;
+            frames.push([prePos, start]); // the located frame IS matched evidence
+        }
+        let end;
+        if (isLast) {
+            if (run.end < contextBytes.length) {
+                const framePostLen = Math.min(contextBytes.length - run.end, ctx.space.maxGroup);
+                const framePost = contextBytes.subarray(run.end, run.end + framePostLen);
+                const postPos = locate(ctx, query.subarray(start), framePost, 0, pre.rec.sites);
+                if (postPos < 0)
+                    continue;
+                end = start + postPos;
+                frames.push([end, end + framePost.length]); // matched post-frame
+            }
+            else {
+                end = query.length;
+            }
+        }
+        else {
+            const nextRun = ansCtxRuns[ri + 1];
+            const nextPreLen = Math.min(nextRun.start, ctx.space.maxGroup);
+            const nextPre = contextBytes.subarray(nextRun.start - nextPreLen, nextRun.start);
+            const nextPos = locate(ctx, query.subarray(start), nextPre, 0, pre.rec.sites);
+            if (nextPos < 0) {
+                end = start + run.ansLen;
+            }
+            else {
+                end = start + nextPos;
+                frames.push([end, end + nextPre.length]); // matched next-frame
+            }
+        }
+        if (start >= end)
+            continue;
+        pieces.push(query.subarray(start, end));
+        accounted.push(...frames);
+        // Bounded on both sides ⇒ the read span itself is explained (see doc).
+        // frames carries the pre-border (when the answer is not at the context's
+        // start) and the located right border (post-frame or next piece's
+        // pre-frame); only when BOTH borders were located is the read bounded.
+        const preBounded = run.start === 0 || frames.some(([, e]) => e === start);
+        const postBounded = frames.some(([b]) => b === end);
+        if (preBounded && postBounded)
+            accounted.push([start, end]);
+    }
+    if (pieces.length === 0) {
+        return fail("no answer piece's frame located in the query");
+    }
+    const out = pieces.length === 1 ? pieces[0] : concatBytes(pieces);
+    t?.done([rItem(out, "extracted")], pieces.length === 1
+        ? `apply a learnt extraction skill — read the analogous span of the query` +
+            ` framed like "${decodeText(answerBytes)}" sits in its exemplar`
+        : `apply a learnt MULTI-PIECE skill — read ${pieces.length} analogous` +
+            ` pieces of the query and synthesize them like "${decodeText(answerBytes)}"`);
+    return {
+        bytes: out,
+        accounted,
+        unexplained: unexplainedLabel(query, accounted),
+    };
 }
 // ── The two span-shape readings: OPEN acceptance vs. STRONG decomposition ──
 //
@@ -225,55 +181,52 @@ export async function extractBySkill(ctx, query, pre) {
  *  when no greedy longest-run decomposition exists.  Adjacent runs that
  *  connect contiguously are merged. */
 export function answerRunsInContext(_ctx, context, answer) {
-  const pos = indexOf(context, answer, 0);
-  if (pos >= 0) {
-    return [{ start: pos, end: pos + answer.length, ansLen: answer.length }];
-  }
-  const runs = [];
-  let ai = 0;
-  let ci = 0;
-  while (ai < answer.length) {
-    // Longest match of the remaining answer at any position of the remaining
-    // context: one direct extend per context position — O(|ctx|·match) per
-    // run, replacing the previous longest-first indexOf countdown whose
-    // repeated scans were cubic on long sparse-subsequence answers.
-    let bestLen = 0;
-    let bestPos = -1;
-    for (let p = ci; p < context.length; p++) {
-      let l = 0;
-      const maxL = Math.min(context.length - p, answer.length - ai);
-      if (maxL <= bestLen) {
-        break; // no later position can beat the best
-      }
-      while (l < maxL && context[p + l] === answer[ai + l]) {
-        l++;
-      }
-      if (l > bestLen) {
-        bestLen = l;
-        bestPos = p;
-        if (ai + l === answer.length) {
-          break; // the whole remainder matched
+    const pos = indexOf(context, answer, 0);
+    if (pos >= 0) {
+        return [{ start: pos, end: pos + answer.length, ansLen: answer.length }];
+    }
+    const runs = [];
+    let ai = 0;
+    let ci = 0;
+    while (ai < answer.length) {
+        // Longest match of the remaining answer at any position of the remaining
+        // context: one direct extend per context position — O(|ctx|·match) per
+        // run, replacing the previous longest-first indexOf countdown whose
+        // repeated scans were cubic on long sparse-subsequence answers.
+        let bestLen = 0;
+        let bestPos = -1;
+        for (let p = ci; p < context.length; p++) {
+            let l = 0;
+            const maxL = Math.min(context.length - p, answer.length - ai);
+            if (maxL <= bestLen)
+                break; // no later position can beat the best
+            while (l < maxL && context[p + l] === answer[ai + l])
+                l++;
+            if (l > bestLen) {
+                bestLen = l;
+                bestPos = p;
+                if (ai + l === answer.length)
+                    break; // the whole remainder matched
+            }
         }
-      }
+        if (bestLen === 0)
+            return null;
+        runs.push({ start: bestPos, end: bestPos + bestLen, ansLen: bestLen });
+        ai += bestLen;
+        ci = bestPos + bestLen;
     }
-    if (bestLen === 0) {
-      return null;
+    const merged = [];
+    for (const r of runs) {
+        const last = merged[merged.length - 1];
+        if (last && r.start === last.end) {
+            last.end = r.end;
+            last.ansLen += r.ansLen;
+        }
+        else {
+            merged.push({ ...r });
+        }
     }
-    runs.push({ start: bestPos, end: bestPos + bestLen, ansLen: bestLen });
-    ai += bestLen;
-    ci = bestPos + bestLen;
-  }
-  const merged = [];
-  for (const r of runs) {
-    const last = merged[merged.length - 1];
-    if (last && r.start === last.end) {
-      last.end = r.end;
-      last.ansLen += r.ansLen;
-    } else {
-      merged.push({ ...r });
-    }
-  }
-  return merged.length > 0 ? merged : null;
+    return merged.length > 0 ? merged : null;
 }
 /** Check whether an anchor is a span-shaped skill exemplar: it represents a
  *  fact whose context and answer together form a span-in-context pattern.
@@ -281,42 +234,41 @@ export function answerRunsInContext(_ctx, context, answer) {
  *  itself is the context.  Otherwise the anchor's prevOf parents provide
  *  candidate contexts, and the longest one whose span is span-shaped wins. */
 export async function skillExemplar(ctx, anchor, guide) {
-  if (ctx.store.hasNext(anchor)) {
-    const contextBytes = read(ctx, anchor);
-    const answerBytes = await follow(ctx, anchor, guide);
-    if (answerBytes !== null && isSpanShaped(ctx, contextBytes, answerBytes)) {
-      return { contextBytes, answerBytes };
+    if (ctx.store.hasNext(anchor)) {
+        const contextBytes = read(ctx, anchor);
+        const answerBytes = await follow(ctx, anchor, guide);
+        if (answerBytes !== null && isSpanShaped(ctx, contextBytes, answerBytes)) {
+            return { contextBytes, answerBytes };
+        }
+        return null;
     }
-    return null;
-  }
-  const answerBytes = read(ctx, anchor);
-  // Candidate contexts, capped at the hub bound (a common answer's reverse
-  // fan-in is corpus-sized).
-  const capped = ctx.store.prevFirst(anchor, hubBound(ctx));
-  const spanShaped = [];
-  for (const p of capped) {
-    const ctxB = read(ctx, p);
-    if (ctxB.length > 0 && isSpanShaped(ctx, ctxB, answerBytes)) {
-      spanShaped.push({ id: p, bytes: ctxB });
+    const answerBytes = read(ctx, anchor);
+    // Candidate contexts, capped at the hub bound (a common answer's reverse
+    // fan-in is corpus-sized).
+    const capped = ctx.store.prevFirst(anchor, hubBound(ctx));
+    const spanShaped = [];
+    for (const p of capped) {
+        const ctxB = read(ctx, p);
+        if (ctxB.length > 0 && isSpanShaped(ctx, ctxB, answerBytes)) {
+            spanShaped.push({ id: p, bytes: ctxB });
+        }
     }
-  }
-  if (spanShaped.length === 0) {
-    return null;
-  }
-  // Among span-shaped contexts, the longest wins (the smallest spanning frame
-  // heuristic's dual: more frame to locate in the query); the query gist,
-  // when given, breaks LENGTH TIES via chooseAmong — the same reverse-regime
-  // disambiguator every context pick uses, whose gist cache spares the
-  // re-fold this block once paid per tied candidate.  Same strict first-seen
-  // tie-break as the hand loop it replaces.
-  const maxLen = Math.max(...spanShaped.map((s) => s.bytes.length));
-  const longest = spanShaped.filter((s) => s.bytes.length === maxLen);
-  let contextBytes = longest[0].bytes;
-  if (guide && longest.length > 1) {
-    const pick = chooseAmong(ctx, longest.map((s) => s.id), guide).id;
-    contextBytes = longest.find((s) => s.id === pick).bytes;
-  }
-  return { contextBytes, answerBytes };
+    if (spanShaped.length === 0)
+        return null;
+    // Among span-shaped contexts, the longest wins (the smallest spanning frame
+    // heuristic's dual: more frame to locate in the query); the query gist,
+    // when given, breaks LENGTH TIES via chooseAmong — the same reverse-regime
+    // disambiguator every context pick uses, whose gist cache spares the
+    // re-fold this block once paid per tied candidate.  Same strict first-seen
+    // tie-break as the hand loop it replaces.
+    const maxLen = Math.max(...spanShaped.map((s) => s.bytes.length));
+    const longest = spanShaped.filter((s) => s.bytes.length === maxLen);
+    let contextBytes = longest[0].bytes;
+    if (guide && longest.length > 1) {
+        const pick = chooseAmong(ctx, longest.map((s) => s.id), guide).id;
+        contextBytes = longest.find((s) => s.id === pick).bytes;
+    }
+    return { contextBytes, answerBytes };
 }
 /** Whether the answer is a SPARSE subsequence of the context (bytes in
  *  order, arbitrary gaps) — the OPEN span-shape reading (see the section
@@ -333,13 +285,12 @@ export async function skillExemplar(ctx, anchor, guide) {
  *  (a full river fold) per CANDIDATE in skillExemplar's √N-capped loop —
  *  pure cost, no discrimination. */
 export function isSpanShaped(_ctx, context, answer) {
-  let ai = 0;
-  for (let ci = 0; ci < context.length && ai < answer.length; ci++) {
-    if (context[ci] === answer[ai]) {
-      ai++;
+    let ai = 0;
+    for (let ci = 0; ci < context.length && ai < answer.length; ci++) {
+        if (context[ci] === answer[ai])
+            ai++;
     }
-  }
-  return ai === answer.length;
+    return ai === answer.length;
 }
 /** STRICT containment: the answer's resolved node appears in the context's
  *  folded tree, or the answer occurs as one CONTIGUOUS byte run of the
@@ -350,47 +301,42 @@ export function isSpanShaped(_ctx, context, answer) {
  *  c…o…l…d in order), and gating fusion on it silently starved multi-topic
  *  queries of their further points of attention. */
 export function containsSpan(ctx, context, answer) {
-  const ansId = resolve(ctx, answer);
-  if (ansId !== null) {
-    let found = false;
-    foldTree(ctx, perceive(ctx, context), 0, (_n, _s, _e, node) => {
-      if (node === ansId) {
-        found = true;
-      }
-    });
-    if (found) {
-      return true;
+    const ansId = resolve(ctx, answer);
+    if (ansId !== null) {
+        let found = false;
+        foldTree(ctx, perceive(ctx, context), 0, (_n, _s, _e, node) => {
+            if (node === ansId)
+                found = true;
+        });
+        if (found)
+            return true;
     }
-  }
-  return indexOf(context, answer, 0) >= 0;
+    return indexOf(context, answer, 0) >= 0;
 }
 // ── Pipeline mechanism ──────────────────────────────────────────────────────
 export const extractionMechanism = {
-  name: "extraction",
-  provenance: "extract",
-  async floor(_ctx, _query, pre, worthRunning) {
-    // Extraction's floor is always exactly CONCEPT+STEP when it exists —
-    // same investment discipline as CAST's (see cast.ts): when the bound
-    // already cannot beat the incumbent, return it UNINVESTED (never
-    // first-touch the climb just to be pruned).
-    if (!worthRunning(CONCEPT + STEP)) {
-      return CONCEPT + STEP;
-    }
-    if ((await pre.attention()).ranked.length === 0) {
-      return null;
-    }
-    return CONCEPT + STEP;
-  },
-  async run(ctx, query, pre) {
-    const ex = await extractBySkill(ctx, query, pre);
-    if (!ex) {
-      return [];
-    }
-    return [{
-      bytes: ex.bytes,
-      accounted: ex.accounted,
-      moves: CONCEPT + STEP * ex.accounted.length,
-      unexplained: ex.unexplained,
-    }];
-  },
+    name: "extraction",
+    provenance: "extract",
+    async floor(_ctx, _query, pre, worthRunning) {
+        // Extraction's floor is always exactly CONCEPT+STEP when it exists —
+        // same investment discipline as CAST's (see cast.ts): when the bound
+        // already cannot beat the incumbent, return it UNINVESTED (never
+        // first-touch the climb just to be pruned).
+        if (!worthRunning(CONCEPT + STEP))
+            return CONCEPT + STEP;
+        if ((await pre.attention()).ranked.length === 0)
+            return null;
+        return CONCEPT + STEP;
+    },
+    async run(ctx, query, pre) {
+        const ex = await extractBySkill(ctx, query, pre);
+        if (!ex)
+            return [];
+        return [{
+                bytes: ex.bytes,
+                accounted: ex.accounted,
+                moves: CONCEPT + STEP * ex.accounted.length,
+                unexplained: ex.unexplained,
+            }];
+    },
 };

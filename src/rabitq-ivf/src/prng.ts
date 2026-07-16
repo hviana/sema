@@ -2,7 +2,7 @@
  * Small deterministic pseudo-random number generator (mulberry32).
  *
  * Pure ECMAScript. It is used so that the random orthogonal rotation of the
- * RaBitQ quantizer and the HNSW level assignment are reproducible and can be
+ * RaBitQ quantizer rotation is reproducible and can be
  * regenerated after (de)serialization without storing large matrices.
  */
 export class Prng {

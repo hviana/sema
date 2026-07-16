@@ -112,7 +112,7 @@ function unknownInput(targetBytes) {
 //      jitter swamp the signal over a few thousand deposits, so any strict
 //      degradation bound is either flaky or so loose it catches nothing.
 //
-// The real degradation lived in the vector index (rabitq-hnsw) and is now guarded
+// The real degradation lived in the vector index (rabitq-ivf) and is now guarded
 // DETERMINISTICALLY at its own layer (testScalabilityWithoutCache, on the
 // cache-independent storage-read count). HERE we assert the same contract end to
 // end through the Mind, also by STORAGE READS rather than time: the work one
@@ -170,7 +170,7 @@ test("training: recall work does NOT grow with the store (storage reads, not tim
 
   // 6x the corpus must not cost anywhere near 6x the reads. A genuinely
   // sublinear (~log N) lookup barely moves; a per-recall cost that tracked the
-  // corpus would roughly 6x. Allow a generous 3x band for HNSW's log-N growth
+  // corpus would roughly 6x. Allow a generous 3x band for estimator noise
   // and graph-shape variation, far below the ~6x a true O(N) regression shows.
   assert.ok(
     large < small * 3 + 50,

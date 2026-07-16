@@ -1,4 +1,4 @@
-// store-sqlite.ts — SQLite + rabitq-hnsw persistence adapter.
+// store-sqlite.ts — SQLite + rabitq-ivf persistence adapter.
 //
 // SQliteStore extends AbstractStore and implements only the bare essentials
 // required for database communication: SQL schema, prepared statements, and
@@ -39,7 +39,7 @@ import {
   unpackKids,
 } from "./store.js";
 import { DEFAULT_CONFIG, type StoreConfig } from "./config.js";
-import { VectorDatabase } from "./rabitq-hnsw/src/index.js";
+import { VectorDatabase } from "./rabitq-ivf/src/index.js";
 
 export interface SQliteStoreOptions extends Partial<StoreConfig> {
   path?: string;
@@ -66,6 +66,21 @@ CREATE TABLE IF NOT EXISTS node (
   h    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_node_h ON node(h);
+-- Negative-lookup BLOOM FILTER over node.h — the RAM structure that lets the
+-- content-addressed dedup probes (findLeaf/findBranch, the training hot path)
+-- answer "definitely new content" without an idx_node_h descent.  Persisted
+-- here at checkpoint/close with upto = the next node id NOT covered; on
+-- open, rows with id >= upto (a crash's tail) are re-added by an incremental
+-- rowid-range scan, so the filter can NEVER be missing an inserted hash — a
+-- false negative would silently break hash-consing (duplicate mints), while
+-- a false positive only costs the SQLite probe that was paid on every call
+-- before the filter existed.
+CREATE TABLE IF NOT EXISTS bloom (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  bits BLOB NOT NULL,
+  n    INTEGER NOT NULL,
+  upto INTEGER NOT NULL
+);
 -- The reverse structural edge child→parent. A WITHOUT ROWID table clustered on
 -- (child, parent) IS the lookup index: parents(child) is one B-tree descent to a
 -- contiguous run, with no separate rowid heap and no secondary index to maintain
@@ -129,9 +144,66 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
+/** Blocked Bloom filter over 32-bit content hashes.  k=4 bit positions per
+ *  key via double hashing; at the maintained ≥12 bits/key the false-positive
+ *  rate stays under ~1%, so ≥99% of miss-probes skip SQLite entirely.
+ *  No deletions (nodes are never deleted), so growth is a rebuild. */
+class NodeBloom {
+  bits: Uint8Array;
+  mask: number;
+  n = 0;
+  constructor(log2bits: number) {
+    this.bits = new Uint8Array(1 << (log2bits - 3));
+    this.mask = (1 << log2bits) - 1 >>> 0;
+  }
+  add(h: number): void {
+    const h2 = (Math.imul(h, 0x9e3779b1) | 1) >>> 0;
+    let x = h >>> 0;
+    const bits = this.bits;
+    const mask = this.mask;
+    for (let i = 0; i < 4; i++) {
+      const b = x & mask;
+      bits[b >> 3] |= 1 << (b & 7);
+      x = (x + h2) >>> 0;
+    }
+    this.n++;
+  }
+  mightContain(h: number): boolean {
+    const h2 = (Math.imul(h, 0x9e3779b1) | 1) >>> 0;
+    let x = h >>> 0;
+    const bits = this.bits;
+    const mask = this.mask;
+    for (let i = 0; i < 4; i++) {
+      const b = x & mask;
+      if ((bits[b >> 3] & (1 << (b & 7))) === 0) return false;
+      x = (x + h2) >>> 0;
+    }
+    return true;
+  }
+  /** Whether the filter is due for a bigger rebuild (< 12 bits/key). */
+  get saturated(): boolean {
+    return this.n * 12 > this.bits.length * 8;
+  }
+}
+
+/** log2 of the bloom bit count sized for `n` keys at 16 bits/key, clamped to
+ *  [17, 30] — 16 KiB floor, 128 MiB ceiling (past ~90M nodes the FPR is
+ *  allowed to drift up rather than RAM). */
+function bloomLog2For(n: number): number {
+  let log2 = 17;
+  while (log2 < 30 && (1 << log2) < n * 16) log2++;
+  return log2;
+}
+
+/** Below this node count the filter is NOT persisted: a rebuild scan at open
+ *  is instant at this size, and the blob would dominate a small store's
+ *  on-disk footprint. */
+const BLOOM_PERSIST_MIN_NODES = 65_536;
+
 export class SQliteStore extends AbstractStore implements Store {
   private readonly opts: SQliteStoreOptions;
   private readonly vectorCacheMb: number;
+  private readonly sqliteCacheMb: number;
   private readonly vectorSeed: number;
 
   // ── the two SEPARATE vector indices ───────────────────────────────────
@@ -142,6 +214,17 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // Deferred write transaction guard.
   private _inTx = false;
+
+  // ── negative dedup filter ──────────────────────────────────────────────
+  /** Bloom filter over every node row's content hash `h`.  The dedup probes
+   *  consult it first: "definitely absent" answers the training hot path's
+   *  dominant miss case in RAM (profiled: the SQLite probes were 38.7% of
+   *  ingest wall at 2.9M nodes).  INVARIANT: every inserted h is added
+   *  before the probe that could see it — a false negative would mint a
+   *  duplicate node and silently break hash-consing. */
+  private _bloom: NodeBloom | null = null;
+  /** Dedup probes answered by the filter alone this session (observability). */
+  bloomSkips = 0;
 
   private _insertNode: any = null;
   private _insertKid: any = null;
@@ -167,10 +250,6 @@ export class SQliteStore extends AbstractStore implements Store {
     // Resolve config from opts, falling back to defaults.
     const config: StoreConfig = {
       minHaloMass: opts.minHaloMass ?? d.minHaloMass,
-      m: opts.m ?? d.m,
-      efConstruction: opts.efConstruction ?? d.efConstruction,
-      efConstructionInterior: opts.efConstructionInterior ??
-        d.efConstructionInterior,
       efSearch: opts.efSearch ?? d.efSearch,
       compactEveryNWrites: opts.compactEveryNWrites ?? d.compactEveryNWrites,
       overfetch: opts.overfetch ?? d.overfetch,
@@ -182,6 +261,7 @@ export class SQliteStore extends AbstractStore implements Store {
       pendingGistBytes: opts.pendingGistBytes ?? d.pendingGistBytes,
       haloCacheBytes: opts.haloCacheBytes ?? d.haloCacheBytes,
       vectorCacheMb: opts.vectorCacheMb ?? d.vectorCacheMb,
+      sqliteCacheMb: opts.sqliteCacheMb ?? d.sqliteCacheMb,
       coveredIdsMax: opts.coveredIdsMax ?? d.coveredIdsMax,
       chainCacheBytes: opts.chainCacheBytes ?? d.chainCacheBytes,
     };
@@ -191,6 +271,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
     this.opts = opts;
     this.vectorCacheMb = opts.vectorCacheMb ?? d.vectorCacheMb;
+    this.sqliteCacheMb = opts.sqliteCacheMb ?? d.sqliteCacheMb;
     this.vectorSeed = (0x51f15e ^ 0x9e3779b9) >>> 0;
     this._ready = this._dbOpen();
   }
@@ -207,8 +288,6 @@ export class SQliteStore extends AbstractStore implements Store {
     return new VectorDatabase({
       dbPath: this.vectorDbPath(name),
       dim: this.D,
-      M: this.m,
-      efConstruction: this.efConstruction,
       efSearch: this.efSearch,
       // Query-side estimator precision.  8 bits: 4 bits measurably misranks
       // tight gist clusters (mixture recall@10 37.5% vs 39.0%, self-recall
@@ -242,6 +321,25 @@ export class SQliteStore extends AbstractStore implements Store {
     // WAL + NORMAL sync: crash-safe (WAL commits are atomic) without a full
     // fsync per commit — the same discipline the vector databases use.
     this.sqlite.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+    // SQLite's autocheckpoint default is 1000 PAGES — 1 MiB at this store's
+    // 1 KiB page size — so at training write rates nearly every batch commit
+    // crossed the threshold and paid a synchronous checkpoint: random writes
+    // into a GB-scale main file, with the hottest B-tree pages copied out on
+    // every commit instead of being coalesced across commits in the WAL.
+    // Profiled on a 7.5M-node store: ~114 ms PER COMMIT, ~19% of ingest
+    // wall-clock.  16 MiB of WAL between checkpoints coalesces hot-page
+    // rewrites and amortizes the checkpoint's fixed cost; crash-safety is
+    // unchanged (WAL recovery replays it), the only trade is a bounded,
+    // fixed-size WAL file.
+    this.sqlite.exec("PRAGMA wal_autocheckpoint = 65536;");
+    // Page cache for the DAG tables.  Content-addressed dedup (findLeaf /
+    // findBranch), parent probes and contain appends are millions of point
+    // queries per session against a file that outgrows SQLite's ~2 MiB
+    // default cache almost immediately; every miss is a file read on the
+    // ingest hot path.  Negative = KiB budget (size-based, page-size
+    // independent).  Latency only — results identical at any value.
+    const cacheKb = Math.max(0, Math.floor(this.sqliteCacheMb * 1024));
+    if (cacheKb > 0) this.sqlite.exec(`PRAGMA cache_size = -${cacheKb};`);
     this.sqlite.exec(SCHEMA);
 
     // Recover D from a previous run so loadFromStore() can bootstrap with any
@@ -290,9 +388,77 @@ export class SQliteStore extends AbstractStore implements Store {
     this._nextId = ((this.sqlite.prepare(
       "SELECT MAX(id) AS m FROM node",
     ).get() as { m: number | null }).m ?? -1) + 1;
+
+    this._bloomLoad();
+  }
+
+  // ── negative dedup filter: load / rebuild / persist ────────────────────
+
+  /** Restore the persisted filter and top up the rows a crash left uncovered
+   *  (id ≥ stored `upto`); a missing/undersized blob forces a full rebuild.
+   *  Clean-close sessions restart with a 0-row top-up. */
+  private _bloomLoad(): void {
+    const row = this.sqlite!.prepare(
+      "SELECT bits, n, upto FROM bloom WHERE id = 1",
+    ).get() as { bits: Uint8Array; n: number; upto: number } | undefined;
+    const wantLog2 = bloomLog2For(this._nextId);
+    if (row && row.bits.length * 8 >= (1 << wantLog2)) {
+      const log2 = 31 - Math.clz32(row.bits.length * 8);
+      const b = new NodeBloom(log2);
+      b.bits.set(row.bits);
+      b.n = row.n;
+      this._bloom = b;
+      this._bloomTopUp(row.upto);
+    } else {
+      this._bloomRebuild();
+    }
+  }
+
+  /** Re-add the hashes of rows with id ≥ `from` (the tail a crash cut off).
+   *  Re-adding a hash twice only re-sets its bits — never a correctness
+   *  issue — so overlap with the persisted coverage is harmless. */
+  private _bloomTopUp(from: number): void {
+    if (from >= this._nextId) return;
+    const b = this._bloom!;
+    const scan = this.sqlite!.prepare("SELECT h FROM node WHERE id >= ?");
+    scan.setReturnArrays(true);
+    for (const r of scan.iterate(from) as IterableIterator<[number]>) {
+      b.add(r[0]);
+    }
+  }
+
+  /** Build a fresh filter sized for the current node count from one
+   *  sequential scan of the h column.  Called at open when no usable blob is
+   *  stored, and again whenever growth saturates the bits-per-key budget. */
+  private _bloomRebuild(): void {
+    const b = new NodeBloom(bloomLog2For(this._nextId));
+    b.n = 0;
+    if (this._nextId > 0) {
+      const scan = this.sqlite!.prepare("SELECT h FROM node");
+      scan.setReturnArrays(true);
+      for (const r of scan.iterate() as IterableIterator<[number]>) {
+        // add() counts n itself.
+        b.add(r[0]);
+      }
+    }
+    this._bloom = b;
+  }
+
+  /** Persist the filter with its coverage watermark.  Runs inside the
+   *  caller's transaction when one is open (checkpoint/close both flush
+   *  first). */
+  private _bloomPersist(): void {
+    if (!this._bloom || !this.sqlite) return;
+    if (this._nextId < BLOOM_PERSIST_MIN_NODES) return;
+    this.sqlite.prepare(
+      "INSERT INTO bloom (id, bits, n, upto) VALUES (1, ?, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET bits = excluded.bits, " +
+        "n = excluded.n, upto = excluded.upto",
+    ).run(this._bloom.bits, this._bloom.n, this._nextId);
   }
 
   protected _dbClose(): void {
+    if (this.sqlite) this._bloomPersist();
     if (this.content) {
       this.content.close();
       this.content = null;
@@ -335,6 +501,11 @@ export class SQliteStore extends AbstractStore implements Store {
       );
     }
     this._insertNode.run(id, leaf, kids, h);
+    // The filter must see every inserted hash BEFORE any probe could — the
+    // add sits in the same synchronous call as the row insert.
+    const b = this._bloom!;
+    b.add(h);
+    if (b.saturated) this._bloomRebuild();
   }
 
   protected _dbGetNode(id: NodeId): NodeRec | null {
@@ -363,6 +534,10 @@ export class SQliteStore extends AbstractStore implements Store {
     h: number,
     bytes: Uint8Array,
   ): NodeId | null {
+    if (this._bloom && !this._bloom.mightContain(h)) {
+      this.bloomSkips++;
+      return null;
+    }
     if (!this._selLeaf) {
       this._selLeaf = this.sqlite!.prepare(
         "SELECT id FROM node WHERE h = ? AND leaf = ? AND kids IS NULL LIMIT 1",
@@ -376,6 +551,10 @@ export class SQliteStore extends AbstractStore implements Store {
     h: number,
     bytes: Uint8Array,
   ): NodeId | null {
+    if (this._bloom && !this._bloom.mightContain(h)) {
+      this.bloomSkips++;
+      return null;
+    }
     if (!this._selFlat) {
       this._selFlat = this.sqlite!.prepare(
         "SELECT id FROM node WHERE h = ? AND leaf = ? AND kids IS NOT NULL LIMIT 1",
@@ -389,6 +568,10 @@ export class SQliteStore extends AbstractStore implements Store {
     h: number,
     packed: Uint8Array,
   ): NodeId | null {
+    if (this._bloom && !this._bloom.mightContain(h)) {
+      this.bloomSkips++;
+      return null;
+    }
     if (!this._selKids) {
       this._selKids = this.sqlite!.prepare(
         "SELECT id FROM node WHERE h = ? AND kids = ? LIMIT 1",
@@ -817,6 +1000,10 @@ export class SQliteStore extends AbstractStore implements Store {
       );
     }
     this._insSnapshot.run(bytes);
+    // Checkpoint cadence: persisting the dedup filter here keeps the crash
+    // top-up (the id ≥ upto rescan at next open) bounded by one checkpoint
+    // interval instead of the whole session.
+    this._bloomPersist();
   }
 
   protected _dbLoadSnapshot(): Uint8Array | null {
@@ -832,7 +1019,7 @@ export class SQliteStore extends AbstractStore implements Store {
   // -- Vector DB: content (gist) index --
 
   protected _vecContentUpsert(
-    entries: Array<{ id: NodeId; vector: Float32Array; ef?: number }>,
+    entries: Array<{ id: NodeId; vector: Float32Array }>,
   ): void {
     this.content!.upsertMany(entries);
   }

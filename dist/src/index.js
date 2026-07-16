@@ -12,16 +12,6 @@ export * from "./store-sqlite.js";
 export * from "./config.js";
 export * from "./extension.js";
 export * from "./ingest-cache.js";
-// rabitq-hnsw is re-exported selectively: its `Store`, `NodeRec`, and
-// `StoreConfig` are internal names that collide with sema's own top-level
-// `store.js` / `config.js` exports, and sema code that needs the rabitq ones
-// imports them from the subpath directly. Re-export the public vector-DB
-// surface under the sema root, omitting the three colliding names.
-export {
-  Heap,
-  HnswIndex,
-  Prng,
-  RaBitQuantizer,
-  VectorDatabase,
-} from "./rabitq-hnsw/src/index.js";
+// rabitq-ivf: the partitioned (IVF) vector index over 1-bit RaBitQ codes.
+export { IvfIndex, Prng, RaBitQuantizer, VectorDatabase, } from "./rabitq-ivf/src/index.js";
 export * from "./derive/src/index.js";
