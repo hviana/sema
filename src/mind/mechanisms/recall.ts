@@ -13,8 +13,9 @@ import {
 } from "../../geometry.js";
 import type { MindContext } from "../types.js";
 import { gistOf, read, resolve } from "../primitives.js";
+import { bytesEqual, indexOf } from "../../bytes.js";
 import { corpusN, hubBound } from "../traverse.js";
-import { project, reverseContext } from "../match.js";
+import { follow, project, reverseContext } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
@@ -81,6 +82,51 @@ export async function recallByResonance(
     }
   }
 
+  // 0b. ARGUMENT BINDING (RC8): the query is not itself a stored form, but
+  // it CONTAINS a recognised constituent that is an edge SOURCE — a learnt
+  // pair's left side carried inside a wrapper ("How do you say 'thank you'
+  // in French?").  The wrapper is scaffolding; the argument is the span
+  // that LEADS somewhere, so its continuation — guided by the whole query's
+  // gist — is the answer.  Matching the wrapper while ignoring the argument
+  // (the observed "good morning" template failure) is worse than silence,
+  // so anything short of ONE unambiguous binding falls through: the
+  // constituent bar is the same two-quanta (2W) reading confluence binds
+  // under, nested recognitions collapse to their MAXIMAL span, and two
+  // distinct maximal arguments mean the query asks about neither alone.
+  if (qId === null) {
+    const W2 = 2 * ctx.space.maxGroup;
+    const args = pre.rec.sites.filter((s) =>
+      s.end - s.start >= W2 &&
+      s.end - s.start < query.length &&
+      ctx.store.hasNext(s.payload)
+    );
+    // Maximal spans by one sorted sweep (starts ascending, ties longest
+    // first): every earlier span starts at or before s, so s is contained
+    // exactly when the running max end already covers it.  O(m log m) — a
+    // long input recognises O(|input|) sites, and a pairwise scan here was
+    // quadratic in the input.
+    args.sort((a, b) => a.start - b.start || b.end - a.end);
+    const maximal: typeof args = [];
+    let maxEnd = -1;
+    for (const s of args) {
+      if (s.end <= maxEnd) continue;
+      maximal.push(s);
+      maxEnd = s.end;
+    }
+    if (maximal.length === 1) {
+      const arg = maximal[0];
+      const g = await follow(ctx, arg.payload, queryGist);
+      if (g !== null && g.length > 0) {
+        return ground(
+          g,
+          "argument binding — the query's sole edge-source constituent, continuation followed",
+          [[arg.start, arg.end]],
+          STEP,
+        );
+      }
+    }
+  }
+
   const whole = await ctx.store.resonate(queryGist, k);
   if (whole.length === 0) {
     return ground(null, "empty store — nothing to resonate with", [], 0);
@@ -99,11 +145,27 @@ export async function recallByResonance(
   // into bytes — at most one river window (see {@link identityBar}).  A
   // fixed cosine bar let long queries claim "near-identical" while whole
   // windows — an answer word — differed.
-  if (
-    top.score >= identityBar(ctx.store.D, ctx.space.maxGroup, query.length)
-  ) {
+  // A hit RESTATES the query when its bytes are the query's own — exactly,
+  // or under the response's equivalence (a case/width twin).  Restating
+  // hits may only conclude through disciplined reverse recall: voicing
+  // their bytes echoes the query back at itself (never an answer — the
+  // same principle that keeps cast from voicing stored questions), and
+  // projecting them forward is reverse recall's containment failure in the
+  // other direction — "whatever followed these bytes in some document".
+  const qKey = ctx.canon ? ctx.canon(query) : query;
+  const restates = (b: Uint8Array): boolean =>
+    bytesEqual(b, query) ||
+    (ctx.canon !== null && bytesEqual(ctx.canon(b), qKey));
+  const idBar = identityBar(ctx.store.D, ctx.space.maxGroup, query.length);
+  if (top.score >= idBar) {
     for (const h of whole) {
-      if (h.id === qId || h.score >= 1.0) {
+      // The identity claim is PER HIT, not per tier: hits are ranked
+      // nearest-first, and grounding one below the bar under this tier's
+      // "near-identical" label would launder byte-overlap noise (observed:
+      // "merci" projecting through the unrelated near hit "meraih").
+      if (h.score < idBar) break;
+      const own = read(ctx, h.id);
+      if (h.id === qId || restates(own)) {
         const rev = ctx.store.prevFirst(h.id, hubBound(ctx));
         const g = reverseContext(ctx, h.id, queryGist, rev);
         if (g !== null) {
@@ -116,15 +178,7 @@ export async function recallByResonance(
             STEP,
           );
         }
-        const own = read(ctx, h.id);
-        if (own.length > 0) {
-          return ground(
-            own,
-            "perfect self-match — the query IS this node",
-            nothing,
-            STEP,
-          );
-        }
+        continue;
       }
       const g = await project(ctx, h.id, queryGist);
       if (g) {
@@ -138,31 +192,11 @@ export async function recallByResonance(
     }
   }
 
-  // 2. Scaffolding-dominated.
-  if (top.score >= significanceBar(ctx.store.D)) {
-    const N = corpusN(ctx);
-    const minVote = consensusFloor(N);
-    // The committed points of attention ARE the shared climb's roots (same
-    // query, same k, same DF mode) — read them from Precomputed instead of
-    // re-climbing, so even a traced response pays for the climb once.
-    const forest = (await pre.attention()).roots;
-    if (forest.length > 0 && forest[0].vote >= minVote) {
-      const g = await project(ctx, forest[0].anchor, queryGist);
-      if (g) {
-        return ground(
-          g,
-          "scaffolding-dominated query — ground the consensus-climb anchor",
-          [[forest[0].start, forest[0].end]],
-          CONCEPT,
-        );
-      }
-    }
-  }
-
-  // 3. Last resort — gated on the FRACTION OF THE QUERY the grounding
-  // explains, not the raw cosine.  Root gists are unit vectors, but their
-  // magnitudes are recoverable from the byte lengths (‖·‖ = √len under the
-  // linear fold): cos = shared/√(lenQ·lenG), so shared/lenQ = cos·√(lenG/lenQ).
+  // The query-relative grounding fraction, shared by tiers 2–4 — gated on
+  // the FRACTION OF THE QUERY the grounding explains, not the raw cosine.
+  // Root gists are unit vectors, but their magnitudes are recoverable from
+  // the byte lengths (‖·‖ = √len under the linear fold):
+  // cos = shared/√(lenQ·lenG), so shared/lenQ = cos·√(lenG/lenQ).
   // The raw cosine punished honest containment — a query fully inside a
   // longer grounded answer scored √(lenQ/lenG) and was refused — and let a
   // long answer sharing only scaffolding pass; the query-relative fraction
@@ -177,18 +211,50 @@ export async function recallByResonance(
   // subtract the significance bar (3/√D, §8.3) before converting.  Derived
   // from the existing bars; never tuned.
   const sig = significanceBar(ctx.store.D);
+  const reach = reachThreshold(ctx.space.maxGroup);
   const fracOfQuery = (cos: number, otherLen: number): number =>
     Math.min(
       1,
       Math.max(0, cos - sig) *
         Math.sqrt(otherLen / Math.max(1, query.length)),
     );
+
+  // 2. Scaffolding-dominated.
+  if (top.score >= sig) {
+    const N = corpusN(ctx);
+    const minVote = consensusFloor(N);
+    // The committed points of attention ARE the shared climb's roots (same
+    // query, same k, same DF mode) — read them from Precomputed instead of
+    // re-climbing, so even a traced response pays for the climb once.
+    const forest = (await pre.attention()).roots;
+    if (forest.length > 0 && forest[0].vote >= minVote) {
+      const g = await project(ctx, forest[0].anchor, queryGist);
+      // The anchor cleared the consensus floor, but the floor prices the
+      // ANCHOR's evidence, not the projection's: a junk attractor can clear
+      // it and project a PIECE OF THE QUERY back at it (the observed
+      // "buenos días in English" → "English" fragment).  A projection that
+      // is a proper byte-subspan of the query restates part of the question
+      // — never an answer (the same principle as `restates` above, extended
+      // to fragments).  Genuine anchor groundings — longer than the query,
+      // or disjoint from it — pass untouched.
+      if (g && !(g.length < query.length && indexOf(query, g, 0) >= 0)) {
+        return ground(
+          g,
+          "scaffolding-dominated query — ground the consensus-climb anchor",
+          [[forest[0].start, forest[0].end]],
+          CONCEPT,
+        );
+      }
+    }
+  }
+
+  // 3. Last resort — the nearest grounded whole-query hit, same gate.
   for (const h of whole) {
     const g = await project(ctx, h.id, queryGist);
     if (g) {
       if (
         fracOfQuery(cosine(queryGist, gistOf(ctx, g)), g.length) >=
-          reachThreshold(ctx.space.maxGroup)
+          reach
       ) {
         return ground(
           g,
@@ -208,7 +274,6 @@ export async function recallByResonance(
   // anyway to be echoed, so the decision uses their EXACT fold: one river
   // fold of the top hit, measured in the same query-relative,
   // chance-corrected units as the tier above.
-  const reach = reachThreshold(ctx.space.maxGroup);
   const topBytes = read(ctx, top.id);
   const exact = topBytes.length > 0
     ? cosine(queryGist, gistOf(ctx, topBytes))
@@ -217,6 +282,16 @@ export async function recallByResonance(
     return ground(
       null,
       "below reach threshold — nothing in the store relates to this query",
+      [],
+      0,
+    );
+  }
+  // Echoing the query's own bytes back at it is not an echo of a RELATED
+  // form — it is the query restated, which answers nothing.
+  if (restates(topBytes)) {
+    return ground(
+      null,
+      "the nearest form IS the query itself — restating it answers nothing",
       [],
       0,
     );

@@ -177,8 +177,11 @@ const LOCAL_PATH = env("LOCAL_PATH", ""); // train from a local dir of *.zip
 const CACHE_DIR = env("CACHE_DIR", join(process.cwd(), "cache"));
 const MAX_CACHE_BYTES = Number(env("MAX_CACHE_GB", "100")) * 1e9;
 const PROGRESS_MS = Number(env("PROGRESS_MS", "250")); // panel refresh cadence
-// Index maintenance at checkpoints: compact (remove garbage) then repair (fill
-// gaps). Both are idempotent batch operations; INDEX_MAINTENANCE=0 disables.
+// Index maintenance at checkpoints: compact (remove garbage), repair (fill
+// gaps), then refresh the canonical-form index (equivalence-class resolution —
+// src/canon.ts). All three are idempotent batch operations (the canon build is
+// additionally incremental via the store's `canon.upto` cursor);
+// INDEX_MAINTENANCE=0 disables.
 const INDEX_MAINTENANCE = env("INDEX_MAINTENANCE", "1") !== "0";
 const DOWNLOAD_TRIES = 5;
 // In-progress downloads are written to a sibling "<dest>.part" and atomically
@@ -1823,8 +1826,9 @@ async function main(): Promise<void> {
 
   const checkpoint = () => mind.save();
 
-  /** Run index maintenance: compact (remove garbage) then repair (fill gaps).
-   *  Both are idempotent — running twice produces the same result as once.
+  /** Run index maintenance: compact (remove garbage), repair (fill gaps),
+   *  then refresh the canonical-form index (see below).  All three are
+   *  idempotent — running twice produces the same result as once.
    *  Compaction frees index space first; repair then adds back every
    *  edge/halo-bearing node whose gist was evicted from the pending cache
    *  before it reached the content index, completing the coverage that
@@ -1873,6 +1877,27 @@ async function main(): Promise<void> {
     } catch (err) {
       progress.log(
         `  ${YEL}⚠ index repair failed${R}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    // Canonical-form index (src/canon.ts): lets resolution find stored forms
+    // across surface variation (case, width, whitespace).  Incremental and
+    // idempotent by construction — the `canon.upto` meta cursor scans only
+    // nodes newer than the last pass, and the (h, id) primary key ignores
+    // re-inserted rows — so it composes with the resume model exactly like
+    // compact/repair: every checkpoint (and finish) leaves the index
+    // covering all content trained so far.
+    try {
+      const added = await mind.buildCanonIndex();
+      if (added > 0) {
+        progress.log(
+          `  ${GRN}canon index: added ${int(added)} canonical-form entries${R}`,
+        );
+      }
+    } catch (err) {
+      progress.log(
+        `  ${YEL}⚠ canon index build failed${R}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

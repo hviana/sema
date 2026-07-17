@@ -116,6 +116,20 @@ export async function confluenceJoin(
      *  recognised common form). */
     held: Array<[number, number]>;
   }
+  // A constraint must bind a CONSTITUENT, not a shard.  A genuinely shared
+  // form weaves a contiguous RUN of shared discriminative windows — its
+  // merged cover span is the form's own length, beyond one perception
+  // quantum (2W: the same "two quanta of structure" bar the conjunctive
+  // precondition `query.length < 2W` and CAST's weave live under).  A long
+  // stored document holds thousands of W-windows and will hold a FEW of any
+  // query's by accident, but accidental sharing is one window (a merged
+  // span of W, at most ~W+overlap bytes: "ow ma", "ys a", "ías " —
+  // observed), never a run ("​ translucent", " featherlight" — the genuine
+  // constraints).  Shard-bound streams are no constraints, and their meets
+  // are connective debris (". Sure,", "ngul" — observed).
+  const bindsAConstituent = (cover: Array<[number, number]>): boolean =>
+    cover.some(([cs, ce]) => ce - cs >= 2 * W);
+
   const streams: Stream[] = [];
   const rankedCapped = ranked.length > pre.k ? ranked.slice(0, pre.k) : ranked;
   for (const cand of rankedCapped) {
@@ -134,7 +148,7 @@ export async function confluenceJoin(
       if (curC !== null && off <= curC[1]) curC[1] = off + W;
       else cover.push(curC = [off, off + W]);
     }
-    if (cover.length > 0) {
+    if (cover.length > 0 && bindsAConstituent(cover)) {
       streams.push({ anchor: cand.anchor, vote: cand.vote, ids, cover, held });
     }
   }

@@ -12,6 +12,7 @@ export * from "./mind/index.js";
 export * from "./store-sqlite.js";
 export * from "./config.js";
 export * from "./extension.js";
+export * from "./canon.js";
 export * from "./ingest-cache.js";
 // rabitq-ivf: the partitioned (IVF) vector index over 1-bit RaBitQ codes.
 export {

@@ -25,6 +25,7 @@ import {
 import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
 import { type MindConfig, resolveConfig } from "../config.js";
+import { type Canon, canonHash, textCanon } from "../canon.js";
 import {
   type CandidateSpan,
   coverSequence,
@@ -160,6 +161,12 @@ export interface MindOptions {
   mechanismFactories?: ((
     host: import("../extension.js").ExtensionHost,
   ) => import("./pipeline-mechanism.js").PipelineMechanism)[];
+  /** Content canonicalizer applied to EVERY response (any modality) for
+   *  equivalence-class resolution — see src/canon.ts.  Text entry points
+   *  ({@link Mind.respondText}, {@link Mind.respondTurnText}) inject the
+   *  Unicode text canonicalizer automatically when this is unset; pass
+   *  `false` to disable canonical resolution everywhere. */
+  canon?: Canon | false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -181,6 +188,19 @@ export class Mind implements MindContext {
 
   /** The live rationale tracer for the inference currently in flight, or null. */
   trace: Rationale | null = null;
+
+  /** The content canonicalizer for the response in flight — see
+   *  {@link MindContext.canon}.  Injected per response by the modality entry
+   *  point; null when the response carries no equivalence. */
+  canon: Canon | null = null;
+
+  /** Per-response canonical-resolution memo — see {@link MindContext.canonMemo}. */
+  canonMemo: Map<string, number | null> | null = null;
+
+  /** The Mind-level canon option: a canonicalizer to use for EVERY response,
+   *  `false` to disable canonical resolution, or null to let each entry
+   *  point decide (text entry points inject {@link textCanon}). */
+  private _canonOpt: Canon | false | null = null;
 
   /** Memo of the consensus climb — content-keyed.  See {@link MindContext.climbMemo}. */
   climbMemo: Map<string, Map<string, AttentionRead>> | null = null;
@@ -285,8 +305,10 @@ export class Mind implements MindContext {
         store: optsStore,
         mechanisms: userMechs,
         mechanismFactories: userFacts,
+        canon: optsCanon,
         ...rest
       } = (optsOrCfg ?? {}) as MindOptions;
+      this._canonOpt = optsCanon ?? null;
       this.cfg = resolveConfig(rest as Partial<MindConfig>);
       this.store = optsStore ?? new SQliteStore({
         maxGroup: this.cfg.geometry.maxGroup,
@@ -378,11 +400,24 @@ export class Mind implements MindContext {
   /** Open one response's transient state — the tracer and the per-response
    *  memos.  Paired with {@link endResponse}; the ONE place this state is
    *  created, so adding a memo cannot forget its reset. */
-  private beginResponse(inspectRationale?: InspectRationale): void {
+  private beginResponse(
+    inspectRationale?: InspectRationale,
+    canon?: Canon | null,
+  ): void {
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
     this.climbMemo = new Map();
     this.recogniseMemo = new Map();
     this.perceiveMemo = new Map();
+    this.canon = canon ?? null;
+    this.canonMemo = canon ? new Map() : null;
+  }
+
+  /** The canonicalizer a response should carry: the Mind-level option when
+   *  set (or none when explicitly disabled), else the entry point's own
+   *  default — text entry points pass {@link textCanon}, binary ones null. */
+  private _canonFor(entryDefault: Canon | null): Canon | null {
+    if (this._canonOpt === false) return null;
+    return this._canonOpt ?? entryDefault;
   }
 
   /** Close one response's transient state — every per-response field, incl.
@@ -392,6 +427,8 @@ export class Mind implements MindContext {
     this.climbMemo = null;
     this.recogniseMemo = null;
     this.perceiveMemo = null;
+    this.canon = null;
+    this.canonMemo = null;
     this._edgeGuide = null;
     this._edgeChoice.clear();
   }
@@ -403,8 +440,9 @@ export class Mind implements MindContext {
     queryBytes: Uint8Array,
     inspectRationale?: InspectRationale,
     traceLabel = "respond",
+    canon: Canon | null = null,
   ): Promise<Response> {
-    this.beginResponse(inspectRationale);
+    this.beginResponse(inspectRationale, canon);
     try {
       const top = this.trace?.enter(traceLabel, [
         rItem(queryBytes, "query"),
@@ -434,13 +472,27 @@ export class Mind implements MindContext {
     input: Input,
     inspectRationale?: InspectRationale,
   ): Promise<Response> {
-    return this._respondImpl(inputBytes(this, input), inspectRationale);
+    // A STRING input is text by nature: it carries the text equivalence even
+    // through the generic entry point.  Raw bytes / grids carry only the
+    // Mind-level canon option, if any.
+    const canon = this._canonFor(typeof input === "string" ? textCanon : null);
+    return this._respondImpl(
+      inputBytes(this, input),
+      inspectRationale,
+      "respond",
+      canon,
+    );
   }
 
   /** Text view of {@link respond}.  NUL bytes (0x00) are stripped before
    *  decoding — they are structural padding in text answers.  LOSSY for a
    *  binary answer that legitimately contains NULs: use {@link respond} and
-   *  read `bytes` directly for binary/grid modalities. */
+   *  read `bytes` directly for binary/grid modalities.
+   *
+   *  Injects the TEXT canonicalizer (src/canon.ts) so resolution treats
+   *  every character variation of the same text — case, width, whitespace —
+   *  as one form, provided the store's canon index is built
+   *  ({@link buildCanonIndex}). */
   async respondText(
     input: string,
     inspectRationale?: InspectRationale,
@@ -498,6 +550,52 @@ export class Mind implements MindContext {
     };
   }
 
+  /** Append a turn to a conversation's accumulated context WITHOUT
+   *  responding — raw byte append plus a boundary offset, never a
+   *  separator; the fold pyramid advances by O(turn).
+   *
+   *  This is the primitive for turns the Mind should hear but not answer:
+   *  replaying a transcript, feeding the OTHER speaker's line in a
+   *  prediction harness, or restoring context piecewise.  {@link
+   *  respondTurn} = addTurn + think + its own reply appended the same way. */
+  addTurn(conv: Conversation, turn: Input): ConversationState {
+    const data = this._conversations.get(conv.id);
+    if (!data) throw new Error(`Conversation ${conv.id} not found`);
+    const turnBytes = inputBytes(this, turn);
+    this._growContext(data, turnBytes);
+    return this.conversationState(conv)!;
+  }
+
+  /** Grow a conversation's accumulated context by one turn's bytes — raw
+   *  append plus a boundary offset, pyramid advanced by O(turn), the grown
+   *  context's tree seeded into the conversation's perceive memo.  The ONE
+   *  place a context grows ({@link addTurn} and {@link respondTurn} both
+   *  come through here), so the append semantics cannot drift. */
+  private _growContext(data: ConversationData, turnBytes: Uint8Array): Sema {
+    const prevLen = data.pyramid.bytes;
+    // An empty turn neither grows the context nor marks a boundary —
+    // boundaries are documented strictly increasing, and a zero-length
+    // "turn" is no turn.  The pyramid's zero-growth shortcut makes the
+    // refold below O(1), so the existing tree is returned unchanged.
+    const grow = turnBytes.length > 0;
+    const grown = !grow
+      ? data.bytes
+      : prevLen > 0
+      ? concat2(data.bytes, turnBytes)
+      : turnBytes;
+    if (grow && prevLen > 0) data.boundaries.push(prevLen);
+    const { tree, pyramid } = bytesToTreePyramid(
+      this.space,
+      this.alphabet,
+      grown,
+      data.pyramid,
+    );
+    data.pyramid = pyramid;
+    data.bytes = grown;
+    data.perceiveMemo.set(latin1Key(grown), tree);
+    return tree;
+  }
+
   /** Process one turn of a conversation.
    *
    *  `turn` is the raw input for the latest turn — its bytes are appended
@@ -507,7 +605,13 @@ export class Mind implements MindContext {
    *
    *  Returns the response AND the updated {@link ConversationState} so the
    *  caller can persist it.  The conversation handle's internal state is
-   *  updated in place — the returned state is a snapshot for storage. */
+   *  updated in place — the returned state is a snapshot for storage.
+   *
+   *  SINGLE FLIGHT: at most one respondTurn may be in flight per Mind.  The
+   *  conversation's memo caches are swapped into the Mind-level per-response
+   *  pointers for the duration of the turn, so a concurrently-running
+   *  respond()/respondTurn() on the SAME Mind would interleave state.
+   *  Different Minds (or sequential awaits, as in every test) are safe. */
   async respondTurn(
     conv: Conversation,
     turn: Input,
@@ -517,22 +621,9 @@ export class Mind implements MindContext {
     if (!data) throw new Error(`Conversation ${conv.id} not found`);
 
     const turnBytes = inputBytes(this, turn);
-    const prevLen = data.pyramid.bytes;
-
-    const prevBytes = data.bytes;
-    const newContext = prevLen > 0 ? concat2(prevBytes, turnBytes) : turnBytes;
-    data.bytes = newContext;
-
-    if (prevLen > 0) data.boundaries.push(prevLen);
-
     // Incremental perception — O(turn) instead of O(context).
-    const { tree, pyramid } = bytesToTreePyramid(
-      this.space,
-      this.alphabet,
-      newContext,
-      data.pyramid,
-    );
-    data.pyramid = pyramid;
+    const tree = this._growContext(data, turnBytes);
+    const newContext = data.bytes;
 
     // Swap in the conversation's persistent state so the inference
     // pipeline does not re-process the prefix from scratch.
@@ -547,10 +638,12 @@ export class Mind implements MindContext {
     this.climbMemo = data.climbMemo;
     this._resolvedSubtrees = data.resolvedSubtrees;
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
+    // A string turn is text by nature — carry the text equivalence, same as
+    // respond() (see _canonFor).
+    this.canon = this._canonFor(typeof turn === "string" ? textCanon : null);
+    this.canonMemo = this.canon ? new Map() : null;
 
     try {
-      this.perceiveMemo.set(latin1Key(newContext), tree);
-
       const top = this.trace?.enter("respondTurn", [
         rItem(newContext, "query"),
       ]);
@@ -570,6 +663,14 @@ export class Mind implements MindContext {
         "the answer, re-voiced in the asker's words",
       );
 
+      // The REPLY joins the accumulated context the same way a turn does
+      // ({@link addTurn}): raw byte append plus a boundary offset — never a
+      // separator.  A conversation's context is the full exchange, exactly
+      // the cumulative continuous shape multi-turn training deposits, so a
+      // later turn can refer to what was ANSWERED ("which of those two…"),
+      // not only to what was asked.
+      if (voiced.length > 0) this.addTurn(conv, voiced);
+
       return {
         response: {
           v: gistOf(this, voiced),
@@ -579,17 +680,19 @@ export class Mind implements MindContext {
         state: this.conversationState(conv)!,
       };
     } finally {
-      // Save back to the conversation for the next turn.
-      data.perceiveMemo = this.perceiveMemo;
-      data.recogniseMemo = this.recogniseMemo;
-      data.climbMemo = this.climbMemo;
-      data.resolvedSubtrees = this._resolvedSubtrees!;
-      // Clear Mind references — non-conversation respond() calls get
-      // fresh per-response memos.
+      // No save-back: the conversation's memo MAPS were mutated in place —
+      // `data.*` still points at them.  Re-assigning from the Mind-level
+      // pointers here was a no-op in the single-flight case and, under a
+      // concurrently-started respond() (which swaps its own fresh maps into
+      // those pointers), would inject a FOREIGN response's memos into this
+      // conversation.  Clear Mind references — non-conversation respond()
+      // calls get fresh per-response memos.
       this.trace = null;
       this.perceiveMemo = null;
       this.recogniseMemo = null;
       this.climbMemo = null;
+      this.canon = null;
+      this.canonMemo = null;
       this._resolvedSubtrees = null;
       this._edgeGuide = null;
       this._edgeChoice.clear();
@@ -692,6 +795,46 @@ export class Mind implements MindContext {
       },
       minParents,
     );
+  }
+
+  // ── Canonical-form index ───────────────────────────────────────────────
+
+  /** Build (or incrementally refresh) the store's canonical-form index: for
+   *  every content-bearing node, record the hash of its CANONICAL key so
+   *  resolution can find stored forms across surface variation (case, width,
+   *  whitespace — whatever `canon` equates; see src/canon.ts).
+   *
+   *  Incremental and idempotent: the last indexed node id is remembered in
+   *  store meta (`canon.upto`), so a refresh after further training scans
+   *  only the new rows.  Run once after training, and again after ingests —
+   *  the same operational shape as {@link repairContentIndex}.
+   *
+   *  @param canon  the canonicalizer to index under — MUST be the same one
+   *                queries will carry (text queries carry {@link textCanon}
+   *                unless the Mind was constructed with its own)
+   *  @returns number of index rows added */
+  async buildCanonIndex(canon?: Canon): Promise<number> {
+    const c = canon ?? this._canonFor(textCanon);
+    const store = this.store;
+    if (c === null || !store.canonAdd || !store.eachContent) return 0;
+    const from = Number(await store.getMeta("canon.upto") ?? 0);
+    let added = 0;
+    let maxId = from - 1;
+    store.eachContent((id, bytes) => {
+      if (id > maxId) maxId = id;
+      const key = c(bytes);
+      if (key.length === 0) return;
+      // Only index content whose canonical key DIFFERS from its raw bytes —
+      // an already-canonical span is found by the exact lookup (and by the
+      // fallback's own exact probe of the canonical bytes), so indexing it
+      // would only add rows.
+      if (bytesEqual(key, bytes)) return;
+      store.canonAdd!(canonHash(key), id);
+      added++;
+    }, from);
+    await store.setMeta("canon.upto", String(maxId + 1));
+    store.commit();
+    return added;
   }
 
   // ── Persistence ──────────────────────────────────────────────────────────

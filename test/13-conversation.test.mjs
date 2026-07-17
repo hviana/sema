@@ -45,15 +45,17 @@ async function teachConversation(mind, turns) {
 // ═══════════════════════════════════════════════════════════════════════
 // predictNext — given the turns spoken so far, predict the next turn.
 //
-// Uses the Conversation API: beginConversation → respondTurn for each
-// prior turn → respondTurnText for the query → endConversation.
+// Uses the Conversation API: beginConversation → addTurn for each prior
+// turn (BOTH speakers' lines are history being replayed, not questions to
+// answer — respondTurn would answer each one AND append its own reply to
+// the context) → respondTurnText for the final turn → endConversation.
 // Turns are raw strings, concatenated by the Mind — no separator.
 // ═══════════════════════════════════════════════════════════════════════
 async function predictNext(mind, priorTurns) {
   if (priorTurns.length === 0) return "";
   const conv = mind.beginConversation();
   for (let i = 0; i < priorTurns.length - 1; i++) {
-    await mind.respondTurn(conv, priorTurns[i]);
+    mind.addTurn(conv, priorTurns[i]);
   }
   const { response } = await mind.respondTurnText(
     conv,
@@ -244,8 +246,9 @@ test("E1: begin → respondTurn → end completes a single-turn conversation", a
   const conv = mind.beginConversation();
   const { response, state } = await mind.respondTurnText(conv, "hello");
   assert.equal(response, "world");
-  // Single turn — no boundaries yet.
-  assert.equal(state.boundaries.length, 0);
+  // The reply is part of the exchange: one boundary, between the turn and
+  // the appended reply.
+  assert.equal(state.boundaries.length, 1);
   mind.endConversation(conv);
   await mind.store.close();
 });
@@ -255,13 +258,15 @@ test("E2: multi-turn conversation accumulates context and boundaries", async () 
   await teachConversation(mind, CAT);
 
   const conv = mind.beginConversation();
-  // First turn establishes the subject.
-  await mind.respondTurn(conv, "I adopted a cat");
+  // First turn establishes the subject — scripted history, so it is FED
+  // (addTurn), not asked.
+  mind.addTurn(conv, "I adopted a cat");
 
   // Second turn is the pivot query.
   const t2 = await mind.respondTurnText(conv, "what is its name?");
-  // Now we have one boundary: the byte position after the first turn.
-  assert.equal(t2.state.boundaries.length, 1);
+  // Two boundaries: after the first turn, and after the pivot (the reply
+  // is part of the exchange).
+  assert.equal(t2.state.boundaries.length, 2);
   assert.equal(t2.response, "her name is Whiskers");
 
   mind.endConversation(conv);
@@ -272,28 +277,26 @@ test("E3: save → end → restore → continue works", async () => {
   const mind = newMind();
   await teachConversation(mind, CAT);
 
-  // First two turns.
+  // First two turns (context fed, pivot asked).
   const conv = mind.beginConversation();
-  await mind.respondTurn(conv, "I adopted a cat");
+  mind.addTurn(conv, "I adopted a cat");
   const { state: saved } = await mind.respondTurnText(
     conv,
     "what is its name?",
   );
-  assert.equal(saved.boundaries.length, 1);
+  assert.equal(saved.boundaries.length, 2);
 
   // Save and end.
   mind.endConversation(conv);
 
   // Restore from the saved state into a new handle.
   const conv2 = mind.beginConversation(saved);
-  const { response, state: state2 } = await mind.respondTurnText(
-    conv2,
-    "her name is Whiskers",
-  );
-  // The restored conversation continues from where it left off.
-  assert.ok(response.length > 0 || response === "");
-  // Boundaries are intact from the restore.
-  assert.equal(state2.boundaries.length, 2);
+  // Boundaries are intact from the restore, and the conversation continues
+  // from where it left off.
+  const state2 = mind.addTurn(conv2, "and she likes to nap");
+  assert.equal(state2.boundaries.length, saved.boundaries.length + 1);
+  const { response } = await mind.respondTurnText(conv2, "what is its name?");
+  assert.ok(typeof response === "string");
 
   mind.endConversation(conv2);
   await mind.store.close();
@@ -336,8 +339,8 @@ test("E7: multiple concurrent conversations are independent", async () => {
   const dogConv = mind.beginConversation();
 
   // Feed the distinguishing context to each.
-  await mind.respondTurn(catConv, "I adopted a cat");
-  await mind.respondTurn(dogConv, "I adopted a dog");
+  mind.addTurn(catConv, "I adopted a cat");
+  mind.addTurn(dogConv, "I adopted a dog");
 
   // The same pivot turn — different answers.
   const catR = await mind.respondTurnText(catConv, "what is its name?");
@@ -347,9 +350,9 @@ test("E7: multiple concurrent conversations are independent", async () => {
   assert.equal(dogR.response, "his name is Rex");
   assert.notEqual(catR.response, dogR.response);
 
-  // Each conversation has its own boundaries.
-  assert.equal(catR.state.boundaries.length, 1);
-  assert.equal(dogR.state.boundaries.length, 1);
+  // Each conversation has its own boundaries (turn|pivot, pivot|reply).
+  assert.equal(catR.state.boundaries.length, 2);
+  assert.equal(dogR.state.boundaries.length, 2);
 
   // Ending one does not affect the other.
   mind.endConversation(catConv);
@@ -384,9 +387,11 @@ test("E9: respond and respondTurn give the same answer for the same cumulative b
     "I adopted a catwhat is its name?",
   );
 
-  // Via respondTurn — the new way.
+  // Via the Conversation API — the first turn is fed (addTurn keeps the
+  // cumulative bytes identical to the raw concatenation above; respondTurn
+  // would append its own reply between the turns).
   const conv = mind.beginConversation();
-  await mind.respondTurnText(conv, "I adopted a cat");
+  mind.addTurn(conv, "I adopted a cat");
   const { response: viaConv } = await mind.respondTurnText(
     conv,
     "what is its name?",
@@ -394,5 +399,50 @@ test("E9: respond and respondTurn give the same answer for the same cumulative b
   mind.endConversation(conv);
 
   assert.equal(viaRespond, viaConv);
+  await mind.store.close();
+});
+
+test("E10: an empty turn neither grows the context nor marks a boundary", async () => {
+  const mind = newMind();
+  await teachConversation(mind, CAT);
+
+  const conv = mind.beginConversation();
+  mind.addTurn(conv, "I adopted a cat");
+  const before = mind.conversationState(conv);
+
+  // Empty turns are no turns: addTurn and respondTurn alike must leave the
+  // context bytes and the (strictly increasing) boundaries untouched.
+  const viaAdd = mind.addTurn(conv, "");
+  assert.equal(viaAdd.context.length, before.context.length);
+  assert.deepEqual(viaAdd.boundaries, before.boundaries);
+
+  // respondTurn("") answers the ACCUMULATED context (an empty turn adds no
+  // bytes and no boundary of its own) — only its reply may grow the state,
+  // through the same append+boundary path as any turn.
+  const { response: r0, state: viaTurn } = await mind.respondTurnText(
+    conv,
+    "",
+  );
+  const replyLen = new TextEncoder().encode(r0).length;
+  assert.equal(viaTurn.context.length, before.context.length + replyLen);
+  assert.equal(
+    viaTurn.boundaries.length,
+    before.boundaries.length + (replyLen > 0 ? 1 : 0),
+  );
+  for (let i = 1; i < viaTurn.boundaries.length; i++) {
+    assert.ok(viaTurn.boundaries[i] > viaTurn.boundaries[i - 1]);
+  }
+
+  // The conversation still answers afterwards — the zero-growth refold must
+  // not have corrupted the pyramid's shared raw interiors.  (The empty
+  // turn's own reply may have advanced the exchange, so the answer is
+  // asserted by content, not byte-exactly.)
+  const { response } = await mind.respondTurnText(conv, "what is its name?");
+  assert.ok(
+    response.includes("her name is Whiskers"),
+    `expected the name to surface, got ${JSON.stringify(response)}`,
+  );
+
+  mind.endConversation(conv);
   await mind.store.close();
 });

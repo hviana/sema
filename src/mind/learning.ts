@@ -7,7 +7,12 @@ import { Vec } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
 import { changedNodes } from "./types.js";
-import { inputBytes, perceive, perceiveDeposit } from "./primitives.js";
+import {
+  inputBytes,
+  perceive,
+  perceiveDeposit,
+  resolve,
+} from "./primitives.js";
 import { canonicalWindows, leafIdPrefix } from "./canonical.js";
 import { fold as foldVecs } from "../sema.js";
 
@@ -171,6 +176,38 @@ export async function ingestOne(
   return Object.assign(tree, { id: rootId });
 }
 
+/** For each right-edge suffix of the context bytes, resolve it against the
+ *  store.  A suffix whose resolved node is already a known form inherits the
+ *  continuation edge.  Gate: ≥ 2 structural parents (reused across deposits),
+ *  or (halo > 0 ∧ already an edge source).  Pure answers do not qualify. */
+async function propagateSuffixes(
+  ctx: MindContext,
+  src: number,
+  dst: number,
+): Promise<void> {
+  const W = ctx.space.maxGroup;
+  const bytes = ctx.store.bytes(src);
+  const n = bytes.length;
+  if (n < 2 * W) return;
+  // Existence prefilter — the write side of the canonical contract: every
+  // deposit interns its WHOLE byte stream as a flat branch of per-byte leaf
+  // ids (deposit(), canonical.ts).  A suffix is a stored form exactly when
+  // that flat twin exists, so one content-hash probe per offset decides;
+  // only a hit pays for resolve()'s deposit-shaped perception.  This keeps
+  // the scan free of river folds — O(1) probes over cheap byte hashes
+  // instead of O(suffix) vector folds per offset.
+  const leafIds = leafIdPrefix(ctx, bytes);
+  for (let i = 1; i <= n - W; i++) {
+    if (ctx.store.findBranch(leafIds.slice(i)) === null) continue;
+    const id = resolve(ctx, bytes.subarray(i));
+    if (id === null || id === src) continue;
+    const known = ctx.store.parentsFirst(id, 2).length >= 2 ||
+      (ctx.store.haloMass(id) > 0 && ctx.store.hasNext(id));
+    if (!known) continue;
+    await ctx.store.link(id, dst);
+  }
+}
+
 /** Ingest a pair (context, continuation) — learn an edge and pour halos. */
 export async function ingestPair(
   ctx: MindContext,
@@ -182,6 +219,7 @@ export async function ingestPair(
   const ctxId = c.rootId, contId = cont_.rootId;
 
   await ctx.store.link(ctxId, contId);
+  await propagateSuffixes(ctx, ctxId, contId);
 
   // Halos pour company SIGNATURES (identity), not gists (content) — see
   // companySignature in sema.ts.

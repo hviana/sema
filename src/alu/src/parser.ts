@@ -172,10 +172,27 @@ export class QueryParser {
       j,
       bytes: this.evalRun(query.subarray(i, j)),
     }));
-    const spans: ComputedSpan[] = runs.filter(
-      (r): r is ComputedSpan => r.bytes !== null,
-    );
-    let stream = compose(tokens, runs);
+    // BRACKETED runs — "(3 + 4) * (10 - 2)" — extend across grouping
+    // notation the flat alternation cannot cross.  The expression grammar
+    // (expr.ts) already nests and parenthesizes; this only hands it the
+    // WHOLE bracketed span instead of the fragments between brackets.  A
+    // bracketed run that evaluates ABSORBS the flat runs inside it (the
+    // authority law: contained spans are its material); one that does not
+    // evaluate leaves the flat readings untouched.
+    const bracketed = this.bracketedRuns(query, tokens)
+      .map(([i, j]) => ({ i, j, bytes: this.evalRun(query.subarray(i, j)) }))
+      .filter((r): r is ComputedSpan => r.bytes !== null);
+    const absorbed = (r: { i: number; j: number }) =>
+      bracketed.some((b) => b.i <= r.i && r.j <= b.j);
+    const composedRuns = [
+      ...runs.filter((r) => !absorbed(r)),
+      ...bracketed,
+    ].sort((a, b) => a.i - b.i);
+    const spans: ComputedSpan[] = [
+      ...runs.filter((r): r is ComputedSpan => r.bytes !== null),
+      ...bracketed,
+    ];
+    let stream = compose(tokens, composedRuns);
     const readings = new Map<Token, readonly string[]>();
     for (;;) {
       const fired = await this.operations(query, stream, readings);
@@ -298,6 +315,90 @@ export class QueryParser {
       while (end > k && tokens[end].kind === "operator") end--; // end on operand
       if (end > k) runs.push([tokens[k].i, tokens[end].j]);
       k = end + 1;
+    }
+    return runs;
+  }
+
+  /** The maximal BRACKETED arithmetic runs: like {@link arithmeticRuns} but
+   *  grouping brackets participate — an all-'(' term opens depth where an
+   *  operand is expected, a term beginning with ')' closes it where an
+   *  operator could follow (only its bracket prefix joins the run; anything
+   *  after — a trailing "?" — ends it).  A run is recorded only when it is
+   *  BALANCED, actually crossed a bracket, and contains an operator — the
+   *  bracket-free case is {@link arithmeticRuns}' own.  Evaluation is the
+   *  same registry-derived grammar, whose lexer already reads the brackets. */
+  private bracketedRuns(
+    query: Uint8Array,
+    tokens: Token[],
+  ): Array<[number, number]> {
+    const OPEN = 0x28, CLOSE = 0x29;
+    const bracketPrefix = (t: Token, b: number): number => {
+      if (t.kind !== "term") return 0;
+      let n = 0;
+      while (t.i + n < t.j && query[t.i + n] === b) n++;
+      return n;
+    };
+    const allOf = (t: Token, b: number): boolean =>
+      bracketPrefix(t, b) === t.j - t.i;
+    const bridged = (from: number, to: number): boolean =>
+      from >= to || this.host.segment(query.subarray(from, to)).length <= 1;
+    const runs: Array<[number, number]> = [];
+    let k = 0;
+    while (k < tokens.length) {
+      const first = tokens[k];
+      if (first.kind !== "operand" && !allOf(first, OPEN)) {
+        k++;
+        continue;
+      }
+      let depth = 0;
+      let ops = 0;
+      let brackets = 0;
+      let expectOperand = true;
+      let end = -1; // byte end of the last VALID run state (balanced, after operand/close)
+      let endTok = k; // token index just past the accepted prefix
+      let m = k;
+      let prevJ = -1;
+      while (m < tokens.length) {
+        const t = tokens[m];
+        if (prevJ >= 0 && !bridged(prevJ, t.i)) break;
+        if (expectOperand) {
+          if (allOf(t, OPEN)) {
+            depth += t.j - t.i;
+            brackets++;
+          } else if (t.kind === "operand") {
+            expectOperand = false;
+            if (depth === 0) {
+              end = t.j;
+              endTok = m + 1;
+            }
+          } else break;
+        } else {
+          const c = bracketPrefix(t, CLOSE);
+          if (c > 0 && depth > 0) {
+            const take = Math.min(c, depth);
+            depth -= take;
+            brackets++;
+            if (depth === 0) {
+              end = t.i + take;
+              endTok = m + 1;
+            }
+            // A term with content beyond its usable bracket prefix ("?")
+            // ends the run inside the term.
+            if (take < t.j - t.i) break;
+          } else if (t.kind === "operator") {
+            expectOperand = true;
+            ops++;
+          } else break;
+        }
+        prevJ = t.j;
+        m++;
+      }
+      if (end >= 0 && ops > 0 && brackets > 0) {
+        runs.push([first.i, end]);
+        k = endTok;
+      } else {
+        k++;
+      }
     }
     return runs;
   }

@@ -134,6 +134,18 @@ CREATE TABLE IF NOT EXISTS contain (
   id      INTEGER PRIMARY KEY,
   parents BLOB NOT NULL
 );
+-- CANONICAL-FORM index (Store.canonAdd/canonFind): h is the 32-bit hash of a
+-- node's CANONICAL content key (the modality's canonicalizer output — case-
+-- folded, whitespace-collapsed text, etc.; the store never sees the key
+-- itself, only its hash).  Same hash-then-verify discipline as idx_node_h:
+-- the caller re-canonicalizes each candidate's bytes before trusting it, so
+-- a collision costs a read, never a wrong id.  WITHOUT ROWID on (h, id):
+-- the composite key IS the lookup index and gives free dedup.
+CREATE TABLE IF NOT EXISTS canon (
+  h  INTEGER NOT NULL,
+  id INTEGER NOT NULL,
+  PRIMARY KEY (h, id)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS snapshot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   data BLOB NOT NULL
@@ -241,6 +253,10 @@ export class SQliteStore extends AbstractStore implements Store {
   private _selPrev: any = null;
   private _setMeta: any = null;
   private _getMeta: any = null;
+  private _insCanon: any = null;
+  private _selCanon: any = null;
+  private _cntCanon: any = null;
+  private _selContentFrom: any = null;
   private _delMeta: any = null;
   private _insSnapshot: any = null;
   private _selSnapshot: any = null;
@@ -988,6 +1004,58 @@ export class SQliteStore extends AbstractStore implements Store {
       );
     }
     this._delMeta.run(key);
+  }
+
+  // -- Canonical-form index (Store optional capability) --
+
+  canonAdd(h: number, id: number): void {
+    if (!this._insCanon) {
+      this._insCanon = this.sqlite!.prepare(
+        "INSERT OR IGNORE INTO canon (h, id) VALUES (?, ?)",
+      );
+    }
+    // Join the deferred write transaction (committed by flush/commit), so a
+    // bulk index build coalesces instead of paying autocommit per row.
+    this._dbBeginTx();
+    this._insCanon.run(h, id);
+  }
+
+  canonFind(h: number): number[] {
+    if (!this._selCanon) {
+      this._selCanon = this.sqlite!.prepare(
+        "SELECT id FROM canon WHERE h = ?",
+      );
+    }
+    return (this._selCanon.all(h) as Array<{ id: number }>).map((r) => r.id);
+  }
+
+  canonCount(): number {
+    if (!this._cntCanon) {
+      this._cntCanon = this.sqlite!.prepare(
+        "SELECT count(*) AS c FROM canon",
+      );
+    }
+    return (this._cntCanon.get() as { c: number }).c;
+  }
+
+  eachContent(
+    cb: (id: number, bytes: Uint8Array) => void,
+    fromId = 0,
+  ): void {
+    if (!this._selContentFrom) {
+      // Content-bearing nodes are FLAT branches: leaf present, kids an
+      // empty (zero-length) blob — the same population PART 2 of the
+      // diagnostics calls "distinct content spans".
+      this._selContentFrom = this.sqlite!.prepare(
+        "SELECT id, leaf FROM node " +
+          "WHERE id >= ? AND leaf IS NOT NULL " +
+          "AND (kids IS NULL OR length(kids) = 0)",
+      );
+    }
+    for (const row of this._selContentFrom.iterate(fromId)) {
+      const r = row as { id: number; leaf: Uint8Array };
+      cb(r.id, new Uint8Array(r.leaf));
+    }
   }
 
   // -- Snapshot --

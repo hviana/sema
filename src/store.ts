@@ -417,6 +417,33 @@ export interface Store {
    *  the node has no halo row. */
   haloMass(id: NodeId): number;
 
+  // ── canonical-form index (optional capability) ─────────────────────────
+  // A small hash index from CANONICAL content keys to node ids, enabling
+  // equivalence-class resolution ("WHAT" finds the stored "What") without
+  // the store knowing what the equivalence IS: the canonicalizer lives with
+  // the modality (see src/canon.ts) and is applied by the CALLER — the store
+  // only maps 32-bit key hashes to candidate ids, and the caller verifies
+  // canon(stored bytes) === key before trusting any candidate (the same
+  // hash-then-verify discipline as the node table's own `h` index).
+  // Backends that do not implement the capability leave all three absent;
+  // resolution then simply has no canonical fallback.
+
+  /** Record that node `id`'s canonical key hashes to `h`.  Idempotent. */
+  canonAdd?(h: number, id: NodeId): void;
+  /** All candidate node ids whose canonical key hashes to `h` (collisions
+   *  included — the caller verifies). */
+  canonFind?(h: number): NodeId[];
+  /** Number of (h, id) rows in the canon index — 0 means never built. */
+  canonCount?(): number;
+  /** Visit every content-bearing node (flat branch: `leaf` present, no
+   *  kids) — the population a canonical index is built over.  `fromId`
+   *  restricts the scan to ids ≥ fromId, so an index refresh after further
+   *  training only visits the new rows. */
+  eachContent?(
+    cb: (id: NodeId, bytes: Uint8Array) => void,
+    fromId?: NodeId,
+  ): void;
+
   // ── lifecycle ──────────────────────────────────────────────────────────
   size(): Promise<number>;
   saveSnapshot(bytes: Uint8Array): Promise<void>;

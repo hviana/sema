@@ -345,9 +345,24 @@ export async function counterfactualTransfer(
   // corrupted-store read now falls back here instead of voicing a hollow
   // seat into the comparison — the same "empty bytes are no grounding"
   // invariant project() has always enforced.
-  const seatOfNode = (id: number, fallback: Uint8Array): Uint8Array =>
-    reverseContext(ctx, id, qv) ?? fallback;
-  const seatOf = (p: Point): Uint8Array => seatOfNode(p.anchor, p.ctx);
+  // A node that only ever CONTINUES — an edge SOURCE with no predecessor —
+  // is a learnt CONTEXT (a stored question-shaped frame), not an entity.
+  // Voicing it verbatim answers a question with a question (the observed
+  // cast echo: two stored questions concatenated as an "answer").  The
+  // context's role is established by what it LEADS TO, so its seat is its
+  // own continuation — the fact — with the reverse projection and the raw
+  // bytes as the ordinary fallbacks for genuine entities.
+  const seatOfNode = async (
+    id: number,
+    fallback: Uint8Array,
+  ): Promise<Uint8Array> => {
+    if (ctx.store.prevCount(id) === 0 && ctx.store.hasNext(id)) {
+      const fwd = await follow(ctx, id, qv);
+      if (fwd !== null) return fwd;
+    }
+    return reverseContext(ctx, id, qv) ?? fallback;
+  };
+  const seatOf = (p: Point): Promise<Uint8Array> => seatOfNode(p.anchor, p.ctx);
   interface AnalogCandidate {
     anchor: number;
     /** The point this candidate came from, or null when it is a nextOf
@@ -494,10 +509,10 @@ export async function counterfactualTransfer(
       [],
       "the two structures keep distributional company beyond chance — genuine analogs",
     );
-    const a = seatOf(dominant);
+    const a = await seatOf(dominant);
     const b = bestAnalog.point !== null
-      ? seatOf(bestAnalog.point)
-      : seatOfNode(bestAnalog.anchor, read(ctx, bestAnalog.anchor));
+      ? await seatOf(bestAnalog.point)
+      : await seatOfNode(bestAnalog.anchor, read(ctx, bestAnalog.anchor));
     const answer = await joinWithBridge(ctx, a, b);
     record(
       answer,

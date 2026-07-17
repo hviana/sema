@@ -460,6 +460,18 @@ export function bytesToTreePyramid(
       pyramid: { levels: [], bytes: 0 },
     };
   }
+  // ZERO GROWTH: the previous pyramid already covers every byte — its top
+  // level holds the finished, normalized root.  Refolding here would not
+  // only waste the work: when the whole span is one full block, the refold's
+  // top item is a REUSED raw interior of `prev`, and the final normalize
+  // below would mutate that shared raw block in place, corrupting every
+  // later incremental fold built on `prev`.
+  if (prev && prev.bytes === bytes.length && prev.levels.length > 0) {
+    return {
+      tree: prev.levels[prev.levels.length - 1][0].tree,
+      pyramid: prev,
+    };
+  }
   const mg = space.maxGroup;
   const reusable = (L: number): ReadonlyArray<Folded> | null => {
     // prev's TOPMOST level holds its normalized ROOT — reusable blocks must

@@ -8,6 +8,7 @@ import { rItem } from "./trace.js";
 
 import type { MindContext, Recognition, Segment } from "./types.js";
 import {
+  canonResolve,
   foldTree,
   gistOf,
   latin1Key,
@@ -96,6 +97,15 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       leaves.push({ start, end, bytes: n.leaf ?? new Uint8Array(0), node });
     }
     if (node !== null) emit(start, end, node);
+    // Canonical fallback: a subtree whose exact content-addressed lookup
+    // missed may still be a stored form under the response's equivalence
+    // (case, width, whitespace — whatever the injected canonicalizer says).
+    // O(subtree bytes) per miss, memoised per response; a no-op when no
+    // canonicalizer was injected or the store has no canon index.
+    else if (end - start >= 2) {
+      const cid = canonResolve(ctx, bytes.subarray(start, end));
+      if (cid !== null) emit(start, end, cid);
+    }
     if (isChunk(n)) {
       starts.add(start);
       // Try every sub-span within this leaf-parent.

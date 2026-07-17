@@ -144,6 +144,16 @@ export interface MindContext extends GraphSearchHost {
   cfg: MindConfig;
   search: GraphSearch;
   trace: Rationale | null;
+  /** The content canonicalizer for THIS response, or null — injected by the
+   *  modality entry point (respondText passes the text canonicalizer; a
+   *  binary respond passes none).  Resolution uses it as a fallback: when
+   *  the exact content-addressed lookup misses, the span's canonical key is
+   *  probed against the store's canon index (see src/canon.ts).  The core
+   *  never inspects what the equivalence IS. */
+  canon: ((bytes: Uint8Array) => Uint8Array) | null;
+  /** Per-response memo of canonical-fallback resolutions, keyed by the
+   *  span's latin1 content key.  Null outside respond(). */
+  canonMemo: Map<string, number | null> | null;
   /** Memo of the consensus climb — content-keyed (latin1) so results
    *  persist across conversation turns where the same byte spans recur.
    *  Null outside respond(); during respondTurn() the conversation's

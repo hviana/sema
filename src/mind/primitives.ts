@@ -14,6 +14,8 @@ import {
   hilbertBytes,
   stackGrids,
 } from "../geometry.js";
+import { canonHash } from "../canon.js";
+import { bytesEqual } from "../bytes.js";
 import { ALL } from "./types.js";
 import type { Input, MindContext } from "./types.js";
 
@@ -199,7 +201,70 @@ export function foldTree(
  *  unknown. */
 export function resolve(ctx: MindContext, bytes: Uint8Array): number | null {
   if (bytes.length === 0) return null;
-  return foldTree(ctx, perceive(ctx, bytes), 0).node;
+  const exact = foldTree(ctx, perceive(ctx, bytes), 0).node;
+  if (exact !== null) return exact;
+  return canonResolve(ctx, bytes);
+}
+
+/** Equivalence-class resolution: when the exact content-addressed lookup
+ *  misses, find a stored node whose CANONICAL key equals the span's — the
+ *  store's canon index proposes candidates by key hash, and each is verified
+ *  by re-canonicalizing its bytes (hash-then-verify, like every content
+ *  lookup).  Among verified candidates, one that leads somewhere (has a
+ *  continuation edge) is preferred; ties break to the lowest id — a corpus
+ *  property, not a seed property.  Null when the response carries no
+ *  canonicalizer, the store has no canon index, or nothing verifies. */
+export function canonResolve(
+  ctx: MindContext,
+  bytes: Uint8Array,
+): number | null {
+  const canon = ctx.canon;
+  const store = ctx.store;
+  if (canon === null || !store.canonFind) return null;
+  if (bytes.length < 2) return null;
+  const memo = ctx.canonMemo;
+  const memoKey = memo ? latin1Key(bytes) : "";
+  if (memo) {
+    const hit = memo.get(memoKey);
+    if (hit !== undefined) return hit;
+  }
+  const set = (v: number | null): number | null => {
+    memo?.set(memoKey, v);
+    return v;
+  };
+  const key = canon(bytes);
+  if (key.length === 0) return set(null);
+  // A stored form that IS canonical is not in the index (buildCanonIndex
+  // skips identity rows) — the exact content-addressed lookup of the
+  // canonical bytes finds it directly.
+  if (key.length !== bytes.length || !bytesEqual(key, bytes)) {
+    const direct = foldTree(ctx, perceive(ctx, key), 0).node;
+    if (direct !== null) return set(direct);
+  }
+  const candidates = store.canonFind(canonHash(key));
+  if (candidates.length === 0) return set(null);
+  let best: number | null = null;
+  let bestLeads = false;
+  for (const id of candidates) {
+    const bytesOf = read(ctx, id);
+    const stored = canon(bytesOf);
+    if (stored.length !== key.length || !bytesEqual(stored, key)) continue;
+    // The index stores FLAT content twins; the id the exact path would have
+    // resolved for these bytes is their FOLD — the deposit-shaped node that
+    // carries the edges and halos.  Re-folding the candidate's bytes lands
+    // on exactly the node the canonical-case query would have found.
+    const folded = foldTree(ctx, perceive(ctx, bytesOf), 0).node;
+    const use = folded ?? id;
+    const leads = store.hasNext(use) || store.haloMass(use) > 0;
+    if (
+      best === null || (leads && !bestLeads) ||
+      (leads === bestLeads && use < best)
+    ) {
+      best = use;
+      bestLeads = leads;
+    }
+  }
+  return set(best);
 }
 
 /** Walk a perceived tree in POST-ORDER with byte offsets — children before

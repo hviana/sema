@@ -446,8 +446,10 @@ export async function follow(
  *  `guide` the context whose gist resonates with the query wins (seat
  *  symmetry) — without one, the most-corroborated context wins (poured halo
  *  MASS, the direct measure of how many episodes established it), falling
- *  back to first-learnt on equal mass.  Callers that HAVE a query gist must
- *  pass it, or they silently change disambiguation regime.
+ *  back to first-learnt on equal mass.  Among many predecessors RECIPROCAL
+ *  ones (mutual edges) are preferred when any exist (RC5).  Callers that
+ *  HAVE a query gist must pass it, or they silently change disambiguation
+ *  regime.
  *
  *  `rev`, when the caller has already materialised prevOf (one read per
  *  relation — a hub's reverse fan-in is corpus-sized), is reused instead of
@@ -466,11 +468,32 @@ export function reverseContext(
   // keeps the single-predecessor shortcut exact.
   const candidates = rev ?? ctx.store.prevFirst(id, hubBound(ctx));
   if (candidates.length === 0) return null;
-  const pick = candidates.length === 1
-    ? candidates[0]
+  // RECIPROCAL PREFERENCE: among many predecessors, one that `id` also
+  // continues TO (cand → id AND id → cand both learnt) is a mutually
+  // established pairing — the strongest structural evidence a predecessor
+  // can carry (bidirectional training deposits both directions of a genuine
+  // pair).  A bare predecessor is one episode's adjacency; guide-resonance
+  // over bare predecessors favours whichever stored document merely
+  // CONTAINS the query's bytes (the linear fold's cosine is byte overlap —
+  // the observed "merci → unrelated French document" failure).  One capped
+  // forward read decides; when no reciprocal exists, behaviour is unchanged
+  // — bare predecessors ARE the honest answer for a shared deposited
+  // continuation (two questions → one answer; audited by 31-audit C1), and
+  // this arm serves every mechanism's reverse projection, so abstaining
+  // here starves far more than the one containment failure it would fix.
+  let pool: readonly number[] = candidates;
+  if (candidates.length > 1) {
+    const fwd = new Set(ctx.store.nextFirst(id, hubBound(ctx)));
+    if (fwd.size > 0) {
+      const mutual = candidates.filter((c) => fwd.has(c));
+      if (mutual.length > 0) pool = mutual;
+    }
+  }
+  const pick = pool.length === 1
+    ? pool[0]
     : guide
-    ? chooseAmong(ctx, candidates, guide).id
-    : pickByMass(ctx, candidates);
+    ? chooseAmong(ctx, pool, guide).id
+    : pickByMass(ctx, pool);
   const g = read(ctx, pick);
   return g.length > 0 ? g : null;
 }
