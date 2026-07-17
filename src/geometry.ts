@@ -314,16 +314,31 @@ export function knownPrefixLength(
 /** Bytes → Sema tree.  `leafAt` and `lookup` are store capabilities for
  *  detecting previously-stored prefixes so the river can split at the
  *  correct boundary.  Pass them through from `perceive`; the geometry
- *  computes the stable prefix internally. */
+ *  computes the stable prefix internally.
+ *
+ *  `boundaries` is the CALLER-computed stable-prefix boundary set (§10.3):
+ *  strictly-increasing proper byte offsets, each the length of a prefix that
+ *  is already a stored whole-stream form.  When given, the fold splits into
+ *  the segments between consecutive boundaries — each folded independently,
+ *  exactly as it folded when it was learned — and the segment roots join
+ *  LEFT-NESTED (((s₀·s₁)·s₂)…), so every learnt cumulative-context root
+ *  reappears as an identical subtree (and, by hash-consing, the very same
+ *  node) inside the grown stream.  This is what lets a conversation's next
+ *  turn extend perception instead of refolding it: identical prefixes
+ *  produce identical subtrees regardless of what follows them. */
 export function bytesToTree(
   space: Space,
   alphabet: Alphabet,
   bytes: Uint8Array,
   leafAt?: (i: number) => number | null,
   lookup?: (leafIds: number[]) => number | null,
+  boundaries?: readonly number[],
 ): Sema {
   if (bytes.length === 0) {
     return sema(alphabet.vecs[0], new Uint8Array(0), null);
+  }
+  if (boundaries !== undefined && boundaries.length > 0) {
+    return stablePrefixFold(space, alphabet, bytes, boundaries);
   }
   const sb = (leafAt && lookup) ? knownPrefixLength(bytes, leafAt, lookup) : 0;
   return riverFold(
@@ -331,6 +346,83 @@ export function bytesToTree(
     bytesToLeaves(alphabet, bytes),
     sb > 0 ? sb : bytes.length,
   ).tree;
+}
+
+/** The stable-prefix segmented fold (§10.3).  Each segment between
+ *  consecutive boundaries folds PLAINLY and independently; segment roots
+ *  join left-nested, and only the final root is normalized (the linear-fold
+ *  contract: one normalize per perception).  A segment's own inner splits
+ *  need no recursion here: a nested learnt prefix is itself an earlier
+ *  boundary, so the left-nested join reproduces every intermediate learnt
+ *  root ((s₀·s₁) IS the root the store learnt for the first two segments'
+ *  bytes, and so on). */
+function stablePrefixFold(
+  space: Space,
+  alphabet: Alphabet,
+  bytes: Uint8Array,
+  boundaries: readonly number[],
+): Sema {
+  const cuts: number[] = [];
+  let prev = 0;
+  for (const b of boundaries) {
+    if (b > prev && b < bytes.length) {
+      cuts.push(b);
+      prev = b;
+    }
+  }
+  if (cuts.length === 0) {
+    return riverFold(space, bytesToLeaves(alphabet, bytes), bytes.length).tree;
+  }
+  const edges = [0, ...cuts, bytes.length];
+  const segs: Folded[] = [];
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const seg = bytes.subarray(edges[i], edges[i + 1]);
+    segs.push(riverFoldRaw(space, bytesToLeaves(alphabet, seg)));
+  }
+  let cur = segs[0];
+  for (let i = 1; i < segs.length; i++) cur = fold2(space, cur, segs[i]);
+  normalize(cur.tree.v);
+  return cur.tree;
+}
+
+/** Join two folded items as one 2-kid branch — the top-level join of the
+ *  stable-prefix fold, identical FP ops to foldSlice's seat-bound
+ *  accumulation over a group of two.  Unnormalized (interior). */
+function fold2(space: Space, a: Folded, b: Folded): Folded {
+  const D = space.D;
+  const gist = new Float32Array(D);
+  const kids = [a.tree, b.tree];
+  for (let k = 0; k < 2; k++) {
+    const seat = space.seats[k].fwd;
+    const v = kids[k].v;
+    for (let d = 0; d < D; d++) gist[d] += v[seat[d]];
+  }
+  return { tree: sema(gist, null, kids), len: a.len + b.len };
+}
+
+/** Plain river fold WITHOUT the final root normalize — the segment-level
+ *  building block of {@link stablePrefixFold} (interiors must keep their
+ *  byte-proportional magnitude; only the whole perception's root is ever
+ *  normalized). */
+function riverFoldRaw(space: Space, row: Folded[]): Folded {
+  if (row.length === 0) {
+    const z = new Float32Array(space.D);
+    return { tree: sema(z, new Uint8Array(0), null), len: 0 };
+  }
+  if (row.length === 1) return row[0];
+  let level = row;
+  while (level.length > 1) {
+    const next: Folded[] = [];
+    foldSlice(space, level, 0, level.length, next, false);
+    if (next.length === level.length) {
+      const forced: Folded[] = [];
+      foldSlice(space, next, 0, next.length, forced, true);
+      level = forced;
+    } else {
+      level = next;
+    }
+  }
+  return level[0];
 }
 
 // ---- pyramid fold (incremental plain perception) ----

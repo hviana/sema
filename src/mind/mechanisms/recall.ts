@@ -168,8 +168,21 @@ export async function recallByResonance(
   // long answer sharing only scaffolding pass; the query-relative fraction
   // measures exactly what the reach bar means: how much of THE QUERY the
   // store accounts for.
+  // Chance similarity survives the length conversion AMPLIFIED: the same
+  // √(lenG/lenQ) factor that converts an honest shared fraction into a
+  // query-relative one multiplies the estimator/chance floor too, so a long
+  // stored form (√(lenG/lenQ) ≈ 10 at 100×) lifted a noise-level cosine past
+  // the reach bar and grounded pure gibberish (observed).  Only the
+  // ABOVE-CHANCE part of the similarity is evidence of shared content —
+  // subtract the significance bar (3/√D, §8.3) before converting.  Derived
+  // from the existing bars; never tuned.
+  const sig = significanceBar(ctx.store.D);
   const fracOfQuery = (cos: number, otherLen: number): number =>
-    Math.min(1, cos * Math.sqrt(otherLen / Math.max(1, query.length)));
+    Math.min(
+      1,
+      Math.max(0, cos - sig) *
+        Math.sqrt(otherLen / Math.max(1, query.length)),
+    );
   for (const h of whole) {
     const g = await project(ctx, h.id, queryGist);
     if (g) {
@@ -186,18 +199,21 @@ export async function recallByResonance(
       }
     }
   }
-  // The refusal/echo decision, in the same query-relative units — the top
-  // hit's magnitude read from the store (contentLen: √bytes IS the linear
-  // fold's gist norm), never from re-reading its bytes.
-  // The magnitude read SATURATES at the decision point: frac reaches the
-  // reach bar exactly when lenH = lenQ·(reach/score)², so the walk never
-  // needs to see past that — a huge conversation root costs a capped read,
-  // and a clamped return decides "pass" identically (frac ≥ reach).
+  // The refusal/echo decision.  The echo returns a stored form's bytes AS
+  // the answer — a near-identity claim about the query — and identity-grade
+  // decisions are never made on an estimated score ("approximate scores may
+  // rank and propose; they may never decide", §6.2): the RaBitQ estimate
+  // overshooting the reach bar echoed a WRONG-entity neighbour ("capital of
+  // Zamunda?" echoed the Armenia fact, observed).  The bytes are read
+  // anyway to be echoed, so the decision uses their EXACT fold: one river
+  // fold of the top hit, measured in the same query-relative,
+  // chance-corrected units as the tier above.
   const reach = reachThreshold(ctx.space.maxGroup);
-  const lenCap = Math.ceil(
-    query.length * (reach / Math.max(top.score, 1e-6)) ** 2,
-  ) + 1;
-  if (fracOfQuery(top.score, ctx.store.contentLen(top.id, lenCap)) < reach) {
+  const topBytes = read(ctx, top.id);
+  const exact = topBytes.length > 0
+    ? cosine(queryGist, gistOf(ctx, topBytes))
+    : 0;
+  if (fracOfQuery(exact, topBytes.length) < reach) {
     return ground(
       null,
       "below reach threshold — nothing in the store relates to this query",
@@ -207,7 +223,7 @@ export async function recallByResonance(
   }
   // Honest echo.
   return ground(
-    read(ctx, top.id),
+    topBytes,
     "last resort: the nearest resonant form's own bytes (echo, not grounded)",
     [],
     0,

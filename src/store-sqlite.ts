@@ -1048,6 +1048,10 @@ export class SQliteStore extends AbstractStore implements Store {
     return this.content ? this.content.physicalSize : 0;
   }
 
+  protected _vecContentClusterCount(): number {
+    return this.content ? this.content.clusterCount : 0;
+  }
+
   protected _vecContentCompact(): void {
     this.content!.compact();
   }
@@ -1097,6 +1101,10 @@ export class SQliteStore extends AbstractStore implements Store {
 
   protected _vecHaloPhysicalSize(): number {
     return this.halos ? this.halos.physicalSize : 0;
+  }
+
+  protected _vecHaloClusterCount(): number {
+    return this.halos ? this.halos.clusterCount : 0;
   }
 
   protected _vecHaloCompact(): void {

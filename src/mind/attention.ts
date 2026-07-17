@@ -27,7 +27,7 @@ import type {
   SaturationInfo,
 } from "./types.js";
 import { consensusFloor, dominates, estimatorNoise } from "../geometry.js";
-import { foldTree, gistOf, perceive, read } from "./primitives.js";
+import { foldTree, gistOf, latin1Key, perceive, read } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { leafIdRun } from "./canonical.js";
 import { corpusN, edgeAncestors } from "./traverse.js";
@@ -65,14 +65,19 @@ export async function climbAttentionAll(
   k: number,
   mode: DFMode = "inverse",
 ): Promise<AttentionRead> {
+  // Content-keyed memo — works for both single-turn respond() and multi-turn
+  // respondTurn().  Skipped while tracing.
   if (ctx.climbMemo && !ctx.trace) {
-    const key = `${k}:${mode}`;
-    let byRead = ctx.climbMemo.get(query);
-    if (byRead === undefined) ctx.climbMemo.set(query, byRead = new Map());
-    const hit = byRead.get(key);
+    const contentKey = latin1Key(query);
+    const modeKey = `${k}:${mode}`;
+    let byRead = ctx.climbMemo.get(contentKey);
+    if (byRead === undefined) {
+      ctx.climbMemo.set(contentKey, byRead = new Map());
+    }
+    const hit = byRead.get(modeKey);
     if (hit !== undefined) return hit;
     const read = await computeAttention(ctx, query, k, mode);
-    byRead.set(key, read);
+    byRead.set(modeKey, read);
     return read;
   }
   return computeAttention(ctx, query, k, mode);

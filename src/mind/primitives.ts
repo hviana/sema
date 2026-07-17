@@ -4,8 +4,7 @@
 //   Read     — node → bytes   (read)
 
 import { Vec } from "../vec.js";
-import { Sema, Space } from "../sema.js";
-import { Alphabet } from "../alphabet.js";
+import { Sema } from "../sema.js";
 import {
   bytesToTree,
   bytesToTreePyramid,
@@ -24,7 +23,7 @@ import type { Input, MindContext } from "./types.js";
  *  collision-free encoding.  Spans on the perception path are query-scale
  *  (windows, regions, candidate spans), so key construction is far cheaper
  *  than the river fold it deduplicates. */
-function latin1Key(bytes: Uint8Array): string {
+export function latin1Key(bytes: Uint8Array): string {
   // Batched String.fromCharCode — avoids the O(n²) cost of repeated += on
   // potentially-large query spans, and stays well under the ~65536 arg limit.
   const n = bytes.length;
@@ -36,12 +35,19 @@ function latin1Key(bytes: Uint8Array): string {
 }
 
 /** Perceive input into a content-defined tree (the river fold).
- *  Deterministic — identical bytes always produce an identical tree. */
+ *  Deterministic — identical bytes always produce an identical tree.
+ *
+ *  `boundaries` is an optional sorted list of proper byte offsets where the
+ *  fold must split so that each prefix segment folds identically to how it
+ *  folded when it was learned (§10.3 stable-prefix contract).  Only the
+ *  CALLER — who assembled the multi-turn context — knows where those
+ *  boundaries are; the geometry never guesses them from the bytes. */
 export function perceive(
   ctx: MindContext,
   input: Input,
   leafAt?: (i: number) => number | null,
   lookup?: (ids: number[]) => number | null,
+  boundaries?: readonly number[],
 ): Sema {
   if (typeof input === "string" || input instanceof Uint8Array) {
     const bytes = typeof input === "string"
@@ -57,11 +63,25 @@ export function perceive(
         const key = latin1Key(bytes);
         const hit = memo.get(key);
         if (hit !== undefined) return hit;
-        const tree = bytesToTree(ctx.space, ctx.alphabet, bytes);
+        const tree = bytesToTree(
+          ctx.space,
+          ctx.alphabet,
+          bytes,
+          undefined,
+          undefined,
+          boundaries,
+        );
         memo.set(key, tree);
         return tree;
       }
-      return bytesToTree(ctx.space, ctx.alphabet, bytes);
+      return bytesToTree(
+        ctx.space,
+        ctx.alphabet,
+        bytes,
+        undefined,
+        undefined,
+        boundaries,
+      );
     }
     return bytesToTree(ctx.space, ctx.alphabet, bytes, leafAt, lookup);
   }
@@ -136,11 +156,25 @@ export function foldTree(
   start: number,
   visit?: (n: Sema, start: number, end: number, node: number | null) => void,
 ): { end: number; node: number | null } {
+  // Fast path: subtree already resolved (from a previous conversation turn
+  // or an earlier recognition pass).  The pyramid reuses prefix subtrees as
+  // identical Sema objects, so this cache turns foldTree into O(suffix)
+  // instead of O(context) for multi-turn recognition.
+  const cached = ctx._resolvedSubtrees?.get(n);
+  if (cached !== undefined) {
+    const end = start + cached.len;
+    visit?.(n, start, end, cached.id);
+    return { end, node: cached.id };
+  }
+
   if (n.kids === null) {
     const b = n.leaf ?? new Uint8Array(0);
     const end = start + b.length;
     const node = ctx.store.findLeaf(b);
     visit?.(n, start, end, node);
+    if (node !== null && ctx._resolvedSubtrees) {
+      ctx._resolvedSubtrees.set(n, { id: node, len: b.length });
+    }
     return { end, node };
   }
   let pos = start;
@@ -154,6 +188,9 @@ export function foldTree(
   }
   const node = known ? ctx.store.findBranch(kids) : null;
   visit?.(n, start, pos, node);
+  if (node !== null && ctx._resolvedSubtrees) {
+    ctx._resolvedSubtrees.set(n, { id: node, len: pos - start });
+  }
   return { end: pos, node };
 }
 

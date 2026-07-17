@@ -7,8 +7,14 @@
 import { rItem } from "./trace.js";
 
 import type { MindContext, Recognition, Segment } from "./types.js";
-import { foldTree, gistOf, perceive, resolve } from "./primitives.js";
-import { leadsSomewhere } from "./traverse.js";
+import {
+  foldTree,
+  gistOf,
+  latin1Key,
+  perceive,
+  resolve,
+} from "./primitives.js";
+import { atomIsHub, corpusN, leadsSomewhere } from "./traverse.js";
 import { chainReach, leafIdAt } from "./canonical.js";
 import { isChunk, type Sema } from "../sema.js";
 import type { Leaf, Site } from "./graph-search.js";
@@ -26,15 +32,15 @@ import type { Leaf, Site } from "./graph-search.js";
  *
  *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus. */
 export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
-  // Per-response memo (see MindContext.recogniseMemo): think, articulate and
-  // the pre-consume pass all recognise the same byte objects; each repeat is
-  // O(n·maxGroup²) store probes.  Skipped while tracing so every call still
-  // emits its rationale step.
+  // Content-keyed memo — works for both single-turn respond() and multi-turn
+  // respondTurn() (where the map persists across calls).  Skipped while
+  // tracing so every call still emits its rationale step.
   if (ctx.recogniseMemo && !ctx.trace) {
-    const hit = ctx.recogniseMemo.get(bytes);
+    const key = latin1Key(bytes);
+    const hit = ctx.recogniseMemo.get(key);
     if (hit !== undefined) return hit;
     const fresh = recogniseImpl(ctx, bytes);
-    ctx.recogniseMemo.set(bytes, fresh);
+    ctx.recogniseMemo.set(key, fresh);
     return fresh;
   }
   return recogniseImpl(ctx, bytes);
@@ -64,7 +70,19 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     return id;
   };
 
+  // Byte atoms (implicit negative-id single-byte leaves) are admitted as
+  // recognised sites only while atoms can still DISCRIMINATE at this corpus
+  // scale (see {@link atomIsHub}).  On a small store a single-letter fact
+  // ("a" → "A") is genuine learnt content and its site is essential; on a
+  // large one every letter of every query would otherwise become a
+  // "recognised form" — the bridge then finds junction connectors between
+  // bare letters, cover follows edges hanging off them, and pure noise
+  // ("qq8f3kz9…") grounds to an arbitrary learnt sentence instead of
+  // silence.  Atoms stay available as leaves (PASS-carried literals) and
+  // through exact tier-0 resolution regardless.
+  const atomsAreHubs = atomIsHub(ctx, corpusN(ctx));
   const emit = (start: number, end: number, id: number) => {
+    if (id < 0 && atomsAreHubs) return;
     if (leadsSomewhere(ctx, id)) {
       sites.push({ start, end, payload: id });
     }

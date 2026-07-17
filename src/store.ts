@@ -724,6 +724,7 @@ export abstract class AbstractStore implements Store {
   protected abstract _vecContentSize(): number;
   protected abstract _vecContentLastReads(): number;
   protected abstract _vecContentPhysicalSize(): number;
+  protected abstract _vecContentClusterCount(): number;
   protected abstract _vecContentCompact(): void;
   /** Live content-index entries whose INTERNAL id is > `after`, as
    *  {ext, internal} pairs in internal-id order.  Internal ids are monotone
@@ -759,7 +760,23 @@ export abstract class AbstractStore implements Store {
    *  the tombstone-ratio compaction trigger compares physical size against. */
   protected abstract _vecHaloSize(): number;
   protected abstract _vecHaloPhysicalSize(): number;
+  protected abstract _vecHaloClusterCount(): number;
   protected abstract _vecHaloCompact(): void;
+
+  /** Derived query breadth for a partitioned index of C clusters: probe √C
+   *  of them (the same √-of-the-population convention as the hub bound √N).
+   *  The IVF maps ef → nprobe as ceil(ef/4), so ef = 4·⌈√C⌉ probes exactly
+   *  ⌈√C⌉ clusters.  A FIXED efSearch stops scaling the moment the
+   *  collection outgrows it: at 4,270 clusters the default 64 probed 16
+   *  clusters (0.4%), and an exact stored match of a query routinely sat in
+   *  an unprobed cluster — recall silently degraded as the store grew.  The
+   *  configured efSearch remains the floor for small collections. */
+  protected efFor(clusterCount: number): number {
+    return Math.max(
+      this.efSearch,
+      4 * Math.ceil(Math.sqrt(Math.max(1, clusterCount))),
+    );
+  }
 
   // ── Config ─────────────────────────────────────────────────────────────
 
@@ -1615,7 +1632,7 @@ export abstract class AbstractStore implements Store {
     const results = this._vecContentQuery(
       normalize(copy(v)),
       k * this.overfetch,
-      this.efSearch,
+      this.efFor(this._vecContentClusterCount()),
     );
     const out: Hit[] = [];
     for (const r of results) {
@@ -1966,7 +1983,7 @@ export abstract class AbstractStore implements Store {
     const results = this._vecHaloQuery(
       normalize(copy(v)),
       k * this.overfetch,
-      this.efSearch,
+      this.efFor(this._vecHaloClusterCount()),
     );
     const out: Hit[] = [];
     for (const r of results) {

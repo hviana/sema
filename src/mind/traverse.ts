@@ -115,6 +115,30 @@ export function edgeAncestors(
   const hit = memo?.get(id);
   if (hit !== undefined) return hit;
 
+  // BYTE-ATOM COMMONALITY.  A single-byte leaf (implicit negative id) has no
+  // structural parents BY CONSTRUCTION — atoms are never linked into the kid
+  // or contain tables — so this climb cannot observe its containment at all.
+  // The walk below would see only the atom's own direct edges and report
+  // contextsReached ≈ 1, turning the MOST common content in the store into
+  // the MOST discriminative voter (observed on a 325K-context store: every
+  // recognised single-letter site voted full ln N for the one fact whose
+  // continuation is that letter, and their pooled sum out-voted every
+  // genuine anchor).  An unmeasurable containment must not default to
+  // "maximally rare": it is bounded below by the uniform expectation over
+  // the byte alphabet — N contexts, each at least one chunk of up to W of
+  // the 256 possible atoms, reach ≥ N·W/256 contexts per atom on average
+  // (see {@link atomReach}).  When that floor itself exceeds the hub bound
+  // √N the atom is a hub at this corpus scale and the climb abstains
+  // (saturated) — the atom's own edges remain fully traversable (tier-0
+  // exact recall, chooseNext, project); only its say as a consensus voter
+  // is withdrawn.  On a small store the floor stays ≤ √N and the atom
+  // climbs exactly as before, so single-letter facts keep working.
+  if (id < 0 && atomIsHub(ctx, contextCount)) {
+    const reach = { roots: [], contextsReached: 0, saturated: true };
+    memo?.set(id, reach);
+    return reach;
+  }
+
   const bound = Math.ceil(Math.sqrt(contextCount));
   const roots: number[] = [];
   const seen = new Set<number>([id]);
@@ -255,6 +279,29 @@ export function nextOf(ctx: MindContext, id: number): number[] {
 /** Convenience: reverse edges of a node. */
 export function prevOf(ctx: MindContext, id: number): number[] {
   return ctx.store.prev(id);
+}
+
+/** The uniform-expectation floor on a byte atom's corpus commonality: N
+ *  learnt contexts, each at least one perception chunk of up to W of the 256
+ *  possible byte values, contain a given atom in ≥ N·W/256 contexts on
+ *  average.  An atom's TRUE containment is unmeasurable (atoms carry no
+ *  kid/contain links by construction), so this floor is the honest stand-in:
+ *  derived entirely from the corpus scale N, the perception window W, and
+ *  the alphabet size — never tuned. */
+export function atomReach(ctx: MindContext, contextCount: number): number {
+  return Math.max(
+    1,
+    Math.ceil((contextCount * ctx.space.maxGroup) / 256),
+  );
+}
+
+/** Whether a byte atom is a hub at this corpus scale — its commonality floor
+ *  {@link atomReach} exceeds the hub bound √N.  Below it (small stores) an
+ *  atom votes and is recognised exactly as any stored form; above it the
+ *  alphabet is scaffolding everywhere and abstains. */
+export function atomIsHub(ctx: MindContext, contextCount: number): boolean {
+  return atomReach(ctx, contextCount) >
+    Math.ceil(Math.sqrt(Math.max(2, contextCount)));
 }
 
 /** Whether a node LEADS SOMEWHERE — it bears a continuation edge or a halo.

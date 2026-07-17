@@ -144,28 +144,27 @@ export interface MindContext extends GraphSearchHost {
   cfg: MindConfig;
   search: GraphSearch;
   trace: Rationale | null;
-  climbMemo: WeakMap<Uint8Array, Map<string, AttentionRead>> | null;
-  /** Per-response memo of {@link recognise} keyed by the byte-array OBJECT
-   *  (think, articulate, and the post-grounding pre-consume all recognise the
-   *  same query/answer objects).  Valid because the store is read-only while
-   *  a response is in flight; bypassed when a trace is attached so every
-   *  recognise still emits its rationale step.  Null outside respond(). */
-  recogniseMemo: WeakMap<Uint8Array, Recognition> | null;
-  /** Per-response memo of {@link perceive} keyed by the byte-array OBJECT —
-   *  the GENERAL memo the result-level ones (recogniseMemo, climbMemo,
-   *  _gistCache) each partially compensate for: resolve(), gistOf(), and
-   *  every mechanism's re-perception of the same query/answer object hit it
-   *  (a reason hop used to fold the same answer three times).  Valid because
-   *  the store is read-only while a response is in flight and perception is
-   *  a pure function of bytes; only inference-shaped calls (plain Uint8Array,
-   *  no leafAt/lookup capabilities) are memoised, so the deposit path never
-   *  sees it.  Keyed by CONTENT (latin1 of the bytes), not object identity —
-   *  mechanisms materialise the same span in fresh subarrays constantly
-   *  (measured on a trained store: 46% of one response's perceptions were
-   *  byte-identical repeats an identity key missed).  NOT bypassed under
-   *  trace — perception emits no rationale steps, so there is nothing a memo
-   *  hit could swallow.  Null outside respond(). */
+  /** Memo of the consensus climb — content-keyed (latin1) so results
+   *  persist across conversation turns where the same byte spans recur.
+   *  Null outside respond(); during respondTurn() the conversation's
+   *  persistent map is swapped in. */
+  climbMemo: Map<string, Map<string, AttentionRead>> | null;
+  /** Memo of {@link recognise} — content-keyed (latin1) so recognised
+   *  forms carry forward across conversation turns.  Bypassed while a
+   *  trace is attached.  Null outside respond(). */
+  recogniseMemo: Map<string, Recognition> | null;
+  /** Memo of {@link perceive} — content-keyed (latin1).  The general
+   *  cache the result-level memos each partially compensate for.  NOT
+   *  bypassed under trace — perception emits no rationale steps.
+   *  Null outside respond(). */
   perceiveMemo: Map<string, Sema> | null;
+  /** Subtree-resolution cache: Sema node → its store id and byte length.
+   *  Populated by {@link foldTree} during inference; checked before
+   *  walking children.  When a conversation's pyramid reuses prefix
+   *  subtrees, this cache lets {@link recognise} skip them entirely —
+   *  O(suffix) instead of O(context).  Mind-lifetime (WeakMap keys are
+   *  the Sema objects the pyramid keeps alive). */
+  _resolvedSubtrees: WeakMap<Sema, { id: number; len: number }> | null;
   _edgeGuide: Vec | null;
   _edgeChoice: Map<number, number>;
   _prevSeen: Set<number> | null;

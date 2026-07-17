@@ -1825,9 +1825,22 @@ async function main(): Promise<void> {
 
   /** Run index maintenance: compact (remove garbage) then repair (fill gaps).
    *  Both are idempotent — running twice produces the same result as once.
-   *  Compaction frees index space first; repair then adds back the bridges
-   *  whose gists were evicted before indexing, completing the coverage that
-   *  incremental bridge promotion alone cannot guarantee.
+   *  Compaction frees index space first; repair then adds back every
+   *  edge/halo-bearing node whose gist was evicted from the pending cache
+   *  before it reached the content index, completing the coverage that
+   *  incremental promotion alone cannot guarantee.
+   *
+   *  repair runs with minParents = 0, NOT the library default of 2.  The
+   *  default repairs only structural BRIDGES (≥2 parents), but this
+   *  trainer's fact deposits also leave answer-side DEPOSIT ROOTS with 0
+   *  structural parents ("The capital of France is Paris." as the dst of a
+   *  Q→A edge is a root of its own tree, contained in nothing).  Those are
+   *  resonance targets recall depends on — a trained store shipped without
+   *  them cannot ground statement-shaped queries against its own answers
+   *  (observed: 33 such roots missing after a full curriculum, including
+   *  high-traffic conversation replies).  minParents = 0 admits every
+   *  edge/halo bearer; the candidate set is still corpus-of-experiences-
+   *  sized, so the pass stays cheap.
    *
    *  Logs the number of entries removed/added so a run that silently degrades
    *  (growing compaction count, or repair never recovering anything) is
@@ -1849,10 +1862,12 @@ async function main(): Promise<void> {
       );
     }
     try {
-      const added = await mind.repairContentIndex();
+      const added = await mind.repairContentIndex(0);
       if (added > 0) {
         progress.log(
-          `  ${GRN}index repair: added ${int(added)} missing bridges${R}`,
+          `  ${GRN}index repair: added ${
+            int(added)
+          } missing resonance targets${R}`,
         );
       }
     } catch (err) {

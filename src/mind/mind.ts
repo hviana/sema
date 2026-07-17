@@ -14,6 +14,8 @@ import { bindSeat, fold, Sema, Space } from "../sema.js";
 import { Alphabet } from "../alphabet.js";
 import {
   bytesToTree,
+  bytesToTreePyramid,
+  type FoldPyramid,
   Grid,
   gridToTree,
   hilbertBytes,
@@ -68,6 +70,53 @@ export interface Response {
   provenance?: import("./pipeline.js").Provenance;
 }
 
+/** Serializable state of a conversation — can be saved and restored across
+ *  sessions.  The Mind never interprets the bytes; it only tracks their
+ *  cumulative lengths so the caller can reconstruct turn boundaries later
+ *  without inspecting content. */
+export interface ConversationState {
+  /** The accumulated context bytes — raw concatenation of every turn's
+   *  bytes in order.  No separator is inserted; the boundary offsets
+   *  ({@link boundaries}) tell the caller where each turn ends. */
+  context: Uint8Array;
+  /** Cumulative byte length after each completed turn.  Sorted, strictly
+   *  increasing, each {@code < context.length}.  The first turn's length
+   *  is `boundaries[0]`; the second turn starts at that offset, and so
+   *  on.  Empty for a single-turn or new conversation. */
+  boundaries: number[];
+}
+
+/** An active conversation handle.  Opaque — interact through the Mind's
+ *  conversation methods ({@link Mind.beginConversation},
+ *  {@link Mind.respondTurn}, {@link Mind.endConversation}). */
+export interface Conversation {
+  readonly id: number;
+}
+
+/** Internal per-conversation state.
+ *
+ *  The {@link pyramid} IS the conversation — the accumulated internal
+ *  processing state.  {@link bytes} is the raw accumulated input, kept
+ *  in sync with the pyramid for O(1) concatenation.
+ *
+ *  Memos persist across turns so the inference pipeline does not
+ *  re-process the prefix.  Content-keyed (latin1) — each turn's fresh
+ *  {@code Uint8Array} would never hit an object-identity key.
+ *
+ *  {@link resolvedSubtrees} caches foldTree resolutions at the Sema-node
+ *  level.  When the pyramid reuses prefix subtrees (identical objects),
+ *  foldTree returns their ids immediately — O(suffix) instead of
+ *  O(context) for every tree walk. */
+interface ConversationData {
+  pyramid: FoldPyramid;
+  bytes: Uint8Array;
+  boundaries: number[];
+  perceiveMemo: Map<string, Sema>;
+  recogniseMemo: Map<string, Recognition>;
+  climbMemo: Map<string, Map<string, AttentionRead>>;
+  resolvedSubtrees: WeakMap<Sema, { id: number; len: number }>;
+}
+
 // Mind module imports
 import type { AttentionRead, MindContext, Recognition } from "./types.js";
 import { changedNodes, liftAnswer, spliceAll } from "./types.js";
@@ -75,6 +124,7 @@ import {
   foldTree,
   gistOf,
   inputBytes,
+  latin1Key,
   perceive as perceiveImpl,
   read,
   resolve as resolveImpl,
@@ -132,18 +182,22 @@ export class Mind implements MindContext {
   /** The live rationale tracer for the inference currently in flight, or null. */
   trace: Rationale | null = null;
 
-  /** Per-response memo of the consensus climb.  NOTE: this memo and
-   *  {@link recogniseMemo} are BYPASSED while a rationale trace is attached
-   *  (every mechanism must emit its own steps), so a traced respond re-pays
-   *  up to four consensus climbs plus repeat recognitions — that is where the
-   *  traced-vs-untraced latency multiple comes from, by design. */
-  climbMemo: WeakMap<Uint8Array, Map<string, AttentionRead>> | null = null;
+  /** Memo of the consensus climb — content-keyed.  See {@link MindContext.climbMemo}. */
+  climbMemo: Map<string, Map<string, AttentionRead>> | null = null;
 
-  /** Per-response memo of recognise() — see {@link MindContext.recogniseMemo}. */
-  recogniseMemo: WeakMap<Uint8Array, Recognition> | null = null;
+  /** Memo of recognise() — content-keyed.  See {@link MindContext.recogniseMemo}. */
+  recogniseMemo: Map<string, Recognition> | null = null;
 
-  /** Per-response memo of perceive() — see {@link MindContext.perceiveMemo}. */
+  /** Memo of perceive() — content-keyed.  See {@link MindContext.perceiveMemo}. */
   perceiveMemo: Map<string, import("../sema.js").Sema> | null = null;
+
+  /** Subtree-resolution cache.  See {@link MindContext._resolvedSubtrees}. */
+  _resolvedSubtrees:
+    | WeakMap<
+      import("../sema.js").Sema,
+      { id: number; len: number }
+    >
+    | null = null;
 
   /** The perceived gist of the query currently being answered.  Set by `think`
    *  before the graph search runs; `chooseNext` consults it as a gate (a null
@@ -175,6 +229,11 @@ export class Mind implements MindContext {
   );
   _depositLens = new Set<number>();
   _internIds = new WeakMap<import("../sema.js").Sema, number>();
+
+  // ── Conversation state ──────────────────────────────────────────────────
+
+  private _nextConvId = 1;
+  private _conversations = new Map<number, ConversationData>();
 
   // ── GraphSearchHost implementation ─────────────────────────────────────
 
@@ -321,8 +380,8 @@ export class Mind implements MindContext {
    *  created, so adding a memo cannot forget its reset. */
   private beginResponse(inspectRationale?: InspectRationale): void {
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
-    this.climbMemo = new WeakMap();
-    this.recogniseMemo = new WeakMap();
+    this.climbMemo = new Map();
+    this.recogniseMemo = new Map();
     this.perceiveMemo = new Map();
   }
 
@@ -337,24 +396,26 @@ export class Mind implements MindContext {
     this._edgeChoice.clear();
   }
 
-  async respond(
-    input: Input,
+  /** Shared response core — the one path from bytes to voiced answer.
+   *  `respond` calls this directly; `respondTurn` has its own path
+   *  with conversation-persistent memos and incremental perception. */
+  private async _respondImpl(
+    queryBytes: Uint8Array,
     inspectRationale?: InspectRationale,
+    traceLabel = "respond",
   ): Promise<Response> {
     this.beginResponse(inspectRationale);
     try {
-      const inBytes = inputBytes(this, input);
-      const top = this.trace?.enter("respond", [
-        rItem(inBytes, "query"),
+      const top = this.trace?.enter(traceLabel, [
+        rItem(queryBytes, "query"),
       ]);
-
-      const thought = await think(this, inBytes, this.mechanisms);
+      const thought = await think(this, queryBytes, this.mechanisms);
       if (thought === null) {
         top?.done([], "nothing to perceive or an empty store — no answer");
         return { v: null, bytes: new Uint8Array(0) };
       }
 
-      const voiced = await articulate(this, thought.bytes, inBytes);
+      const voiced = await articulate(this, thought.bytes, queryBytes);
       top?.done(
         [rItem(voiced, "answer", resolveImpl(this, voiced) ?? undefined)],
         "the answer, re-voiced in the asker's words",
@@ -369,6 +430,13 @@ export class Mind implements MindContext {
     }
   }
 
+  async respond(
+    input: Input,
+    inspectRationale?: InspectRationale,
+  ): Promise<Response> {
+    return this._respondImpl(inputBytes(this, input), inspectRationale);
+  }
+
   /** Text view of {@link respond}.  NUL bytes (0x00) are stripped before
    *  decoding — they are structural padding in text answers.  LOSSY for a
    *  binary answer that legitimately contains NULs: use {@link respond} and
@@ -379,6 +447,169 @@ export class Mind implements MindContext {
   ): Promise<string> {
     const r = await this.respond(input, inspectRationale);
     return decodeText(r.bytes);
+  }
+
+  // ── Conversation API ────────────────────────────────────────────────────
+
+  /** Begin a new conversation, optionally restoring from a previously-saved
+   *  {@link ConversationState}.  The returned handle is required for
+   *  {@link respondTurn} and {@link endConversation}.
+   *
+   *  Conversations are independent — a Mind can manage several concurrently.
+   *  Each tracks the fold pyramid (accumulated internal processing) and
+   *  turn-boundary offsets; the geometry never inspects content to guess
+   *  where one turn ends and the next begins. */
+  beginConversation(state?: ConversationState): Conversation {
+    const id = this._nextConvId++;
+    // Build the initial pyramid: from scratch for a new conversation,
+    // or from the saved context bytes when restoring.
+    const initBytes = state?.context ?? new Uint8Array(0);
+    const { pyramid } = bytesToTreePyramid(
+      this.space,
+      this.alphabet,
+      initBytes,
+    );
+    this._conversations.set(id, {
+      pyramid,
+      bytes: initBytes,
+      boundaries: state?.boundaries ? [...state.boundaries] : [],
+      perceiveMemo: new Map(),
+      recogniseMemo: new Map(),
+      climbMemo: new Map(),
+      resolvedSubtrees: new WeakMap(),
+    });
+    return { id };
+  }
+
+  /** End a conversation, releasing its internal resources (accumulated
+   *  context, boundary offsets, and the fold-pyramid cache).  Idempotent. */
+  endConversation(conv: Conversation): void {
+    this._conversations.delete(conv.id);
+  }
+
+  /** The current serialisable state of an active conversation.  Save this
+   *  to resume the conversation later via {@link beginConversation}. */
+  conversationState(conv: Conversation): ConversationState | null {
+    const data = this._conversations.get(conv.id);
+    if (!data) return null;
+    return {
+      context: data.bytes,
+      boundaries: [...data.boundaries],
+    };
+  }
+
+  /** Process one turn of a conversation.
+   *
+   *  `turn` is the raw input for the latest turn — its bytes are appended
+   *  to the accumulated context directly (raw concatenation).  The Mind
+   *  tracks the byte offset where each turn ends; no separator is ever
+   *  inserted or inspected.
+   *
+   *  Returns the response AND the updated {@link ConversationState} so the
+   *  caller can persist it.  The conversation handle's internal state is
+   *  updated in place — the returned state is a snapshot for storage. */
+  async respondTurn(
+    conv: Conversation,
+    turn: Input,
+    inspectRationale?: InspectRationale,
+  ): Promise<{ response: Response; state: ConversationState }> {
+    const data = this._conversations.get(conv.id);
+    if (!data) throw new Error(`Conversation ${conv.id} not found`);
+
+    const turnBytes = inputBytes(this, turn);
+    const prevLen = data.pyramid.bytes;
+
+    const prevBytes = data.bytes;
+    const newContext = prevLen > 0 ? concat2(prevBytes, turnBytes) : turnBytes;
+    data.bytes = newContext;
+
+    if (prevLen > 0) data.boundaries.push(prevLen);
+
+    // Incremental perception — O(turn) instead of O(context).
+    const { tree, pyramid } = bytesToTreePyramid(
+      this.space,
+      this.alphabet,
+      newContext,
+      data.pyramid,
+    );
+    data.pyramid = pyramid;
+
+    // Swap in the conversation's persistent state so the inference
+    // pipeline does not re-process the prefix from scratch.
+    //   perceiveMemo / recogniseMemo / climbMemo — content-keyed;
+    //     the prefix's results from the previous turn are found by
+    //     the current turn's sub-span calls.
+    //   _resolvedSubtrees — Sema-node-keyed; when the pyramid reuses
+    //     prefix subtrees (identical objects), foldTree returns their
+    //     ids immediately — O(suffix) instead of O(context).
+    this.perceiveMemo = data.perceiveMemo;
+    this.recogniseMemo = data.recogniseMemo;
+    this.climbMemo = data.climbMemo;
+    this._resolvedSubtrees = data.resolvedSubtrees;
+    this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
+
+    try {
+      this.perceiveMemo.set(latin1Key(newContext), tree);
+
+      const top = this.trace?.enter("respondTurn", [
+        rItem(newContext, "query"),
+      ]);
+
+      const thought = await think(this, newContext, this.mechanisms);
+      if (thought === null) {
+        top?.done([], "nothing to perceive or an empty store — no answer");
+        return {
+          response: { v: null, bytes: new Uint8Array(0) },
+          state: this.conversationState(conv)!,
+        };
+      }
+
+      const voiced = await articulate(this, thought.bytes, newContext);
+      top?.done(
+        [rItem(voiced, "answer", resolveImpl(this, voiced) ?? undefined)],
+        "the answer, re-voiced in the asker's words",
+      );
+
+      return {
+        response: {
+          v: gistOf(this, voiced),
+          bytes: voiced,
+          provenance: thought.provenance,
+        },
+        state: this.conversationState(conv)!,
+      };
+    } finally {
+      // Save back to the conversation for the next turn.
+      data.perceiveMemo = this.perceiveMemo;
+      data.recogniseMemo = this.recogniseMemo;
+      data.climbMemo = this.climbMemo;
+      data.resolvedSubtrees = this._resolvedSubtrees!;
+      // Clear Mind references — non-conversation respond() calls get
+      // fresh per-response memos.
+      this.trace = null;
+      this.perceiveMemo = null;
+      this.recogniseMemo = null;
+      this.climbMemo = null;
+      this._resolvedSubtrees = null;
+      this._edgeGuide = null;
+      this._edgeChoice.clear();
+    }
+  }
+
+  /** Text view of {@link respondTurn}.  See {@link respondText} for the
+   *  NUL-stripping caveat.  For binary or grid turns use {@link respondTurn}
+   *  directly — this is a text-only convenience, like {@link respondText}. */
+  async respondTurnText(
+    conv: Conversation,
+    turn: string,
+    inspectRationale?: InspectRationale,
+  ): Promise<{ response: string; state: ConversationState }> {
+    const { response, state } = await this.respondTurn(
+      conv,
+      turn,
+      inspectRationale,
+    );
+    return { response: decodeText(response.bytes), state };
   }
 
   async embedding(input: Input): Promise<Vec | null> {
