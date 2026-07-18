@@ -644,6 +644,43 @@ export class Mind implements MindContext {
     this.canonMemo = this.canon ? new Map() : null;
 
     try {
+      // Seed the recognise memo with the STANDALONE recognition of the
+      // NEW turn, offset into the accumulated context.  In the full-context
+      // tree, content-defined chunk boundaries shift when bytes are
+      // concatenated — foldTree no longer visits the original turn's root
+      // node, so the structural pass misses it.  Perceiving the turn alone
+      // preserves intact structure.  We seed ONLY the suffix (the new turn);
+      // prefix forms stay visible through the full-context recognition
+      // (they serve as context, not as questions to re-answer).
+      if (data.boundaries.length > 0) {
+        const suffixStart = data.boundaries[data.boundaries.length - 1];
+        if (suffixStart < newContext.length) {
+          const suffixBytes = newContext.subarray(suffixStart);
+          const suffixRec = recognise(this, suffixBytes);
+          const fullRec = recognise(this, newContext);
+          const seen = new Set(fullRec.sites.map((s) => `${s.start},${s.end}`));
+          const mergedSites = [...fullRec.sites];
+          for (const site of suffixRec.sites) {
+            const absStart = suffixStart + site.start;
+            const absEnd = suffixStart + site.end;
+            const key = `${absStart},${absEnd}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              mergedSites.push({
+                start: absStart,
+                end: absEnd,
+                payload: site.payload,
+              });
+            }
+          }
+          data.recogniseMemo.set(latin1Key(newContext), {
+            sites: mergedSites,
+            leaves: fullRec.leaves,
+            splits: fullRec.splits,
+          });
+        }
+      }
+
       const top = this.trace?.enter("respondTurn", [
         rItem(newContext, "query"),
       ]);

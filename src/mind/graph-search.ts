@@ -707,52 +707,104 @@ export class GraphSearch {
       return;
     }
 
-    // LIMIT 2 decides all three facts this rule needs — emptiness, plurality
-    // (whether to consult the disambiguator), and the first-inserted
-    // fallback — without materialising a hub context's corpus-sized fan-out.
-    const nx = this.store.nextFirst(it.node, 2);
-    if (nx.length) {
-      // A direct edge — step along the chain toward its fixpoint.  A recomposed
-      // form (parts already rewritten and fused into a learned whole) follows
-      // its continuation at MICRO, so reaching the grounded answer of the
-      // recomposition beats leaving the parts split; the flag rides the chain so
-      // every step of the recomposition's completion stays cheap.
-      //
-      // WHICH edge: a context node often carries SEVERAL learnt continuations
-      // (the same sentence trained against 100+ target languages, a question
-      // answered differently across sessions).  `nx[0]` is an accident of
-      // training order; when the host provides a `chooseNext` disambiguator
-      // (see Mind.chooseNext) it picks the continuation with the most
-      // distributional evidence (prevOf count — the structural manifestation
-      // of its halo), falling back to first-inserted when evidence is equal.
-      yield {
-        premises: [it],
-        conclusion: {
-          kind: "form",
-          i: it.i,
-          j: it.j,
-          node: (nx.length > 1 ? this.host.chooseNext?.(it.node) : undefined) ??
-            nx[0],
-          via: true,
-          rcmp: it.rcmp,
-        },
-        // A recomposed form's continuation is FREE: the two (or more) parts were
-        // already paid for as their own rewrites, and the single consolidated
-        // span saves one cover-bridge versus leaving them split — so charging 0
-        // here makes the grounded whole (e.g. "DE"→F) strictly beat the split
-        // ("D","E") by exactly that saved bridge, deterministically.
-        cost: it.rcmp ? 0 : STEP,
-      };
-    } else if (it.via) {
-      // The chain reached a node with no WHOLE-node continuation.  Before
-      // emitting it as terminal, CONTINUE THE EXPLORATION into its own structure:
-      // a composite answer like "p1 p2" leads nowhere as a whole, yet recognising
-      // it surfaces p1, p2 — each of which continues (→ R1, R2) and recomposes
-      // into a deeper learnt form (→ FINAL).  {@link recompleteNode} re-covers the
-      // node's bytes through the SAME recognition + edge/fuse machinery the top
-      // query uses (a continued graph exploration, not a re-perception), and
-      // returns the deeper completion's bytes when it genuinely leads somewhere
-      // new.  Emit that; else emit the node itself as the terminal answer.
+    if (it.via) {
+      // A CHAIN hop (this form was itself reached by following an edge):
+      // read up to the hub bound — the SAME √(max(2,N)) convention {@link
+      // hubBound} in traverse.ts derives, replicated here because
+      // GraphSearch holds only a bare Store, not a MindContext — and fork
+      // across EVERY continuation.  A bidirectional pair (SmolSent trains
+      // both directions) puts the back-edge to where we came from ahead of
+      // the forward edge in insertion order; a single first-inserted pick
+      // would walk the search straight into a cycle (the A*LD duplicate-key
+      // guard then dead-ends it) with no way to reach the forward edge.
+      // Forking offers every continuation as its own rule so the one that
+      // genuinely advances (not a duplicate) is still reachable.
+      const bound = Math.ceil(
+        Math.sqrt(Math.max(2, this.store.edgeSourceCount())),
+      );
+      const nx = this.store.nextFirst(it.node, bound);
+      if (nx.length) {
+        // The SAME evidence-weighted disambiguation the first hop uses
+        // (below) identifies the most-corroborated continuation.  Yielding
+        // it FIRST matters: {@link lightestDerivation}'s chart keeps the
+        // FIRST rule to reach a given cost for an item and discards later
+        // arrivals at an EQUAL cost (`cost < current`, strictly) — so
+        // among same-depth sibling forks that tie in cost, the
+        // evidence-backed edge wins deterministically, never by
+        // exploration-order luck.  `preferred`, when set, is necessarily
+        // an element of `nx` (chooseNext reads the identical hub-bounded
+        // set — see traverse.ts), so a plain skip-in-place suffices; no
+        // second array need be allocated to reorder it to the front.
+        const preferred = nx.length > 1
+          ? this.host.chooseNext?.(it.node)
+          : undefined;
+        const fork = (node: number): Rule<GItem> => ({
+          premises: [it],
+          conclusion: { kind: "form", i: it.i, j: it.j, node, via: true },
+          // A real edge always costs STEP, whether it is the first hop or
+          // the fifth — so a chain's total cost is proportional to its
+          // length and the lightest derivation is always the SHORTEST
+          // successful one.  (Charging every hop after the first for
+          // FREE, as an earlier design did, made every stopping point at
+          // any depth tie at the same cost — indistinguishable to the
+          // search, decided by whichever arrived first.)
+          cost: STEP,
+        });
+        if (preferred !== undefined) yield fork(preferred);
+        for (const c of nx) {
+          if (c !== preferred) yield fork(c);
+        }
+        // Also offer stopping HERE, at CONCEPT above whatever the chain
+        // has already cost — the same "a synonym jump is dearer than a
+        // direct edge" ordering the ladder already uses elsewhere,
+        // repurposed as "giving up early is dearer than one more real
+        // hop".  A premature stop at depth D costs D·STEP + CONCEPT, so a
+        // SHORTER premature stop always beats a longer one, and a genuine
+        // fixpoint (below, costing +0) always beats any premature stop at
+        // the same depth — the search only settles here when continuing
+        // genuinely dead-ends (every fork above revisits an already-
+        // explored key) or grows costlier than giving up.
+        //
+        // The stop-here bytes are the node's OWN, as-is — NOT recompleteNode's
+        // recursive re-cover.  recompleteNode re-runs the full recognition
+        // + edge/fuse search over the node's bytes, an O(node's own
+        // substructure) cost independent of chain depth; offering it at
+        // EVERY premature stop makes a query's total cost scale with how
+        // many nodes the corpus happens to interconnect here (corpus
+        // density), not with the answer's own hop count — the exact
+        // output-sensitivity the rest of this search is built to keep.
+        // Reserved below for the ONE place it is load-bearing: the true
+        // fixpoint, checked once, at the chain's actual end.
+        yield {
+          premises: [it],
+          conclusion: {
+            kind: "out",
+            i: it.i,
+            j: it.j,
+            bytes: nodeBytes(it.node),
+            cover: true,
+            rec: true,
+            node: it.node,
+          },
+          cost: CONCEPT,
+        };
+        return;
+      }
+      // The chain reached a node with no WHOLE-node continuation anywhere
+      // — a genuine fixpoint, not a premature stop.  Before emitting it as
+      // terminal, CONTINUE THE EXPLORATION into its own structure: a
+      // composite answer like "p1 p2" leads nowhere as a whole, yet
+      // recognising it surfaces p1, p2 — each of which continues (→ R1,
+      // R2) and recomposes into a deeper learnt form (→ FINAL).  {@link
+      // recompleteNode} re-covers the node's bytes through the SAME
+      // recognition + edge/fuse machinery the top query uses (a continued
+      // graph exploration, not a re-perception), and returns the deeper
+      // completion's bytes when it genuinely leads somewhere new.  Emit
+      // that; else emit the node itself as the terminal answer.  This is
+      // the ONE place the recursive re-cover runs — once, at the chain's
+      // actual end, never per intermediate stop — so its cost tracks the
+      // ANSWER's own structure, not how densely the corpus interconnects
+      // the nodes passed through on the way there.
       const deeper = this.recompleteNode(it.node);
       yield {
         premises: [it],
@@ -768,6 +820,36 @@ export class GraphSearch {
         cost: 0,
       };
     } else {
+      // The FIRST hop out of a recognised site — unchanged from the
+      // original design.  LIMIT 2 only senses PLURALITY (does this node
+      // have more than one learnt continuation?); the actual bounded read
+      // and evidence-weighted pick both live inside {@link
+      // Mind.chooseNext} (see traverse.ts), which floors its own hub bound
+      // at √(max(2,N)) regardless of what we read here.
+      const nx = this.store.nextFirst(it.node, 2);
+      if (nx.length) {
+        yield {
+          premises: [it],
+          conclusion: {
+            kind: "form",
+            i: it.i,
+            j: it.j,
+            node:
+              (nx.length > 1 ? this.host.chooseNext?.(it.node) : undefined) ??
+                nx[0],
+            via: true,
+            rcmp: it.rcmp,
+          },
+          // A recomposed form's continuation is FREE: the two (or more) parts
+          // were already paid for as their own rewrites, and the single
+          // consolidated span saves one cover-bridge versus leaving them
+          // split — so charging 0 here makes the grounded whole (e.g.
+          // "DE"→F) strictly beat the split ("D","E") by exactly that saved
+          // bridge, deterministically.
+          cost: it.rcmp ? 0 : STEP,
+        };
+        return;
+      }
       // Recognised but edge-less: borrow a concept (halo) sibling's edge.  No
       // edge and no concept means the form leads nowhere — it yields no rule, so
       // a query of only such forms produces no derivation, and think is silent.
