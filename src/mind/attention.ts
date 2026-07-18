@@ -867,6 +867,28 @@ async function crossRegionVotes(
       const rb = regions[cand[b]];
       if (!strong.has(cand[a]) && !strong.has(cand[b])) continue;
       if (ra.end >= rb.start) continue; // overlap or adjacent — nothing between
+      // Candidates strictly BETWEEN ra and rb (cand is sorted by start, so
+      // that is exactly cand[a+1 .. b-1]) that already cast their OWN vote —
+      // genuine, individually-corroborated evidence about what fills the gap
+      // — gate the container search below: a joint container is binding
+      // evidence only when it is CONSISTENT with that evidence, i.e. its own
+      // bytes actually contain what the between-region says. This is the
+      // n-ary composition's normal shape (a between-attribute's bytes DO
+      // recur inside the joint container, credited as an "extra" below) as
+      // opposed to a container that silently substitutes something else for
+      // it (e.g. bridging past "Italy" to a container whose interior is
+      // "Japan" — a different, contradicting learnt whole).
+      // Only a KNOWN (content-addressed, exact) between-region qualifies —
+      // an approximate region's resonance climbing "somewhere" is ordinary
+      // noise (any ANN query returns SOME nearest neighbour), not evidence
+      // this specific gap already means something specific.
+      const between: number[] = [];
+      for (let m = a + 1; m < b; m++) {
+        if (
+          strong.has(cand[m]) && !consumed.has(cand[m]) &&
+          regions[cand[m]].known
+        ) between.push(cand[m]);
+      }
       // A single KNOWN region covering both: the whole form is already a
       // stored identity that votes directly; its pieces add nothing.
       if (
@@ -931,6 +953,22 @@ async function crossRegionVotes(
             Math.max(li + left.length, ri + right.length),
           );
           if (indexOf(query, joined, 0) >= 0) continue; // query says it itself
+        }
+        // CONTRADICTION GUARD: a between-region already carrying its own
+        // vote must actually recur in this container's bytes — otherwise
+        // the container is a different learnt whole that happens to share
+        // ra/rb, and letting it stand in for the gap would silently
+        // override evidence the query itself already resolved there.
+        if (
+          between.some((bi) =>
+            indexOf(
+              bytes,
+              query.subarray(regions[bi].start, regions[bi].end),
+              0,
+            ) < 0
+          )
+        ) {
+          continue;
         }
         let cov = left.length + right.length;
         const extras: number[] = [];

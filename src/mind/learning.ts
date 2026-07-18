@@ -9,6 +9,7 @@ import type { Input, MindContext } from "./types.js";
 import { changedNodes } from "./types.js";
 import {
   inputBytes,
+  latin1Key,
   perceive,
   perceiveDeposit,
   resolve,
@@ -119,6 +120,7 @@ export async function deposit(
   ctx: MindContext,
   input: Input,
   track: boolean,
+  conversational = false,
 ): Promise<
   { tree: Sema; rootId: number; ids: Map<Sema, number>; changed: Sema[] }
 > {
@@ -129,8 +131,13 @@ export async function deposit(
   // (no store-probe fallback): a knownPrefixLength scan on every novel fact
   // would cost O(n²) hashing, while conversation replays are always warm —
   // re-deposition replays from the first turn, rebuilding the cache as it
-  // goes.
-  const tree = perceiveDeposit(ctx, bytes);
+  // goes.  `conversational` scopes the STABLE-PREFIX variant (turn-boundary
+  // folding, matching query-time perception) to ingestPair's own growing
+  // context argument — a bare ingestOne deposit whose bytes merely happen
+  // to extend an earlier UNRELATED deposit (no conversational relationship)
+  // must keep the plain fold, or two coincidentally-prefix-sharing facts
+  // would stop sharing structure with each other.
+  const tree = perceiveDeposit(ctx, bytes, conversational);
 
   const ids = new Map<Sema, number>();
   const rootId = await internTreeIds(ctx, tree, ids);
@@ -214,9 +221,19 @@ export async function ingestPair(
   ctxInput: Input,
   cont: Input,
 ): Promise<void> {
-  const c = await deposit(ctx, ctxInput, true);
+  const c = await deposit(ctx, ctxInput, true, true);
   const cont_ = await deposit(ctx, cont, false);
   const ctxId = c.rootId, contId = cont_.rootId;
+
+  // Stamp this turn's continuation onto its own cache entry — the proof a
+  // FUTURE, longer ctxInput needs (see perceiveDeposit) to recognise itself
+  // as this conversation's genuine next turn rather than an unrelated fact
+  // that happens to share this ctxInput's byte prefix.
+  {
+    const ctxBytes = inputBytes(ctx, ctxInput);
+    const entry = ctx._depositTrees.get(latin1Key(ctxBytes));
+    if (entry !== undefined) entry.nextBytes = inputBytes(ctx, cont);
+  }
 
   await ctx.store.link(ctxId, contId);
   await propagateSuffixes(ctx, ctxId, contId);

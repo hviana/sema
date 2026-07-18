@@ -8,16 +8,16 @@ import { Sema } from "../sema.js";
 import {
   bytesToTree,
   bytesToTreePyramid,
-  type FoldPyramid,
   Grid,
   gridToTree,
   hilbertBytes,
+  stablePrefixFoldIncremental,
   stackGrids,
 } from "../geometry.js";
 import { canonHash } from "../canon.js";
 import { bytesEqual } from "../bytes.js";
 import { ALL } from "./types.js";
-import type { Input, MindContext } from "./types.js";
+import type { DepositCacheEntry, Input, MindContext } from "./types.js";
 
 // ── Address: bytes → node ──────────────────────────────────────────────
 
@@ -93,34 +93,76 @@ export function perceive(
   return gridToTree(ctx.space, ctx.alphabet, input as Grid);
 }
 
-/** The DEPOSIT-shaped perceive: the PLAIN fold (bit-identical to inference
- *  perception — that structural train/inference agreement is load-bearing
- *  for exact recall), computed INCREMENTALLY via the fold's level pyramid
- *  ({@link bytesToTreePyramid}).  An accumulated context (a conversation)
- *  grows by suffixes: the previous context's pyramid is cached by CONTENT
- *  (ctx._depositTrees), and this deposit refolds only the right edge of
- *  each level — O(turn) instead of O(context) per turn.  Purely a cache:
- *  the produced tree never depends on cache state. */
-export function perceiveDeposit(ctx: MindContext, bytes: Uint8Array): Sema {
-  let prev: FoldPyramid | undefined;
-  // Longest cached PROPER prefix first.
-  const lens = [...ctx._depositLens]
-    .filter((L) => L >= 2 && L < bytes.length)
-    .sort((a, b) => b - a);
-  for (const L of lens) {
-    const hit = ctx._depositTrees.get(latin1Key(bytes.subarray(0, L)));
-    if (hit !== undefined) {
-      prev = hit;
-      break;
+/** The DEPOSIT-shaped perceive.  A FIRST-SEEN input takes the PLAIN fold
+ *  (bit-identical to inference perception of a standalone query — that
+ *  structural train/inference agreement is load-bearing for exact recall),
+ *  computed incrementally via the fold's level pyramid
+ *  ({@link bytesToTreePyramid}).  An input that EXTENDS a previously
+ *  deposited one is a conversation context grown by one turn — the cached
+ *  prefix length IS the turn boundary (derived from the deposit sequence
+ *  itself, never from content conventions) — and takes the STABLE-PREFIX
+ *  fold over the accumulated boundaries, bit-identical to the boundary
+ *  fold query-time conversation perception uses, so the trained context
+ *  node and the query's context subtree are the SAME node.  Segment folds
+ *  reuse across deposits ({@link stablePrefixFoldIncremental}) — O(turn)
+ *  instead of O(context) per turn.  The fold state is purely a cache; the
+ *  boundary accumulation is what an evicted chain loses (falling back to
+ *  the plain fold, the pre-boundary shape — a warm replay restores it). */
+export function perceiveDeposit(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  conversational = false,
+): Sema {
+  let prev: DepositCacheEntry | undefined;
+  let prefixLen = 0;
+  // Cache consult (both boundary lookup and stable-prefix reuse) is scoped
+  // to conversational deposits only — a bare, unrelated fact whose bytes
+  // happen to extend an earlier deposit is NOT a conversation turn, and
+  // must keep the plain fold so it shares structure with ITS OWN prior
+  // deposits, not fragment against a coincidental byte-prefix.
+  if (conversational) {
+    // Longest cached PROPER prefix first.
+    const lens = [...ctx._depositLens]
+      .filter((L) => L >= 2 && L < bytes.length)
+      .sort((a, b) => b - a);
+    for (const L of lens) {
+      const hit = ctx._depositTrees.get(latin1Key(bytes.subarray(0, L)));
+      // The suffix must bytes-equal the hit's OWN recorded continuation —
+      // proof this deposit is that turn's actual next turn, not a fact
+      // that coincidentally shares its byte prefix.
+      if (
+        hit !== undefined && hit.nextBytes !== undefined &&
+        bytesEqual(hit.nextBytes, bytes.subarray(L))
+      ) {
+        prev = hit;
+        prefixLen = L;
+        break;
+      }
     }
   }
-  const { tree, pyramid } = bytesToTreePyramid(
-    ctx.space,
-    ctx.alphabet,
-    bytes,
-    prev,
-  );
-  if (bytes.length >= 2) {
+  let tree: Sema;
+  let entry: DepositCacheEntry;
+  if (prev !== undefined) {
+    const boundaries = [...prev.boundaries, prefixLen];
+    const folded = stablePrefixFoldIncremental(
+      ctx.space,
+      ctx.alphabet,
+      bytes,
+      boundaries,
+      prev.stable,
+    );
+    tree = folded.tree;
+    entry = { boundaries, stable: folded.fold };
+  } else {
+    const plain = bytesToTreePyramid(ctx.space, ctx.alphabet, bytes);
+    tree = plain.tree;
+    entry = { boundaries: [], pyramid: plain.pyramid };
+  }
+  // Only a conversational deposit writes the cache too — otherwise a bare
+  // fact's plain fold could later be misread as a conversation's turn-zero
+  // boundary by an unrelated conversational deposit that happens to extend
+  // its bytes.
+  if (conversational && bytes.length >= 2) {
     // The lengths set drifts as the map evicts; past the probe budget the
     // drift itself becomes the cost (each stale length is an O(len) key
     // build), so both reset together — losing only warm-up on live chains.
@@ -128,7 +170,7 @@ export function perceiveDeposit(ctx: MindContext, bytes: Uint8Array): Sema {
       ctx._depositLens.clear();
       ctx._depositTrees.clear();
     }
-    ctx._depositTrees.set(latin1Key(bytes), pyramid);
+    ctx._depositTrees.set(latin1Key(bytes), entry);
     ctx._depositLens.add(bytes.length);
   }
   return tree;

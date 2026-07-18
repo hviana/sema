@@ -19,7 +19,26 @@ import type {
   Site,
 } from "./graph-search.js";
 import type { Rationale } from "./rationale.js";
-import type { FoldPyramid, Grid } from "../geometry.js";
+import type { FoldPyramid, Grid, StableFold } from "../geometry.js";
+
+/** One {@link MindContext._depositTrees} entry — see that field's doc. */
+export interface DepositCacheEntry {
+  /** Turn boundaries accumulated over this content's deposit chain —
+   *  strictly increasing proper offsets, each a previously-deposited
+   *  whole-context length.  Empty for a first-seen (single-turn) input. */
+  boundaries: number[];
+  /** Plain-fold pyramid (first-seen inputs only). */
+  pyramid?: FoldPyramid;
+  /** Stable-prefix segment folds (grown-context inputs only). */
+  stable?: StableFold;
+  /** The continuation bytes this ctxInput was paired with in ingestPair, if
+   *  any — the ONLY thing that makes a later, longer ctxInput a genuine next
+   *  TURN of the same conversation rather than an unrelated fact that
+   *  happens to share this one's byte prefix (e.g. "2+2" vs. "2+2=5").  A
+   *  later deposit only takes this entry as its stable-prefix `prev` when
+   *  its own suffix bytes-equal this exactly. */
+  nextBytes?: Uint8Array;
+}
 import { concatBytes } from "../bytes.js";
 import { dominates } from "../geometry.js";
 
@@ -189,15 +208,19 @@ export interface MindContext extends GraphSearchHost {
    *  never invalidated.  Bounded LRU (byte-sized); a miss only re-perceives,
    *  never a correctness risk. */
   _gistCache: BoundedMap<number, Vec>;
-  /** DEPOSIT-path stable-prefix tree cache: content key (latin1) of a
-   *  deposited input → its plain-fold level PYRAMID, so the NEXT deposit
-   *  whose prefix it is (a conversation's accumulated context) reuses every
-   *  full aligned block and refolds only the right edge of each level —
-   *  O(turn) per deposit instead of O(context), with the tree BIT-IDENTICAL
-   *  to a from-scratch fold (see FoldPyramid).  Purely a performance cache.
-   *  Entry-count bounded (a pyramid is ~KB/byte of content; only the few
-   *  live conversation chains matter). */
-  _depositTrees: BoundedMap<string, FoldPyramid>;
+  /** DEPOSIT-path perception cache: content key (latin1) of a deposited
+   *  input → its accumulated turn BOUNDARIES plus reusable fold state.  A
+   *  deposit whose content extends a cached entry IS a conversation context
+   *  grown by one turn — the cached length is the new boundary — so it
+   *  folds with the SAME stable-prefix fold query-time perception uses
+   *  (structural train/inference agreement, load-bearing for recall),
+   *  reusing every already-folded segment via `stable` (see StableFold) —
+   *  O(turn) per deposit instead of O(context).  A first-seen input keeps
+   *  the plain fold and caches its `pyramid` (see FoldPyramid).  Purely a
+   *  performance cache for the FOLD STATE; the boundaries are semantic but
+   *  derived only from the deposit sequence itself (an evicted chain falls
+   *  back to plain-fold behavior, exactly the pre-boundary shape). */
+  _depositTrees: BoundedMap<string, DepositCacheEntry>;
   /** The byte lengths present in {@link _depositTrees} — the candidate
    *  prefix lengths probed (longest first).  Drifts on eviction (a stale
    *  length only costs a miss); cleared with the map when it outgrows the

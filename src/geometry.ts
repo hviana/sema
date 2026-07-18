@@ -145,7 +145,7 @@ export function coverageBar(_maxGroup: number, D: number): number {
 
 // ---- types ----
 
-interface Folded {
+export interface Folded {
   tree: Sema;
   /** Byte length of the subtree — carried incrementally so the stable-prefix
    *  boundary scan never re-walks subtrees (the old per-level walk was
@@ -381,6 +381,66 @@ function stablePrefixFold(
   for (let i = 1; i < segs.length; i++) cur = fold2(space, cur, segs[i]);
   normalize(cur.tree.v);
   return cur.tree;
+}
+
+/** A stable-prefix fold's reusable state: the segment edge offsets and each
+ *  segment's independently-folded root ({@link riverFoldRaw} output).  A
+ *  grown stream whose boundary set EXTENDS a previous fold's reuses every
+ *  matching segment's Folded unchanged (segments fold independently by
+ *  construction, so reuse is bit-identical to refolding) and folds only the
+ *  new right-edge segment — O(turn) per extension, the stable-prefix
+ *  counterpart of {@link FoldPyramid}.  Purely a cache: the produced tree
+ *  never depends on cache state. */
+export interface StableFold {
+  edges: number[];
+  segs: Folded[];
+}
+
+/** {@link stablePrefixFold} with incremental segment reuse — same cuts, same
+ *  segment folds, same left-nested join, same single root normalize; `prev`
+ *  only elides recomputing segments whose [start,end) offsets it already
+ *  folded over a byte-identical prefix (the caller keys the cache by
+ *  content).  Requires a non-empty effective boundary set. */
+export function stablePrefixFoldIncremental(
+  space: Space,
+  alphabet: Alphabet,
+  bytes: Uint8Array,
+  boundaries: readonly number[],
+  prev?: StableFold,
+): { tree: Sema; fold: StableFold } {
+  const cuts: number[] = [];
+  let prevB = 0;
+  for (const b of boundaries) {
+    if (b > prevB && b < bytes.length) {
+      cuts.push(b);
+      prevB = b;
+    }
+  }
+  const edges = [0, ...cuts, bytes.length];
+  const segs: Folded[] = [];
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const hit = prev !== undefined && prev.edges[i] === edges[i] &&
+        prev.edges[i + 1] === edges[i + 1]
+      ? prev.segs[i]
+      : undefined;
+    segs.push(
+      hit ??
+        riverFoldRaw(
+          space,
+          bytesToLeaves(alphabet, bytes.subarray(edges[i], edges[i + 1])),
+        ),
+    );
+  }
+  if (segs.length === 1) {
+    // Degenerate boundary set — the plain fold, as stablePrefixFold does.
+    const tree =
+      riverFold(space, bytesToLeaves(alphabet, bytes), bytes.length).tree;
+    return { tree, fold: { edges, segs } };
+  }
+  let cur = segs[0];
+  for (let i = 1; i < segs.length; i++) cur = fold2(space, cur, segs[i]);
+  normalize(cur.tree.v);
+  return { tree: cur.tree, fold: { edges, segs } };
 }
 
 /** Join two folded items as one 2-kid branch — the top-level join of the

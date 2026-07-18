@@ -14,8 +14,6 @@ import { bindSeat, fold, Sema, Space } from "../sema.js";
 import { Alphabet } from "../alphabet.js";
 import {
   bytesToTree,
-  bytesToTreePyramid,
-  type FoldPyramid,
   Grid,
   gridToTree,
   hilbertBytes,
@@ -109,7 +107,7 @@ export interface Conversation {
  *  foldTree returns their ids immediately — O(suffix) instead of
  *  O(context) for every tree walk. */
 interface ConversationData {
-  pyramid: FoldPyramid;
+  tree: Sema;
   bytes: Uint8Array;
   boundaries: number[];
   perceiveMemo: Map<string, Sema>;
@@ -244,9 +242,10 @@ export class Mind implements MindContext {
   // bounded: a pyramid costs ~KB per content byte (one D-float gist per
   // interior node), and only the few live conversation chains need to stay
   // warm, so 8 entries is the honest budget.
-  _depositTrees = new BoundedMap<string, import("../geometry.js").FoldPyramid>(
-    8,
-  );
+  _depositTrees = new BoundedMap<
+    string,
+    import("./types.js").DepositCacheEntry
+  >(8);
   _depositLens = new Set<number>();
   _internIds = new WeakMap<import("../sema.js").Sema, number>();
 
@@ -513,18 +512,20 @@ export class Mind implements MindContext {
    *  where one turn ends and the next begins. */
   beginConversation(state?: ConversationState): Conversation {
     const id = this._nextConvId++;
-    // Build the initial pyramid: from scratch for a new conversation,
-    // or from the saved context bytes when restoring.
     const initBytes = state?.context ?? new Uint8Array(0);
-    const { pyramid } = bytesToTreePyramid(
+    const initBoundaries = state?.boundaries ? [...state.boundaries] : [];
+    const tree = bytesToTree(
       this.space,
       this.alphabet,
       initBytes,
+      undefined,
+      undefined,
+      initBoundaries.length > 0 ? initBoundaries : undefined,
     );
     this._conversations.set(id, {
-      pyramid,
+      tree,
       bytes: initBytes,
-      boundaries: state?.boundaries ? [...state.boundaries] : [],
+      boundaries: initBoundaries,
       perceiveMemo: new Map(),
       recogniseMemo: new Map(),
       climbMemo: new Map(),
@@ -572,25 +573,23 @@ export class Mind implements MindContext {
    *  place a context grows ({@link addTurn} and {@link respondTurn} both
    *  come through here), so the append semantics cannot drift. */
   private _growContext(data: ConversationData, turnBytes: Uint8Array): Sema {
-    const prevLen = data.pyramid.bytes;
+    const prevLen = data.bytes.length;
     // An empty turn neither grows the context nor marks a boundary —
     // boundaries are documented strictly increasing, and a zero-length
-    // "turn" is no turn.  The pyramid's zero-growth shortcut makes the
-    // refold below O(1), so the existing tree is returned unchanged.
+    // "turn" is no turn.  Nothing changed, so the existing tree stands.
     const grow = turnBytes.length > 0;
-    const grown = !grow
-      ? data.bytes
-      : prevLen > 0
-      ? concat2(data.bytes, turnBytes)
-      : turnBytes;
-    if (grow && prevLen > 0) data.boundaries.push(prevLen);
-    const { tree, pyramid } = bytesToTreePyramid(
+    if (!grow) return data.tree;
+    const grown = prevLen > 0 ? concat2(data.bytes, turnBytes) : turnBytes;
+    if (prevLen > 0) data.boundaries.push(prevLen);
+    const tree = bytesToTree(
       this.space,
       this.alphabet,
       grown,
-      data.pyramid,
+      undefined,
+      undefined,
+      data.boundaries.length > 0 ? data.boundaries : undefined,
     );
-    data.pyramid = pyramid;
+    data.tree = tree;
     data.bytes = grown;
     data.perceiveMemo.set(latin1Key(grown), tree);
     return tree;
@@ -644,43 +643,15 @@ export class Mind implements MindContext {
     this.canonMemo = this.canon ? new Map() : null;
 
     try {
-      // Seed the recognise memo with the STANDALONE recognition of the
-      // NEW turn, offset into the accumulated context.  In the full-context
-      // tree, content-defined chunk boundaries shift when bytes are
-      // concatenated — foldTree no longer visits the original turn's root
-      // node, so the structural pass misses it.  Perceiving the turn alone
-      // preserves intact structure.  We seed ONLY the suffix (the new turn);
-      // prefix forms stay visible through the full-context recognition
-      // (they serve as context, not as questions to re-answer).
-      if (data.boundaries.length > 0) {
-        const suffixStart = data.boundaries[data.boundaries.length - 1];
-        if (suffixStart < newContext.length) {
-          const suffixBytes = newContext.subarray(suffixStart);
-          const suffixRec = recognise(this, suffixBytes);
-          const fullRec = recognise(this, newContext);
-          const seen = new Set(fullRec.sites.map((s) => `${s.start},${s.end}`));
-          const mergedSites = [...fullRec.sites];
-          for (const site of suffixRec.sites) {
-            const absStart = suffixStart + site.start;
-            const absEnd = suffixStart + site.end;
-            const key = `${absStart},${absEnd}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              mergedSites.push({
-                start: absStart,
-                end: absEnd,
-                payload: site.payload,
-              });
-            }
-          }
-          data.recogniseMemo.set(latin1Key(newContext), {
-            sites: mergedSites,
-            leaves: fullRec.leaves,
-            splits: fullRec.splits,
-          });
-        }
-      }
-
+      // No recognise-memo pre-seeding here: that used to be necessary
+      // because the flat/positional fold lost visibility into an earlier
+      // turn's own structure once later bytes shifted its position
+      // (foldTree no longer visited the turn's root node).  The
+      // STABLE-PREFIX fold (see {@link ConversationData}) makes every
+      // turn's subtree independent of what follows it by construction, so
+      // recognise() finds it correctly on its own, first-touch, exactly
+      // once per turn — no workaround needed, and none pre-empting
+      // recognise()'s own memo with a partial result.
       const top = this.trace?.enter("respondTurn", [
         rItem(newContext, "query"),
       ]);

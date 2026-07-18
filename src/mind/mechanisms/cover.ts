@@ -11,6 +11,7 @@
 
 import type { MindContext } from "../types.js";
 import type { ComputedResult, Site } from "../graph-search.js";
+import { bytesEqual, indexOf } from "../../bytes.js";
 import { read, resolve } from "../primitives.js";
 import { guidedFirst } from "../traverse.js";
 import { conceptHop } from "../match.js";
@@ -216,6 +217,43 @@ export const coverMechanism: PipelineMechanism = {
     );
 
     if (segs === null) return [];
+
+    // A chosen span's SUBSTITUTED bytes (an edge followed from a recognised
+    // site, not the site's own literal text read back) that equal a byte
+    // span the query ALREADY CONTAINS elsewhere restates part of the
+    // question — never an answer (the same principle recall.ts's tiers
+    // apply to a whole-query projection: "a projection that is a proper
+    // byte-subspan of the query restates part of the question").  A
+    // recognised site that is itself an entire PRIOR TURN of a multi-turn
+    // query is exactly this shape: it carries a genuine learnt
+    // continuation, but that continuation is something the asker already
+    // said moments later in the SAME query, not a new answer — the cover
+    // search has no notion of "turn" to gate this itself, so the check
+    // belongs here, over the derivation it already chose.
+    const W = ctx.space.maxGroup;
+    for (const s of segs) {
+      if (!s.rec) continue;
+      const literal = s.j - s.i === s.bytes.length &&
+        bytesEqual(s.bytes, query.subarray(s.i, s.j));
+      if (literal) continue;
+      // A span shorter than one river window is exactly the "ice"/"c"
+      // case: a chain hop's short terminal coincidentally recurring as a
+      // substring of an unrelated longer word.  Below the quantum, byte
+      // overlap is chance, not evidence — the same floor identityBar and
+      // reachThreshold hold every other structural-overlap claim to.
+      if (
+        s.bytes.length >= W && s.bytes.length < query.length &&
+        indexOf(query, s.bytes, 0) >= 0
+      ) {
+        ctx.trace?.step(
+          "restatedSpan",
+          [rItem(s.bytes, "substituted", s.node, [s.i, s.j])],
+          [],
+          "the chosen span's substitution already occurs elsewhere in the query — restates it, not an answer",
+        );
+        return [];
+      }
+    }
 
     const composed = liftAnswer(segs, query.length);
     if (composed === null) return [];

@@ -113,10 +113,38 @@ export async function recallByResonance(
       maximal.push(s);
       maxEnd = s.end;
     }
-    if (maximal.length === 1) {
+    // The wrapper must actually BE scaffolding: RC8's own premise is "the
+    // wrapper is scaffolding; the argument is the span that leads
+    // somewhere" ("How do you say 'thank you' in French?" — everything
+    // outside the argument is a small fixed template).  When the query
+    // instead has ANOTHER substantial recognised form (≥ W2, the same
+    // constituent bar the argument itself must clear) sitting OUTSIDE the
+    // chosen argument, the query is not one argument in a wrapper — it is
+    // several complete, independently-meaningful pieces (a multi-turn
+    // conversation's own accumulated turns are exactly this shape), and
+    // binding to the argument's continuation would answer past content
+    // the query itself already carries forward.  Derived from the same W2
+    // bar the argument itself is held to, never a separate tuned number.
+    const hasSubstantialOutside = maximal.length === 1 &&
+      pre.rec.sites.some((s) =>
+        s.end - s.start >= W2 &&
+        (s.end <= maximal[0].start || s.start >= maximal[0].end)
+      );
+    if (maximal.length === 1 && !hasSubstantialOutside) {
       const arg = maximal[0];
       const g = await follow(ctx, arg.payload, queryGist);
-      if (g !== null && g.length > 0) {
+      // The same "no restated fragment" guard tier 2 applies below (§ "the
+      // anchor cleared the consensus floor..."): a followed continuation
+      // that is itself a proper byte-subspan of the QUERY restates part of
+      // the question — never an answer.  A multi-turn query's own later
+      // turns are exact, content-addressed matches for exactly this reason
+      // (each turn is its own previously-learnt form), so without this
+      // guard the argument's OWN later restatement in the same
+      // conversation reads as if it were the next thing to say.
+      if (
+        g !== null && g.length > 0 &&
+        !(g.length < query.length && indexOf(query, g, 0) >= 0)
+      ) {
         return ground(
           g,
           "argument binding — the query's sole edge-source constituent, continuation followed",
