@@ -189,8 +189,13 @@ export interface Grid {
 /** Fold `items[start .. start+count)` in groups of `mg` into `out`.
  *
  *  With `force`, the trailing incomplete group (2..mg-1 items) is folded as
- *  well — only a lone singleton passes through — guaranteeing progress when
- *  the caller detected a stall. */
+ *  well — only a lone singleton passes through.  The river always folds with
+ *  force: every level contracts by ~mg, so the tree's DEPTH is a function of
+ *  ceil(log_mg(n)) alone.  Letting leftovers pass through unfolded made depth
+ *  depend on the exact byte count (39 bytes folded in 3 levels, 41 in 4), and
+ *  each extra level applies another seat permutation to the whole gist —
+ *  near-identical inputs straddling such a cliff read as orthogonal
+ *  (measured: 33-byte-identical prefixes at cos ≈ 0). */
 function foldSlice(
   space: Space,
   items: Folded[],
@@ -251,19 +256,12 @@ function riverFold(space: Space, row: Folded[], stableBytes: number): Folded {
     const next: Folded[] = [];
     if (boundary < level.length) {
       // Prefix folds independently of the suffix — structural stability.
-      foldSlice(space, level, 0, boundary, next, false);
-      foldSlice(space, level, boundary, level.length - boundary, next, false);
+      foldSlice(space, level, 0, boundary, next, true);
+      foldSlice(space, level, boundary, level.length - boundary, next, true);
     } else {
-      foldSlice(space, level, 0, level.length, next, false);
+      foldSlice(space, level, 0, level.length, next, true);
     }
-    if (next.length === level.length) {
-      // Stuck — every group was incomplete.  Force-fold to break the stall.
-      const forced: Folded[] = [];
-      foldSlice(space, next, 0, next.length, forced, true);
-      level = forced;
-    } else {
-      level = next;
-    }
+    level = next;
   }
   // LINEAR fold — this root normalize is the ONLY normalize of the entire
   // fold; every intermediate gist stays unnormalized (see the folding
@@ -413,14 +411,8 @@ function riverFoldRaw(space: Space, row: Folded[]): Folded {
   let level = row;
   while (level.length > 1) {
     const next: Folded[] = [];
-    foldSlice(space, level, 0, level.length, next, false);
-    if (next.length === level.length) {
-      const forced: Folded[] = [];
-      foldSlice(space, next, 0, next.length, forced, true);
-      level = forced;
-    } else {
-      level = next;
-    }
+    foldSlice(space, level, 0, level.length, next, true);
+    level = next;
   }
   return level[0];
 }
@@ -509,16 +501,8 @@ export function bytesToTreePyramid(
       reused * mg,
       level.length - reused * mg,
       next,
-      false,
+      true,
     );
-    if (next.length === level.length) {
-      // Stuck — same force-fold as riverFold (reuse cannot cause it: any
-      // reused block replaces a whole folded group, so reused > 0 implies
-      // progress).
-      const forced: Folded[] = [];
-      foldSlice(space, next, 0, next.length, forced, true);
-      next = forced;
-    }
     levels.push(next);
     level = next;
     L++;

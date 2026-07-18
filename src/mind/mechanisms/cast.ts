@@ -368,6 +368,11 @@ export async function counterfactualTransfer(
     /** The point this candidate came from, or null when it is a nextOf
      *  descendant — then seatOfNode supplies the seat. */
     point: Point | null;
+    /** For a nextOf descendant: the aligned point whose continuation edge
+     *  named it.  Its runs ARE the query evidence this analog rests on
+     *  (the hop was reached THROUGH that alignment), so the comparison
+     *  schema accounts them. */
+    src: Point;
   }
   const analogs: AnalogCandidate[] = [];
   for (const p of points) {
@@ -380,7 +385,7 @@ export async function counterfactualTransfer(
       indexOf(p.ctx, dominant.ctx, 0) < 0 &&
       indexOf(query, p.ctx, 0) < 0
     ) {
-      analogs.push({ anchor: p.anchor, point: p });
+      analogs.push({ anchor: p.anchor, point: p, src: p });
     }
     // Reach through to the point's continuation targets regardless
     // of the point's own context length: when the point is a leaf
@@ -399,7 +404,7 @@ export async function counterfactualTransfer(
         indexOf(nctx, dominant.ctx, 0) >= 0 ||
         indexOf(query, nctx, 0) >= 0
       ) continue;
-      analogs.push({ anchor: nid, point: null });
+      analogs.push({ anchor: nid, point: null, src: p });
     }
   }
   let bestAnalog: AnalogCandidate | null = null;
@@ -521,13 +526,13 @@ export async function counterfactualTransfer(
       // A halo-mediated act (the analogy gate) plus two seat projections.
       CONCEPT + STEP + STEP,
       // What comparison READ: the dominant's own aligned runs, plus the
-      // analog's aligned runs when it was itself an aligned point (a nextOf
-      // descendant was never aligned to the query directly, so it
-      // contributes no accounted span — its seat is graph-reached, not
-      // query-matched).
+      // aligned runs of the point that named the analog — the analog itself
+      // when it was an aligned point, else the source point whose
+      // continuation edge reached it (that alignment IS the query evidence
+      // the hop rests on).
       [
         ...runSpans(dominant),
-        ...(bestAnalog.point !== null ? runSpans(bestAnalog.point) : []),
+        ...runSpans(bestAnalog.point ?? bestAnalog.src),
       ],
     );
   }
