@@ -7,7 +7,6 @@
 // project) live in match.ts — the elementary match-and-project operation.
 
 import { cosine, Vec } from "../vec.js";
-import { consensusFloor } from "../geometry.js";
 import type { AncestorReach, MindContext } from "./types.js";
 import { gistOf, read } from "./primitives.js";
 
@@ -528,22 +527,22 @@ export function chooseNext(
     }
   }
 
-  // A pick among GENUINELY competing continuations still needs to clear the
-  // same genuine-corroboration floor {@link consensusFloor} draws for every
-  // other consumer that turns distinct-context support into a vote (the
-  // climb's recallByResonance/commitVotes) — below it, "most corroborated"
-  // is only the least-thin echo among several, not real evidence.  Gated to
-  // corpus scale large enough that this echo is even possible (the same
-  // scale {@link atomIsHub} already switches on for the identical reason:
-  // at small N every edge IS the evidence there is).  A hub id has no
-  // meaningful "distinct context" reading at all (id < 0 atoms are excluded
-  // from this path already, since chooseNext only ever sees real edges).
-  const N = corpusN(ctx);
-  if (
-    capped.length > 1 && atomIsHub(ctx, N) && bestSupport < consensusFloor(N)
-  ) {
-    return undefined;
-  }
+  // NO consensusFloor gate here (tried and reverted — see
+  // test/40-choosenext-scale-guard.test.mjs): that floor is calibrated for
+  // POOLED, IDF-weighted CLIMB VOTES (recallByResonance, commitVotes), where
+  // each corroborating region contributes at most ln N and the floor grows
+  // with N exactly as that per-region ceiling does (HOW_IT_WORKS.md §8.6).
+  // `bestSupport` here is a different kind of quantity — a raw prevCount of
+  // how many training contexts predicted ONE destination, bounded by how
+  // often that specific fact was retold, never by corpus size N.  Gating an
+  // N-invariant count against an N-growing threshold guarantees failure
+  // once N is large enough, discarding genuinely, structurally dominant
+  // edges (observed: a fact corroborated 2-to-1-1-1 refused at N≈325K,
+  // falling back to a noisy concept-hop).  The loop above already IS the
+  // "genuinely competing" test: a tie leaves first-inserted as the pick
+  // (test/30's own pinned behaviour); a strict winner is real evidence
+  // regardless of corpus scale.  Matches HOW_IT_WORKS.md §25's own
+  // chooseNext pseudocode, which has no such floor.
 
   // Trace is built lazily — the filter + map below only execute when a
   // trace listener is attached, so the common (no-trace) path pays only
