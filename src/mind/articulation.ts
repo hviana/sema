@@ -105,6 +105,7 @@ export async function articulate(
     new Map(),
     ans.leaves,
     ans.splits,
+    ans.starts,
     substitutions,
     undefined,
     undefined,

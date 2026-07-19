@@ -356,6 +356,7 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
+    starts: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
@@ -377,6 +378,7 @@ export class GraphSearch {
         sites,
         leaves,
         splits,
+        starts,
       },
       conceptTarget,
       substitutions,
@@ -405,6 +407,7 @@ export class GraphSearch {
       sites: ReadonlyArray<Site>;
       leaves: ReadonlyArray<Leaf>;
       splits: ReadonlySet<number>;
+      starts: ReadonlySet<number>;
     },
     conceptTarget: ReadonlyMap<number, number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
@@ -418,6 +421,7 @@ export class GraphSearch {
       conceptTarget,
       recognition.leaves,
       recognition.splits,
+      recognition.starts,
       substitutions,
       connectors,
       computedResults,
@@ -448,11 +452,22 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
+    starts: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
   ): DeductionSystem<GItem> {
     const W = this.maxGroup; // fusible span ceiling (shortest composite bound)
+    // Same corpus-scale hub floor {@link atomIsHub}/{@link atomReach} (traverse.ts)
+    // derive for byte atoms — duplicated here rather than imported because this
+    // module is deliberately host-based (no MindContext), and both inputs
+    // (maxGroup, edgeSourceCount) are already in scope with no ctx needed.  If
+    // the formula ever changes, it must change in BOTH places (see canonical.ts's
+    // header for the same write/read-side duplication convention).
+    const atomsAreHubs = Math.max(
+      1,
+      Math.ceil((this.store.edgeSourceCount() * W) / 256),
+    ) > Math.ceil(Math.sqrt(Math.max(2, this.store.edgeSourceCount())));
     const nodeBytes = (n: number) => this.store.bytesPrefix(n, ALL);
     // Content-addressed probes over the store's hash-cons maps — the same keys
     // training filled.  No byte-by-byte trie walk.
@@ -588,6 +603,8 @@ export class GraphSearch {
         return this.outRules(it, {
           W,
           splits,
+          starts,
+          atomsAreHubs,
           coversDone,
           outsByStart,
           outsByEnd,
@@ -949,6 +966,8 @@ export class GraphSearch {
     ctx: {
       W: number;
       splits: ReadonlySet<number>;
+      starts: ReadonlySet<number>;
+      atomsAreHubs: boolean;
       coversDone: Set<number>;
       outsByStart: Map<number, OutItem[]>;
       outsByEnd: Map<number, OutItem[]>;
@@ -1095,12 +1114,30 @@ export class GraphSearch {
     r: OutItem,
     ctx: {
       W: number;
+      starts: ReadonlySet<number>;
+      atomsAreHubs: boolean;
       findLeafU: (b: Uint8Array) => number | undefined;
       findBranchU: (k: number[]) => number | undefined;
     },
   ): Iterable<Rule<GItem>> {
     const bytes = concat2(l.bytes, r.bytes);
-    let node = bytes.length <= ctx.W ? ctx.findLeafU(bytes) : undefined;
+    // A PURE leaf-leaf fuse (neither side already a recognised completion)
+    // is opportunistic cross-leaf recovery exactly like recognition.ts's own
+    // canonical chain — findLeaf/findBranch here have no idea WHY these two
+    // leaves are adjacent, only that their concatenation happens to spell a
+    // trained form ("hi" recovered from "W[hi]ch").  The same corpus-scale
+    // caution recognition.ts's `boundary` gate applies: trust it fully when
+    // `l.i` is a position the query's OWN fold chose as a boundary (real
+    // structural evidence); past the scale where atoms themselves stop
+    // discriminating, an interior offset's opportunistic match is noise, not
+    // a genuine cross-leaf recovery.  A completion-involved fuse (l.rec ||
+    // r.rec) is a different, legitimate case — a rewrite growing into its
+    // neighbour — and is exempt, same as recognition.ts's rec-derived sites.
+    const trusted = l.rec || r.rec || ctx.starts.has(l.i) ||
+      !ctx.atomsAreHubs;
+    let node = (trusted && bytes.length <= ctx.W)
+      ? ctx.findLeafU(bytes)
+      : undefined;
     // Whether this pair ACTUALLY forms a 2-child branch — the hard evidence
     // that the fused bytes are a learned form worth keeping alive.  Derived
     // from the same findBranchU probe that sets `node`; when false, the pair
@@ -1108,7 +1145,10 @@ export class GraphSearch {
     // node cannot contribute to any further fusion (findBranch needs two
     // nodes, resolve needs a completion, and findLeaf already had its chance).
     let pairFormsBranch = false;
-    if (node === undefined && l.node !== undefined && r.node !== undefined) {
+    if (
+      trusted && node === undefined && l.node !== undefined &&
+      r.node !== undefined
+    ) {
       node = ctx.findBranchU([l.node, r.node]);
       pairFormsBranch = node !== undefined;
     }

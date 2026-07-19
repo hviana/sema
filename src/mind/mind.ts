@@ -266,9 +266,15 @@ export class Mind implements MindContext {
     sites: ReadonlyArray<Site>;
     leaves: ReadonlyArray<Leaf>;
     splits: ReadonlySet<number>;
+    starts: ReadonlySet<number>;
   } {
     const r = recognise(this, bytes);
-    return { sites: r.sites, leaves: r.leaves, splits: r.splits };
+    return {
+      sites: r.sites,
+      leaves: r.leaves,
+      splits: r.splits,
+      starts: r.starts,
+    };
   }
 
   /** Disambiguate among multiple learnt continuations of the same context node.

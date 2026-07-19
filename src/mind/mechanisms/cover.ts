@@ -159,11 +159,18 @@ export const coverMechanism: PipelineMechanism = {
 
     const connectors = await resolveConnectors(ctx, sites);
     let splits = rec.splits;
+    let starts = rec.starts;
     if (computed.length > 0) {
       splits = new Set(rec.splits);
+      starts = new Set(rec.starts);
       for (const u of computed) {
         splits.add(u.i);
         splits.add(u.j);
+        // A computation's own boundaries carry the same fold-level evidence
+        // a chunk boundary does — "computation always wins" (see the header
+        // comment) extends to being trusted ground for cross-leaf recovery.
+        starts.add(u.i);
+        starts.add(u.j);
       }
     }
     const concepts = await resolveConcepts(ctx, sites);
@@ -199,6 +206,7 @@ export const coverMechanism: PipelineMechanism = {
       concepts,
       rec.leaves,
       splits,
+      starts,
       undefined,
       connectors,
       computedResults,

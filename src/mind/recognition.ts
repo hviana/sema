@@ -52,7 +52,8 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   const sites: Site[] = [];
   const leaves: Leaf[] = [];
   const splits = new Set<number>();
-  if (bytes.length === 0) return { sites, leaves, splits };
+  const starts = new Set<number>();
+  if (bytes.length === 0) return { sites, leaves, splits, starts };
 
   // Span-resolve memo for THIS call: the structural pass (sub-runs inside
   // leaf-parents) and the canonical pass (leaf-id chains) probe overlapping
@@ -90,7 +91,6 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   };
 
   // ── structural: the query's own perceived tree ──────────────────────
-  const starts = new Set<number>();
   starts.add(0);
   foldTree(ctx, perceive(ctx, bytes), 0, (n, start, end, node) => {
     if (n.kids === null) {
@@ -234,7 +234,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       ` (over ${leaves.length} perceived leaves)`,
   );
 
-  return { sites, leaves, splits };
+  return { sites, leaves, splits, starts };
 }
 
 /** Segment bytes using the geometry's own groupings — leaf-parent

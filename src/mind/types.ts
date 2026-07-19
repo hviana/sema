@@ -64,6 +64,7 @@ export interface GraphSearchHost {
     sites: ReadonlyArray<Site>;
     leaves: ReadonlyArray<Leaf>;
     splits: ReadonlySet<number>;
+    starts: ReadonlySet<number>;
   };
   chooseNext?(node: number): number | undefined;
 }
@@ -79,6 +80,13 @@ export interface Recognition {
   leaves: Leaf[];
   /** Sub-leaf positions where a form boundary falls between leaf edges. */
   splits: Set<number>;
+  /** Leaf-parent (chunk) start positions from the query's OWN perceived
+   *  fold — the positions the fold itself chose as a grouping boundary, as
+   *  opposed to an offset a byte-level scan merely happens to land on.  The
+   *  one boundary signal opportunistic cross-leaf recovery (recognition's
+   *  own canonical chains, the search's `fuse`) can lean on instead of
+   *  ASCII/word heuristics: see the `boundary` gate in recognition.ts. */
+  starts: Set<number>;
 }
 
 /** How the consensus climb weights a region's Document-Frequency reach. */
