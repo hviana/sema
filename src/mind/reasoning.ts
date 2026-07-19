@@ -17,11 +17,13 @@ import type { Rationale } from "./rationale.js";
  *  the question, so voicing it back only restates part of what was asked,
  *  never answers it.  The exact guard recallByResonance already applies to
  *  its OWN grounding candidates (tier 1's `restates`, tier 2's subspan
- *  check, tier 0b's argument-binding subspan check) — reason() is the one
- *  place that walks MULTIPLE further hops past an already-vetted grounding,
- *  and each hop needs the same guard applied to ITS candidate, since
- *  chooseNext/pivotInto know nothing about the query at all. */
-function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
+ *  check, tier 0b's argument-binding subspan check) — every mechanism that
+ *  walks a LEARNT CONTINUATION EDGE past an already-vetted grounding
+ *  (reason()'s own hops below, and CAST's `projectCounterfactual` seat
+ *  substitution — see cast.ts) needs the same guard applied to what the
+ *  walk turns up, since `follow()`/`chooseNext`/`pivotInto` know nothing of
+ *  the query at all — only of what structurally continues what. */
+export function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
   return bytes.length < query.length && indexOf(query, bytes, 0) >= 0;
 }
 

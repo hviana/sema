@@ -22,6 +22,7 @@ import {
   reverseContext,
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
+import { restatesQuery } from "../reasoning.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { concat2, indexOf } from "../../bytes.js";
 import { dominates } from "../../geometry.js";
@@ -297,7 +298,10 @@ export async function counterfactualTransfer(
     const tail = proj.ctx.subarray(seat.cs);
     let answer = await joinWithBridge(ctx, filler, tail);
     const fwd = await follow(ctx, proj.anchor, qv);
-    if (fwd !== null && indexOf(answer, fwd, 0) < 0) {
+    if (
+      fwd !== null && indexOf(answer, fwd, 0) < 0 &&
+      !restatesQuery(query, fwd)
+    ) {
       answer = concat2(answer, fwd);
     }
     ctx.trace?.step(
