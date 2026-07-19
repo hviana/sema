@@ -85,10 +85,27 @@ export async function extractBySkill(
   // correctly).  Trying further anchors when one produces nothing usable is
   // the same idiom this loop already uses for non-exemplars — extended to
   // cover a bad extraction, not just a structural non-match.
+  //
+  // The retry is bounded at pre.k — the SAME evidence-breadth constant every
+  // other consumer of a ranked list already self-limits to (resonance, the
+  // weave, the climb itself; see Precomputed.k's own doc comment) — not the
+  // full ranked list.  locate()'s frame match has an EXACT-byte tier with no
+  // significance correction of its own (short W-byte frames are cheap to
+  // match by pure chance), so trying every ranked anchor turns that per-
+  // anchor chance into a near-certainty over enough attempts: on a pure-
+  // gibberish query, 170 anchors deep found an unrelated Zulu exemplar whose
+  // short frame happened to byte-match, producing "xyzzy pl" — a coincidence
+  // no different in kind from the "RaBitQ estimate overshot the reach bar
+  // and grounded pure gibberish" failure recall.ts's own significance
+  // correction exists to prevent (see recallByResonance's reach-threshold
+  // comment).  Bounding the search to the ranked list's own top-k restores
+  // the "genuinely relevant but not root-significant" exemplars this loop
+  // was built for, without the unbounded tail's chance collisions.
   const W = ctx.space.maxGroup;
+  const searched = ranked.slice(0, pre.k);
   let shapeMisses = 0;
   let subQuantum = 0;
-  for (const cand of ranked) {
+  for (const cand of searched) {
     const exemplar = await pre.spanShapedOf(cand.anchor);
     if (!exemplar) {
       shapeMisses++;
@@ -132,12 +149,13 @@ export async function extractBySkill(
       unexplained: unexplainedLabel(query, built.accounted),
     };
   }
-  if (shapeMisses === ranked.length) {
+  if (shapeMisses === searched.length) {
     ctx.trace?.step(
       "trySkillAnchors",
       [],
       [],
-      `none of ${ranked.length} ranked anchor(s) is a span-shaped skill exemplar`,
+      `none of the top ${searched.length} ranked anchor(s) (of ${ranked.length} total) ` +
+        `is a span-shaped skill exemplar`,
     );
     return fail("no consensus root is a span-shaped skill exemplar");
   }
