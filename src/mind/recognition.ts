@@ -34,12 +34,44 @@ import type { Leaf, Site } from "./graph-search.js";
  *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus. */
 export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
   // Content-keyed memo — works for both single-turn respond() and multi-turn
-  // respondTurn() (where the map persists across calls).  Skipped while
-  // tracing so every call still emits its rationale step.
-  if (ctx.recogniseMemo && !ctx.trace) {
+  // respondTurn() (where the map persists across calls).  ALWAYS consulted,
+  // regardless of tracing — matching perceive()'s own memo, which carries no
+  // trace gate at all.  This memo is NOT an optional accelerator: recogniseImpl
+  // walks the query's perceived tree via foldTree, whose subtree-resolution
+  // fast path (see primitives.ts) skips invoking `visit` — and therefore
+  // skips EMITTING SITES — for any subtree already cached in
+  // ctx._resolvedSubtrees.  A multi-turn conversation's stable-prefix fold
+  // deliberately shares node OBJECTS across turns, so by the second call on
+  // the exact same bytes, large swaths of the tree are already cached and
+  // foldTree stops short of recursing into them — a second recogniseImpl
+  // call on the SAME bytes is not idempotent; it silently finds FEWER sites
+  // than the first (observed live: 31 sites → 5 on an immediate repeat
+  // call).  Skipping this memo "only while tracing" used to mean every
+  // traced turn re-ran recogniseImpl from scratch at every one of the many
+  // call sites that recognise the same query (cover, reason, articulate...),
+  // each subsequent call silently more incomplete than the last — measurably
+  // changing which mechanism grounds the answer, not just costing time.  The
+  // trace step must still fire on every call regardless (a cache hit is not
+  // silent), so it is emitted here directly instead of only inside
+  // recogniseImpl.
+  if (ctx.recogniseMemo) {
     const key = latin1Key(bytes);
     const hit = ctx.recogniseMemo.get(key);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      ctx.trace?.step(
+        "recognise",
+        [rItem(bytes, "query")],
+        hit.sites.map((s) =>
+          rItem(bytes.subarray(s.start, s.end), "form", s.payload, [
+            s.start,
+            s.end,
+          ])
+        ),
+        `decompose the query into ${hit.sites.length} learnt form(s) that ` +
+          `lead somewhere (over ${hit.leaves.length} perceived leaves) [cached]`,
+      );
+      return hit;
+    }
     const fresh = recogniseImpl(ctx, bytes);
     ctx.recogniseMemo.set(key, fresh);
     return fresh;

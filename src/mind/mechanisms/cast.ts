@@ -12,6 +12,7 @@
 // juxtapose.
 
 import type { MindContext } from "../types.js";
+import type { Vec } from "../../vec.js";
 import { read } from "../primitives.js";
 import { argmaxBy, hubBound } from "../traverse.js";
 import {
@@ -79,6 +80,85 @@ export interface CastResult {
    *  unexplained — purely diagnostic, never priced (see the module's
    *  Task 2 note in pipeline.ts's Candidate interface). */
   unexplained: string;
+}
+
+/** The seat that establishes a node's role in an analogical comparison:
+ *  the REVERSE context (what leads to it) when a predecessor genuinely
+ *  ESTABLISHES id — introduces or describes it by name — else the FORWARD
+ *  continuation (what it leads to), else `fallback`.
+ *
+ *  An earlier version gated this purely on `prevCount(id) > 0`: any
+ *  predecessor at all was treated as proof of a genuine named ENTITY
+ *  (seat it by what established it), while no predecessor meant a bare
+ *  learnt CONTEXT (seat it by what it leads to, since voicing it verbatim
+ *  would answer a question with a question).  That test measured the wrong
+ *  thing — a broad sample of this store's own question-shaped nodes showed
+ *  the large majority (≈71%) have at least one predecessor, most of them a
+ *  handful of generic, high-fan-out sentences that recur as an INCIDENTAL
+ *  neighbour to dozens of otherwise-unrelated destinations (a SmolSent-
+ *  style sentence-adjacency artifact, never naming or describing what
+ *  follows).  Traced live: "What is the capital of France?" — whose own
+ *  forward edge unambiguously resolves to "The capital of France is
+ *  Paris." — has exactly one such incidental predecessor ("Create an
+ *  example of a types of questions a GPT model can answer.?"), wrongly
+ *  read as disqualifying proof of "genuine entity."
+ *
+ *  A plain forward-first swap (matching {@link project}'s universal
+ *  priority) over-corrected: test/29's C2/C3 pin that a genuine entity
+ *  analog (e.g. "Leonardo da Vinci", established by "The Mona Lisa was
+ *  painted by Leonardo da Vinci.") must be seated by that establishing
+ *  sentence, NOT by its own biography fact — voicing the bio leaks exactly
+ *  what a comparison must keep out, and loses the embedded "Mona Lisa"
+ *  term C3 relies on for a further hop.
+ *
+ *  The distinguishing signal is content-addressed, not a count: a genuine
+ *  establishing predecessor's bytes CONTAIN id's own bytes — it names or
+ *  describes id ("...painted by Leonardo da Vinci." contains "Leonardo da
+ *  Vinci").  An incidental adjacency predecessor never does — it merely
+ *  preceded id in some unrelated document without ever mentioning it.  No
+ *  new tuned constant: containment is the same primitive `restatesQuery`
+ *  and `dominates`-style checks already use throughout this codebase.
+ *
+ *  `allowForward` (default true) gates the FORWARD branch specifically —
+ *  see the call sites below: the DOMINANT is what the query is actually
+ *  ASKING, so completing it forward is the whole point; an ANALOG is only
+ *  being CITED for comparison; the query never asked about IT, so chasing
+ *  its own further continuation drifts onto whatever coincidentally
+ *  follows it in the corpus.  Traced live: the analog "What is the capital
+ *  of Japan?\nTokyo is the capital of Japan." is ALREADY a complete,
+ *  self-answering unit (prevCount 0, so no establishing predecessor
+ *  either) — its sole forward edge is "And what is the capital of the
+ *  Moon?", an unrelated quiz question sharing nothing but corpus
+ *  adjacency.  With forward disallowed, an analog like this falls through
+ *  to `fallback` — its own bytes, exactly the complete fact that made it a
+ *  genuine analog in the first place.  See
+ *  test/41-seatofnode-direction.test.mjs and
+ *  test/43-cast-analog-seat.test.mjs. */
+export async function seatOfNode(
+  ctx: MindContext,
+  id: number,
+  guide: Vec | null | undefined,
+  fallback: Uint8Array,
+  allowForward = true,
+): Promise<Uint8Array> {
+  const rev = ctx.store.prevFirst(id, hubBound(ctx));
+  if (rev.length > 0) {
+    const own = read(ctx, id);
+    const establishing = rev.some((p) => indexOf(read(ctx, p), own, 0) >= 0);
+    if (establishing) {
+      const back = reverseContext(ctx, id, guide, rev);
+      if (back !== null) return back;
+    }
+  }
+  // The "last resort, non-establishing reverse" fallback below is itself a
+  // LESS CERTAIN projection (the same tier as forward) — an analog
+  // (allowForward: false) must stop at `fallback` (its own bytes) here
+  // rather than fall back to a predecessor that already failed the
+  // establishing check just above.
+  if (!allowForward) return fallback;
+  const fwd = await follow(ctx, id, guide);
+  if (fwd !== null) return fwd;
+  return reverseContext(ctx, id, guide, rev) ?? fallback;
 }
 
 /** CAST's own entry gates, checked once here and reused by
@@ -379,36 +459,14 @@ export async function counterfactualTransfer(
   // seed-dependent failure where the climb ranks an exemplar above a
   // person node and the person node is excluded from points by run-
   // overlap trimming.
-  // The seat that establishes a candidate's role: the REVERSE projection
-  // (the context it follows), voiced by the query gist — falling back to the
-  // candidate's own bytes when it follows nothing.  DELIBERATE STRENGTHENING
-  // over the pre-refactor code: reverseContext also returns null when the
-  // picked context READS EMPTY (a dangling id degrades to zero bytes), so a
-  // corrupted-store read now falls back here instead of voicing a hollow
-  // seat into the comparison — the same "empty bytes are no grounding"
-  // invariant project() has always enforced.
-  // A node that only ever CONTINUES — an edge SOURCE with no predecessor —
-  // is a learnt CONTEXT (a stored question-shaped frame), not an entity.
-  // Voicing it verbatim answers a question with a question (the observed
-  // cast echo: two stored questions concatenated as an "answer").  The
-  // context's role is established by what it LEADS TO, so its seat is its
-  // own continuation — the fact — with the reverse projection and the raw
-  // bytes as the ordinary fallbacks for genuine entities.
-  const seatOfNode = async (
-    id: number,
-    fallback: Uint8Array,
-  ): Promise<Uint8Array> => {
-    if (ctx.store.prevCount(id) === 0 && ctx.store.hasNext(id)) {
-      const fwd = await follow(ctx, id, qv);
-      if (fwd !== null) return fwd;
-    }
-    return reverseContext(ctx, id, qv) ?? fallback;
-  };
-  const seatOf = (p: Point): Promise<Uint8Array> => seatOfNode(p.anchor, p.ctx);
+  // The seat that establishes a candidate's role — see {@link seatOfNode}.
+  const seatOf = (p: Point, allowForward = true): Promise<Uint8Array> =>
+    seatOfNode(ctx, p.anchor, qv, p.ctx, allowForward);
   interface AnalogCandidate {
     anchor: number;
     /** The point this candidate came from, or null when it is a nextOf
-     *  descendant — then seatOfNode supplies the seat. */
+     *  descendant — then its own bytes ARE the seat (already one meaningful
+     *  hop from `src`; see the comparison gate below). */
     point: Point | null;
     /** For a nextOf descendant: the aligned point whose continuation edge
      *  named it.  Its runs ARE the query evidence this analog rests on
@@ -557,9 +615,21 @@ export async function counterfactualTransfer(
       "the two structures keep distributional company beyond chance — genuine analogs",
     );
     const a = await seatOf(dominant);
+    // The analog is only being CITED for comparison — the query never asked
+    // about it — so its seat never chases a FORWARD continuation (see
+    // seatOfNode's `allowForward`): only reverse (if a predecessor genuinely
+    // establishes it) or its own bytes.  A DIRECTLY aligned point
+    // (bestAnalog.point !== null) still goes through seatOfNode for that
+    // reverse check (a bare entity NAME like "Leonardo da Vinci" needs it —
+    // test/29's C2/C3).  A nextOf DESCENDANT (point === null) was already
+    // reached by following ONE meaningful hop off another aligned point (the
+    // alignment loop above: "its nextOf is the hub... and the hub's own
+    // [...] context will be the seat") — its own bytes ARE that seat
+    // directly, with no predecessor to even check (it was found by a
+    // forward edge, not matched in the query).
     const b = bestAnalog.point !== null
-      ? await seatOf(bestAnalog.point)
-      : await seatOfNode(bestAnalog.anchor, read(ctx, bestAnalog.anchor));
+      ? await seatOf(bestAnalog.point, false)
+      : read(ctx, bestAnalog.anchor);
     const answer = await joinWithBridge(ctx, a, b);
     record(
       answer,

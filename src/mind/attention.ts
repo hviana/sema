@@ -57,8 +57,17 @@ export async function climbAttention(
 }
 
 /** Full read-out of one consensus climb: both the roots (dominant points of
- *  attention) and the entire ranked list.  Cached via ctx.climbMemo when
- *  ctx.trace is null. */
+ *  attention) and the entire ranked list.  Cached via ctx.climbMemo, ALWAYS —
+ *  see {@link recognise} for why this memo (and recognise()'s own) must
+ *  never be skipped while tracing: computeAttention's collectRegions walks
+ *  the query's perceived tree via the same foldTree whose subtree-resolution
+ *  fast path makes a second call on identical bytes non-idempotent once
+ *  ctx._resolvedSubtrees is warm (which a multi-turn conversation's shared
+ *  prefix subtrees guarantee by the second turn).  A cache hit still emits
+ *  a trace step — abbreviated, since the full per-sub-region voting detail
+ *  {@link traceAttention} builds isn't preserved by the cached read-out —
+ *  so a traced response is never silently blacked out for a repeated
+ *  query. */
 export async function climbAttentionAll(
   ctx: MindContext,
   query: Uint8Array,
@@ -66,8 +75,8 @@ export async function climbAttentionAll(
   mode: DFMode = "inverse",
 ): Promise<AttentionRead> {
   // Content-keyed memo — works for both single-turn respond() and multi-turn
-  // respondTurn().  Skipped while tracing.
-  if (ctx.climbMemo && !ctx.trace) {
+  // respondTurn().
+  if (ctx.climbMemo) {
     const contentKey = latin1Key(query);
     const modeKey = `${k}:${mode}`;
     let byRead = ctx.climbMemo.get(contentKey);
@@ -75,7 +84,16 @@ export async function climbAttentionAll(
       ctx.climbMemo.set(contentKey, byRead = new Map());
     }
     const hit = byRead.get(modeKey);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      ctx.trace?.step(
+        "climbConsensus",
+        [rItem(query, "query")],
+        hit.roots.map((r) => rNode(ctx, r.anchor, "anchor", r.vote)),
+        `(cached) consensus already computed for this query — ` +
+          `${hit.roots.length} point(s) of attention`,
+      );
+      return hit;
+    }
     const read = await computeAttention(ctx, query, k, mode);
     byRead.set(modeKey, read);
     return read;
