@@ -189,6 +189,60 @@ export async function fuseAttention(
     ...rest.map((r) => rNode(ctx, r.anchor, "point", r.vote)),
   ]);
   for (const root of rest) {
+    // DISPERSION: this root's contributing regions are confined to a
+    // single cluster (see Attention.clusters) — one local neighbourhood of
+    // the query, not several separate places.  Raw region count already
+    // failed to discriminate a coincidental match from a genuine further
+    // topic (test/24 gap 3.1 vs test/35's echo); dispersion is a different
+    // question — not how MUCH evidence, but how many separate PLACES in the
+    // query corroborate it — and a coincidental match is structurally
+    // confined to one cluster no matter how strongly it resonates.
+    //
+    // EXCEPTION: crossRegionVotes' own joint conclusions (a query naming
+    // two attributes that were only ever learnt TOGETHER — test/34's own
+    // binding corpus) are inherently ONE fused context and are pooled from
+    // a single synthetic region, so they always read as one cluster even
+    // though they already, by construction, account for both original
+    // mentions.  `breadth` (dominates — the same > half-the-query bar used
+    // everywhere else) still correctly recognises these: a genuine joint
+    // binding explains the MAJORITY of the query's regions on its own,
+    // which a coincidental echo never does (verified: test/35's echo tops
+    // out at 0.40).  So a root is trusted when EITHER measure alone
+    // indicates real signal — excluded only when BOTH are weak.  Cheap and
+    // synchronous — checked before the async already-answered walk below.
+    if (root.clusters < 2 && root.breadth <= 0.5) {
+      ctx.trace?.step(
+        "singleCluster",
+        [rNode(ctx, root.anchor, "point", root.vote)],
+        [],
+        "this point's evidence is confined to one local neighbourhood of the query — not trusted as an independent topic",
+      );
+      continue;
+    }
+    // ALREADY ANSWERED: this root's own learnt continuation — the same
+    // content-addressed walk reason()'s echo guard already trusts
+    // (`ctx.store.prevCount(qId) > 0`), here applied per-candidate instead
+    // of to the whole query — is VERBATIM present later in the query.  A
+    // query that embeds both an exchange's ask and its own already-given
+    // reply (a conversation's turn plus its own prior answer, concatenated
+    // raw by addTurn — or any caller pasting a transcript into one
+    // respond() call; the check is Mind-bookkeeping-free, so it treats both
+    // identically) has already spoken this root's answer — fusing it in
+    // again would only restate it.  Deliberately NOT a magnitude measure:
+    // it fires on exact content-addressed recurrence, not on how strongly
+    // the root resonates.
+    const cont = await follow(ctx, root.anchor, qv);
+    if (
+      cont !== null && cont.length > 0 && indexOf(query, cont, root.end) >= 0
+    ) {
+      ctx.trace?.step(
+        "alreadyAnswered",
+        [rNode(ctx, root.anchor, "point", root.vote)],
+        [rItem(cont, "continuation")],
+        "this point's own learnt continuation already appears later in the query — already answered, not fused",
+      );
+      continue;
+    }
     const g = await project(ctx, root.anchor, qv);
     if (g === null || g.length === 0) continue;
     if (pieces.some((p) => indexOf(p.bytes, g, 0) >= 0)) continue;

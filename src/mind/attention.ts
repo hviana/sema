@@ -420,6 +420,8 @@ export function poolVotes(
   /** Per-anchor SCALE-INVARIANT support: Σ RegionVote.absorbed over the
    *  distinct contributing regions — see Attention.breadth. */
   regionSupport: Map<number, number>;
+  /** Per-anchor contributing region spans — see Attention.clusters. */
+  regionSpans: Map<number, Array<[number, number]>>;
   steps: DerivationStep[];
 } {
   const eligible: number[] = [];
@@ -500,6 +502,7 @@ export function poolVotes(
     { start: number; end: number; w: number }
   >();
   const regionSupport = new Map<number, number>();
+  const regionSpans = new Map<number, Array<[number, number]>>();
   const steps: DerivationStep[] = [];
   let order = 0;
   for (const pc of pool.values()) {
@@ -508,6 +511,7 @@ export function poolVotes(
       const premises: DerivationItem[] = [];
       const seenRi = new Set<number>();
       let breadthSum = 0;
+      const spans: Array<[number, number]> = [];
       for (const c of pc.contributions) {
         const p0 = c.premises[0].item;
         if (p0.kind !== "region" || seenRi.has(p0.ri)) continue;
@@ -515,8 +519,10 @@ export function poolVotes(
         const rv = regionVotes[p0.ri];
         breadthSum += rv.absorbed ?? 1;
         premises.push({ kind: "form", span: [rv.start, rv.end] });
+        spans.push([rv.start, rv.end]);
       }
       regionSupport.set(pc.item.id, breadthSum);
+      regionSpans.set(pc.item.id, spans);
       steps.push({
         order: order++,
         move: "pool-vote",
@@ -543,7 +549,35 @@ export function poolVotes(
       }
     }
   }
-  return { votes, votesIdf, support, regionSupport, steps };
+  return { votes, votesIdf, support, regionSupport, regionSpans, steps };
+}
+
+/** The number of DISTINCT clusters a root's contributing regions form —
+ *  see Attention.clusters.  Two regions belong to the same cluster iff the
+ *  gap between them is strictly less than one river-fold quantum W: at
+ *  that distance there is no room for a genuinely separate, independently
+ *  perceivable unit of content between them (the same "smallest meaningful
+ *  distinction" quantum {@link reachThreshold}'s own doc invokes).  A gap
+ *  of a full quantum or more means real, separate structure could sit
+ *  between the two spans, so they count as independent corroboration.
+ *  Strict `<` (not `<=`): verified against gap 3.1's own "gender equality"
+ *  root, whose two genuine clusters sit EXACTLY W bytes apart — `<= W`
+ *  would wrongly merge them into one and break that pinned requirement. */
+function countClusters(spans: readonly [number, number][], W: number): number {
+  if (spans.length === 0) return 0;
+  const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+  let clusters = 1;
+  let curEnd = sorted[0][1];
+  for (let i = 1; i < sorted.length; i++) {
+    const [s, e] = sorted[i];
+    if (s - curEnd < W) {
+      curEnd = Math.max(curEnd, e);
+    } else {
+      clusters++;
+      curEnd = e;
+    }
+  }
+  return clusters;
 }
 
 export function commitVotes(
@@ -553,6 +587,7 @@ export function commitVotes(
     votesIdf: Map<number, number>;
     support: Map<number, { start: number; end: number; w: number }>;
     regionSupport: Map<number, number>;
+    regionSpans: Map<number, Array<[number, number]>>;
     steps: DerivationStep[];
   },
   sat: SaturationInfo,
@@ -560,7 +595,8 @@ export function commitVotes(
   regionVoter: ReadonlyArray<{ id: number; score: number; w: number } | null>,
   N: number,
 ): AttentionRead {
-  const { votes, votesIdf, support, regionSupport, steps } = pooled;
+  const { votes, votesIdf, support, regionSupport, regionSpans, steps } =
+    pooled;
   if (votes.size === 0) {
     traceAttention(ctx, regions, regionVoter, [], steps);
     return { roots: [], ranked: [] };
@@ -580,6 +616,10 @@ export function commitVotes(
         start: s.start,
         end: s.end,
         breadth: (regionSupport.get(anchor) ?? 0) / totalRegions,
+        clusters: countClusters(
+          regionSpans.get(anchor) ?? [],
+          ctx.space.maxGroup,
+        ),
       };
     })
     .sort((a, b) => b.vote - a.vote);

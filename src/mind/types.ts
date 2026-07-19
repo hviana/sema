@@ -111,6 +111,23 @@ export interface Attention {
    *  consensus; one that does not is a coincidental single-region echo —
    *  see test/35-attention-confidence.test.mjs. */
   breadth: number;
+  /** DISPERSION: the number of distinct clusters this point's contributing
+   *  regions form, merging any two whose gap is under one river-fold
+   *  quantum W.  Neither breadth NOR raw region count discriminates a
+   *  genuine further topic from a coincidental echo (both were tried and
+   *  falsified — breadth starves a genuine, evenly-split multi-topic query,
+   *  since no root in a real N-way split can exceed half the vote; raw
+   *  count doesn't separate them either, since a short, structurally simple
+   *  echo racks up as many corroborating regions as a real topic does).
+   *  Dispersion asks a different question: not how MUCH evidence, but how
+   *  many separate PLACES in the query corroborate it.  A coincidental
+   *  match — one local phrase resonating with an unrelated stored form —
+   *  is structurally confined to ONE cluster no matter how strong its vote;
+   *  a genuine further topic is named in its own distinctive wording
+   *  somewhere the query's scaffolding does not reach, always a SEPARATE
+   *  cluster from whatever else corroborates it.  See
+   *  test/37-cluster-dispersion-fusion.test.mjs. */
+  clusters: number;
 }
 
 /** Both read-outs of one consensus climb. */
