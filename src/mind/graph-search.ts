@@ -96,6 +96,18 @@ export type GItem =
     cover: boolean;
     rec: boolean;
     node?: number;
+    /** Set only for a {@link ComputedResult} axiom (an extension's derived
+     *  value, e.g. ALU arithmetic) — as opposed to a genuinely RECOGNISED
+     *  learned form.  Both set `rec: true` (a computation bridges the cover
+     *  exactly like a learned terminal answer), but they mean different
+     *  things for `i..j`'s WIDTH: a recognised form's query-span width is
+     *  real evidence of how much of the query's meaning it accounts for
+     *  (liftAnswer's half-dominance framing decision); a computed span's
+     *  width is operand digit-count, uncorrelated with meaning ("1000 - 421"
+     *  is wider than "15 * 7" only because the numbers are bigger, not
+     *  because subtraction is more "the point" of its query).  See
+     *  {@link liftAnswer}. */
+    computed?: boolean;
   };
 type OutItem = Extract<GItem, { kind: "out" }>;
 
@@ -138,6 +150,9 @@ export interface Seg {
   bytes: Uint8Array;
   rec: boolean;
   node?: number;
+  /** See the `computed` field of the "out" {@link GItem} — set only for an
+   *  extension's derived value, never a genuinely recognised learned form. */
+  computed?: boolean;
 }
 
 /** Read the chosen spans back off a derivation: the goal is a chain of bridge
@@ -155,6 +170,7 @@ function readCover(derivation: Derivation<GItem>): Seg[] {
         bytes: out.bytes,
         rec: out.rec,
         node: out.node,
+        computed: out.computed,
       });
     }
     node = node.premises[0];
@@ -565,6 +581,7 @@ export class GraphSearch {
               cover: true,
               rec: true,
               node: u.node,
+              computed: true,
             },
             cost: STEP,
           };

@@ -264,6 +264,20 @@ export function liftAnswer(segs: Seg[], queryLen: number): Uint8Array | null {
 
   if (recognised.length === 1) {
     const s = segs[recognised[0]];
+    // A COMPUTED span's query-side width is operand digit-count, not
+    // evidence of how much of the query's meaning it accounts for — the
+    // half-dominance check below (built for a genuinely RECOGNISED learned
+    // form) is not a valid framing signal for it (see the `computed` field
+    // doc on Seg/GItem): "1000 - 421" outweighs "what is …?" by width only
+    // because the operands are big, not because the framing matters less.
+    // A LITERAL PREFIX before a computed span is unambiguous framing
+    // regardless of width — an arithmetic expression is never itself
+    // preceded by more literal computed content, so anything literal before
+    // it is question wording ("what is ", "compute ") to lift clear of.
+    // With no prefix (s.i === 0) the span is judged by the ordinary
+    // half-dominance rule below, which already correctly keeps a short
+    // trailing glue byte ("2+2." → "4.", the span dominates a 4-byte query).
+    if (s.computed && s.i > 0) return s.bytes;
     if (dominates(s.j - s.i, queryLen)) {
       return concatBytes(segs.map((x) => x.bytes));
     }
