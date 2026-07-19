@@ -141,6 +141,14 @@ export async function fuseAttention(
   query: Uint8Array,
   primary: Uint8Array,
   pre: Precomputed,
+  /** True when `primary` never touched the consensus climb at all — e.g. a
+   *  pure ALU computation, which has no anchor of its own.  commitVotes
+   *  ALWAYS admits the dominant root regardless of its vote (attention.ts:
+   *  "roots.length === 0 || …") on the assumption a lone root already IS
+   *  primary's own source; that assumption is exactly backwards when
+   *  primary is unclimbed.  Absent or false preserves the original
+   *  behaviour exactly. */
+  unclimbed = false,
 ): Promise<Uint8Array> {
   // When the answer is structurally drawn from the query itself
   // (extraction), it already spans all the query's pieces — fusion
@@ -155,17 +163,32 @@ export async function fuseAttention(
   // query, same k, same DF mode) — read them from Precomputed instead of
   // re-climbing, so even a traced response pays for the climb once.
   const forest = (await pre.attention()).roots;
-  if (forest.length <= 1) return primary;
+  // A LONE root is ordinarily primary's own source — nothing to fuse.  But
+  // when primary is unclimbed, the lone root was never checked against
+  // anything: it is admitted by commitVotes unconditionally, so it may be
+  // genuine consensus (Attention.breadth dominates — most of the query's
+  // OWN regions corroborate it) or a coincidental echo (breadth does not
+  // dominate — see test/35-attention-confidence).  breadth is the SCALE-
+  // INVARIANT read of exactly this question: the raw IDF vote cannot serve
+  // here, since it is an absolute ln(N)-scaled quantity (a genuine root on
+  // a large store can score BELOW its own floor while a coincidental echo
+  // on a small one scores comfortably above its own, smaller, floor).
+  const lonePromotes = unclimbed && forest.length === 1 &&
+    forest[0].breadth > 0.5;
+  if (forest.length === 0 || (forest.length <= 1 && !lonePromotes)) {
+    return primary;
+  }
 
   const pieces: Array<{ start: number; bytes: Uint8Array }> = [
     { start: forest[0].start, bytes: primary },
   ];
   const qv = pre.guide; // once, not per root
+  const rest = lonePromotes ? forest : forest.slice(1);
   const t = ctx.trace?.enter("fuseAttention", [
     rItem(primary, "primary"),
-    ...forest.slice(1).map((r) => rNode(ctx, r.anchor, "point", r.vote)),
+    ...rest.map((r) => rNode(ctx, r.anchor, "point", r.vote)),
   ]);
-  for (const root of forest.slice(1)) {
+  for (const root of rest) {
     const g = await project(ctx, root.anchor, qv);
     if (g === null || g.length === 0) continue;
     if (pieces.some((p) => indexOf(p.bytes, g, 0) >= 0)) continue;

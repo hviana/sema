@@ -310,8 +310,21 @@ export async function think(
     ...pre.computed.map((u): [number, number] => [u.i, u.j]),
   ];
   const remainder = unaccounted(explained);
+  // Whether the winning candidate's entire recognised substance is
+  // COMPUTED — every accounted span exactly a pre.computed span, nothing
+  // from a genuinely recognised/climbed site.  fuseAttention's lone-root
+  // shortcut assumes a single point of attention already IS primary's own
+  // source; that assumption is exactly backwards for a pure computation
+  // (an ALU result has no anchor of its own) — see fuseAttention's
+  // `unclimbed` parameter, gated there by Attention.breadth so a
+  // coincidental echo (which this flag alone cannot distinguish) is still
+  // rejected.
+  const unclimbed = decided.accounted.length > 0 &&
+    decided.accounted.every(([i, j]) =>
+      pre.computed.some((u) => u.i === i && u.j === j)
+    );
   const fused = remainder >= ctx.space.maxGroup
-    ? await fuseAttention(ctx, query, reasoned, pre)
+    ? await fuseAttention(ctx, query, reasoned, pre, unclimbed)
     : reasoned;
 
   done(

@@ -101,6 +101,16 @@ export interface Attention {
   /** The union of the query byte-spans whose evidence supports this point. */
   start: number;
   end: number;
+  /** SCALE-INVARIANT confidence: the fraction of the query's OWN regions
+   *  whose evidence this point accounts for (Σ RegionVote.absorbed among
+   *  its contributors, over the query's total region count) — read PER-
+   *  ANCHOR, unlike the raw IDF vote (an absolute, ln(N)-scaled quantity
+   *  that means "strong" on a small store and "weak" on a large one for
+   *  the SAME degree of genuine consensus).  A point whose breadth clears
+   *  `dominates` (> half the query's regions corroborate it) is real
+   *  consensus; one that does not is a coincidental single-region echo —
+   *  see test/35-attention-confidence.test.mjs. */
+  breadth: number;
 }
 
 /** Both read-outs of one consensus climb. */
@@ -138,6 +148,14 @@ export interface RegionVote {
   roots: readonly number[];
   w: number;
   wFocus: number;
+  /** How many of the query's ORIGINAL regions this one vote's evidence
+   *  accounts for.  1 for an ordinary per-region vote (itself); for a
+   *  cross-region junction vote, 1 (itself) plus however many individual
+   *  votes it explained away (see crossRegionVotes) — the junction speaks
+   *  for all of them at once, and breadth accounting must not undercount it
+   *  to "one region" just because it collapsed to one pooled axiom.
+   *  Defaults to 1 when absent. */
+  absorbed?: number;
 }
 
 /** The edge-bearing contexts reached by climbing from a node, plus saturation info. */

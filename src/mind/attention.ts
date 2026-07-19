@@ -417,6 +417,9 @@ export function poolVotes(
   votes: Map<number, number>;
   votesIdf: Map<number, number>;
   support: Map<number, { start: number; end: number; w: number }>;
+  /** Per-anchor SCALE-INVARIANT support: Σ RegionVote.absorbed over the
+   *  distinct contributing regions — see Attention.breadth. */
+  regionSupport: Map<number, number>;
   steps: DerivationStep[];
 } {
   const eligible: number[] = [];
@@ -496,6 +499,7 @@ export function poolVotes(
     number,
     { start: number; end: number; w: number }
   >();
+  const regionSupport = new Map<number, number>();
   const steps: DerivationStep[] = [];
   let order = 0;
   for (const pc of pool.values()) {
@@ -503,13 +507,16 @@ export function poolVotes(
       votes.set(pc.item.id, pc.cost);
       const premises: DerivationItem[] = [];
       const seenRi = new Set<number>();
+      let breadthSum = 0;
       for (const c of pc.contributions) {
         const p0 = c.premises[0].item;
         if (p0.kind !== "region" || seenRi.has(p0.ri)) continue;
         seenRi.add(p0.ri);
         const rv = regionVotes[p0.ri];
+        breadthSum += rv.absorbed ?? 1;
         premises.push({ kind: "form", span: [rv.start, rv.end] });
       }
+      regionSupport.set(pc.item.id, breadthSum);
       steps.push({
         order: order++,
         move: "pool-vote",
@@ -536,7 +543,7 @@ export function poolVotes(
       }
     }
   }
-  return { votes, votesIdf, support, steps };
+  return { votes, votesIdf, support, regionSupport, steps };
 }
 
 export function commitVotes(
@@ -545,6 +552,7 @@ export function commitVotes(
     votes: Map<number, number>;
     votesIdf: Map<number, number>;
     support: Map<number, { start: number; end: number; w: number }>;
+    regionSupport: Map<number, number>;
     steps: DerivationStep[];
   },
   sat: SaturationInfo,
@@ -552,16 +560,27 @@ export function commitVotes(
   regionVoter: ReadonlyArray<{ id: number; score: number; w: number } | null>,
   N: number,
 ): AttentionRead {
-  const { votes, votesIdf, support, steps } = pooled;
+  const { votes, votesIdf, support, regionSupport, steps } = pooled;
   if (votes.size === 0) {
     traceAttention(ctx, regions, regionVoter, [], steps);
     return { roots: [], ranked: [] };
   }
 
+  // SCALE-INVARIANT confidence — see Attention.breadth's doc.  regions.length
+  // is the query's OWN full candidate count (most never vote at all), the
+  // same denominator the "N of M sub-regions voted" rationale text already
+  // reports; regionSupport is that same accounting read PER ANCHOR.
+  const totalRegions = Math.max(1, regions.length);
   const ranked = [...votes.entries()]
     .map(([anchor, vote]) => {
       const s = support.get(anchor)!;
-      return { anchor, vote, start: s.start, end: s.end };
+      return {
+        anchor,
+        vote,
+        start: s.start,
+        end: s.end,
+        breadth: (regionSupport.get(anchor) ?? 0) / totalRegions,
+      };
     })
     .sort((a, b) => b.vote - a.vote);
 
@@ -1016,14 +1035,6 @@ async function crossRegionVotes(
         spanStart = Math.min(spanStart, regions[ei].start);
         spanEnd = Math.max(spanEnd, regions[ei].end);
       }
-      out.push({
-        start: spanStart,
-        end: spanEnd,
-        canonicalFailed: false, // content-addressed: never saturation-masked
-        roots: reach.roots,
-        w,
-        wFocus: w,
-      });
       consumed.add(cand[a]);
       consumed.add(cand[b]);
       for (const ei of bestExtras) consumed.add(ei);
@@ -1033,13 +1044,32 @@ async function crossRegionVotes(
       // vote's bytes are literally part of the learnt whole), and FULL root
       // disjointness is the disagreement test: a vote sharing even one root
       // with the junction corroborates it and keeps its say elsewhere.
+      // Counted BEFORE pushing the junction's own vote below: each ORIGINAL
+      // region this ascent explains away is evidence the junction speaks
+      // for, not evidence lost — `absorbed` (RegionVote's breadth-accounting
+      // field) must credit the junction with all of it, not just the ONE
+      // pooled axiom it collapses to.
       const containerBytes = cachedRead(ctx, cache, best.id, cap);
       const jointRoots = new Set(reach.roots);
+      let explainedAway = 0;
       for (const rv of rvs.votes) {
         if (rv.roots.some((r) => jointRoots.has(r))) continue;
         const bytes = query.subarray(rv.start, rv.end);
-        if (indexOf(containerBytes, bytes, 0) >= 0) superseded.add(rv);
+        if (indexOf(containerBytes, bytes, 0) >= 0 && !superseded.has(rv)) {
+          superseded.add(rv);
+          explainedAway++;
+        }
       }
+
+      out.push({
+        start: spanStart,
+        end: spanEnd,
+        canonicalFailed: false, // content-addressed: never saturation-masked
+        roots: reach.roots,
+        w,
+        wFocus: w,
+        absorbed: 1 + explainedAway,
+      });
 
       const label = [cand[a], cand[b], ...bestExtras]
         .sort((x, y) => regions[x].start - regions[y].start)
