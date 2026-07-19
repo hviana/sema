@@ -13,6 +13,18 @@ import { joinWithBridge, pivotInto } from "./resonance.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
 import type { Rationale } from "./rationale.js";
 
+/** Whether `bytes` is a proper byte-subspan of `query` — already present in
+ *  the question, so voicing it back only restates part of what was asked,
+ *  never answers it.  The exact guard recallByResonance already applies to
+ *  its OWN grounding candidates (tier 1's `restates`, tier 2's subspan
+ *  check, tier 0b's argument-binding subspan check) — reason() is the one
+ *  place that walks MULTIPLE further hops past an already-vetted grounding,
+ *  and each hop needs the same guard applied to ITS candidate, since
+ *  chooseNext/pivotInto know nothing about the query at all. */
+function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
+  return bytes.length < query.length && indexOf(query, bytes, 0) >= 0;
+}
+
 /** Extend a grounded answer forward across facts (multi-hop reasoning).
  *  Pivots on the longest unconsumed learnt context each answer contains,
  *  then follows the pivot's continuation to the next fact.  Repeats up
@@ -91,7 +103,8 @@ export async function reason(
       const fwdId = fwd !== null ? resolve(ctx, fwd) : null;
       if (
         fwd !== null && !bytesEqual(fwd, cur) &&
-        (fwdId === null || !consumed.has(fwdId))
+        (fwdId === null || !consumed.has(fwdId)) &&
+        !restatesQuery(query, fwd)
       ) {
         consumeAll(curId);
         t ??= ctx.trace?.enter("reason", [
@@ -115,7 +128,7 @@ export async function reason(
 
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
-    if (fc === null || bytesEqual(fc, cur)) break;
+    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) break;
     t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
     ctx.trace?.step(
       "pivotStep",
