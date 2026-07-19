@@ -115,7 +115,15 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         leafOffsets.push(off);
         off += k.leaf?.length ?? 0;
       }
+      // Sub-spans starting at i > 0 begin INSIDE the chunk, at an offset the
+      // query's own fold did not itself choose as a boundary — the same
+      // opportunistic byte-atom-chain risk `tryChain`'s `boundary` gate
+      // guards below (see its comment).  Only the chunk's own left edge
+      // (i === 0, already registered in `starts` above) carries the fold's
+      // evidence; interior sub-starts are exempt from the guard only while
+      // atoms themselves still discriminate at this corpus scale.
       for (let i = 0; i < n.kids.length; i++) {
+        if (i > 0 && atomsAreHubs) break;
         const subIds: number[] = [];
         for (let j = i; j < n.kids.length; j++) {
           const kj = n.kids[j];
@@ -158,9 +166,23 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     }
   }
 
+  // A chain rebuilt from a NON-boundary offset (the query's own perceived
+  // cut, `starts`, never chose to segment here) is opportunistic: the same
+  // byte-atom coincidence the hub guard above already exists for, just
+  // spelled over 2+ leaves instead of 1.  At small corpus scale that's fine
+  // — coincidence is rare and every chain is real evidence (see `atomIsHub`).
+  // Past the scale where atoms themselves stop discriminating, the same
+  // uniform-expectation argument bounds a CHAIN'S commonality too: it is at
+  // least as rare as its rarest atom, so a store where atoms are hubs makes
+  // interior chain reconstructions no more trustworthy than the atoms they
+  // are built from ("hi" resolving out of "W[hi]ch" is exactly this: two
+  // hub-scale atoms, chained at an offset nothing in the query's own fold
+  // selected).  Chains that start ON a boundary carry the fold's own
+  // evidence instead and are exempt.
   const tryChain = (
     p: number,
     maxIds: number,
+    boundary: boolean,
   ): void => {
     const first = leafFrom(p);
     if (!first) return;
@@ -174,6 +196,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       ids.push(nx.id);
       pos = nx.end;
       if (store.findBranch(ids) === null) continue;
+      if (!boundary && atomsAreHubs) continue;
       const id = resolveSpan(p, pos);
       if (id === null || id === prevId) continue;
       prevId = id;
@@ -183,10 +206,10 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
 
   for (let p = 0; p < bytes.length; p++) {
     if (starts.has(p)) {
-      tryChain(p, chainReach(W)); // boundary start — full reach
+      tryChain(p, chainReach(W), true); // boundary start — full reach
     } else {
       const limit = chunkEnd[p] + W;
-      tryChain(p, Math.min(limit - p, chainReach(W)));
+      tryChain(p, Math.min(limit - p, chainReach(W)), false);
     }
   }
 
