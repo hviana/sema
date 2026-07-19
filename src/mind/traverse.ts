@@ -7,6 +7,7 @@
 // project) live in match.ts — the elementary match-and-project operation.
 
 import { cosine, Vec } from "../vec.js";
+import { consensusFloor } from "../geometry.js";
 import type { AncestorReach, MindContext } from "./types.js";
 import { gistOf, read } from "./primitives.js";
 
@@ -525,6 +526,23 @@ export function chooseNext(
       bestSupport = support;
       bestMass = mass;
     }
+  }
+
+  // A pick among GENUINELY competing continuations still needs to clear the
+  // same genuine-corroboration floor {@link consensusFloor} draws for every
+  // other consumer that turns distinct-context support into a vote (the
+  // climb's recallByResonance/commitVotes) — below it, "most corroborated"
+  // is only the least-thin echo among several, not real evidence.  Gated to
+  // corpus scale large enough that this echo is even possible (the same
+  // scale {@link atomIsHub} already switches on for the identical reason:
+  // at small N every edge IS the evidence there is).  A hub id has no
+  // meaningful "distinct context" reading at all (id < 0 atoms are excluded
+  // from this path already, since chooseNext only ever sees real edges).
+  const N = corpusN(ctx);
+  if (
+    capped.length > 1 && atomIsHub(ctx, N) && bestSupport < consensusFloor(N)
+  ) {
+    return undefined;
   }
 
   // Trace is built lazily — the filter + map below only execute when a
