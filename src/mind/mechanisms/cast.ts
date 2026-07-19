@@ -102,18 +102,43 @@ export async function counterfactualTransfer(
   query: Uint8Array,
   pre: Precomputed,
 ): Promise<CastResult[]> {
+  // Opened unconditionally, at entry — the same convention recall.ts's
+  // recallByResonance and extraction.ts's extractBySkill use, so every exit
+  // path (five gates below, then the schemas themselves) closes through
+  // ONE scope and inspectRationale never hits a silent dead end.  Only the
+  // first two gates duplicate floor()'s own admissible bound (query length,
+  // ranked anchor count) — required to stay in sync per this function's own
+  // doc comment above, and effectively dead through the ordinary pipeline
+  // (floor() returning null already stops run() from being called at all),
+  // but this function is also exported and callable directly, so they stay
+  // and get the same honest trace as everything past them.
+  const t = ctx.trace?.enter("counterfactual", [rItem(query, "query")]);
+  const fail = (note: string): CastResult[] => {
+    t?.done([], note);
+    return [];
+  };
+
   const quantum = ctx.space.maxGroup;
   if (query.length < 2 * quantum || ctx.store.edgeSourceCount() === 0) {
-    return [];
+    return fail("query below the two-quantum floor, or no edges learnt yet");
   }
   const { roots, ranked } = await pre.attention();
-  if (ranked.length < 2) return [];
+  if (ranked.length < 2) {
+    return fail(
+      `only ${ranked.length} ranked anchor(s) — CAST needs at least two`,
+    );
+  }
 
   const weave = await pre.weave();
   const points = weave.points;
   const depth = weave.depth;
   const aligned = points.length;
-  if (aligned < 2) return [];
+  if (aligned < 2) {
+    return fail(
+      `only ${aligned} structure(s) aligned across the query — CAST needs ` +
+        `at least two to transfer between`,
+    );
+  }
 
   type Point = typeof points[0];
 
@@ -154,18 +179,31 @@ export async function counterfactualTransfer(
   const isRoot = (id: number) => roots.some((r) => r.anchor === id);
   // The weave must touch a COMMITTED point of attention: the dominant
   // structure itself, or another aligned point the climb committed to.
-  if (!points.some((p) => isRoot(p.anchor))) return [];
+  if (!points.some((p) => isRoot(p.anchor))) {
+    t?.done(
+      [
+        ...points.map((p) => rNode(ctx, p.anchor, "aligned")),
+        ...roots.map((r) => rNode(ctx, r.anchor, "committed-root")),
+      ],
+      `${points.length} aligned structure(s), but none is one of the climb's ` +
+        `${roots.length} committed root(s) — CAST refuses to transfer through ` +
+        `content the climb itself never settled on`,
+    );
+    return [];
+  }
 
   const woven = points.some((p) =>
     p.runs.some((r) =>
       !pre.rec.sites.some((s) => r.qs >= s.start && r.qe <= s.end)
     )
   );
-  if (!woven) return [];
+  if (!woven) {
+    return fail(
+      `every aligned run restates a recognised query site — nothing was ` +
+        `actually WOVEN across structures, so there is nothing to transfer`,
+    );
+  }
 
-  const t = ctx.trace?.enter("counterfactual", [
-    rItem(query, "query"),
-  ]);
   // Each schema tried below RECORDS its candidate (when it fires) rather than
   // returning immediately — every schema that succeeds contributes its own
   // candidate, and the grounding decider's own weight comparison (not CAST's

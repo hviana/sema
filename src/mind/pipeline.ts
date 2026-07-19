@@ -288,7 +288,29 @@ export async function think(
     ? new Set<number>()
     : new Set(recognise(ctx, answer).sites.map((s) => s.payload));
   const reasoned = await reason(ctx, query, answer, preConsumed, pre);
-  const fused = provenance === "recall" || provenance === "recall-echo"
+
+  // Fuse only when the query has a genuine REMAINDER no mechanism's
+  // structural evidence touched at all.  `decided.accounted` alone
+  // undercounts this: it is a COST-LADDER quantity (cover.ts prices its
+  // masked/computed spans at near-zero and deliberately leaves them out of
+  // `accounted` so PASS-bridged bytes are still charged), not a coverage
+  // one — a query fully explained by one computed span plus bridged
+  // connectors can report `accounted: []` while nothing is actually left
+  // unexplained.  The genuine remainder is what NEITHER the winning
+  // candidate's accounted spans NOR any recognised extension's computed
+  // span (`pre.computed` — every mechanism's parse() output, ALU included)
+  // ever touched.  A remainder under one river-fold quantum (W, the same
+  // floor cover.ts's restatedSpan and the honesty-density bar above both
+  // use) is bridging punctuation/whitespace, never a second topic —
+  // observed: a single space between two fully-computed arithmetic spans
+  // ("2+2 3+3") registered as "unaccounted" and pulled in an unrelated
+  // corpus fact, corrupting "4 6" into "4 63".
+  const explained: Array<[number, number]> = [
+    ...decided.accounted,
+    ...pre.computed.map((u): [number, number] => [u.i, u.j]),
+  ];
+  const remainder = unaccounted(explained);
+  const fused = remainder >= ctx.space.maxGroup
     ? await fuseAttention(ctx, query, reasoned, pre)
     : reasoned;
 

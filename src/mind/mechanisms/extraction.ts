@@ -70,19 +70,69 @@ export async function extractBySkill(
   if (ranked.length === 0) {
     return fail("no consensus anchor — no skill to apply");
   }
-  let exemplar: SkillInfo | null = null;
-  let chosenAnchor: number | null = null;
-  let skipped = 0;
+
+  // Try ranked anchors IN ORDER until one yields a USABLE extraction — not
+  // merely a span-shaped exemplar, but one whose extracted span clears the
+  // same one-river-fold quantum (W) cover.ts's restatedSpan gate already
+  // treats as the floor below which byte overlap is chance, not evidence.
+  // isSpanShaped (spanShapedOf) is a deliberately permissive sparse-
+  // subsequence check — see the section note below — so it accepts exemplars
+  // whose relation to the query is coincidental gap-matching, not genuine
+  // structure.  Stopping at the FIRST such exemplar let a coincidental match
+  // early in the ranked list win outright and read out a sub-quantum
+  // fragment (observed: a 3-byte "Hel" pulled from an unrelated exemplar,
+  // while a later ranked anchor would have read the query's own "Hello…"
+  // correctly).  Trying further anchors when one produces nothing usable is
+  // the same idiom this loop already uses for non-exemplars — extended to
+  // cover a bad extraction, not just a structural non-match.
+  const W = ctx.space.maxGroup;
+  let shapeMisses = 0;
+  let subQuantum = 0;
   for (const cand of ranked) {
-    const ex = await pre.spanShapedOf(cand.anchor);
-    if (ex) {
-      exemplar = ex;
-      chosenAnchor = cand.anchor;
-      break;
+    const exemplar = await pre.spanShapedOf(cand.anchor);
+    if (!exemplar) {
+      shapeMisses++;
+      continue;
     }
-    skipped++;
+    const built = buildFromExemplar(ctx, query, pre, exemplar);
+    if (built === null || built.bytes.length < W) {
+      subQuantum++;
+      continue;
+    }
+    if (shapeMisses > 0 || subQuantum > 0) {
+      ctx.trace?.step(
+        "trySkillAnchors",
+        [
+          rItem(
+            query.subarray(0, 0),
+            `skipped ${shapeMisses + subQuantum}`,
+          ),
+          rNode(ctx, cand.anchor, "chosen"),
+        ],
+        [],
+        `skipped ${shapeMisses} non-exemplar and ${subQuantum} sub-quantum ` +
+          `anchor(s) before one yielded a usable extraction`,
+      );
+    }
+    t?.done(
+      [rItem(built.bytes, "extracted")],
+      built.pieces === 1
+        ? `apply a learnt extraction skill — read the analogous span of the query` +
+          ` framed like "${
+            decodeText(exemplar.answerBytes)
+          }" sits in its exemplar`
+        : `apply a learnt MULTI-PIECE skill — read ${built.pieces} analogous` +
+          ` pieces of the query and synthesize them like "${
+            decodeText(exemplar.answerBytes)
+          }"`,
+    );
+    return {
+      bytes: built.bytes,
+      accounted: built.accounted,
+      unexplained: unexplainedLabel(query, built.accounted),
+    };
   }
-  if (exemplar === null) {
+  if (shapeMisses === ranked.length) {
     ctx.trace?.step(
       "trySkillAnchors",
       [],
@@ -91,22 +141,29 @@ export async function extractBySkill(
     );
     return fail("no consensus root is a span-shaped skill exemplar");
   }
-  if (skipped > 0) {
-    ctx.trace?.step(
-      "trySkillAnchors",
-      [
-        rItem(query.subarray(0, 0), `skipped ${skipped}`),
-        rNode(ctx, chosenAnchor!, "chosen"),
-      ],
-      [],
-      `skipped ${skipped} anchor(s) that are not skill exemplars`,
-    );
-  }
+  return fail(
+    "no ranked anchor yielded an extraction at or above the quantum floor",
+  );
+}
+
+/** Build the extracted bytes for ONE already-accepted span-shaped exemplar —
+ *  factored out of {@link extractBySkill} so its anchor loop can try
+ *  successive ranked candidates instead of committing to the first
+ *  structural match.  Null when the exemplar's answer does not decompose
+ *  against its context, or no piece's frame locates in the query. */
+function buildFromExemplar(
+  ctx: MindContext,
+  query: Uint8Array,
+  pre: Precomputed,
+  exemplar: SkillInfo,
+):
+  | { bytes: Uint8Array; accounted: Array<[number, number]>; pieces: number }
+  | null {
   const { contextBytes, answerBytes } = exemplar;
 
   const ansCtxRuns = answerRunsInContext(ctx, contextBytes, answerBytes);
   if (ansCtxRuns === null || ansCtxRuns.length === 0) {
-    return fail("answer is not a subsequence of the context");
+    return null;
   }
 
   if (ansCtxRuns.length > 1) {
@@ -200,25 +257,11 @@ export async function extractBySkill(
     if (preBounded && postBounded) accounted.push([start, end]);
   }
   if (pieces.length === 0) {
-    return fail("no answer piece's frame located in the query");
+    return null;
   }
 
   const out = pieces.length === 1 ? pieces[0] : concatBytes(pieces);
-  t?.done(
-    [rItem(out, "extracted")],
-    pieces.length === 1
-      ? `apply a learnt extraction skill — read the analogous span of the query` +
-        ` framed like "${decodeText(answerBytes)}" sits in its exemplar`
-      : `apply a learnt MULTI-PIECE skill — read ${pieces.length} analogous` +
-        ` pieces of the query and synthesize them like "${
-          decodeText(answerBytes)
-        }"`,
-  );
-  return {
-    bytes: out,
-    accounted,
-    unexplained: unexplainedLabel(query, accounted),
-  };
+  return { bytes: out, accounted, pieces: pieces.length };
 }
 
 // ── The two span-shape readings: OPEN acceptance vs. STRONG decomposition ──
