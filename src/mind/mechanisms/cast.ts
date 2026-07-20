@@ -27,7 +27,11 @@ import { restatesQuery } from "../reasoning.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { concat2, indexOf } from "../../bytes.js";
 import { dominates } from "../../geometry.js";
-import { decodeText, unexplainedLabel } from "../rationale.js";
+import {
+  decodeText,
+  unexplainedLabel,
+  unexplainedSpans,
+} from "../rationale.js";
 import { rItem, rNode } from "../trace.js";
 
 // ── CAST gates ────────────────────────────────────────────────────────────
@@ -600,10 +604,54 @@ export async function counterfactualTransfer(
   // climb's own forest, never tuned; substitution/redirection stay
   // unaffected — they orient around a displaced seat, not a whole-topic
   // analogy.
+  //
+  // roots.length <= 1 is a PROXY for "the query is about one thing" — it is
+  // only as good as the climb's own root-commitment, which depends on
+  // recognise() having found something to commit a root TO.  When the
+  // query's newest content genuinely isn't recognised (not boundary noise —
+  // real, uncommitted content; see the session's own investigation of the
+  // France→Spain live trace), the climb under-commits roots and this proxy
+  // is fooled: comparison looks licensed to treat the query as one topic
+  // when it is not.
+  //
+  // The direct check is the SAME accounted spans comparison is about to
+  // cite as its evidence: unexplainedSpans (rationale.ts, the same gap
+  // computation the trace's own `unexplained` diagnostic uses) names every
+  // stretch of the query NEITHER the dominant NOR the analog's evidence
+  // touches.  A short comparison query ("How is ice like steel?") legitimately
+  // accounts for only its two short entity spans — the surrounding "How is
+  // ... like ...?" framing is real but SHORT, split into several small gaps,
+  // none of them the bulk of the query.  The live bug's shape is different in
+  // kind, not degree: ONE contiguous, substantial gap — a whole second
+  // question the query added that comparison's two spans never touch at all.
+  //
+  // Two bars, both derived, neither tuned:
+  //   • the largest gap must not DOMINATE the whole query (the same
+  //     predicate CAST's own frame gate uses) — rules out a gap that is
+  //     most of the query outright;
+  //   • the largest gap must be SMALLER than the dominant's own established
+  //     context.  A gap can't be dismissed as mere connective framing once
+  //     it is at least as large as the topic being compared FROM — at that
+  //     scale it isn't glue between two named things, it's substantial
+  //     enough to be a second topic in its own right.  This is what
+  //     actually separates the live bug (a 47-byte gap against a 30-byte
+  //     dominant — the ignored content is bigger than the topic itself)
+  //     from ordinary short comparisons (a 9-byte gap against an 11-byte
+  //     dominant — the gap is smaller than what's being compared): the two
+  //     cases land on the same side of "half the query" often enough
+  //     (both can exceed or clear it) that the query-relative bar alone
+  //     does not reliably separate them — the topic-relative scale does.
+  const cmpAccounted: Array<[number, number]> = bestAnalog !== null
+    ? [...runSpans(dominant), ...runSpans(bestAnalog.point ?? bestAnalog.src)]
+    : [];
+  const cmpGaps = unexplainedSpans(query.length, cmpAccounted);
+  const cmpMaxGap = cmpGaps.reduce((n, [s, e]) => Math.max(n, e - s), 0);
   if (
     bestAnalog !== null &&
     dominant.ctx.length <= query.length &&
-    roots.length <= 1
+    roots.length <= 1 &&
+    !dominates(cmpMaxGap, query.length) &&
+    cmpMaxGap < dominant.ctx.length
   ) {
     ctx.trace?.step(
       "validateAnalogy",
@@ -642,10 +690,24 @@ export async function counterfactualTransfer(
       // when it was an aligned point, else the source point whose
       // continuation edge reached it (that alignment IS the query evidence
       // the hop rests on).
+      cmpAccounted,
+    );
+  } else if (
+    bestAnalog !== null &&
+    dominant.ctx.length <= query.length &&
+    roots.length <= 1
+  ) {
+    ctx.trace?.step(
+      "validateAnalogy",
       [
-        ...runSpans(dominant),
-        ...runSpans(bestAnalog.point ?? bestAnalog.src),
+        rNode(ctx, dominant.anchor, "analog", bestSim),
+        rNode(ctx, bestAnalog.anchor, "analog", bestSim),
       ],
+      [],
+      `comparison's own accounted evidence leaves a ${cmpMaxGap}-byte gap in ` +
+        `a ${query.length}-byte query against a ${dominant.ctx.length}-byte ` +
+        `dominant — too large to be mere framing — so it refuses rather ` +
+        `than paper over it with an analog the query never asked about`,
     );
   }
   t?.done(
