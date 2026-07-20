@@ -1,0 +1,106 @@
+// 49-natural-units-synonym-bridge.test.mjs — irrefutable demonstration of
+// the architectural gap investigated this session: a query using a
+// near-synonym ("biggest") of a word that was only ever trained in a
+// DIFFERENT phrasing ("largest") finds nothing, even though the fact
+// itself is trained and the synonym relationship is corroborated many
+// times over in the corpus.
+//
+// Root-caused directly (prior turn): "biggest"/"largest" NEVER resolve as
+// independent nodes at all — deposit() only interns whole sentences (as
+// one flat branch) plus tiny W-1/W leaf-id windows (canonical.ts); a
+// 7-byte word floating mid-sentence falls in the gap between those two
+// scales and is never independently addressable, so the EXISTING
+// halo/synonym machinery (conceptHop, already used by CAST) never gets an
+// entry point to it — the halo system is real and works, it is simply
+// never asked about a node that was never minted.
+//
+// Fix (units.ts): a derived, corpus-statistics-only notion of a "natural
+// unit" — a run of adjacent chunks whose pairing recurs at least as often
+// as either chunk alone (the same principle behind BPE/content-defined
+// chunking, computed from this store's own reuse/containment counts, no
+// injected modality-specific segmenter).  Interned at deposit time,
+// pairwise halo-poured as each other's company; read at query time via the
+// same derived merge (existingUnits) plus a halo-corroborated substitution
+// fallback in recognise().
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Mind } from "../dist/src/index.js";
+import { SQliteStore } from "../dist/src/store-sqlite.js";
+import { resolve } from "../dist/src/mind/primitives.js";
+
+const enc = (s) => new TextEncoder().encode(s);
+const dec = (b) => new TextDecoder().decode(b).replace(/\0+$/, "");
+
+// Parallel "X is the biggest/largest Y" constructions across several
+// different nouns — real cross-sentence corroboration for the
+// biggest~largest collocation pattern, not a single coincidental pairing.
+const TRAIN = [
+  [
+    "What is the largest planet in our solar system?",
+    "The largest planet is Jupiter.",
+  ],
+  ["What is the biggest ocean on Earth?", "The biggest ocean is the Pacific."],
+  ["What is the largest country by area?", "The largest country is Russia."],
+  [
+    "What is the biggest mammal on Earth?",
+    "The biggest mammal is the blue whale.",
+  ],
+  [
+    "What is the largest desert in the world?",
+    "The largest desert is the Sahara.",
+  ],
+  ["What is the biggest city in Japan?", "The biggest city is Tokyo."],
+  ["What is the largest lake in Africa?", "The largest lake is Lake Victoria."],
+  ["What is the biggest island on Earth?", "The biggest island is Greenland."],
+];
+
+test("baseline: 'biggest'/'largest' never resolve as independent nodes without natural units", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(TRAIN);
+  // This assertion documents the ROOT CAUSE (still true even after the
+  // fix — units.ts does not change what resolve() itself returns for a
+  // bare word; it changes what recognise() can bridge to via halos).
+  assert.equal(resolve(m, enc("biggest")), null);
+  assert.equal(resolve(m, enc("largest")), null);
+  await m.store.close();
+});
+
+test("irrefutable failure: a trained fact is unreachable through an untrained near-synonym", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(TRAIN);
+
+  // Sanity: the TRAINED phrasing works.
+  const trained = await m.respond(
+    "What is the largest planet in our solar system?",
+  );
+  assert.ok(
+    dec(trained.bytes).includes("Jupiter"),
+    `sanity: trained phrasing must answer, got ${
+      JSON.stringify(dec(trained.bytes))
+    }`,
+  );
+
+  // The untrained near-synonym phrasing.  NOTE: a query that keeps the
+  // trained sentence's own long, near-identical scaffolding around the one
+  // swapped word ("What is the biggest planet in our solar system?")
+  // already succeeds WITHOUT this fix — recallByResonance's WHOLE-QUERY
+  // gist is similar enough (one word out of a long, highly-repetitive
+  // sentence) to clear the reach threshold on its own, an existing
+  // capability this test must not accidentally exercise instead.  Deliberately
+  // SHORT and restructured ("Name the biggest planet.") so the whole-query
+  // gist has no such shortcut — confirmed directly (see this session's
+  // investigation) to return silence at baseline: recognise() finds 0
+  // sites, and the whole-query resonance score is nowhere near the reach
+  // bar.  Only a WORD-level bridge from "biggest" to its corroborated
+  // synonym "largest" can recover the trained fact here.
+  const untrained = await m.respond("Name the biggest planet.");
+  assert.ok(
+    dec(untrained.bytes).includes("Jupiter"),
+    `expected the trained fact to be reachable through the corroborated ` +
+      `synonym "biggest" ~ "largest", got ${
+        JSON.stringify(dec(untrained.bytes))
+      }`,
+  );
+  await m.store.close();
+});

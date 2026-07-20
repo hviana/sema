@@ -325,18 +325,32 @@ export async function haloSiblings(
  *  strength, not a pick.  Returns the direct halo cosine, or failing that the
  *  highest mutual-halo-sibling min-score (second-order analogy), or failing
  *  that the SHARED-FRAME strength (below) — the gate CAST's comparison
- *  schema validates genuine analogs with (bar: significanceBar). */
+ *  schema validates genuine analogs with (bar: significanceBar).
+ *
+ *  The result names its TIER alongside the score: `halo: true` means the
+ *  score cleared a significanceBar-gated HALO tier (direct company cosine
+ *  or mutual-sibling) — genuine distributional evidence; `halo: false`
+ *  means only the structural shared-frame fallback matched, a coverage
+ *  fraction with no bar of its own.  CAST's comparison gate treats the two
+ *  differently (see cast.ts): halo evidence stands alone, frame evidence
+ *  needs the query to have named the analog or the climb root to be
+ *  trusted. */
+export interface AnalogyEvidence {
+  score: number;
+  halo: boolean;
+}
+
 export async function analogyStrength(
   ctx: MindContext,
   a: number,
   b: number,
-): Promise<number> {
+): Promise<AnalogyEvidence> {
   const ha = ctx.store.halo(a);
   const hb = ctx.store.halo(b);
   if (ha && hb) {
     const bar = significanceBar(ctx.store.D);
     const direct = cosine(ha, hb);
-    if (direct >= bar) return direct;
+    if (direct >= bar) return { score: direct, halo: true };
     const sibsA = await haloSiblings(ctx, a, ha, bar);
     const sibsB = await haloSiblings(ctx, b, hb, bar);
     let best = 0;
@@ -347,9 +361,9 @@ export async function analogyStrength(
         best = Math.max(best, Math.min(x.score, y.score));
       }
     }
-    if (best > 0) return best;
+    if (best > 0) return { score: best, halo: true };
   }
-  return sharedFrameStrength(ctx, a, b);
+  return { score: sharedFrameStrength(ctx, a, b), halo: false };
 }
 
 /** The STRUCTURAL analogy tier: two nodes are analogs when their byte

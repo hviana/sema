@@ -14,7 +14,7 @@
 import type { MindContext } from "../types.js";
 import type { Vec } from "../../vec.js";
 import { read } from "../primitives.js";
-import { argmaxBy, hubBound } from "../traverse.js";
+import { argmaxBy, corpusN, hubBound } from "../traverse.js";
 import {
   analogyStrength,
   follow,
@@ -26,13 +26,14 @@ import { joinWithBridge } from "../resonance.js";
 import { restatesQuery } from "../reasoning.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { concat2, indexOf } from "../../bytes.js";
-import { dominates } from "../../geometry.js";
+import { consensusFloor, dominates } from "../../geometry.js";
 import {
   decodeText,
   unexplainedLabel,
   unexplainedSpans,
 } from "../rationale.js";
 import { rItem, rNode } from "../trace.js";
+import { dismissedKnownContent } from "../bridge.js";
 
 // ── CAST gates ────────────────────────────────────────────────────────────
 //
@@ -513,8 +514,46 @@ export async function counterfactualTransfer(
   }
   let bestAnalog: AnalogCandidate | null = null;
   let bestSim = 0;
+  let bestHalo = false;
+  // Whether the query itself NAMES a candidate.  A directly aligned point
+  // is named by construction — its runs ARE query bytes.  A hop-reached
+  // candidate is named when its own bytes contain the query text of an
+  // aligned run of the point whose continuation edge reached it (that
+  // alignment IS the query evidence the hop rests on — the same reading
+  // cmpAccounted already prices): "William Shakespeare", reached off
+  // "Macbeth was written by William Shakespeare.", contains the src's
+  // 12-byte aligned run " Shakespeare" — test/29 C2/C3.  The run must span
+  // at least TWO perception windows (2·W, the same two-quantum floor
+  // CAST's own entry gate holds the whole query to): a single shared
+  // W-window is exactly the frame tier's own evidence quantum — the level
+  // "half the corpus" shares — and stopword scraps (" the ", "he b",
+  // 4–5 bytes) never reach two windows, while a genuinely named entity
+  // does.  NOT the weave's usable()/frame filter: weave depth counts every
+  // ranked exemplar, so a query's own named entity recurring across
+  // exemplars ("Shakespeare" in Hamlet+Macbeth+…) is wrongly classified as
+  // frame — measured live, it silently disqualified C3's genuine analog.
+  const namedByQuery = (c: AnalogCandidate): boolean => {
+    if (c.point !== null) return true;
+    const bytes = read(ctx, c.anchor);
+    return c.src.runs.some((r) =>
+      r.qe - r.qs >= 2 * quantum &&
+      indexOf(bytes, query.subarray(r.qs, r.qe), 0) >= 0
+    );
+  };
+  // Whether any committed root's consensus vote clears the SAME trust bar
+  // recallByResonance applies before grounding through a climb root:
+  // consensusFloor(N) = ln(N) + 1/2.  The climb's FIRST root is
+  // deliberately floor-free (attention.ts: "the dominant one always
+  // grounds") — fine for ORIENTING mechanisms, not for voicing learnt
+  // content the query never asked about.  Computed once here; both the
+  // hub fallback below and the comparison gate consume it.
+  const rootTrusted = roots.some((r) => r.vote >= consensusFloor(corpusN(ctx)));
   for (const c of analogs) {
-    const sim = await analogyStrength(ctx, dominant.anchor, c.anchor);
+    const { score: sim, halo } = await analogyStrength(
+      ctx,
+      dominant.anchor,
+      c.anchor,
+    );
     ctx.trace?.step(
       "tryAnalog",
       [
@@ -522,11 +561,12 @@ export async function counterfactualTransfer(
         rNode(ctx, c.anchor, "candidate", sim),
       ],
       [],
-      `analogy strength ${sim.toFixed(4)}`,
+      `analogy strength ${sim.toFixed(4)}${halo ? " (halo tier)" : ""}`,
     );
     if (sim > bestSim) {
       bestSim = sim;
       bestAnalog = c;
+      bestHalo = halo;
     }
   }
   // When every candidate fails the similarity gates (halo company — now
@@ -555,6 +595,17 @@ export async function counterfactualTransfer(
     let hubMass = -1;
     const fanClamp = hubBound(ctx) + 1;
     for (const c of analogs) {
+      // A fallback comparison carries NO similarity evidence at all.  Its
+      // honesty rests on the grounding decider discounting it against
+      // richer candidates (the design note below) — an assumption that
+      // holds only when the climb itself settled on this query with real
+      // evidence.  Under a root the consensus floor does not trust, an
+      // unnamed, hop-reached hub is pure corpus adjacency: refusing it is
+      // what kept the live wrong echo silent.  A hub the query itself
+      // NAMED stays eligible either way (test/29 C2/C3's "William
+      // Shakespeare"); an unnamed one under a TRUSTED root stays eligible
+      // too (test/33 1b's deliberately weak second candidate).
+      if (!rootTrusted && !namedByQuery(c)) continue;
       // Evidence clamped at the hub bound: beyond √N + 1 the exact fan-out
       // no longer discriminates (every mega-hub ties at the clamp), and
       // counting it exactly would require the corpus-sized read.
@@ -646,8 +697,65 @@ export async function counterfactualTransfer(
     : [];
   const cmpGaps = unexplainedSpans(query.length, cmpAccounted);
   const cmpMaxGap = cmpGaps.reduce((n, [s, e]) => Math.max(n, e - s), 0);
+  // An analog that is not itself a directly ALIGNED point (point !== null —
+  // its own runs are query bytes, the query NAMED it) was only reached
+  // through a continuation hop or the structural-hub fallback.  Voicing
+  // learnt content the query never named is the same act recallByResonance
+  // refuses to perform through a climb root whose consensus vote is below
+  // consensusFloor(N) = ln(N) + 1/2 (recall.ts's minVote), so comparison
+  // holds the climb to that SAME bar before citing a hop-reached analog:
+  // some committed root must clear the floor.  The climb's FIRST root is
+  // deliberately floor-free (attention.ts: "the dominant one always
+  // grounds") — fine for ORIENTING mechanisms, not for transferring
+  // unnamed content through.  The live bug this gates (real trained store,
+  // 325k edge sources, floor 13.2): the query's stopword scraps pooled a
+  // 1.92 vote that committed an unrelated haiku exemplar as the sole root,
+  // and comparison voiced that exemplar's continuation through a
+  // hop-reached analog while every other mechanism honestly refused.  A
+  // directly aligned analog needs no floor — the query's own bytes are its
+  // evidence (test/29 C1's "Steel is hard" for "How is ice like steel?").
+  // See test/50-cast-analog-consensus-floor.
+  // A HALO-tier best analog needs neither: its similarity already cleared
+  // significanceBar-gated distributional company (analogyStrength's
+  // `halo`) — genuine evidence in its own right, the very case the halo
+  // gate exists for (test/33 1b's nickname-corroborated analog).  Only a
+  // FRAME-tier or fallback analog — whose "similarity" is an unbarred
+  // coverage fraction or nothing — needs the query's naming or the climb's
+  // trust.
+  const analogNamed = bestAnalog !== null && namedByQuery(bestAnalog);
+  // NOTE — two further gates were tried here and empirically REFUTED,
+  // recorded so they are not re-tried:
+  //   • dominant self-coverage (dominant's aligned runs must dominate its
+  //     own ctx): legitimate dominants sit at the same coverage as junk
+  //     ones ("The Mona Lisa was painted by…" 16/47 vs the live junk
+  //     haiku ~10/54) — no separation.
+  //   • denying the shared-frame similarity tier to hop-reached analogs:
+  //     semantically right in isolation, but it merely promoted the next
+  //     junk candidate — an ALIGNED scrap-matched point ("The affluence…",
+  //     frame 0.157) — into bestAnalog on the live store, and the aligned
+  //     configuration is byte-structurally IDENTICAL to test/29 C1's
+  //     legitimate one ("Steel is hard", frame 0.364): every derived
+  //     local separator measured (run length, site overlap, frame
+  //     query-containment, weave-usable classification) falls on the same
+  //     side for both.  Only corpus-scale consensus separates them, which
+  //     is exactly what `rootTrusted` prices.
+  // FRAME-tier evidence under an UNTRUSTED root is comparison's weakest
+  // licence (an unbarred coverage fraction, a climb the consensus floor
+  // does not trust).  There it is additionally held to the IGNORED-KNOWN
+  // principle (dismissedKnownContent, bridge.ts): the two analogs' aligned
+  // runs must account for every STORED window of the query.  This is the
+  // byte-structural separator the refuted-gates note below could not find
+  // locally: a legitimate small-corpus comparison ("How is ice like
+  // steel?") leaves only UNATTESTED spans ("How ", " like ") unexplained,
+  // while a scrap-matched junk pair leaves the query's own trained content
+  // ("…songs…times…", "…planet…sun.") dismissed as gaps.  Halo-tier and
+  // trusted-root comparisons are exempt — their evidence already stands.
+  const cmpDismisses = !(bestHalo || rootTrusted) &&
+    dismissedKnownContent(ctx, query, cmpAccounted);
   if (
     bestAnalog !== null &&
+    (bestHalo || analogNamed || rootTrusted) &&
+    !cmpDismisses &&
     dominant.ctx.length <= query.length &&
     roots.length <= 1 &&
     !dominates(cmpMaxGap, query.length) &&
@@ -704,10 +812,18 @@ export async function counterfactualTransfer(
         rNode(ctx, bestAnalog.anchor, "analog", bestSim),
       ],
       [],
-      `comparison's own accounted evidence leaves a ${cmpMaxGap}-byte gap in ` +
-        `a ${query.length}-byte query against a ${dominant.ctx.length}-byte ` +
-        `dominant — too large to be mere framing — so it refuses rather ` +
-        `than paper over it with an analog the query never asked about`,
+      !(bestHalo || analogNamed || rootTrusted)
+        ? `the best analog carries no halo-tier company evidence, was never ` +
+          `named by the query, and no committed root's consensus vote ` +
+          `clears the floor, so comparison refuses to voice it`
+        : cmpDismisses
+        ? `a frame-tier analog under an untrusted root dismisses stored ` +
+          `query content its alignment never accounted for — comparison ` +
+          `refuses to ignore what the store knows`
+        : `comparison's own accounted evidence leaves a ${cmpMaxGap}-byte gap in ` +
+          `a ${query.length}-byte query against a ${dominant.ctx.length}-byte ` +
+          `dominant — too large to be mere framing — so it refuses rather ` +
+          `than paper over it with an analog the query never asked about`,
     );
   }
   t?.done(

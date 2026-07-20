@@ -20,6 +20,7 @@ import { CONCEPT, STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
+import { substitutionBridge } from "../bridge.js";
 
 /** A recall result. */
 export interface RecallResult {
@@ -293,6 +294,50 @@ export async function recallByResonance(
       }
     }
   }
+  // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts).
+  // Every gist-based tier has failed; before refusing, align the query
+  // byte-for-byte against the trained contexts its own stored windows
+  // anchor, accepting mismatches only as corpus-attested, concept-bar
+  // substitutions.  A bridged context grounds exactly like any hit —
+  // projected through its learnt edges — under the same restated-fragment
+  // guard tiers 0b/2 apply.  Costs nothing on any answering path.
+  {
+    const bridged = await substitutionBridge(ctx, query);
+    if (bridged !== null) {
+      const g = await project(ctx, bridged.id, queryGist);
+      // A projection contained in a substituted candidate-side span is the
+      // substitution RESTATED as if it were knowledge — the exact failure
+      // observed live: "Darwin was born in England." bridged to the
+      // Einstein fact through " England." → " Germany." and would have
+      // voiced "Germany", an answer the substitution itself manufactured.
+      // The same principle as the restated-fragment guards above, extended
+      // to the bridge's own substitutions.
+      const cBytes = ctx.store.bytes(bridged.id);
+      const manufactured = g !== null &&
+        bridged.subs.some((s) =>
+          indexOf(cBytes.subarray(s.cs, s.ce), g!, 0) >= 0
+        );
+      if (
+        g !== null && g.length > 0 && !restates(g) && !manufactured &&
+        !(g.length < query.length && indexOf(query, g, 0) >= 0)
+      ) {
+        return ground(
+          g,
+          `substitution bridge — a trained context accounts for the query ` +
+            `up to ${bridged.subs.length} corroborated substitution(s)`,
+          // Accounted NOTHING — the same epistemic humility as the echo
+          // tier below: a substitution-bridged grounding is a last resort
+          // that must lose to ANY mechanism that actually explained the
+          // query (observed: pricing the aligned spans here outweighed
+          // extraction's correct answer in the grounding decider), while
+          // still beating silence when everything else refused.
+          [],
+          CONCEPT * bridged.subs.length + STEP,
+        );
+      }
+    }
+  }
+
   // The refusal/echo decision.  The echo returns a stored form's bytes AS
   // the answer — a near-identity claim about the query — and identity-grade
   // decisions are never made on an estimated score ("approximate scores may
