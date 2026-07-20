@@ -306,8 +306,17 @@ export interface Store {
   nodeCount(): number;
 
   // ── soft resonance over node gists ─────────────────────────────────────
-  /** The k nodes whose gist resonates most with v. */
-  resonate(v: Vec, k: number): Promise<Hit[]>;
+  /** The k nodes whose gist resonates most with v.  `exhaustive` widens the
+   *  IVF probe to every cluster (see {@link AbstractStore.efFor}'s doc) —
+   *  for refusal-path-only callers where an approximate top-√C-clusters
+   *  search is not the same discriminator as the caller's own byte-exact
+   *  verification (the substitution bridge's proposal channel): a rarer
+   *  paraphrase can score lower than hundreds of unrelated hits by pure
+   *  fold-geometry structural distance (a middle-of-string mismatch
+   *  perturbs the tree hash far more than a tail mismatch of the same
+   *  byte length) and so never even reach a probed cluster, no matter how
+   *  large k is — k only reorders WITHIN the clusters already probed. */
+  resonate(v: Vec, k: number, exhaustive?: boolean): Promise<Hit[]>;
   /** Mark a node as a RESONANCE TARGET — promote its gist into the content
    *  index so {@link resonate} can find it.  A node's gist is captured at intern
    *  but indexed LAZILY (only targets are indexed; the ~99.5% intermediate DAG
@@ -1636,7 +1645,7 @@ export abstract class AbstractStore implements Store {
 
   // ── Soft resonance ─────────────────────────────────────────────────────
 
-  async resonate(v: Vec, k: number): Promise<Hit[]> {
+  async resonate(v: Vec, k: number, exhaustive = false): Promise<Hit[]> {
     await this._ensureReady();
     // Synchronous flush of any buffered index writes: the FIRST resonance
     // after a large ingest pays that flush here, so it shows up in respond
@@ -1649,17 +1658,22 @@ export abstract class AbstractStore implements Store {
     // same values still hits.  Lazy-init: null after any index write; the
     // first miss after a flush recreates it.  When voteRegions resonates
     // identical perceived sub-regions, only the first call descends the ANN.
-    const rk = vecKey(v) + ":" + k;
+    const rk = vecKey(v) + ":" + k + (exhaustive ? ":x" : "");
     const cache = this._resonateCache;
     if (cache) {
       const hit = cache.get(rk);
       if (hit !== undefined) return hit;
     }
 
+    const clusters = this._vecContentClusterCount();
     const results = this._vecContentQuery(
       normalize(copy(v)),
       k * this.overfetch,
-      this.efFor(this._vecContentClusterCount()),
+      // Exhaustive: probe every cluster (ef ≥ 4·clusters guarantees the
+      // IVF's own ef→nprobe=ceil(ef/4) mapping reaches all of them) — the
+      // natural ceiling for a search that is ALREADY refusal-path-only and
+      // must not miss a candidate hiding in an unprobed cluster.
+      exhaustive ? 4 * clusters : this.efFor(clusters),
     );
     const out: Hit[] = [];
     for (const r of results) {

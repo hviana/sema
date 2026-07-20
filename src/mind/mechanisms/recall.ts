@@ -310,10 +310,32 @@ export async function recallByResonance(
     // france" resonating straight to "What is the capital of France?" yet
     // refusing on the reach bar).  Approximate scores propose; the bridge's
     // byte-exact alignment and attestation gates decide.
+    //
+    // The proposal breadth here is widened PAST `k` — first by requesting
+    // hubBound(ctx) candidates instead of `k` (recall's own tiers above
+    // stay at `k`; this re-resonates only on the refusal path, exactly
+    // where the bridge itself already runs), AND by asking the index to
+    // search EXHAUSTIVELY.  Both matter: the IVF only ever probes
+    // ⌈√clusters⌉ of them (store.ts's efFor) REGARDLESS of k — widening k
+    // alone just returns more hits from the SAME already-probed clusters,
+    // never a hit whose vector lives in an unprobed one.  Measured live:
+    // "What is the chemical symbol for water?" needs "What is the
+    // chemical formula for water?", scoring only 0.58 against the
+    // query's gist (a MIDDLE-of-string word swap perturbs the river-fold
+    // tree hash far more than a same-length TAIL swap like the "carbon"/
+    // "oxygen" neighbours that outrank it at 0.87+) — absent from the
+    // resonance list even at k=5000, present and byte-exact-verified the
+    // moment it's force-fed to the bridge directly.  `exhaustive` is the
+    // natural, tuning-free ceiling (probe every cluster) for a call that
+    // is ALREADY refusal-path-only and must not miss a candidate hiding
+    // behind an unlucky structural distance.
+    const wide = k < hubBound(ctx)
+      ? await ctx.store.resonate(queryGist, hubBound(ctx), true)
+      : whole;
     const bridged = await substitutionBridge(
       ctx,
       query,
-      whole.map((h) => h.id),
+      wide.map((h) => h.id),
     );
     if (bridged !== null) {
       const g = await project(ctx, bridged.id, queryGist);
