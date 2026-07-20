@@ -39,7 +39,7 @@ export interface DepositCacheEntry {
    *  its own suffix bytes-equal this exactly. */
   nextBytes?: Uint8Array;
 }
-import { concatBytes } from "../bytes.js";
+import { bytesEqual, concatBytes, indexOf } from "../bytes.js";
 import { dominates } from "../geometry.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -290,11 +290,52 @@ export function spliceAll(segs: Seg[]): Uint8Array | null {
   return concatBytes(segs.map((s) => s.bytes));
 }
 
+/** Whether a chosen span RESTATES the query rather than answering it: its
+ *  SUBSTITUTED bytes (an edge followed from a recognised site, not the
+ *  site's own literal text read back) already occur elsewhere in the query
+ *  — the same principle recall.ts's tiers apply to a whole-query projection
+ *  ("a projection that is a proper byte-subspan of the query restates part
+ *  of the question").  A LITERAL span (the site's own bytes, unchanged) is
+ *  exempt: naming what's already there at its OWN position is not a
+ *  substitution.  A recognised site that is itself an entire PRIOR TURN of
+ *  a multi-turn query is exactly this shape: it carries a genuine learnt
+ *  continuation, but that continuation is something the asker already said
+ *  moments later in the SAME query, not a new answer.  Below one river
+ *  window, byte overlap is chance, not evidence — the same floor
+ *  identityBar and reachThreshold hold every other structural-overlap claim
+ *  to. */
+export function segRestatesQuery(
+  s: Seg,
+  query: Uint8Array,
+  queryLen: number,
+  W: number,
+): boolean {
+  if (!s.rec) return false;
+  const literal = s.j - s.i === s.bytes.length &&
+    bytesEqual(s.bytes, query.subarray(s.i, s.j));
+  if (literal) return false;
+  return s.bytes.length >= W && s.bytes.length < queryLen &&
+    indexOf(query, s.bytes, 0) >= 0;
+}
+
 /** Lift the answer out of the cover for think: the recognised region, free of
- *  the asker's surrounding (unrecognised) framing. */
-export function liftAnswer(segs: Seg[], queryLen: number): Uint8Array | null {
+ *  the asker's surrounding (unrecognised) framing — and free of any chosen
+ *  span that only RESTATES content the query already contains (see {@link
+ *  segRestatesQuery}).  A restating span is excluded from both the framing
+ *  (lo/hi) decision and the final concatenation: it is stale, not a second
+ *  answer, but the OTHER spans a derivation chose are independent evidence
+ *  and must not be discarded along with it. */
+export function liftAnswer(
+  segs: Seg[],
+  queryLen: number,
+  query: Uint8Array,
+  W: number,
+): Uint8Array | null {
+  const restated = segs.map((s) => segRestatesQuery(s, query, queryLen, W));
   const recognised: number[] = [];
-  for (let k = 0; k < segs.length; k++) if (segs[k].rec) recognised.push(k);
+  for (let k = 0; k < segs.length; k++) {
+    if (segs[k].rec && !restated[k]) recognised.push(k);
+  }
   if (recognised.length === 0) return null;
 
   if (recognised.length === 1) {
@@ -314,13 +355,19 @@ export function liftAnswer(segs: Seg[], queryLen: number): Uint8Array | null {
     // trailing glue byte ("2+2." → "4.", the span dominates a 4-byte query).
     if (s.computed && s.i > 0) return s.bytes;
     if (dominates(s.j - s.i, queryLen)) {
-      return concatBytes(segs.map((x) => x.bytes));
+      return concatBytes(
+        segs.filter((_, k) => !restated[k]).map((x) => x.bytes),
+      );
     }
     return s.bytes;
   }
   const lo = recognised[0];
   const hi = recognised[recognised.length - 1];
-  return concatBytes(segs.slice(lo, hi + 1).map((x) => x.bytes));
+  return concatBytes(
+    segs.slice(lo, hi + 1).filter((_, k) => !restated[lo + k]).map((x) =>
+      x.bytes
+    ),
+  );
 }
 
 /** The CHANGED NODES of a freshly-perceived `tree` against the node ids a previous

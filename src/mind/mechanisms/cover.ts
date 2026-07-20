@@ -11,12 +11,11 @@
 
 import type { MindContext } from "../types.js";
 import type { ComputedResult, Site } from "../graph-search.js";
-import { bytesEqual, indexOf } from "../../bytes.js";
 import { read, resolve } from "../primitives.js";
 import { guidedFirst } from "../traverse.js";
 import { conceptHop } from "../match.js";
 import { bridge } from "../resonance.js";
-import { liftAnswer } from "../types.js";
+import { liftAnswer, segRestatesQuery } from "../types.js";
 import { decodeText, unexplainedLabel } from "../rationale.js";
 import type { RationaleItem } from "../rationale.js";
 import { rItem, rNode, traceDerivation } from "../trace.js";
@@ -226,44 +225,31 @@ export const coverMechanism: PipelineMechanism = {
 
     if (segs === null) return [];
 
+    const W = ctx.space.maxGroup;
     // A chosen span's SUBSTITUTED bytes (an edge followed from a recognised
     // site, not the site's own literal text read back) that equal a byte
     // span the query ALREADY CONTAINS elsewhere restates part of the
-    // question — never an answer (the same principle recall.ts's tiers
-    // apply to a whole-query projection: "a projection that is a proper
-    // byte-subspan of the query restates part of the question").  A
+    // question — never an answer (see {@link segRestatesQuery}).  A
     // recognised site that is itself an entire PRIOR TURN of a multi-turn
     // query is exactly this shape: it carries a genuine learnt
     // continuation, but that continuation is something the asker already
-    // said moments later in the SAME query, not a new answer — the cover
-    // search has no notion of "turn" to gate this itself, so the check
-    // belongs here, over the derivation it already chose.
-    const W = ctx.space.maxGroup;
-    for (const s of segs) {
-      if (!s.rec) continue;
-      const literal = s.j - s.i === s.bytes.length &&
-        bytesEqual(s.bytes, query.subarray(s.i, s.j));
-      if (literal) continue;
-      // A span shorter than one river window is exactly the "ice"/"c"
-      // case: a chain hop's short terminal coincidentally recurring as a
-      // substring of an unrelated longer word.  Below the quantum, byte
-      // overlap is chance, not evidence — the same floor identityBar and
-      // reachThreshold hold every other structural-overlap claim to.
-      if (
-        s.bytes.length >= W && s.bytes.length < query.length &&
-        indexOf(query, s.bytes, 0) >= 0
-      ) {
-        ctx.trace?.step(
-          "restatedSpan",
-          [rItem(s.bytes, "substituted", s.node, [s.i, s.j])],
-          [],
-          "the chosen span's substitution already occurs elsewhere in the query — restates it, not an answer",
-        );
-        return [];
-      }
+    // said moments later in the SAME query.  liftAnswer TRIMS such spans
+    // out of both the framing decision and the final concatenation — the
+    // OTHER spans a derivation chose are independent evidence and must not
+    // be discarded along with the stale one.
+    const restated = segs.filter((s) =>
+      segRestatesQuery(s, query, query.length, W)
+    );
+    if (restated.length > 0) {
+      ctx.trace?.step(
+        "restatedSpan",
+        restated.map((s) => rItem(s.bytes, "substituted", s.node, [s.i, s.j])),
+        [],
+        "the chosen span's substitution already occurs elsewhere in the query — trimmed from the answer, not an answer itself",
+      );
     }
 
-    const composed = liftAnswer(segs, query.length);
+    const composed = liftAnswer(segs, query.length, query, W);
     if (composed === null) return [];
 
     ctx.trace?.step(
@@ -276,11 +262,12 @@ export const coverMechanism: PipelineMechanism = {
       tCover ? [tCover.index] : undefined,
     );
 
-    // accounted = RECOGNISED cover spans only — PASS-carried bytes
-    // are priced in cost already; the diagnostic label reflects the
-    // same distinction.
+    // accounted = RECOGNISED, non-restating cover spans only — a trimmed
+    // restated span contributes nothing to the composed answer, so it must
+    // not be priced as if it did (PASS-carried bytes are priced already;
+    // the diagnostic label reflects the same distinction).
     const accounted: Array<[number, number]> = segs
-      .filter((s) => s.rec)
+      .filter((s) => s.rec && !segRestatesQuery(s, query, query.length, W))
       .map((s) => [s.i, s.j]);
 
     return [{

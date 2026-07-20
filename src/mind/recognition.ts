@@ -137,6 +137,21 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     else if (end - start >= 2) {
       const cid = canonResolve(ctx, bytes.subarray(start, end));
       if (cid !== null) emit(start, end, cid);
+      else if (end - start >= 3) {
+        // The chunk's own boundary is drawn by content geometry, not by
+        // any notion of "form" — it can include one edge byte the query's
+        // fold happened to attach here that the trained span never had
+        // (e.g. a separator from the preceding chunk).  The core has no
+        // idea what that byte means; it only knows resolve()/canonResolve
+        // are self-verifying (hash-then-verify, same discipline as every
+        // content lookup here), so a blind one-byte-shorter guess on
+        // either edge costs nothing when wrong and is trustworthy when it
+        // hits.  Two extra probes, only on the already-failed miss path.
+        const left = resolve(ctx, bytes.subarray(start + 1, end));
+        if (left !== null) emit(start + 1, end, left);
+        const right = resolve(ctx, bytes.subarray(start, end - 1));
+        if (right !== null) emit(start, end - 1, right);
+      }
     }
     if (isChunk(n)) {
       starts.add(start);
