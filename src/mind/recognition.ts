@@ -203,6 +203,32 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
             if (eRight !== null) emit(start, end - k, eRight);
           }
         }
+        // A REAL extra word at the left edge (a discourse connective like
+        // "And " prepended to a follow-up turn — not boundary noise, actual
+        // content the injected canonicalizer has no equivalence for) shows
+        // up as a canon-miss too big for the chunk-scale search above: the
+        // turn is its OWN segment (stable-prefix folded independently — see
+        // mind.ts's _growContext), so it can be turn/segment-scale, not
+        // chunk-scale.  Widening the size bound itself reopens the root-
+        // scale false-positive this module already fixed once (test/46);
+        // widening the SEARCH instead — trying every position up to W
+        // chunk-widths from the left edge that the query's OWN fold treats
+        // as a chunk boundary (`starts`, the same set the canonical pass
+        // privileges with full chain reach) — does not: `starts.has(p)` is
+        // fold EVIDENCE the query produced on its own (a leaf-parent chunk
+        // like "And " is visited, and its start added to `starts`, before
+        // this composite ever runs — foldTree is post-order), never a blind
+        // guess.  Bounded to W candidates, each an O(1) set lookup before
+        // paying for the real canonResolve fold — canonResolve, not
+        // resolve()/findBranch, because the gap here is often exactly the
+        // kind of equivalence (case, in the live trace) canon exists for,
+        // not just an exact-content coincidence.
+        for (let k = 1; k <= W; k++) {
+          const p = start + k * W;
+          if (p >= end - 1 || !starts.has(p)) continue;
+          const cid = canonResolve(ctx, bytes.subarray(p, end));
+          if (cid !== null) emit(p, end, cid);
+        }
       }
     }
     if (isChunk(n)) {
