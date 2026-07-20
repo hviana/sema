@@ -49,7 +49,7 @@ import { cosine } from "../vec.js";
 import { conceptThreshold, dominates } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { perceive } from "./primitives.js";
+import { foldTree, perceive } from "./primitives.js";
 import { chainReach, leafIdRun } from "./canonical.js";
 import { corpusN, edgeAncestors, hubBound } from "./traverse.js";
 import { rItem, rNode } from "./trace.js";
@@ -96,32 +96,6 @@ export function dismissedKnownContent(
     cursor = Math.max(cursor, e);
   }
   return false;
-}
-
-/** True when the query span [qs,qe) is corpus-attested: every full W-window
- *  inside it resolves as a stored flat form and at least one is reused
- *  across ≥ 2 containers.  Spans shorter than W carry no window of their
- *  own and cannot attest — they are refused (an unattestable span must not
- *  substitute). */
-function attested(
-  ctx: MindContext,
-  bytes: Uint8Array,
-  qs: number,
-  qe: number,
-): boolean {
-  const W = ctx.space.maxGroup;
-  if (qe - qs < W) return false;
-  let reused = false;
-  for (let o = qs; o + W <= qe; o++) {
-    const ids = leafIdRun(ctx, bytes, o, o + W);
-    if (ids === null) return false;
-    const id = ctx.store.findBranch(ids);
-    if (id === null) return false;
-    if (!reused && ctx.store.containersSlice(id, 0, 2).length >= 2) {
-      reused = true;
-    }
-  }
-  return reused;
 }
 
 /** Extend a seed match (query offset qo ↔ candidate offset co) to its
@@ -226,6 +200,7 @@ function align(
 export async function substitutionBridge(
   ctx: MindContext,
   query: Uint8Array,
+  proposed: ReadonlyArray<number> = [],
 ): Promise<BridgeHit | null> {
   const W = ctx.space.maxGroup;
   if (query.length < 2 * W) return null;
@@ -236,17 +211,52 @@ export async function substitutionBridge(
 
   // 1. The query's stored windows, rarest first (fewest containers — the
   //    most discriminative anchors; hub-clamped like every fan-out read).
+  //    The scan doubles as the ONE store probe of every query window: the
+  //    per-offset stored/reused facts it establishes serve every later
+  //    attestation and ignored-known check as plain array reads (the same
+  //    probes repeated per candidate dominated the refusal-path cost).
+  const nWin = Math.max(0, query.length - W + 1);
+  const winStored = new Uint8Array(nWin);
+  const winReused = new Uint8Array(nWin);
   const anchors: Array<{ off: number; id: number; rarity: number }> = [];
   for (let o = 0; o + W <= query.length; o++) {
     const ids = leafIdRun(ctx, query, o, o + W);
     if (ids === null) continue;
     const id = ctx.store.findBranch(ids);
     if (id === null) continue;
+    winStored[o] = 1;
     const rarity = ctx.store.containersSlice(id, 0, bound + 1).length;
+    if (rarity >= 2) winReused[o] = 1;
     if (rarity === 0) continue;
     anchors.push({ off: o, id, rarity });
   }
   if (anchors.length === 0) return null;
+  // CORROBORATION (see the module-level doc) over the precomputed window
+  // facts: the query span [qs,qe) attests when every full W-window inside
+  // it is a stored flat form and at least one is reused across ≥ 2
+  // containers.  Spans shorter than W carry no window of their own and can
+  // never substitute.
+  const attestedQ = (qs: number, qe: number): boolean => {
+    if (qe - qs < W) return false;
+    let reused = false;
+    for (let o = qs; o + W <= qe; o++) {
+      if (!winStored[o]) return false;
+      if (winReused[o]) reused = true;
+    }
+    return reused;
+  };
+  // dismissedKnownContent (see above) over the same precomputed facts.
+  const dismissedKnownQ = (
+    spans: ReadonlyArray<readonly [number, number]>,
+  ): boolean => {
+    const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+    let cursor = 0;
+    for (const [s, e] of [...sorted, [query.length, query.length] as const]) {
+      for (let o = cursor; o + W <= s; o++) if (winStored[o]) return true;
+      cursor = Math.max(cursor, e);
+    }
+    return false;
+  };
   anchors.sort((a, b) => a.rarity - b.rarity);
   // Up to W anchors, at least one window apart — the quantum's own count.
   const picked: typeof anchors = [];
@@ -256,20 +266,60 @@ export async function substitutionBridge(
     picked.push(a);
   }
 
-  // 2. Candidate trained contexts: climb each anchor to its edge-bearing
-  //    ancestors (the same climb consensus voting uses).
+  // 2. Candidate trained contexts.  Two proposal channels, one verifier:
+  //    (a) the caller's PROPOSED hits — recall's whole-query resonance
+  //    ranking, the retrieval structure built to surface near-paraphrase
+  //    forms the window climb cannot single out at corpus scale; (b) each
+  //    picked anchor climbed to its edge-bearing ancestors (the same climb
+  //    consensus voting uses).  Both are only ever PROPOSALS — every
+  //    candidate passes the same byte-exact alignment and gates below.
   const seen = new Set<number>();
   const candidates: number[] = [];
+  // Proposal channel — carries its caller's own bound (recall's resonance
+  // k), so it neither consumes the climb's hub budget (on a small corpus
+  // √N is a handful and the proposals would crowd the climb out entirely)
+  // nor lets per-candidate byte work grow past that bound.  A proposal may
+  // be a FLAT content twin whose continuation edge lives on the
+  // fold-shaped deposit node with the same bytes — the same twin split
+  // canonResolve bridges by re-folding (primitives.ts) — but the re-fold
+  // (a full perceive of the candidate's bytes) is paid only for proposals
+  // that could align at all: alignment can only seed at a picked anchor
+  // window occurring literally in the candidate (measured: unconditional
+  // re-folds multiplied the refusal-path latency several-fold).
+  for (const sid of proposed) {
+    if (seen.has(sid)) continue;
+    seen.add(sid);
+    const tb = ctx.store.bytes(sid);
+    if (tb.length === 0) continue;
+    if (
+      !picked.some((a) => indexOf(tb, query.subarray(a.off, a.off + W), 0) >= 0)
+    ) continue;
+    let use = sid;
+    if (!ctx.store.hasNext(use)) {
+      const folded = foldTree(ctx, perceive(ctx, tb), 0).node;
+      if (folded === null || folded === sid || !ctx.store.hasNext(folded)) {
+        continue;
+      }
+      use = folded;
+      if (seen.has(use)) continue;
+      seen.add(use);
+    }
+    candidates.push(use);
+  }
+  // Climb channel — edge-bearing ancestors only, decided by the indexed
+  // O(1) hasNext; no byte is read here (the climb visits hundreds of
+  // roots, and reading each was measured to dominate the refusal path).
+  const proposedCount = candidates.length;
   for (const a of picked) {
     const reach = edgeAncestors(ctx, a.id, N);
     for (const sid of reach.roots) {
+      if (candidates.length - proposedCount >= bound) break;
       if (seen.has(sid)) continue;
       seen.add(sid);
       if (!ctx.store.hasNext(sid)) continue;
       candidates.push(sid);
-      if (candidates.length >= bound) break;
     }
-    if (candidates.length >= bound) break;
+    if (candidates.length - proposedCount >= bound) break;
   }
 
   // 3. Align each candidate; gate its mismatches; keep the best.
@@ -312,26 +362,21 @@ export async function substitutionBridge(
     return true;
   };
 
-  // The query's most DISCRIMINATIVE known content — its rarest-tier
-  // windows (every stored window whose container count ties the minimum) —
-  // must literally occur in a bridged context.  A candidate reached
-  // through a common scaffolding window that lacks all of them is about
-  // something else entirely, however well its frames align (observed live:
-  // "what is the capital of france" bridging to a Matrix synopsis that
-  // contains no "franc"-window at all, its tail "matched" by the
-  // coincidental "f fr" ↔ "of free will").
-  const minRarity = anchors[0].rarity;
-  const rareTier = anchors.filter((a) => a.rarity === minRarity);
+  // (A candidate need NOT contain the query's rarest window literally: the
+  // rarest window may sit INSIDE the very word being substituted (observed
+  // live: "chemical symbol for water" whose rarest window "l sy" spans
+  // "symbol" — the trained formula-question can never contain it).  A
+  // candidate that instead dodges the query's known content by writing it
+  // off as gaps is refused by dismissedKnownContent below, which subsumes
+  // the old rarest-window containment gate: rare windows inside an accepted
+  // substitution are accounted for; rare windows outside the accepted spans
+  // force refusal (the Matrix-synopsis junk stays dead by exactly that
+  // check — verified live).
   let best: BridgeHit | null = null;
   let bestAccounted = 0;
   for (const sid of candidates) {
     const cBytes = allBytes.get(sid)!;
     if (cBytes.length === 0) continue;
-    if (
-      !rareTier.some((a) =>
-        indexOf(cBytes, query.subarray(a.off, a.off + W), 0) >= 0
-      )
-    ) continue;
     // Seed at the rarest picked anchor that literally occurs in this
     // candidate.
     let seed: { qo: number; co: number } | null = null;
@@ -391,7 +436,7 @@ export async function substitutionBridge(
           const leftOk = matched.some(([s, e]) => e >= qs2 && qs2 - s >= W);
           const rightOk = matched.some(([s, e]) => s <= qe2 && e - qe2 >= W);
           if (!leftOk || !rightOk) continue;
-          if (!attested(ctx, query, qs2, qe2)) continue;
+          if (!attestedQ(qs2, qe2)) continue;
           const u = query.subarray(qs2, qe2);
           const cSpan = cBytes.subarray(cs2, ce2);
           if (cosine(perceive(ctx, u).v, perceive(ctx, cSpan).v) < bar) {
@@ -441,7 +486,7 @@ export async function substitutionBridge(
     // Matrix synopsis by writing off "ance" — a stored window of the
     // trained "France" — as a gap, while genuinely novel spans like
     // test/49's untrained "Name" remain tolerable).
-    if (dismissedKnownContent(ctx, query, spans)) continue;
+    if (dismissedKnownQ(spans)) continue;
 
     if (covered > bestAccounted) {
       bestAccounted = covered;

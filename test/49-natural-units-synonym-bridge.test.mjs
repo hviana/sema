@@ -104,3 +104,34 @@ test("irrefutable failure: a trained fact is unreachable through an untrained ne
   );
   await m.store.close();
 });
+
+test("resonance-proposed bridge: casing/punctuation paraphrase reaches the trained fact", async () => {
+  // Root-caused live on the trained store (2026-07-20): the query
+  // "what is the capital of france" resonates STRAIGHT to the trained
+  // "What is the capital of France?" (nearest whole-query hit) yet stayed
+  // silent — the case-changed bytes fall below the reach bar, the canon
+  // twin misses on the absent "?", and the bridge's own W-window climb
+  // cannot single the right context out of hundreds sharing common
+  // windows.  Recall now hands its resonance ranking to the bridge as
+  // PROPOSED candidates (rank-only, byte-verified there), which recovers
+  // the fact through two corroborated one-byte case substitutions.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["What is the capital of France?", "The capital of France is Paris."],
+    ["What is the capital of Spain?", "The capital of Spain is Madrid."],
+    ["What is the capital of Italy?", "The capital of Italy is Rome."],
+    // Lowercase mid-sentence occurrences attest the case-folded windows
+    // the substitution's corroboration gate requires — including the
+    // frame-bearing " of france" the expansion absorbs into.
+    ["He wrote of france and of spain.", "Then he flew home to italy."],
+    ["She spoke of france in her diary.", "Her diary told of france."],
+  ]);
+  const r = await m.respond("what is the capital of france");
+  assert.ok(
+    dec(r.bytes).includes("Paris"),
+    `expected the trained fact through the resonance-proposed bridge, got ${
+      JSON.stringify(dec(r.bytes))
+    }`,
+  );
+  await m.store.close();
+});

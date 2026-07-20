@@ -302,7 +302,19 @@ export async function recallByResonance(
   // projected through its learnt edges — under the same restated-fragment
   // guard tiers 0b/2 apply.  Costs nothing on any answering path.
   {
-    const bridged = await substitutionBridge(ctx, query);
+    // The resonance hits already ranked above are handed to the bridge as
+    // PROPOSED candidates alongside its own anchor climbs: on a corpus this
+    // size a W-byte window is far too common for the clamped climb to
+    // single out the right trained context, while the whole-query gist
+    // already ranked it nearest (observed live: "what is the capital of
+    // france" resonating straight to "What is the capital of France?" yet
+    // refusing on the reach bar).  Approximate scores propose; the bridge's
+    // byte-exact alignment and attestation gates decide.
+    const bridged = await substitutionBridge(
+      ctx,
+      query,
+      whole.map((h) => h.id),
+    );
     if (bridged !== null) {
       const g = await project(ctx, bridged.id, queryGist);
       // A projection contained in a substituted candidate-side span is the
