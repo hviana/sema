@@ -16,7 +16,7 @@ import {
   resolve,
 } from "./primitives.js";
 import { atomIsHub, corpusN, leadsSomewhere } from "./traverse.js";
-import { chainReach, leafIdAt } from "./canonical.js";
+import { chainReach, leafIdAt, leafIdRun } from "./canonical.js";
 import { isChunk, type Sema } from "../sema.js";
 import type { Leaf, Site } from "./graph-search.js";
 
@@ -115,8 +115,18 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // silence.  Atoms stay available as leaves (PASS-carried literals) and
   // through exact tier-0 resolution regardless.
   const atomsAreHubs = atomIsHub(ctx, corpusN(ctx));
+  // Distinct probes (structural exact match, canon fallback, edge trims at
+  // several offsets) can legitimately re-derive the SAME (start, end, id)
+  // site from different tree nodes — a wide edge-trim search is exactly
+  // this on purpose (see below).  Duplicate site entries are not wrong
+  // evidence, but they double the weight cover's derivation search gives
+  // that span, distorting its cost model — the same span must count once.
+  const seen = new Set<string>();
   const emit = (start: number, end: number, id: number) => {
     if (id < 0 && atomsAreHubs) return;
+    const key = start + "," + end + "," + id;
+    if (seen.has(key)) return;
+    seen.add(key);
     if (leadsSomewhere(ctx, id)) {
       sites.push({ start, end, payload: id });
     }
@@ -133,11 +143,18 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     // missed may still be a stored form under the response's equivalence
     // (case, width, whitespace — whatever the injected canonicalizer says).
     // O(subtree bytes) per miss, memoised per response; a no-op when no
-    // canonicalizer was injected or the store has no canon index.
-    else if (end - start >= 2) {
+    // canonicalizer was injected or the store has no canon index.  A raw
+    // leaf (n.kids === null) is single-byte and handled by the byte-atom
+    // path above instead — canon equivalence only applies to composites.
+    else if (n.kids !== null) {
       const cid = canonResolve(ctx, bytes.subarray(start, end));
       if (cid !== null) emit(start, end, cid);
-      else if (end - start >= 3) {
+      // The edge-trim fallbacks below remove 1 byte from a side; the
+      // remainder must still be a composite (>= 2 bytes, the same floor
+      // n.kids !== null enforces above) rather than degenerate into
+      // single-byte-atom territory, which atomIsHub already governs
+      // separately.
+      else if (end - start - 1 >= 2) {
         // The chunk's own boundary is drawn by content geometry, not by
         // any notion of "form" — it can include one edge byte the query's
         // fold happened to attach here that the trained span never had
@@ -151,6 +168,41 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         if (left !== null) emit(start + 1, end, left);
         const right = resolve(ctx, bytes.subarray(start, end - 1));
         if (right !== null) emit(start, end - 1, right);
+        // A misalignment wider than one byte (e.g. more than one edge
+        // separator swallowed) is not itself geometry-quantized — the
+        // WRITE side's canonical index (canonicalWindows) interns sliding
+        // W−1/W-length windows over leaf ids at EVERY offset, not just
+        // radix-aligned ones (see canonical.ts) — so the offset that
+        // recovers a trained span can be anything, not a multiple of W.
+        // What IS bounded is how far it's worth looking: chainReach(W)=W²,
+        // the same reach the canonical pass (tryChain) trusts for a chain
+        // rebuilt off the query's own fold.  Every candidate offset is
+        // gated by store.findBranch(leafIds) first — the SAME cheap,
+        // fold-free existence check tryChain already uses — so the extra
+        // resolve() fold (the real cost) is only paid when a branch could
+        // plausibly exist there, not for every offset.  The node itself is
+        // also bounded to chunk-scale (end - start <= W²): widening this at
+        // whole-query/root scale can rediscover a smaller subtree's own
+        // content as a second, overlapping site the structural walk's own
+        // finer recursion already emits correctly on its own — a duplicate
+        // that downstream derivation can stitch into a wrong answer.
+        const W = ctx.space.maxGroup;
+        for (
+          let k = 1;
+          end - start <= W * W && k <= W * W && start + k < end - 1;
+          k++
+        ) {
+          const lIds = leafIdRun(ctx, bytes, start + k, end);
+          if (lIds !== null && store.findBranch(lIds) !== null) {
+            const eLeft = resolve(ctx, bytes.subarray(start + k, end));
+            if (eLeft !== null) emit(start + k, end, eLeft);
+          }
+          const rIds = leafIdRun(ctx, bytes, start, end - k);
+          if (rIds !== null && store.findBranch(rIds) !== null) {
+            const eRight = resolve(ctx, bytes.subarray(start, end - k));
+            if (eRight !== null) emit(start, end - k, eRight);
+          }
+        }
       }
     }
     if (isChunk(n)) {
