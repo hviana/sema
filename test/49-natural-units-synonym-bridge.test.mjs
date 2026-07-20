@@ -135,3 +135,41 @@ test("resonance-proposed bridge: casing/punctuation paraphrase reaches the train
   );
   await m.store.close();
 });
+
+test(
+  "FIXED 2026-07-20: a proper-noun substitution must not voice a wrong " +
+    "fact when the true answer has no outgoing edge to compete as a " +
+    "bridge candidate (RAW BALANCE gate, see bridge.ts)",
+  async () => {
+    // This miniature corpus does NOT reproduce the live bug (recall's
+    // whole-query resonance already answers correctly here — verified: it
+    // takes the real 17.9M-node store's specific candidate ranking to
+    // surface the failure mode).  Kept anyway as a standing regression
+    // check on the shape of the bug (terminal fact vs. a same-shaped fact
+    // WITH a continuation); the authoritative fix verification was run
+    // directly against the trained store: "The capital of France is"
+    // used to bridge through a substitution reading "of Fra[nce]" as
+    // "of Spain si[nce]" (raw mismatch (3,8) bytes, badly imbalanced);
+    // the RAW BALANCE gate (dominates(min(uLen,cLen), max(uLen,cLen)))
+    // now refuses it, and recall correctly falls through to an honest
+    // echo of the true trained fact instead.
+    const m = new Mind({
+      seed: 7,
+      store: new SQliteStore({ path: ":memory:" }),
+    });
+    await m.ingest([
+      ["What is the capital of France?", "The capital of France is Paris."],
+      [
+        "Madrid has been the capital of Spain since 1561.",
+        "It was established as such by Philip III.",
+      ],
+    ]);
+    const r = await m.respond("The capital of France is");
+    assert.ok(
+      !dec(r.bytes).includes("Spain"),
+      `expected no wrong-entity substitution, got ${
+        JSON.stringify(dec(r.bytes))
+      }`,
+    );
+  },
+);

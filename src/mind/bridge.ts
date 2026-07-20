@@ -44,6 +44,51 @@
 // (the propagateSuffixes trick), at most W anchor climbs and hubBound
 // candidate reads, and one O(|query|·|candidate|)-bounded alignment each —
 // all capped by existing derived bounds (W, chainReach, hubBound).
+//
+// FIXED WRONG-ANSWER GAP (found and closed 2026-07-20): a proper-noun swap
+// could pass both derived gates above and voice a WRONG fact.  Live case:
+// "The capital of France is" (a prefix-completion probe) bridged through a
+// substitution reading "of Fra[nce]" as "of Spain si[nce]" into "Madrid has
+// been the capital of Spain since 1561...", because the TRUE France fact
+// ("The capital of France is Paris.") is a terminal statement with no
+// outgoing edge and is therefore never admitted as a bridge candidate (§
+// candidate admission above) — so no competing evidence for "France" was
+// ever collected, and the Spain candidate's own text satisfied frame
+// unanimity vacuously (nothing to disagree with).
+//   REFUTED FIX 1 — require unanimous()'s frame-consensus scan to find a
+//     genuine corroborating occurrence (not vacuous-true on zero evidence):
+//     breaks test/49 — "biggest"~"largest" is corroborated ONLY by the very
+//     candidate proposing the substitution in that miniature corpus (no
+//     OTHER trained pair pairs either word with "planet"); requiring
+//     external evidence makes that legitimate case fail too.
+//   REFUTED FIX 2 — exclude the candidate's own bytes from being its own
+//     corroborating witness (same idea, scoped to self-reference): same
+//     failure, same reason — self-witness is ALL the evidence test/49 has.
+//   REFUTED FIX 3 — require the CANDIDATE-side substituted span to also
+//     clear the ≥2-container reuse bar (attestedSpan, symmetric with the
+//     query-side attestedQ): does not discriminate — "Spain" is reused
+//     across at least as many trained contexts as "France" is, so it
+//     passes trivially.
+//   THE ACTUAL FIX — RAW BALANCE (see the substitution loop below): the raw
+//     mismatch (BEFORE expansion absorbs any matched flanking bytes) must
+//     be roughly length-balanced on both sides — dominates(min(uLen,cLen),
+//     max(uLen,cLen)), the SAME "part*2 > whole" bar used throughout the
+//     codebase, no new constant.  Measured on both cases: the legitimate
+//     "biggest"~"largest" substitution's raw diff is "big"/"lar" (3/3
+//     bytes, perfectly balanced — expansion then absorbs the shared "gest"
+//     suffix, identical on both sides, to reach an attestable span).  The
+//     wrong "France"~"Spain" substitution's raw diff was "Fra"/"Spai" (3/8
+//     bytes) — the align sweep's greedy search had found a coincidental
+//     "nce " match years later inside "since", so 3 bytes of query content
+//     were standing in for 8 bytes of candidate content.  That asymmetry is
+//     exactly what a real lexical/morphological synonym never has and an
+//     arbitrary sentence divergence always does; expansion (which only
+//     grows both sides by IDENTICAL absorbed bytes) can never repair a raw
+//     imbalance, so gating on the RAW gap is the correct point of attack.
+//     Verified: real-store repro now falls through to an honest echo of
+//     the true trained fact instead of the wrong Spain continuation; the
+//     boiling-point and lowercase-France bridge wins are unaffected; full
+//     suite green (358/358).
 
 import { cosine } from "../vec.js";
 import { conceptThreshold, dominates } from "../geometry.js";
@@ -335,6 +380,14 @@ export async function substitutionBridge(
   // England, Serbia — observed live), and picking one value would assert
   // knowledge the store does not have.  Consensus of the store's own
   // instances, no similarity judgement, no tuned constant.
+  // Requires a genuine CORROBORATING sighting, not merely the absence of a
+  // conflicting one: scanning only the handful of resonance/climb-proposed
+  // candidates means the frame can easily occur NOWHERE else among them
+  // (observed live: "of Fra[nce]" -> "of Spain si[nce]" passed vacuously —
+  // the frame "tal …nce " never recurred among the collected candidates at
+  // all, so there was no consensus, only an absence of disagreement, yet
+  // the substitution was accepted).  "Unanimous" must mean the store's own
+  // instances agree, which requires at least one instance to consult.
   const unanimous = (
     u: Uint8Array,
     c: Uint8Array,
@@ -415,8 +468,25 @@ export async function substitutionBridge(
         if (uLen > W || cLen > reachCap) ok = false;
         continue;
       }
+      // RAW BALANCE gate (closes the OPEN GAP above): the two sides of a
+      // genuine lexical substitution swap comparable amounts of content —
+      // "big"/"lar" (3/3 bytes, before expansion absorbs the shared "gest"
+      // suffix to reach an attestable "biggest"/"largest").  A candidate
+      // whose two sentences simply diverge into unrelated continuations
+      // produces a LOPSIDED raw mismatch instead — the live wrong answer's
+      // raw gap was "Fra"/"Spai" widened to (3,8) by the align sweep
+      // finding a coincidental "nce " match years later in "since" — 3
+      // bytes of query content standing in for 8 bytes of candidate
+      // content is not a word swap, it is two different sentences that
+      // happen to share a few letters.  Uses the SAME dominates() bar
+      // (part*2 > whole) applied throughout the codebase, symmetrically:
+      // the smaller raw side must be more than half the larger.  Applies
+      // to the RAW gap, before expansion — expansion only ever grows both
+      // sides by IDENTICAL absorbed bytes, so it cannot fix an imbalance
+      // that was already there.
       let accepted = false;
-      const maxExtra = reachCap - Math.max(uLen, cLen);
+      const balanced = dominates(Math.min(uLen, cLen), Math.max(uLen, cLen));
+      const maxExtra = balanced ? reachCap - Math.max(uLen, cLen) : -1;
       outer:
       for (let extra = 0; extra <= maxExtra; extra++) {
         for (let a = 0; a <= extra; a++) {
@@ -457,6 +527,20 @@ export async function substitutionBridge(
       }
       if (!accepted && (uLen > W || cLen > reachCap)) ok = false;
     }
+    // A candidate with ZERO gaps needs no substitution and might seem like
+    // the strongest possible bridge, but accepting it here is a trap: this
+    // mechanism runs only where recall's own resonance/echo tiers already
+    // declined to ground a same-shape, zero-substitution match — usually
+    // because the query is a strict byte-PREFIX of several candidates
+    // (many trained "The capital of X is Y." facts share the query "The
+    // capital of France is" as a substring once the true France fact is
+    // filtered out for lacking a continuation edge) and nothing here
+    // corroborates picking one candidate's completion over another's
+    // (observed live: prefix-completion bridged to an unrelated "London"
+    // trivia distractor over the true France fact, which precedes it in
+    // resonance rank but has no outgoing edge to bridge through).  This
+    // mechanism exists to explain SUBSTITUTIONS; a query needing none is
+    // recall's job, not the bridge's.
     if (!ok || subs.length === 0) continue;
 
     // Coverage: matched runs plus accepted substitutions must dominate the
