@@ -77,6 +77,37 @@ export interface Thought {
   provenance: Provenance;
 }
 
+/** Structured payload of the "decideGrounding" rationale step — the same
+ *  numbers the human-readable candidate labels already carry, exposed as
+ *  data so a downstream tool need not parse free text.  Purely additive
+ *  instrumentation: built only under `ctx.trace?.` (optional chaining
+ *  short-circuits its arguments), never read by inference. */
+export interface DecideGroundingData {
+  version: 1;
+  /** Every grounding candidate weighed, in consideration order. */
+  candidates: Array<{
+    provenance: string;
+    /** The candidate's exact weight in the one cost ladder. */
+    weight: number;
+    /** The DISCRETE grade the decision actually compares (floor(weight/STEP)). */
+    grade: number;
+    /** Query bytes the candidate's accounted spans leave unexplained. */
+    unexplainedBytes: number;
+    /** Whether this candidate won the decision. */
+    decided: boolean;
+  }>;
+  /** Grade margin between the winner and the runner-up, when both exist —
+   *  the same quantity the "narrowDecision" step reports as narrow when
+   *  ≤ 1.  Absent for a single-candidate decision. */
+  runnerUpMargin?: number;
+}
+
+/** Structured payload of the "narrowDecision" rationale step. */
+export interface NarrowDecisionData {
+  version: 1;
+  margin: number;
+}
+
 /** Think: a single lightest-derivation exploration of the Sema graph.
  *
  *  Every answer travels the same path:
@@ -211,6 +242,22 @@ export async function think(
   // initial null, so the read-back needs the assertion.)
   const decided = best as Candidate | null;
   if (candidates.length > 1) {
+    // The runner-up is computed BEFORE the decideGrounding step so its grade
+    // margin can ride along in the step's structured data payload; the
+    // computation itself is pure and was always unconditional — only its
+    // position moved.
+    let runnerUp: Candidate | null = null;
+    if (decided !== null) {
+      for (const c of candidates) {
+        if (c === decided) continue;
+        if (runnerUp === null || grade(c.weight) < grade(runnerUp.weight)) {
+          runnerUp = c;
+        }
+      }
+    }
+    const margin = decided !== null && runnerUp !== null
+      ? grade(runnerUp.weight) - grade(decided.weight)
+      : null;
     ctx.trace?.step(
       "decideGrounding",
       candidates.map((c) =>
@@ -223,35 +270,39 @@ export async function think(
       ),
       decided ? [rItem(decided.bytes, decided.provenance)] : [],
       "the lightest grounding derivation wins — every mechanism weighed in the one cost ladder",
+      undefined,
+      {
+        version: 1,
+        candidates: candidates.map((c) => ({
+          provenance: c.provenance,
+          weight: c.weight,
+          grade: grade(c.weight),
+          unexplainedBytes: unaccounted(c.accounted),
+          decided: c === decided,
+        })),
+        ...(margin !== null ? { runnerUpMargin: margin } : {}),
+      } satisfies DecideGroundingData,
     );
-    if (decided !== null) {
-      let runnerUp: Candidate | null = null;
-      for (const c of candidates) {
-        if (c === decided) continue;
-        if (runnerUp === null || grade(c.weight) < grade(runnerUp.weight)) {
-          runnerUp = c;
-        }
-      }
-      if (runnerUp !== null) {
-        const margin = grade(runnerUp.weight) - grade(decided.weight);
-        if (margin <= 1) {
-          ctx.trace?.step(
-            "narrowDecision",
-            [
-              rItem(
-                decided.bytes,
-                `${decided.provenance} (weight ${decided.weight.toFixed(3)})`,
-              ),
-            ],
-            [
-              rItem(
-                runnerUp.bytes,
-                `${runnerUp.provenance} (weight ${runnerUp.weight.toFixed(3)})`,
-              ),
-            ],
-            `margin ${margin} grade-unit(s) — the decision could change with one more training fact`,
-          );
-        }
+    if (decided !== null && runnerUp !== null && margin !== null) {
+      if (margin <= 1) {
+        ctx.trace?.step(
+          "narrowDecision",
+          [
+            rItem(
+              decided.bytes,
+              `${decided.provenance} (weight ${decided.weight.toFixed(3)})`,
+            ),
+          ],
+          [
+            rItem(
+              runnerUp.bytes,
+              `${runnerUp.provenance} (weight ${runnerUp.weight.toFixed(3)})`,
+            ),
+          ],
+          `margin ${margin} grade-unit(s) — the decision could change with one more training fact`,
+          undefined,
+          { version: 1, margin } satisfies NarrowDecisionData,
+        );
       }
     }
   }
