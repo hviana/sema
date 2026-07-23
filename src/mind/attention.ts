@@ -92,6 +92,16 @@ export type RegionOutcome =
   | "nonpositive-df-weight"
   | "contrastive-margin-rejection";
 
+/** The best DIFFERENT-conclusion rival the contrastive-margin gate found
+ *  while scanning an ordinary (approximate) region's ANN hits — spec §1.
+ *  Its roots/saturation/contextsReached are already available through
+ *  `reaches` (serialiseReaches) for `node`; not duplicated here. */
+export interface ConsensusContrastiveRivalTrace {
+  node: number;
+  rank: number;
+  score: number;
+}
+
 export interface ConsensusRegionTrace {
   index: number;
   source: "perceived" | "recognised";
@@ -123,6 +133,7 @@ export interface ConsensusRegionTrace {
 
   contrastiveMargin?: number;
   contrastiveNoiseFloor?: number;
+  contrastiveRival?: ConsensusContrastiveRivalTrace;
 
   mutualWeight?: number;
   voteWeightPerRoot?: number;
@@ -177,6 +188,107 @@ export interface JunctionVoteTrace {
   explainedAwayRegionIndices: number[];
   absorbed: number;
   tier?: ClimbConsensusJunctionTier;
+
+  /** Zero-based index into `crossRegion.probes` — the probe this vote was
+   *  produced from (spec §8). */
+  probe: number;
+  confidence: number;
+  /** "Evidence bytes" — the container-coverage byte count (the existing
+   *  `bestCov` variable at the push site). */
+  evidenceBytes: number;
+  mutualWeight: number;
+  voteWeightPerRoot: number;
+}
+
+/** Whether one DAG/synonym tier attempt was even made for a probe, and how
+ *  many candidate containers it returned — spec §2/§3. */
+export interface CrossRegionTierAttemptTrace {
+  attempted: boolean;
+  candidatesReturned: number;
+}
+
+/** Aggregate outcome of the container-selection loop for a DAG/synonym tier
+ *  that returned at least one container — spec §4.  Only aggregate counts
+ *  and the final outcome are recorded, never every candidate. */
+export interface CrossRegionStructuralTrace {
+  tier: "exact" | "single-synonym" | "double-synonym";
+  selfEvidenceRejected: number;
+  contradictionRejected: number;
+  passedGuards: number;
+  selectedNode?: number;
+  outcome:
+    | "all-rejected"
+    | "saturated"
+    | "no-roots"
+    | "nonpositive-idf"
+    | "accepted";
+}
+
+/** One retained structural-resonance variant that actually issued its own
+ *  ANN query — spec §5. */
+export interface StructuralResonanceVariantTrace {
+  kind: StructuralVariant["kind"];
+  semanticConfidence: number;
+  leftSiblingId?: number;
+  rightSiblingId?: number;
+  annHitsReturned: number;
+}
+
+/** One merged structural-resonance proposal actually examined via
+ *  edgeAncestors — spec §5.  Retains node/variant/scores, but NOT
+ *  roots/saturation/contextsReached/idf (already in `reaches`). */
+export interface StructuralResonanceCandidateTrace {
+  node: number;
+  variant: StructuralVariant["kind"];
+  leftSiblingId?: number;
+  rightSiblingId?: number;
+  annScore: number;
+  semanticConfidence: number;
+  effectiveScore: number;
+  outcome:
+    | "saturated"
+    | "no-roots"
+    | "nonpositive-idf"
+    | "same-as-endpoint"
+    | "same-as-selected"
+    | "selected"
+    | "contrastive-rival";
+}
+
+export interface StructuralResonanceTrace {
+  variantBudget: number;
+  variants: StructuralResonanceVariantTrace[];
+  mergedProposals: number;
+  examined: StructuralResonanceCandidateTrace[];
+  contrastiveMargin?: number;
+  noiseFloor: number;
+  outcome:
+    | "ineligible"
+    | "empty"
+    | "no-valid-proposal"
+    | "margin-rejected"
+    | "accepted";
+  ineligibleReasons?: Array<
+    "between-region" | "not-both-strong" | "not-both-known" | "gap-too-large"
+  >;
+}
+
+/** One cross-region pair the ladder actually probed — spec §2.  Exactly one
+ *  of these is pushed per pair that incremented `probes`. */
+export interface CrossRegionProbeTrace {
+  leftRegionIndex: number;
+  rightRegionIndex: number;
+  betweenRegionIndices: number[];
+  exact: CrossRegionTierAttemptTrace;
+  singleSynonym: CrossRegionTierAttemptTrace;
+  doubleSynonym: CrossRegionTierAttemptTrace;
+  structural?: CrossRegionStructuralTrace;
+  resonance?: StructuralResonanceTrace;
+  outcome:
+    | "accepted"
+    | "structural-rejected"
+    | "resonance-ineligible"
+    | "resonance-rejected";
 }
 
 export interface ClimbConsensusData {
@@ -215,6 +327,8 @@ export interface ClimbConsensusData {
     probesAttempted: number;
     junctionVotes: JunctionVoteTrace[];
     supersededOrdinaryVotes: number;
+    probes: CrossRegionProbeTrace[];
+    stopReason: "insufficient-regions" | "probe-limit" | "pairs-exhausted";
   };
 
   saturation?: {
@@ -248,7 +362,9 @@ interface TraceDraft {
     maximalRegions: number;
     probeLimit: number;
     probesAttempted: number;
+    stopReason?: "insufficient-regions" | "probe-limit" | "pairs-exhausted";
   };
+  crossRegionProbes: CrossRegionProbeTrace[];
   supersededOrdinaryVotes: number;
   saturation?: {
     regionIntervals: Array<{ start: number; end: number }>;
@@ -283,6 +399,7 @@ function newTraceDraft(perceivedCount: number): TraceDraft {
     perceivedCount,
     regions: [],
     crossRegionJunctionVotes: [],
+    crossRegionProbes: [],
     supersededOrdinaryVotes: 0,
     anchors: [],
   };
@@ -756,15 +873,21 @@ export async function voteRegions(
     // nothing.  Gating at the noise floor keeps frame-echo suppression (a frame
     // region's margin ≈ 0 is gated out) without penalising honest evidence.
     let contrastiveMargin: number | undefined;
+    let contrastiveRival: ConsensusContrastiveRivalTrace | undefined;
     if (!known) {
       let margin = score;
-      for (const h of await ensureHits()) {
+      const hitsForRival = await ensureHits();
+      for (let hi = 0; hi < hitsForRival.length; hi++) {
+        const h = hitsForRival[hi];
         if (h.id === voterId) continue;
         const r2 = edgeAncestors(ctx, h.id, N, reachMemo);
         examinedIds?.add(h.id);
         if (r2.saturated || r2.roots.length === 0) continue; // concludes nothing
         if (sameRoots(r2.roots, reach.roots)) continue; // same conclusion
         margin = score - h.score; // hits are nearest-first: the best rival
+        if (td) {
+          contrastiveRival = { node: h.id, rank: hi, score: h.score };
+        }
         break;
       }
       contrastiveMargin = margin;
@@ -777,6 +900,7 @@ export async function voteRegions(
           dfWeight: wf,
           contrastiveMargin: margin,
           contrastiveNoiseFloor: noiseFloor,
+          ...(contrastiveRival ? { contrastiveRival } : {}),
         });
         continue;
       }
@@ -828,6 +952,7 @@ export async function voteRegions(
         ? {
           contrastiveMargin,
           contrastiveNoiseFloor: estimatorNoise(ctx.store.D),
+          ...(contrastiveRival ? { contrastiveRival } : {}),
         }
         : {}),
       mutualWeight: mutual,
@@ -1562,11 +1687,13 @@ export async function structuralResonance(
    *  itself through a synthetic gist still dominated by its own direction. */
   ownRootsA: readonly number[] | undefined,
   ownRootsB: readonly number[] | undefined,
+  trace?: StructuralResonanceTrace,
 ): Promise<
   | { proposal: StructuralResonanceProposal; reach: AncestorReach; idf: number }
   | null
 > {
   const { variants } = buildStructuralVariants(ctx, ra, rb, sides);
+  if (trace) trace.variantBudget = ctx.cfg.haloQueryK;
 
   const middleBytes = query.subarray(ra.end, rb.start);
   const middlePart: StructuralPart | null = middleBytes.length === 0
@@ -1580,6 +1707,15 @@ export async function structuralResonance(
     parts.push(variant.right);
     const synthetic = composeStructuralGist(ctx.space, parts);
     const hits = await ctx.store.resonate(synthetic, k);
+    if (trace) {
+      trace.variants.push({
+        kind: variant.kind,
+        semanticConfidence: variant.semanticConfidence,
+        leftSiblingId: variant.leftSiblingId,
+        rightSiblingId: variant.rightSiblingId,
+        annHitsReturned: hits.length,
+      });
+    }
     for (const hit of hits) {
       const candidate: StructuralResonanceProposal = {
         id: hit.id,
@@ -1596,11 +1732,38 @@ export async function structuralResonance(
       }
     }
   }
-  if (proposals.size === 0) return null;
+  if (trace) trace.mergedProposals = proposals.size;
+  if (proposals.size === 0) {
+    if (trace) {
+      trace.noiseFloor = estimatorNoise(ctx.store.D);
+      trace.outcome = "empty";
+    }
+    return null;
+  }
 
   const sorted = [...proposals.values()].sort((a, b) =>
     b.effectiveScore - a.effectiveScore || a.id - b.id
   );
+
+  // One shared shape for every `examined` entry (spec §5): only `outcome`
+  // varies across the six exit points below, so build it once instead of
+  // repeating the six-field literal at each site.
+  const recordExamined = (
+    p: StructuralResonanceProposal,
+    outcome: StructuralResonanceCandidateTrace["outcome"],
+  ) => {
+    if (!trace) return;
+    trace.examined.push({
+      node: p.id,
+      variant: p.variant,
+      leftSiblingId: p.leftSiblingId,
+      rightSiblingId: p.rightSiblingId,
+      annScore: p.annScore,
+      semanticConfidence: p.semanticConfidence,
+      effectiveScore: p.effectiveScore,
+      outcome,
+    });
+  };
 
   let selected: StructuralResonanceProposal | null = null;
   let selectedReach: AncestorReach | null = null;
@@ -1608,32 +1771,59 @@ export async function structuralResonance(
   let rival: StructuralResonanceProposal | null = null;
   for (const p of sorted) {
     const reach = edgeAncestors(ctx, p.id, N, reachMemo);
-    if (reach.saturated || reach.roots.length === 0) continue;
+    if (reach.saturated || reach.roots.length === 0) {
+      recordExamined(p, reach.saturated ? "saturated" : "no-roots");
+      continue;
+    }
     const idf = Math.log(N / Math.max(1, reach.contextsReached));
-    if (idf <= 0) continue;
+    if (idf <= 0) {
+      recordExamined(p, "nonpositive-idf");
+      continue;
+    }
     // Self-evidence backstop (see the param doc above): a candidate that is
     // exactly one side's own already-voted conclusion carries no JOINT
     // evidence — skip it as if it never survived.
     if (
       (ownRootsA && sameRoots(reach.roots, ownRootsA)) ||
       (ownRootsB && sameRoots(reach.roots, ownRootsB))
-    ) continue;
+    ) {
+      recordExamined(p, "same-as-endpoint");
+      continue;
+    }
     if (selected === null) {
       selected = p;
       selectedReach = reach;
       selectedIdf = idf;
+      recordExamined(p, "selected");
     } else if (!sameRoots(reach.roots, selectedReach!.roots)) {
       rival = p;
+      recordExamined(p, "contrastive-rival");
       break;
+    } else {
+      recordExamined(p, "same-as-selected");
     }
   }
-  if (selected === null || selectedReach === null) return null;
+  if (selected === null || selectedReach === null) {
+    if (trace) {
+      trace.noiseFloor = estimatorNoise(ctx.store.D);
+      trace.outcome = "no-valid-proposal";
+    }
+    return null;
+  }
 
   const margin = rival
     ? selected.effectiveScore - rival.effectiveScore
     : selected.effectiveScore;
-  if (margin <= estimatorNoise(ctx.store.D)) return null;
+  if (trace) {
+    trace.contrastiveMargin = margin;
+    trace.noiseFloor = estimatorNoise(ctx.store.D);
+  }
+  if (margin <= estimatorNoise(ctx.store.D)) {
+    if (trace) trace.outcome = "margin-rejected";
+    return null;
+  }
 
+  if (trace) trace.outcome = "accepted";
   return { proposal: selected, reach: selectedReach, idf: selectedIdf };
 }
 
@@ -1703,6 +1893,7 @@ async function crossRegionVotes(
       maximalRegions: cand.length,
       probeLimit: k,
       probesAttempted: 0, // updated below as probes accrue
+      stopReason: cand.length < 2 ? "insufficient-regions" : undefined,
     };
   }
   if (cand.length < 2) return none;
@@ -1778,6 +1969,31 @@ async function crossRegionVotes(
       if (td?.crossRegionSummary) {
         td.crossRegionSummary.probesAttempted = probes;
       }
+      // Trace-only per-probe bookkeeping (spec §2-§7) — built incrementally
+      // as the ladder runs, pushed exactly once at whichever exit fires
+      // below.  `pushProbe` is called at every continue/success exit for
+      // THIS pair so the invariant `probes.length === probesAttempted`
+      // holds regardless of which tier settled it.
+      const probe: CrossRegionProbeTrace | undefined = td
+        ? {
+          leftRegionIndex: cand[a],
+          rightRegionIndex: cand[b],
+          betweenRegionIndices: [...between],
+          exact: { attempted: false, candidatesReturned: 0 },
+          singleSynonym: { attempted: false, candidatesReturned: 0 },
+          doubleSynonym: { attempted: false, candidatesReturned: 0 },
+          outcome: "structural-rejected",
+        }
+        : undefined;
+      let probePushed = false;
+      const pushProbe = (
+        outcome: CrossRegionProbeTrace["outcome"],
+      ) => {
+        if (!td || !probe || probePushed) return;
+        probe.outcome = outcome;
+        td.crossRegionProbes.push(probe);
+        probePushed = true;
+      };
 
       const left = query.subarray(ra.start, ra.end);
       const right = query.subarray(rb.start, rb.end);
@@ -1805,6 +2021,12 @@ async function crossRegionVotes(
           undefined,
           true,
         );
+      if (probe) {
+        probe.exact = {
+          attempted: true,
+          candidatesReturned: containers.length,
+        };
+      }
       if (containers.length === 0) {
         // Tiers 2-4 — synonym containers (junctionSynonyms itself runs
         // single-synonym first, falling to double-synonym only when
@@ -1817,6 +2039,26 @@ async function crossRegionVotes(
           true,
           sides,
         );
+        if (probe) {
+          const singleAttempted = sides.leftSiblings.length > 0 ||
+            sides.rightSiblings.length > 0;
+          const singleReturned = syn[0]?.tier === "single-synonym"
+            ? syn.length
+            : 0;
+          const doubleAttempted = singleAttempted && singleReturned === 0 &&
+            sides.leftSiblings.length > 0 && sides.rightSiblings.length > 0;
+          const doubleReturned = syn[0]?.tier === "double-synonym"
+            ? syn.length
+            : 0;
+          probe.singleSynonym = {
+            attempted: singleAttempted,
+            candidatesReturned: singleReturned,
+          };
+          probe.doubleSynonym = {
+            attempted: doubleAttempted,
+            candidatesReturned: doubleReturned,
+          };
+        }
         if (syn.length > 0) {
           containers = syn;
           tier = syn[0].tier;
@@ -1862,12 +2104,45 @@ async function crossRegionVotes(
         // backstop, so both sides earn their place here the same way an
         // ordinary approximate region earns its individual vote.
         const gap = rb.start - ra.end;
-        if (
-          between.length === 0 &&
-          strong.has(cand[a]) && strong.has(cand[b]) &&
-          ra.known && rb.known &&
-          gap <= maxInterior
-        ) {
+        const reasons: NonNullable<
+          StructuralResonanceTrace["ineligibleReasons"]
+        > = [];
+        if (between.length > 0) reasons.push("between-region");
+        if (!strong.has(cand[a]) || !strong.has(cand[b])) {
+          reasons.push("not-both-strong");
+        }
+        if (!ra.known || !rb.known) reasons.push("not-both-known");
+        if (gap > maxInterior) reasons.push("gap-too-large");
+        let resonanceTrace: StructuralResonanceTrace | undefined;
+        if (reasons.length > 0) {
+          if (probe) {
+            resonanceTrace = {
+              variantBudget: ctx.cfg.haloQueryK,
+              variants: [],
+              mergedProposals: 0,
+              examined: [],
+              noiseFloor: estimatorNoise(ctx.store.D),
+              outcome: "ineligible",
+              ineligibleReasons: reasons,
+            };
+            probe.resonance = resonanceTrace;
+          }
+        } else {
+          if (probe) {
+            // `outcome`/`noiseFloor` are required fields with no natural
+            // "unset" value; structuralResonance (called just below) always
+            // overwrites both before returning, on every one of its exit
+            // paths — these are never read in their initial form.
+            resonanceTrace = {
+              variantBudget: ctx.cfg.haloQueryK,
+              variants: [],
+              mergedProposals: 0,
+              examined: [],
+              noiseFloor: 0,
+              outcome: "empty",
+            };
+            probe.resonance = resonanceTrace;
+          }
           const ownRootsA = rvs.votes.find((v) =>
             v.start === ra.start && v.end === ra.end
           )?.roots;
@@ -1885,9 +2160,15 @@ async function crossRegionVotes(
             reachMemo,
             ownRootsA,
             ownRootsB,
+            resonanceTrace,
           );
         }
-        if (structuralPick === null) continue;
+        if (structuralPick === null) {
+          pushProbe(
+            reasons.length > 0 ? "resonance-ineligible" : "resonance-rejected",
+          );
+          continue;
+        }
         tier = "structural-resonance";
       }
 
@@ -1911,6 +2192,21 @@ async function crossRegionVotes(
         idf = structuralPick.idf;
         confidence = structuralPick.proposal.effectiveScore;
       } else {
+        // Aggregate structural-tier trace (spec §4) — one per DAG tier that
+        // returned at least one container (exact, single-synonym or
+        // double-synonym); only aggregate counts and the final outcome are
+        // recorded, never every candidate.
+        const structuralTrace: CrossRegionStructuralTrace | undefined = probe
+          ? {
+            tier: tier as "exact" | "single-synonym" | "double-synonym",
+            selfEvidenceRejected: 0,
+            contradictionRejected: 0,
+            passedGuards: 0,
+            outcome: "all-rejected",
+          }
+          : undefined;
+        if (probe) probe.structural = structuralTrace;
+
         // N-ARY selection: the container covering the MOST remaining candidate
         // forms wins (then tightest interior, then lowest id).  Reads are
         // cache hits — every container's bytes were already read by the walk.
@@ -1931,7 +2227,10 @@ async function crossRegionVotes(
               Math.min(li, ri),
               Math.max(li + left.length, ri + right.length),
             );
-            if (indexOf(query, joined, 0) >= 0) continue; // query says it itself
+            if (indexOf(query, joined, 0) >= 0) {
+              if (structuralTrace) structuralTrace.selfEvidenceRejected++;
+              continue; // query says it itself
+            }
           }
           // CONTRADICTION GUARD: a between-region already carrying its own
           // vote must actually recur in this container's bytes — otherwise
@@ -1947,8 +2246,10 @@ async function crossRegionVotes(
               ) < 0
             )
           ) {
+            if (structuralTrace) structuralTrace.contradictionRejected++;
             continue;
           }
+          if (structuralTrace) structuralTrace.passedGuards++;
           let cov = left.length + right.length;
           const extras: number[] = [];
           for (const ei of cand) {
@@ -1972,12 +2273,31 @@ async function crossRegionVotes(
             bestCov = cov;
           }
         }
-        if (best === null) continue; // every container was self-evidence
+        if (best === null) {
+          // every container was self-evidence / contradiction — outcome
+          // stays "all-rejected".
+          pushProbe("structural-rejected");
+          continue;
+        }
 
         const r = edgeAncestors(ctx, best.id, N, reachMemo);
-        if (r.saturated || r.roots.length === 0) continue;
+        if (r.saturated || r.roots.length === 0) {
+          if (structuralTrace) {
+            structuralTrace.outcome = r.saturated ? "saturated" : "no-roots";
+          }
+          pushProbe("structural-rejected");
+          continue;
+        }
         const df = Math.log(N / Math.max(1, r.contextsReached));
-        if (df <= 0) continue;
+        if (df <= 0) {
+          if (structuralTrace) structuralTrace.outcome = "nonpositive-idf";
+          pushProbe("structural-rejected");
+          continue;
+        }
+        if (structuralTrace) {
+          structuralTrace.outcome = "accepted";
+          structuralTrace.selectedNode = best.id;
+        }
         reach = r;
         idf = df;
         // Confidence used by voting (spec §13): exact junction = 1;
@@ -2058,6 +2378,7 @@ async function crossRegionVotes(
         wFocus: w,
         absorbed: 1 + explainedAway,
       });
+      pushProbe("accepted");
       if (td) {
         td.crossRegionJunctionVotes.push({
           container: best.id,
@@ -2067,6 +2388,11 @@ async function crossRegionVotes(
           explainedAwayRegionIndices: explainedAwayIndices,
           absorbed: 1 + explainedAway,
           tier,
+          probe: td.crossRegionProbes.length - 1,
+          confidence,
+          evidenceBytes: bestCov,
+          mutualWeight: mutual,
+          voteWeightPerRoot: w,
         });
       }
 
@@ -2114,6 +2440,11 @@ async function crossRegionVotes(
   }
 
   if (td) td.supersededOrdinaryVotes = superseded.size;
+  if (td?.crossRegionSummary) {
+    td.crossRegionSummary.stopReason = probes >= k
+      ? "probe-limit"
+      : "pairs-exhausted";
+  }
   return { votes: out, superseded };
 }
 
@@ -2176,9 +2507,14 @@ export function traceAttention(
       ...(td.crossRegionSummary
         ? {
           crossRegion: {
-            ...td.crossRegionSummary,
+            eligibleRegions: td.crossRegionSummary.eligibleRegions,
+            maximalRegions: td.crossRegionSummary.maximalRegions,
+            probeLimit: td.crossRegionSummary.probeLimit,
+            probesAttempted: td.crossRegionSummary.probesAttempted,
             junctionVotes: td.crossRegionJunctionVotes,
             supersededOrdinaryVotes: td.supersededOrdinaryVotes,
+            probes: td.crossRegionProbes,
+            stopReason: td.crossRegionSummary.stopReason ?? "pairs-exhausted",
           },
         }
         : {}),

@@ -1,6 +1,6 @@
 {
   "name": "@hviana/sema",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Sema: a non-parametric, instance-based reasoning system.",
   "type": "module",
   "main": "dist/src/index.js",
