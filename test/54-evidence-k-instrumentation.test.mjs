@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Mind, decodeText } from "../dist/src/index.js";
+import { decodeText, Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 
 const mk = (seed = 1) =>
@@ -138,8 +138,15 @@ test("3. onDeposit reports one item-indexed record per ingested item, ids conten
 test("3b. onDeposit reports bare items as kind 'one'; omitting it changes nothing", async () => {
   const m = mk(1);
   const reports = [];
-  await m.ingest(["standalone note", ["ctx", "cont"]], undefined, (r) => reports.push(r));
-  assert.deepEqual(reports.map((r) => [r.index, r.kind]), [[0, "one"], [1, "pair"]]);
+  await m.ingest(
+    ["standalone note", ["ctx", "cont"]],
+    undefined,
+    (r) => reports.push(r),
+  );
+  assert.deepEqual(reports.map((r) => [r.index, r.kind]), [[0, "one"], [
+    1,
+    "pair",
+  ]]);
   assert.equal(reports[1].continuationId !== undefined, true);
   assert.equal(reports[0].continuationId, undefined);
   await m.store.close();
@@ -154,11 +161,11 @@ test("4. answers are identical with and without the new read-outs attached", asy
     const m = mk(7);
     await m.ingest(CORPUS, undefined, withHooks ? () => {} : undefined);
     const out = [];
-    for (const q of ["red then circle", "red circle blue square", "blue square"]) {
+    for (
+      const q of ["red then circle", "red circle blue square", "blue square"]
+    ) {
       out.push(
-        withHooks
-          ? await m.respondText(q, () => {})
-          : await m.respondText(q),
+        withHooks ? await m.respondText(q, () => {}) : await m.respondText(q),
       );
     }
     await m.store.close();
