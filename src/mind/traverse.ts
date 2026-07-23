@@ -7,7 +7,7 @@
 // project) live in match.ts — the elementary match-and-project operation.
 
 import { cosine, Vec } from "../vec.js";
-import type { AncestorReach, MindContext } from "./types.js";
+import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { gistOf, read } from "./primitives.js";
 
 // ── Per-response structural memo ────────────────────────────────────────
@@ -134,7 +134,22 @@ export function edgeAncestors(
   // is withdrawn.  On a small store the floor stays ≤ √N and the atom
   // climbs exactly as before, so single-letter facts keep working.
   if (id < 0 && atomIsHub(ctx, contextCount)) {
-    const reach = { roots: [], contextsReached: 0, saturated: true };
+    const bound0 = Math.ceil(Math.sqrt(Math.max(2, contextCount)));
+    const reach: AncestorReach = {
+      roots: [],
+      contextsReached: 0,
+      saturated: true,
+      ...(ctx.trace
+        ? {
+          saturation: {
+            reason: "byte-atom-commonality" as const,
+            node: id,
+            observed: atomReach(ctx, contextCount),
+            limit: bound0,
+          },
+        }
+        : {}),
+    };
     memo?.set(id, reach);
     return reach;
   }
@@ -144,6 +159,10 @@ export function edgeAncestors(
   const seen = new Set<number>([id]);
   const ctxSeen = new Set<number>();
   let saturated = false;
+  // Provenance of the FIRST decision that saturated this climb — allocated
+  // only when a trace is requested (see AncestorReach.saturation's doc); the
+  // climb itself never reads it back.
+  let satStop: SaturationStop | undefined;
 
   // EXPAND-UNTIL-DECIDED: a reach is consumed either as a VOTE (which needs
   // contextsReached exactly, and only while ≤ √N — beyond that the region is
@@ -188,12 +207,45 @@ export function edgeAncestors(
     if (hasNx || pc > 0) {
       roots.push(x);
       if (hasNx) ctxSeen.add(x);
-      if (pc > bound) return false; // decided: ≥ pc > √N distinct contexts
+      if (pc > bound) {
+        // decided: ≥ pc > √N distinct contexts
+        if (ctx.trace) {
+          satStop = {
+            reason: "predecessor-fan-in",
+            node: x,
+            observed: pc,
+            limit: bound,
+          };
+        }
+        return false;
+      }
       for (const p of ctx.store.prevFirst(x, bound)) ctxSeen.add(p);
-      if (ctxSeen.size > bound) return false; // decided
+      if (ctxSeen.size > bound) {
+        // decided
+        if (ctx.trace) {
+          satStop = {
+            reason: "distinct-context-limit",
+            node: x,
+            observed: ctxSeen.size,
+            limit: bound,
+          };
+        }
+        return false;
+      }
     }
     const parents = ctx.store.parentsFirst(x, bound + 1);
-    if (parents.length > bound) return false; // decided: hub
+    if (parents.length > bound) {
+      // decided: hub
+      if (ctx.trace) {
+        satStop = {
+          reason: "parent-fan-out",
+          node: x,
+          observed: parents.length,
+          limit: bound,
+        };
+      }
+      return false;
+    }
     let fresh = 0;
     for (const p of parents) {
       if (!seen.has(p)) {
@@ -204,7 +256,18 @@ export function edgeAncestors(
     }
     if (fresh > 1) {
       lateral += fresh - 1;
-      if (lateral > bound) return false; // decided: cone-wide hub
+      if (lateral > bound) {
+        // decided: cone-wide hub
+        if (ctx.trace) {
+          satStop = {
+            reason: "lateral-cone-limit",
+            node: x,
+            observed: lateral,
+            limit: bound,
+          };
+        }
+        return false;
+      }
     }
     return true;
   };
@@ -266,7 +329,12 @@ export function edgeAncestors(
     }
   }
 
-  const reach = { roots, contextsReached: ctxSeen.size, saturated };
+  const reach: AncestorReach = {
+    roots,
+    contextsReached: ctxSeen.size,
+    saturated,
+    ...(saturated && satStop ? { saturation: satStop } : {}),
+  };
   memo?.set(id, reach);
   return reach;
 }

@@ -16,3 +16,19 @@ export type {
   RationaleItem,
   RationaleStep,
 } from "./rationale.js";
+export type {
+  AnchorRejectionReason,
+  ClimbConsensusData,
+  ConsensusAnchorTrace,
+  ConsensusReachTrace,
+  ConsensusRegionTrace,
+  CrossRegionTier,
+  JunctionVoteTrace,
+  RegionOutcome,
+} from "./attention.js";
+export type {
+  AncestorReach,
+  AttentionRead,
+  SaturationReason,
+  SaturationStop,
+} from "./types.js";

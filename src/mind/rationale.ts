@@ -83,6 +83,11 @@ export interface RationaleStep {
   /** A one-line, human account of what the mechanism did and why — the sentence
    *  that turns the data into an explanation. */
   note?: string;
+  /** Optional structured payload — a mechanism-specific, plain-serialisable
+   *  shape (no Map/Set/vectors/mutable internals) that carries more than the
+   *  human-readable `note` can, for a debugger or downstream tool to consume
+   *  programmatically.  Never read by inference; purely additive. */
+  data?: unknown;
 }
 
 /** The callback {@link Mind.respond} / {@link Mind.respondText} accept.  It is
@@ -142,7 +147,7 @@ export interface Scope {
   /** Close the mechanism: emit its step with these outputs and pop it off the
    *  nesting stack.  Idempotent — a second call is ignored, so a `finally` that
    *  closes after an early return is safe. */
-  done(outputs: RationaleItem[], note?: string): void;
+  done(outputs: RationaleItem[], note?: string, data?: unknown): void;
 }
 
 /** The live tracer: a stack of open mechanisms over one {@link Mind.respond}.
@@ -212,6 +217,7 @@ export class Rationale {
     outputs: RationaleItem[],
     deps: number[] | undefined,
     note: string | undefined,
+    data?: unknown,
   ): void {
     this.sink({
       index,
@@ -223,6 +229,7 @@ export class Rationale {
       inputs,
       outputs,
       note,
+      data,
     });
   }
 
@@ -248,11 +255,11 @@ export class Rationale {
     };
     return {
       index,
-      done: (outputs, note) => {
+      done: (outputs, note, data) => {
         if (closed) return;
         closed = true;
         pop();
-        emit(index, mechanism, inputs, outputs, resolvedDeps, note);
+        emit(index, mechanism, inputs, outputs, resolvedDeps, note, data);
       },
     };
   }
@@ -265,11 +272,12 @@ export class Rationale {
     outputs: RationaleItem[],
     note?: string,
     deps?: number[],
+    data?: unknown,
   ): number {
     const mechanism = this.path(name);
     const resolvedDeps = deps ?? this.defaultDeps();
     const index = this.reserve(name);
-    this.emit(index, mechanism, inputs, outputs, resolvedDeps, note);
+    this.emit(index, mechanism, inputs, outputs, resolvedDeps, note, data);
     return index;
   }
 }

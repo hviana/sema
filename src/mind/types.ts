@@ -175,11 +175,36 @@ export interface RegionVote {
   absorbed?: number;
 }
 
+/** The structural gate that first decided an {@link edgeAncestors} climb was
+ *  saturated (an abstention, not a discriminative conclusion) — pure
+ *  instrumentation for {@link ClimbConsensusData}'s reach trace; it never
+ *  feeds back into the climb itself. */
+export type SaturationReason =
+  | "byte-atom-commonality"
+  | "predecessor-fan-in"
+  | "distinct-context-limit"
+  | "parent-fan-out"
+  | "lateral-cone-limit";
+
+/** One saturation stop's provenance: which reason fired, at which node, the
+ *  observed count against the bound that decided it. */
+export interface SaturationStop {
+  reason: SaturationReason;
+  node: number;
+  observed: number;
+  limit: number;
+}
+
 /** The edge-bearing contexts reached by climbing from a node, plus saturation info. */
 export interface AncestorReach {
   roots: number[];
   contextsReached: number;
   saturated: boolean;
+  /** The saturation gate that stopped this climb, when {@link saturated} is
+   *  true and a trace was requested — see {@link edgeAncestors}.  Absent for
+   *  a non-saturated reach, and absent (even when saturated) when no trace
+   *  was requested — instrumentation must not allocate when tracing is off. */
+  saturation?: SaturationStop;
 }
 
 /** Saturated-interval information for the noise-drop gate. */

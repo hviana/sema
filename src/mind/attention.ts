@@ -25,22 +25,287 @@ import type {
   Region,
   RegionVote,
   SaturationInfo,
+  SaturationStop,
 } from "./types.js";
-import { consensusFloor, dominates, estimatorNoise } from "../geometry.js";
+import {
+  composeStructuralGist,
+  consensusFloor,
+  dominates,
+  estimatorNoise,
+  type StructuralPart,
+} from "../geometry.js";
 import { foldTree, gistOf, latin1Key, perceive, read } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { leafIdRun } from "./canonical.js";
-import { corpusN, edgeAncestors } from "./traverse.js";
+import { corpusN, edgeAncestors, hubBound } from "./traverse.js";
 import {
   cachedRead,
+  type Junction,
   junctionContainersFrom,
   junctionSeeds,
   junctionSynonyms,
+  type JunctionSynonymSides,
+  loadJunctionSynonymSides,
+  type SynonymJunction,
   walkCache,
 } from "./junction.js";
+import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
 import type { RationaleItem } from "./rationale.js";
 import { rDeriv, rItem, rNode, traceDerivation } from "./trace.js";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// climbConsensus / inspectRationale instrumentation.
+//
+// Purely additive tracing over the consensus climb: it never changes an
+// inference result or the human-readable rationale text traceAttention
+// already produces (see below) — it only exposes, as one structured `data`
+// payload on the SAME "climbConsensus" step, the machinery that produced
+// that text: every structural saturation stop, candidate breadth versus
+// evidence that actually contributed, and the decisions that removed or
+// accepted evidence (§ objective of the instrumentation spec).
+//
+// The mutable collection buffers (the `TraceDraft` below) are allocated ONLY
+// when `ctx.trace` is set — every call site that would otherwise push onto
+// one of these arrays or sets is gated by `td?.` / `if (td)`, so a plain
+// (untraced) climb pays exactly zero allocation for this instrumentation.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** How the newly-added graded junction ladder (junction.ts / attention.ts's
+ *  {@link CrossRegionTier}) is reported on a `junctionVotes` entry.  The
+ *  instrumentation spec this implements predates that ladder and only knew
+ *  two tiers ("exact" | "synonym"); with the richer `CrossRegionTier` now
+ *  the real shape of a junction vote's provenance, `junctionVotes[].tier`
+ *  reports it DIRECTLY (the tier as-is: "exact" | "single-synonym" |
+ *  "double-synonym" | "structural-resonance") rather than collapsing every
+ *  non-exact tier into a lossy "synonym" bucket — the whole point of
+ *  exposing `tier` here is to let a debugger tell a halo-sibling
+ *  substitution apart from a structural-resonance ANN guess, which the
+ *  spec's original two-value type cannot do. */
+export type ClimbConsensusJunctionTier = CrossRegionTier;
+
+export type RegionOutcome =
+  | "voted"
+  | "no-ann-hit"
+  | "no-structural-reach"
+  | "saturated-abstention"
+  | "nonpositive-df-weight"
+  | "contrastive-margin-rejection";
+
+export interface ConsensusRegionTrace {
+  index: number;
+  source: "perceived" | "recognised";
+  span: [number, number];
+  chunk: boolean;
+  known: boolean;
+
+  canonicalId?: number;
+  canonicalUsable: boolean;
+  canonicalFailed: boolean;
+
+  annQueried: boolean;
+  annHitsReturned: number;
+  annHitsExamined: number;
+
+  selected?: {
+    source: "canonical" | "ann";
+    node: number;
+    rank?: number;
+    score: number;
+    fallback?: "orphan" | "saturated-tie";
+  };
+
+  reachNode?: number;
+  outcome: RegionOutcome;
+
+  idf?: number;
+  dfWeight?: number;
+
+  contrastiveMargin?: number;
+  contrastiveNoiseFloor?: number;
+
+  mutualWeight?: number;
+  voteWeightPerRoot?: number;
+  focusWeightPerRoot?: number;
+
+  ordinaryVoteProduced: boolean;
+  superseded: boolean;
+}
+
+export interface ConsensusReachTrace {
+  node: number;
+  roots: number[];
+  contextsReached: number;
+  saturated: boolean;
+  saturation?: SaturationStop;
+}
+
+export type AnchorRejectionReason =
+  | "below-natural-break"
+  | "below-consensus-floor"
+  | "leading-saturation";
+
+export interface ConsensusAnchorTrace {
+  anchor: number;
+  rank: number;
+
+  pooledVote: number;
+  idfVote: number;
+
+  candidateBreadth: number;
+  contributingVotes: number;
+  contributingEvidence: number;
+  breadth: number;
+  contributingSpans: Array<[number, number]>;
+  clusters: number;
+
+  commit: {
+    status: "root" | "overlap" | "rejected";
+    dominant: boolean;
+    passesNaturalBreak?: boolean;
+    passesConsensusFloor?: boolean;
+    pastLeadingSaturation?: boolean;
+    rejectionReasons: AnchorRejectionReason[];
+  };
+}
+
+export interface JunctionVoteTrace {
+  container: number;
+  span: [number, number];
+  roots: number[];
+  sourceRegionIndices: number[];
+  explainedAwayRegionIndices: number[];
+  absorbed: number;
+  tier?: ClimbConsensusJunctionTier;
+}
+
+export interface ClimbConsensusData {
+  version: 1;
+
+  cache: {
+    hit: boolean;
+    detailAvailable: boolean;
+  };
+
+  config: {
+    annK: number;
+    crossRegionProbeLimit: number;
+    mode: DFMode;
+    corpusN?: number;
+    dimension?: number;
+    hubBound?: number;
+    estimatorNoise?: number;
+    naturalBreak?: number;
+    consensusFloor?: number;
+  };
+
+  candidates: {
+    perceived: number;
+    recognised: number;
+    total: number;
+  };
+
+  regions?: ConsensusRegionTrace[];
+  reaches?: ConsensusReachTrace[];
+
+  crossRegion?: {
+    eligibleRegions: number;
+    maximalRegions: number;
+    probeLimit: number;
+    probesAttempted: number;
+    junctionVotes: JunctionVoteTrace[];
+    supersededOrdinaryVotes: number;
+  };
+
+  saturation?: {
+    regionIntervals: Array<{ start: number; end: number }>;
+    hasLeading: boolean;
+    leadingEnd: number;
+  };
+
+  pooling?: {
+    inputVotes: number;
+    eligibleVotes: number;
+    saturationMaskedVotes: number;
+  };
+
+  anchors?: ConsensusAnchorTrace[];
+
+  result: AttentionRead;
+}
+
+/** The mutable collection buffers threaded through one traced consensus
+ *  climb — allocated exactly once, in {@link computeAttention}, only when
+ *  `ctx.trace` is set.  Every field mirrors a `ClimbConsensusData` array/map,
+ *  built incrementally as the pipeline runs so commit-time decisions (in
+ *  particular) are recorded LIVE, not reconstructed afterward. */
+interface TraceDraft {
+  perceivedCount: number;
+  regions: ConsensusRegionTrace[];
+  crossRegionJunctionVotes: JunctionVoteTrace[];
+  crossRegionSummary?: {
+    eligibleRegions: number;
+    maximalRegions: number;
+    probeLimit: number;
+    probesAttempted: number;
+  };
+  supersededOrdinaryVotes: number;
+  saturation?: {
+    regionIntervals: Array<{ start: number; end: number }>;
+    hasLeading: boolean;
+    leadingEnd: number;
+  };
+  pooling?: {
+    inputVotes: number;
+    eligibleVotes: number;
+    saturationMaskedVotes: number;
+  };
+  anchors: ConsensusAnchorTrace[];
+}
+
+/** The config/corpus context {@link traceAttention} needs to fill in
+ *  `ClimbConsensusData.config` and `.result` at whichever exit fires —
+ *  threaded down from {@link computeAttention} rather than re-derived, so
+ *  every emission point reports the SAME numbers the real climb used. */
+interface ClimbConsensusCfg {
+  k: number;
+  mode: DFMode;
+  perceivedCount: number;
+  totalRegions: number;
+  N?: number;
+  reachMemo?: ReadonlyMap<number, AncestorReach>;
+  naturalBreak?: number;
+  consensusFloor?: number;
+}
+
+function newTraceDraft(perceivedCount: number): TraceDraft {
+  return {
+    perceivedCount,
+    regions: [],
+    crossRegionJunctionVotes: [],
+    supersededOrdinaryVotes: 0,
+    anchors: [],
+  };
+}
+
+/** Serialise the shared `reachMemo` into the plain, authoritative saturation
+ *  profile (spec §5) — every distinct node any tier's `edgeAncestors` call
+ *  climbed from during this response, in insertion (first-consulted) order. */
+function serialiseReaches(
+  reachMemo: ReadonlyMap<number, AncestorReach>,
+): ConsensusReachTrace[] {
+  const out: ConsensusReachTrace[] = [];
+  for (const [node, r] of reachMemo) {
+    out.push({
+      node,
+      roots: [...r.roots],
+      contextsReached: r.contextsReached,
+      saturated: r.saturated,
+      ...(r.saturation ? { saturation: r.saturation } : {}),
+    });
+  }
+  return out;
+}
 
 // ── Public entry points ───────────────────────────────────────────────────
 
@@ -85,12 +350,27 @@ export async function climbAttentionAll(
     }
     const hit = byRead.get(modeKey);
     if (hit !== undefined) {
+      // Cache-hit exit (spec §9): the abbreviated payload shape — only what
+      // is actually stored in the cached AttentionRead is reported.  No
+      // candidate, reach, saturation, pooling or anchor detail is fabricated
+      // (that per-region detail was never retained by the memo).
+      const data: ClimbConsensusData | undefined = ctx.trace
+        ? {
+          version: 1,
+          cache: { hit: true, detailAvailable: false },
+          config: { annK: k, crossRegionProbeLimit: k, mode },
+          candidates: { perceived: 0, recognised: 0, total: 0 },
+          result: hit,
+        }
+        : undefined;
       ctx.trace?.step(
         "climbConsensus",
         [rItem(query, "query")],
         hit.roots.map((r) => rNode(ctx, r.anchor, "anchor", r.vote)),
         `(cached) consensus already computed for this query — ` +
           `${hit.roots.length} point(s) of attention`,
+        undefined,
+        data,
       );
       return hit;
     }
@@ -110,6 +390,7 @@ export async function computeAttention(
   mode: DFMode,
 ): Promise<AttentionRead> {
   const regions = collectRegions(ctx, query);
+  const perceivedCount = regions.length;
 
   // Recognised sites carry structural evidence that perceived sub-regions
   // miss: a word crossing a W-boundary is split into chunks whose partial
@@ -130,14 +411,30 @@ export async function computeAttention(
     });
   }
 
-  if (regions.length === 0) return { roots: [], ranked: [] };
+  // The trace draft (spec §9): allocated ONLY when a trace was requested —
+  // every downstream consumer gates its own writes on `td?` / `if (td)`, so
+  // an untraced climb pays zero allocation for this instrumentation.
+  const td: TraceDraft | undefined = ctx.trace
+    ? newTraceDraft(perceivedCount)
+    : undefined;
+  const cfg0: ClimbConsensusCfg = {
+    k,
+    mode,
+    perceivedCount,
+    totalRegions: regions.length,
+  };
+
+  if (regions.length === 0) {
+    traceAttention(ctx, [], [], [], undefined, td, cfg0);
+    return { roots: [], ranked: [] };
+  }
 
   const N = corpusN(ctx);
   // One climb per distinct anchor for the WHOLE query: regions sharing a
   // chunk, and canonicalChunkId's prefix probes, all hit this memo instead of
   // re-reading the anchor's full edge fan-out from the store.
   const reachMemo = new Map<number, AncestorReach>();
-  const rvs = await voteRegions(ctx, query, regions, k, mode, N, reachMemo);
+  const rvs = await voteRegions(ctx, query, regions, k, mode, N, reachMemo, td);
 
   // ── Cross-region: DIRECT region-to-region interaction ─────────────────
   // Two regions whose individual climbs land on DIFFERENT contexts leave
@@ -152,6 +449,7 @@ export async function computeAttention(
     k,
     N,
     reachMemo,
+    td,
   );
   // A vote SUPERSEDED by exact joint evidence (its bytes literally live
   // inside the joint container, yet it climbed elsewhere — grid aliasing)
@@ -162,16 +460,37 @@ export async function computeAttention(
       ...cross.votes,
     ]
     : rvs.votes;
+  // Mark, on the per-region trace, the source region of every superseded
+  // ordinary vote (spec §4's final rule) — an explicit pass over the exact
+  // set crossRegionVotes' explaining-away logic removed, never inferred
+  // from `absorbed`.
+  if (td && cross.superseded.size > 0) {
+    for (const rv of cross.superseded) {
+      const region = td.regions.find(
+        (r) => r.span[0] === rv.start && r.span[1] === rv.end,
+      );
+      if (region) region.superseded = true;
+    }
+  }
   // ──────────────────────────────────────────────────────────────────────
 
+  const cfg: ClimbConsensusCfg = { ...cfg0, N, reachMemo };
+
   if (allVotes.length === 0) {
-    traceAttention(ctx, regions, rvs.voters, []);
+    traceAttention(ctx, regions, rvs.voters, [], undefined, td, cfg);
     return { roots: [], ranked: [] };
   }
 
   const sat = detectSaturated(ctx, regions, rvs.saturated);
-  const pooled = poolVotes(ctx, allVotes, sat, N);
-  return commitVotes(ctx, pooled, sat, regions, rvs.voters, N);
+  if (td) {
+    td.saturation = {
+      regionIntervals: sat.intervals.map((iv) => ({ ...iv })),
+      hasLeading: sat.hasLeading,
+      leadingEnd: sat.leadingEnd,
+    };
+  }
+  const pooled = poolVotes(ctx, allVotes, sat, N, td);
+  return commitVotes(ctx, pooled, sat, regions, rvs.voters, N, td, cfg);
 }
 
 export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
@@ -212,6 +531,7 @@ export async function voteRegions(
   mode: DFMode,
   N: number,
   reachMemo?: Map<number, AncestorReach>,
+  td?: TraceDraft,
 ): Promise<{
   votes: RegionVote[];
   saturated: boolean[];
@@ -224,6 +544,37 @@ export async function voteRegions(
 
   for (let ri = 0; ri < regions.length; ri++) {
     const { v, start, end, chunk, known } = regions[ri];
+    // Trace-only bookkeeping for this region — allocated only under `td`
+    // (i.e. only when ctx.trace is set); see ConsensusRegionTrace/
+    // RegionOutcome (spec §4).  `examinedIds` tracks distinct ANN hits
+    // whose edgeAncestors reach was actually CONSULTED here (not merely
+    // returned by resonate) — the fallback/margin loops below add to it.
+    const examinedIds = td ? new Set<number>() : undefined;
+    let annQueried = false;
+    let fallbackKind: "orphan" | "saturated-tie" | undefined;
+    const recordRegion = (
+      outcome: RegionOutcome,
+      extra: Partial<ConsensusRegionTrace> = {},
+    ) => {
+      if (!td) return;
+      td.regions[ri] = {
+        index: ri,
+        source: ri < td.perceivedCount ? "perceived" : "recognised",
+        span: [start, end],
+        chunk,
+        known,
+        canonicalId: canonicalId ?? undefined,
+        canonicalUsable,
+        canonicalFailed,
+        annQueried,
+        annHitsReturned: hits ? hits.length : 0,
+        annHitsExamined: examinedIds ? examinedIds.size : 0,
+        outcome,
+        ordinaryVoteProduced: outcome === "voted",
+        superseded: false,
+        ...extra,
+      };
+    };
 
     // EXACT-FIRST: a chunk whose canonical anchor is content-addressed needs
     // no estimator — identity is exact, so its score is 1 BY DEFINITION (the
@@ -243,23 +594,35 @@ export async function voteRegions(
       (ctx.store.hasParents(canonicalId) ||
         ctx.store.hasContainers(canonicalId));
     let hits: readonly Hit[] | null = null;
-    const ensureHits = async (): Promise<readonly Hit[]> =>
-      hits ??= await ctx.store.resonate(v, k);
+    const ensureHits = async (): Promise<readonly Hit[]> => {
+      if (hits === null) {
+        hits = await ctx.store.resonate(v, k);
+        annQueried = true;
+      }
+      return hits;
+    };
 
     const canonicalFailed = chunk && canonicalId === null;
     let voterId: number;
     let score: number;
     let scoreId: number; // the node the score was measured against
+    let selectedSource: "canonical" | "ann";
     if (canonicalUsable) {
       voterId = canonicalId!;
       score = 1;
       scoreId = canonicalId!;
+      selectedSource = "canonical";
     } else {
       const h = await ensureHits();
-      if (h.length === 0) continue;
+      if (h.length === 0) {
+        recordRegion("no-ann-hit");
+        continue;
+      }
       voterId = h[0].id;
       score = h[0].score;
       scoreId = h[0].id;
+      selectedSource = "ann";
+      examinedIds?.add(voterId);
     }
 
     let reach = edgeAncestors(ctx, voterId, N, reachMemo);
@@ -273,6 +636,7 @@ export async function voteRegions(
       for (const h of await ensureHits()) {
         if (h.id === voterId) continue;
         const r2 = edgeAncestors(ctx, h.id, N, reachMemo);
+        examinedIds?.add(h.id);
         if (r2.saturated || r2.roots.length > 0) {
           ctx.trace?.step(
             "anchorFallback",
@@ -284,6 +648,8 @@ export async function voteRegions(
           voterId = h.id;
           score = h.score;
           scoreId = h.id;
+          selectedSource = "ann";
+          fallbackKind = "orphan";
           break;
         }
       }
@@ -307,6 +673,7 @@ export async function voteRegions(
         if (h.id === voterId) continue;
         if (h.score < score - band) break; // hits are nearest-first
         const r2 = edgeAncestors(ctx, h.id, N, reachMemo);
+        examinedIds?.add(h.id);
         if (!r2.saturated && r2.roots.length > 0) {
           ctx.trace?.step(
             "anchorFallback",
@@ -318,20 +685,52 @@ export async function voteRegions(
           voterId = h.id;
           score = h.score;
           scoreId = h.id;
+          selectedSource = "ann";
+          fallbackKind = "saturated-tie";
           break;
         }
       }
     }
     regionSaturated[ri] = reach.saturated;
-    if (reach.roots.length === 0) continue;
-    if (reach.saturated) continue;
+    const selected: ConsensusRegionTrace["selected"] | undefined = !td
+      ? undefined
+      : (() => {
+        const rank: number | undefined = selectedSource === "ann"
+          ? (hits as readonly Hit[] | null)?.findIndex((h: Hit) =>
+            h.id === voterId
+          )
+          : undefined;
+        return {
+          source: selectedSource,
+          node: voterId,
+          score,
+          ...(rank !== undefined ? { rank } : {}),
+          ...(fallbackKind ? { fallback: fallbackKind } : {}),
+        };
+      })();
+    if (reach.roots.length === 0) {
+      recordRegion("no-structural-reach", { selected, reachNode: voterId });
+      continue;
+    }
+    if (reach.saturated) {
+      recordRegion("saturated-abstention", { selected, reachNode: voterId });
+      continue;
+    }
 
     // One IDF per region — dfWeight() and the focus weight used to compute
     // the same logarithm independently.
     const idf = Math.log(N / Math.max(1, reach.contextsReached));
     const df = Math.log(1 + reach.contextsReached);
     const wf = mode === "direct" ? df : mode === "combined" ? idf + df : idf;
-    if (wf <= 0) continue;
+    if (wf <= 0) {
+      recordRegion("nonpositive-df-weight", {
+        selected,
+        reachNode: voterId,
+        idf,
+        dfWeight: wf,
+      });
+      continue;
+    }
 
     // CONTRASTIVE-MARGIN GATE — the compensation the linear (byte-proportional)
     // fold demands, applied to APPROXIMATE evidence only.  Under the linear
@@ -356,17 +755,31 @@ export async function voteRegions(
     // (reordered / paraphrased queries) below the floor so they grounded
     // nothing.  Gating at the noise floor keeps frame-echo suppression (a frame
     // region's margin ≈ 0 is gated out) without penalising honest evidence.
+    let contrastiveMargin: number | undefined;
     if (!known) {
       let margin = score;
       for (const h of await ensureHits()) {
         if (h.id === voterId) continue;
         const r2 = edgeAncestors(ctx, h.id, N, reachMemo);
+        examinedIds?.add(h.id);
         if (r2.saturated || r2.roots.length === 0) continue; // concludes nothing
         if (sameRoots(r2.roots, reach.roots)) continue; // same conclusion
         margin = score - h.score; // hits are nearest-first: the best rival
         break;
       }
-      if (margin <= estimatorNoise(ctx.store.D)) continue;
+      contrastiveMargin = margin;
+      const noiseFloor = estimatorNoise(ctx.store.D);
+      if (margin <= noiseFloor) {
+        recordRegion("contrastive-margin-rejection", {
+          selected,
+          reachNode: voterId,
+          idf,
+          dfWeight: wf,
+          contrastiveMargin: margin,
+          contrastiveNoiseFloor: noiseFloor,
+        });
+        continue;
+      }
     }
 
     // MUTUAL-EXPLANATION WEIGHT (angle + magnitude).  Under the linear fold
@@ -406,6 +819,21 @@ export async function voteRegions(
     if (ctx.trace) {
       regionVoter[ri] = { id: voterId, score, w: wf };
     }
+    recordRegion("voted", {
+      selected,
+      reachNode: voterId,
+      idf,
+      dfWeight: wf,
+      ...(contrastiveMargin !== undefined
+        ? {
+          contrastiveMargin,
+          contrastiveNoiseFloor: estimatorNoise(ctx.store.D),
+        }
+        : {}),
+      mutualWeight: mutual,
+      voteWeightPerRoot: w,
+      focusWeightPerRoot: wFocus,
+    });
   }
   return {
     votes: regionVotes,
@@ -431,6 +859,7 @@ export function poolVotes(
   regionVotes: readonly RegionVote[],
   sat: SaturationInfo,
   N: number,
+  td?: TraceDraft,
 ): {
   votes: Map<number, number>;
   votesIdf: Map<number, number>;
@@ -452,6 +881,13 @@ export function poolVotes(
       continue;
     }
     eligible.push(ri);
+  }
+  if (td) {
+    td.pooling = {
+      inputVotes: regionVotes.length,
+      eligibleVotes: eligible.length,
+      saturationMaskedVotes: regionVotes.length - eligible.length,
+    };
   }
 
   const key = (it: AItem) =>
@@ -612,11 +1048,13 @@ export function commitVotes(
   regions: readonly Region[],
   regionVoter: ReadonlyArray<{ id: number; score: number; w: number } | null>,
   N: number,
+  td?: TraceDraft,
+  cfg?: ClimbConsensusCfg,
 ): AttentionRead {
   const { votes, votesIdf, support, regionSupport, regionSpans, steps } =
     pooled;
   if (votes.size === 0) {
-    traceAttention(ctx, regions, regionVoter, [], steps);
+    traceAttention(ctx, regions, regionVoter, [], steps, td, cfg);
     return { roots: [], ranked: [] };
   }
 
@@ -658,25 +1096,121 @@ export function commitVotes(
   const floor = consensusFloor(N);
   const placed: Attention[] = [];
   const roots: Attention[] = [];
-  for (const point of ranked) {
+  const recordAnchor = (
+    point: Attention,
+    rank: number,
+    status: "root" | "overlap" | "rejected",
+    dominant: boolean,
+    passesNaturalBreak: boolean | undefined,
+    passesConsensusFloor: boolean | undefined,
+    pastLeadingSaturation: boolean | undefined,
+    rejectionReasons: AnchorRejectionReason[],
+  ) => {
+    if (!td) return;
+    td.anchors.push({
+      anchor: point.anchor,
+      rank,
+      pooledVote: point.vote,
+      idfVote: votesIdf.get(point.anchor) ?? 0,
+      candidateBreadth: regions.length,
+      contributingVotes: regionSpans.get(point.anchor)?.length ?? 0,
+      contributingEvidence: regionSupport.get(point.anchor) ?? 0,
+      breadth: point.breadth,
+      contributingSpans: regionSpans.get(point.anchor) ?? [],
+      clusters: point.clusters,
+      commit: {
+        status,
+        dominant,
+        passesNaturalBreak,
+        passesConsensusFloor,
+        pastLeadingSaturation,
+        rejectionReasons,
+      },
+    });
+  };
+  for (let rank = 0; rank < ranked.length; rank++) {
+    const point = ranked[rank];
     const absorbed = placed.some((p) => overlaps(point, p));
-    if (!absorbed) {
+    // Commit decisions are recorded LIVE, inside this loop, in the exact
+    // shape the gates below apply them — never reconstructed afterward from
+    // the final `roots` (spec §8's explicit requirement).
+    let status: "root" | "overlap" | "rejected";
+    let dominant = false;
+    let passesNaturalBreak: boolean | undefined;
+    let passesConsensusFloor: boolean | undefined;
+    let pastLeadingSaturation: boolean | undefined;
+    const rejectionReasons: AnchorRejectionReason[] = [];
+    if (absorbed) {
+      status = "overlap";
+    } else {
       const pastLeading = !sat.hasLeading ||
         roots.length === 0 || point.start >= sat.leadingEnd;
+      pastLeadingSaturation = pastLeading;
       const vote = votesIdf.get(point.anchor) ?? 0;
-      if (
-        (roots.length === 0 || (vote >= rootCut && vote >= floor)) &&
-        pastLeading
-      ) {
+      if (roots.length === 0) {
+        // The first non-overlapping root is DOMINANT and bypasses the two
+        // vote thresholds (it always grounds) — only the leading-saturation
+        // gate still applies to it.
+        dominant = true;
+        if (pastLeading) {
+          status = "root";
+        } else {
+          status = "rejected";
+          rejectionReasons.push("leading-saturation");
+        }
+      } else {
+        passesNaturalBreak = vote >= rootCut;
+        passesConsensusFloor = vote >= floor;
+        if (passesNaturalBreak && passesConsensusFloor && pastLeading) {
+          status = "root";
+        } else {
+          status = "rejected";
+          if (!passesNaturalBreak) rejectionReasons.push("below-natural-break");
+          if (!passesConsensusFloor) {
+            rejectionReasons.push("below-consensus-floor");
+          }
+          if (!pastLeading) rejectionReasons.push("leading-saturation");
+        }
+      }
+      if (status === "root") {
         roots.push(point);
       } else {
+        recordAnchor(
+          point,
+          rank,
+          status,
+          dominant,
+          passesNaturalBreak,
+          passesConsensusFloor,
+          pastLeadingSaturation,
+          rejectionReasons,
+        );
         continue;
       }
     }
+    recordAnchor(
+      point,
+      rank,
+      status,
+      dominant,
+      passesNaturalBreak,
+      passesConsensusFloor,
+      pastLeadingSaturation,
+      rejectionReasons,
+    );
     placed.push(point);
   }
 
-  traceAttention(ctx, regions, regionVoter, roots, steps);
+  traceAttention(
+    ctx,
+    regions,
+    regionVoter,
+    roots,
+    steps,
+    td,
+    cfg ? { ...cfg, naturalBreak: rootCut, consensusFloor: floor } : undefined,
+    ranked,
+  );
   return { roots, ranked };
 }
 
@@ -843,6 +1377,266 @@ export function naturalBreak(votes: number[]): number {
 // container does not hold (a genuine second topic) are untouched.
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── Structural-resonance — the FINAL approximate tier ──────────────────────
+//
+// Reached only when every DAG junction tier (exact, single-synonym, double-
+// synonym) found no container.  Composes a hypothetical structural gist from
+// ALREADY-EXISTING structural vectors — the two endpoint regions' own gists
+// (or, per variant, a halo sibling's stored gist occupying the same slot)
+// plus the REAL middle-query structure between them — and asks the ANN index
+// what already-learnt whole resembles that composition.  It never perceives
+// concatenated endpoint bytes and never fabricates a rewritten query string;
+// see {@link composeStructuralGist}.
+
+export type CrossRegionTier =
+  | "exact"
+  | "single-synonym"
+  | "double-synonym"
+  | "structural-resonance";
+
+export interface StructuralVariant {
+  left: StructuralPart;
+  right: StructuralPart;
+  kind:
+    | "exact-exact"
+    | "left-synonym"
+    | "right-synonym"
+    | "double-synonym";
+  semanticConfidence: number;
+  leftSiblingId?: number;
+  rightSiblingId?: number;
+}
+
+export interface StructuralResonanceProposal {
+  id: number;
+  annScore: number;
+  semanticConfidence: number;
+  effectiveScore: number;
+  variant: StructuralVariant["kind"];
+  leftSiblingId?: number;
+  rightSiblingId?: number;
+}
+
+const VARIANT_KIND_ORDER: Record<StructuralVariant["kind"], number> = {
+  "exact-exact": -1,
+  "left-synonym": 0,
+  "right-synonym": 1,
+  "double-synonym": 2,
+};
+
+/** A node's structural gist, read directly from its own stored bytes — the
+ *  repository's node → gist accessor: content is immutable and perception is
+ *  a pure function of bytes, so re-perceiving a node's full stored bytes
+ *  reproduces exactly the gist it was interned with.  Never concatenates
+ *  the sibling's bytes with anything else. */
+function storedNodeGist(ctx: MindContext, id: number): Vec {
+  return gistOf(ctx, read(ctx, id));
+}
+
+/** A halo sibling's structural part, occupying the ORIGINAL query-region
+ *  slot length — the sibling replaces only the DIRECTION, never the query's
+ *  own bytes, position, or gap (see §6 of the spec this implements). */
+function siblingPart(
+  ctx: MindContext,
+  sibling: Hit,
+  originalRegion: { start: number; end: number },
+): StructuralPart {
+  return {
+    v: storedNodeGist(ctx, sibling.id),
+    len: originalRegion.end - originalRegion.start,
+  };
+}
+
+/** Build, bound and order every mandatory structural variant (§7-8): the
+ *  exact/exact composition is always kept; up to `ctx.cfg.haloQueryK`
+ *  synonym variants (single- and double-synonym combined, one shared
+ *  budget) are appended, ordered by confidence, then kind, then sibling id. */
+export function buildStructuralVariants(
+  ctx: MindContext,
+  ra: Region,
+  rb: Region,
+  sides: JunctionSynonymSides,
+): {
+  variants: StructuralVariant[];
+  exactLeft: StructuralPart;
+  exactRight: StructuralPart;
+} {
+  const exactLeft: StructuralPart = { v: ra.v, len: ra.end - ra.start };
+  const exactRight: StructuralPart = { v: rb.v, len: rb.end - rb.start };
+
+  const synonymVariants: StructuralVariant[] = [];
+  for (const ls of sides.leftSiblings) {
+    synonymVariants.push({
+      left: siblingPart(ctx, ls, ra),
+      right: exactRight,
+      kind: "left-synonym",
+      semanticConfidence: ls.score,
+      leftSiblingId: ls.id,
+    });
+  }
+  for (const rs of sides.rightSiblings) {
+    synonymVariants.push({
+      left: exactLeft,
+      right: siblingPart(ctx, rs, rb),
+      kind: "right-synonym",
+      semanticConfidence: rs.score,
+      rightSiblingId: rs.id,
+    });
+  }
+  for (const ls of sides.leftSiblings) {
+    for (const rs of sides.rightSiblings) {
+      synonymVariants.push({
+        left: siblingPart(ctx, ls, ra),
+        right: siblingPart(ctx, rs, rb),
+        kind: "double-synonym",
+        semanticConfidence: Math.min(ls.score, rs.score),
+        leftSiblingId: ls.id,
+        rightSiblingId: rs.id,
+      });
+    }
+  }
+
+  // §8: semantic confidence desc, then kind (left-synonym, right-synonym,
+  // double-synonym), then left sibling id asc, then right sibling id asc.
+  synonymVariants.sort((a, b) =>
+    b.semanticConfidence - a.semanticConfidence ||
+    VARIANT_KIND_ORDER[a.kind] - VARIANT_KIND_ORDER[b.kind] ||
+    (a.leftSiblingId ?? -1) - (b.leftSiblingId ?? -1) ||
+    (a.rightSiblingId ?? -1) - (b.rightSiblingId ?? -1)
+  );
+
+  const variants: StructuralVariant[] = [
+    {
+      left: exactLeft,
+      right: exactRight,
+      kind: "exact-exact",
+      semanticConfidence: 1,
+    },
+    ...synonymVariants.slice(0, ctx.cfg.haloQueryK),
+  ];
+  return { variants, exactLeft, exactRight };
+}
+
+/** Deterministic best-of tie-break for two proposals ranked for the SAME
+ *  candidate id — effectiveScore, then annScore, then semanticConfidence,
+ *  then variant kind, then sibling ids (§10). */
+function betterProposal(
+  a: StructuralResonanceProposal,
+  b: StructuralResonanceProposal,
+): boolean {
+  if (a.effectiveScore !== b.effectiveScore) {
+    return a.effectiveScore > b.effectiveScore;
+  }
+  if (a.annScore !== b.annScore) return a.annScore > b.annScore;
+  if (a.semanticConfidence !== b.semanticConfidence) {
+    return a.semanticConfidence > b.semanticConfidence;
+  }
+  if (VARIANT_KIND_ORDER[a.variant] !== VARIANT_KIND_ORDER[b.variant]) {
+    return VARIANT_KIND_ORDER[a.variant] < VARIANT_KIND_ORDER[b.variant];
+  }
+  if ((a.leftSiblingId ?? -1) !== (b.leftSiblingId ?? -1)) {
+    return (a.leftSiblingId ?? -1) < (b.leftSiblingId ?? -1);
+  }
+  return (a.rightSiblingId ?? -1) < (b.rightSiblingId ?? -1);
+}
+
+/** The final approximate tier: compose every retained structural variant,
+ *  ANN-query each, merge proposals by candidate id, and validate the winner
+ *  through the SAME structural gates every other tier answers to (saturation,
+ *  roots, IDF, contrastive margin).  Returns null when nothing survives. */
+export async function structuralResonance(
+  ctx: MindContext,
+  query: Uint8Array,
+  ra: Region,
+  rb: Region,
+  sides: JunctionSynonymSides,
+  k: number,
+  N: number,
+  reachMemo: Map<number, AncestorReach>,
+  /** Each side's OWN individual climb roots (from voteRegions), when it cast
+   *  one — the self-evidence backstop structural-resonance needs and the
+   *  exact tier gets for free from literal byte containment (§11's whole
+   *  premise: recover a JOINT context neither side votes for alone).  A
+   *  candidate whose reach is exactly one side's own conclusion is not new
+   *  evidence of a joint whole; it is that side's resonance rediscovering
+   *  itself through a synthetic gist still dominated by its own direction. */
+  ownRootsA: readonly number[] | undefined,
+  ownRootsB: readonly number[] | undefined,
+): Promise<
+  | { proposal: StructuralResonanceProposal; reach: AncestorReach; idf: number }
+  | null
+> {
+  const { variants } = buildStructuralVariants(ctx, ra, rb, sides);
+
+  const middleBytes = query.subarray(ra.end, rb.start);
+  const middlePart: StructuralPart | null = middleBytes.length === 0
+    ? null
+    : { v: perceive(ctx, middleBytes).v, len: middleBytes.length };
+
+  const proposals = new Map<number, StructuralResonanceProposal>();
+  for (const variant of variants) {
+    const parts: StructuralPart[] = [variant.left];
+    if (middlePart) parts.push(middlePart);
+    parts.push(variant.right);
+    const synthetic = composeStructuralGist(ctx.space, parts);
+    const hits = await ctx.store.resonate(synthetic, k);
+    for (const hit of hits) {
+      const candidate: StructuralResonanceProposal = {
+        id: hit.id,
+        annScore: hit.score,
+        semanticConfidence: variant.semanticConfidence,
+        effectiveScore: hit.score * variant.semanticConfidence,
+        variant: variant.kind,
+        leftSiblingId: variant.leftSiblingId,
+        rightSiblingId: variant.rightSiblingId,
+      };
+      const prev = proposals.get(hit.id);
+      if (prev === undefined || betterProposal(candidate, prev)) {
+        proposals.set(hit.id, candidate);
+      }
+    }
+  }
+  if (proposals.size === 0) return null;
+
+  const sorted = [...proposals.values()].sort((a, b) =>
+    b.effectiveScore - a.effectiveScore || a.id - b.id
+  );
+
+  let selected: StructuralResonanceProposal | null = null;
+  let selectedReach: AncestorReach | null = null;
+  let selectedIdf = 0;
+  let rival: StructuralResonanceProposal | null = null;
+  for (const p of sorted) {
+    const reach = edgeAncestors(ctx, p.id, N, reachMemo);
+    if (reach.saturated || reach.roots.length === 0) continue;
+    const idf = Math.log(N / Math.max(1, reach.contextsReached));
+    if (idf <= 0) continue;
+    // Self-evidence backstop (see the param doc above): a candidate that is
+    // exactly one side's own already-voted conclusion carries no JOINT
+    // evidence — skip it as if it never survived.
+    if (
+      (ownRootsA && sameRoots(reach.roots, ownRootsA)) ||
+      (ownRootsB && sameRoots(reach.roots, ownRootsB))
+    ) continue;
+    if (selected === null) {
+      selected = p;
+      selectedReach = reach;
+      selectedIdf = idf;
+    } else if (!sameRoots(reach.roots, selectedReach!.roots)) {
+      rival = p;
+      break;
+    }
+  }
+  if (selected === null || selectedReach === null) return null;
+
+  const margin = rival
+    ? selected.effectiveScore - rival.effectiveScore
+    : selected.effectiveScore;
+  if (margin <= estimatorNoise(ctx.store.D)) return null;
+
+  return { proposal: selected, reach: selectedReach, idf: selectedIdf };
+}
+
 async function crossRegionVotes(
   ctx: MindContext,
   query: Uint8Array,
@@ -851,6 +1645,7 @@ async function crossRegionVotes(
   k: number,
   N: number,
   reachMemo: Map<number, AncestorReach>,
+  td?: TraceDraft,
 ): Promise<{ votes: RegionVote[]; superseded: Set<RegionVote> }> {
   // Candidate regions: every region that ALREADY CAST ITS OWN VOTE in
   // voteRegions — individually idf > 0, genuinely discriminative on its own,
@@ -902,6 +1697,14 @@ async function crossRegionVotes(
     )
   );
   const none = { votes: [], superseded: new Set<RegionVote>() };
+  if (td) {
+    td.crossRegionSummary = {
+      eligibleRegions: eligible.length,
+      maximalRegions: cand.length,
+      probeLimit: k,
+      probesAttempted: 0, // updated below as probes accrue
+    };
+  }
   if (cand.length < 2) return none;
   cand.sort((x, y) =>
     regions[x].start - regions[y].start || regions[x].end - regions[y].end
@@ -972,6 +1775,9 @@ async function crossRegionVotes(
         regions.some((r) => r.known && r.start <= ra.start && rb.end <= r.end)
       ) continue;
       probes++;
+      if (td?.crossRegionSummary) {
+        td.crossRegionSummary.probesAttempted = probes;
+      }
 
       const left = query.subarray(ra.start, ra.end);
       const right = query.subarray(rb.start, rb.end);
@@ -980,112 +1786,218 @@ async function crossRegionVotes(
       const maxInterior = (left.length + right.length) * ctx.space.maxGroup;
       const cap = left.length + right.length + maxInterior;
 
-      // Tier 1 — exact containers (both forms as substrings, either order, by
-      // DAG ascent).  Exact evidence first; only falls through to synonyms
-      // when the exact ascent finds nothing — the SAME graded ladder the
-      // bridge uses.
-      let containers = junctionContainersFrom(
-        ctx,
-        left,
-        right,
-        cap,
-        seedsOf(cand[a]),
-        seedsOf(cand[b]),
-        undefined,
-        true,
-      );
+      // The graded ladder (spec §1): exact DAG junction, then single-synonym,
+      // then double-synonym, then — only when every DAG tier found nothing —
+      // structural-resonance.  `sides` (the two halo sibling lists) is loaded
+      // ONCE and reused by junctionSynonyms AND structural-resonance, so no
+      // ladder rung repeats a halo ANN query an earlier rung already paid for.
+      const sides = await loadJunctionSynonymSides(ctx, left, right);
+
+      let tier: CrossRegionTier = "exact";
+      let containers: Array<Junction | SynonymJunction> =
+        junctionContainersFrom(
+          ctx,
+          left,
+          right,
+          cap,
+          seedsOf(cand[a]),
+          seedsOf(cand[b]),
+          undefined,
+          true,
+        );
       if (containers.length === 0) {
-        // Tier 2.5 — synonym containers (halo sibling of one side + the other).
-        containers = await junctionSynonyms(
+        // Tiers 2-4 — synonym containers (junctionSynonyms itself runs
+        // single-synonym first, falling to double-synonym only when
+        // single-synonym found nothing — see junction.ts).
+        const syn = await junctionSynonyms(
           ctx,
           left,
           right,
           maxInterior,
           true,
+          sides,
         );
+        if (syn.length > 0) {
+          containers = syn;
+          tier = syn[0].tier;
+        }
       }
-      if (containers.length === 0) continue;
 
-      // N-ARY selection: the container covering the MOST remaining candidate
-      // forms wins (then tightest interior, then lowest id).  Reads are
-      // cache hits — every container's bytes were already read by the walk.
-      //
-      // SELF-EVIDENCE GUARD: a junction is BINDING evidence only when the
-      // container joins forms the query mentions APART.  When the container's
-      // own joined occurrence (left..right including its interior) is a
-      // literal substring of the query, the query already spells that phrase
-      // out contiguously — perception already voted with it, and grid shards
-      // of one phrase pairing "around" a gap chunk would merely rediscover
-      // the phrase they are shards of, then explain away its rivals.
-      let best: (typeof containers)[number] | null = null;
+      // Tier 5 — structural-resonance ANN, the FINAL approximate proposal
+      // path.  Only reached when every DAG tier found NOTHING, and only when
+      // there is no already-corroborated region between the endpoints (a
+      // between-region with its own vote is evidence the gap already means
+      // something specific — an ANN guess must not override it).
+      let structuralPick:
+        | {
+          proposal: StructuralResonanceProposal;
+          reach: AncestorReach;
+          idf: number;
+        }
+        | null = null;
+      if (containers.length === 0) {
+        // Structural-resonance composes each side's OWN gist directly (no
+        // byte-containment truth backs it, unlike the DAG tiers) — so, unlike
+        // the DAG ladder (which tolerates one approximate side because byte
+        // containment cannot lie), the ANN tier requires BOTH sides to be
+        // KNOWN (content-addressed, exact identities): an approximate chunk
+        // fragment's own resonance is noise at any tier, and composing noise
+        // into a synthetic gist only manufactures a plausible-looking but
+        // spurious ANN neighbour, not evidence of a genuine joint whole.
+        // PHRASE-SCALE CONTRACT — the same one the DAG tiers hold their glue
+        // to (see maxInterior above): a junction, exact or approximate, is a
+        // whole the two forms nearly exhaust, not two arbitrary landmarks
+        // anywhere in a long, multi-topic query.  Without this, structural-
+        // resonance would pair opposite ends of an unrelated scaffolding-
+        // dominated query and manufacture a plausible-looking ANN neighbour
+        // for a "gap" that never was a phrase.
+        // BOTH sides must be independently DISCRIMINATIVE (individually
+        // voted — `strong`, not merely a content-addressed `known` chunk):
+        // a shared, non-discriminative scaffolding run (a repeated system
+        // preamble) can be `known` without ever being distinctive evidence
+        // of anything, and composing its own gist into a synthetic query
+        // manufactures a plausible-looking but spurious ANN neighbour.  The
+        // DAG tiers can tolerate one merely-`known` side because byte
+        // containment cannot lie; structural-resonance has no such
+        // backstop, so both sides earn their place here the same way an
+        // ordinary approximate region earns its individual vote.
+        const gap = rb.start - ra.end;
+        if (
+          between.length === 0 &&
+          strong.has(cand[a]) && strong.has(cand[b]) &&
+          ra.known && rb.known &&
+          gap <= maxInterior
+        ) {
+          const ownRootsA = rvs.votes.find((v) =>
+            v.start === ra.start && v.end === ra.end
+          )?.roots;
+          const ownRootsB = rvs.votes.find((v) =>
+            v.start === rb.start && v.end === rb.end
+          )?.roots;
+          structuralPick = await structuralResonance(
+            ctx,
+            query,
+            ra,
+            rb,
+            sides,
+            k,
+            N,
+            reachMemo,
+            ownRootsA,
+            ownRootsB,
+          );
+        }
+        if (structuralPick === null) continue;
+        tier = "structural-resonance";
+      }
+
+      let best: (Junction | SynonymJunction) | null = null;
       let bestExtras: number[] = [];
       let bestCov = -1;
-      for (const c of containers) {
-        const bytes = cachedRead(ctx, cache, c.id, cap);
-        const li = indexOf(bytes, left, 0);
-        const ri = indexOf(bytes, right, 0);
-        if (li >= 0 && ri >= 0) {
-          const joined = bytes.subarray(
-            Math.min(li, ri),
-            Math.max(li + left.length, ri + right.length),
-          );
-          if (indexOf(query, joined, 0) >= 0) continue; // query says it itself
-        }
-        // CONTRADICTION GUARD: a between-region already carrying its own
-        // vote must actually recur in this container's bytes — otherwise
-        // the container is a different learnt whole that happens to share
-        // ra/rb, and letting it stand in for the gap would silently
-        // override evidence the query itself already resolved there.
-        if (
-          between.some((bi) =>
-            indexOf(
-              bytes,
-              query.subarray(regions[bi].start, regions[bi].end),
-              0,
-            ) < 0
-          )
-        ) {
-          continue;
-        }
-        let cov = left.length + right.length;
-        const extras: number[] = [];
-        for (const ei of cand) {
-          if (ei === cand[a] || ei === cand[b] || consumed.has(ei)) continue;
-          const e = regions[ei];
-          if (overlapsSpan(e, ra) || overlapsSpan(e, rb)) continue;
-          const eb = query.subarray(e.start, e.end);
-          if (indexOf(bytes, eb, 0) >= 0) {
-            extras.push(ei);
-            cov += eb.length;
+      let reach: AncestorReach;
+      let idf: number;
+      let confidence: number;
+
+      if (structuralPick !== null) {
+        // A resonance proposal is NOT a Junction — there is no container to
+        // read bytes from, so the self-evidence/contradiction/N-ary
+        // machinery below (byte-verified against a real container) does not
+        // apply; per spec §13, no N-ary extra-region coverage for resonance
+        // proposals.
+        best = { id: structuralPick.proposal.id, interior: new Uint8Array(0) };
+        bestExtras = [];
+        bestCov = rb.end - ra.start;
+        reach = structuralPick.reach;
+        idf = structuralPick.idf;
+        confidence = structuralPick.proposal.effectiveScore;
+      } else {
+        // N-ARY selection: the container covering the MOST remaining candidate
+        // forms wins (then tightest interior, then lowest id).  Reads are
+        // cache hits — every container's bytes were already read by the walk.
+        //
+        // SELF-EVIDENCE GUARD: a junction is BINDING evidence only when the
+        // container joins forms the query mentions APART.  When the container's
+        // own joined occurrence (left..right including its interior) is a
+        // literal substring of the query, the query already spells that phrase
+        // out contiguously — perception already voted with it, and grid shards
+        // of one phrase pairing "around" a gap chunk would merely rediscover
+        // the phrase they are shards of, then explain away its rivals.
+        for (const c of containers) {
+          const bytes = cachedRead(ctx, cache, c.id, cap);
+          const li = indexOf(bytes, left, 0);
+          const ri = indexOf(bytes, right, 0);
+          if (li >= 0 && ri >= 0) {
+            const joined = bytes.subarray(
+              Math.min(li, ri),
+              Math.max(li + left.length, ri + right.length),
+            );
+            if (indexOf(query, joined, 0) >= 0) continue; // query says it itself
+          }
+          // CONTRADICTION GUARD: a between-region already carrying its own
+          // vote must actually recur in this container's bytes — otherwise
+          // the container is a different learnt whole that happens to share
+          // ra/rb, and letting it stand in for the gap would silently
+          // override evidence the query itself already resolved there.
+          if (
+            between.some((bi) =>
+              indexOf(
+                bytes,
+                query.subarray(regions[bi].start, regions[bi].end),
+                0,
+              ) < 0
+            )
+          ) {
+            continue;
+          }
+          let cov = left.length + right.length;
+          const extras: number[] = [];
+          for (const ei of cand) {
+            if (ei === cand[a] || ei === cand[b] || consumed.has(ei)) continue;
+            const e = regions[ei];
+            if (overlapsSpan(e, ra) || overlapsSpan(e, rb)) continue;
+            const eb = query.subarray(e.start, e.end);
+            if (indexOf(bytes, eb, 0) >= 0) {
+              extras.push(ei);
+              cov += eb.length;
+            }
+          }
+          if (
+            cov > bestCov ||
+            (cov === bestCov && best !== null &&
+              (c.interior.length < best.interior.length ||
+                (c.interior.length === best.interior.length && c.id < best.id)))
+          ) {
+            best = c;
+            bestExtras = extras;
+            bestCov = cov;
           }
         }
-        if (
-          cov > bestCov ||
-          (cov === bestCov && best !== null &&
-            (c.interior.length < best.interior.length ||
-              (c.interior.length === best.interior.length && c.id < best.id)))
-        ) {
-          best = c;
-          bestExtras = extras;
-          bestCov = cov;
-        }
+        if (best === null) continue; // every container was self-evidence
+
+        const r = edgeAncestors(ctx, best.id, N, reachMemo);
+        if (r.saturated || r.roots.length === 0) continue;
+        const df = Math.log(N / Math.max(1, r.contextsReached));
+        if (df <= 0) continue;
+        reach = r;
+        idf = df;
+        // Confidence used by voting (spec §13): exact junction = 1;
+        // single/double-synonym = the sibling(s)' score(s), carried on the
+        // SynonymJunction the ladder selected.
+        confidence = "confidence" in best ? best.confidence : 1;
       }
-      if (best === null) continue; // every container was self-evidence
 
-      const reach = edgeAncestors(ctx, best.id, N, reachMemo);
-      if (reach.saturated || reach.roots.length === 0) continue;
-      const idf = Math.log(N / Math.max(1, reach.contextsReached));
-      if (idf <= 0) continue;
-
-      // EXACT joint evidence (score = 1): the container literally contains
-      // every composed form.  Mutual-explanation weight over their COMBINED
-      // byte length — the same magnitude reading voteRegions uses, here with
-      // the estimator collapsed to certainty, so mutual = min(ratio, 1/ratio).
+      // MUTUAL-EXPLANATION WEIGHT — the same formula for every tier, with
+      // `confidence` collapsed to certainty (1) for exact evidence: under
+      // that collapse this is byte-for-byte the old exact-only formula
+      // (min(1,ratio)·min(1,1/ratio)).  For structural-resonance,
+      // `confidence` is already annScore·semanticConfidence — never
+      // multiplied a second time.
       const lenR = Math.max(1, bestCov);
       const ratio = Math.sqrt(
         Math.max(1, ctx.store.contentLen(best.id, lenR * ctx.store.D)) / lenR,
       );
-      const mutual = Math.min(1, ratio) * Math.min(1, 1 / ratio);
+      const mutual = Math.min(1, confidence * ratio) *
+        Math.min(1, confidence / ratio);
       const w = (mutual * idf) / reach.roots.length;
       let spanStart = ra.start;
       let spanEnd = rb.end;
@@ -1107,15 +2019,33 @@ async function crossRegionVotes(
       // for, not evidence lost — `absorbed` (RegionVote's breadth-accounting
       // field) must credit the junction with all of it, not just the ONE
       // pooled axiom it collapses to.
-      const containerBytes = cachedRead(ctx, cache, best.id, cap);
-      const jointRoots = new Set(reach.roots);
+      // Only EXACT DAG evidence may explain away ordinary votes (spec §15).
+      // Single-synonym, double-synonym, and structural-resonance may ADD
+      // supporting evidence but never remove it: their evidence is itself
+      // approximate (a sibling substitution, or an ANN guess), so treating
+      // their byte-containment the way exact containment is treated would
+      // let an approximation override a genuine, independently-voted region.
       let explainedAway = 0;
-      for (const rv of rvs.votes) {
-        if (rv.roots.some((r) => jointRoots.has(r))) continue;
-        const bytes = query.subarray(rv.start, rv.end);
-        if (indexOf(containerBytes, bytes, 0) >= 0 && !superseded.has(rv)) {
-          superseded.add(rv);
-          explainedAway++;
+      // Exact set of ORIGINAL region indices this junction explained away —
+      // recorded live as `superseded.add` fires (spec §3's explicit rule:
+      // never inferred from `absorbed` afterward).
+      const explainedAwayIndices: number[] = [];
+      if (tier === "exact") {
+        const containerBytes = cachedRead(ctx, cache, best.id, cap);
+        const jointRoots = new Set(reach.roots);
+        for (const rv of rvs.votes) {
+          if (rv.roots.some((r) => jointRoots.has(r))) continue;
+          const bytes = query.subarray(rv.start, rv.end);
+          if (indexOf(containerBytes, bytes, 0) >= 0 && !superseded.has(rv)) {
+            superseded.add(rv);
+            explainedAway++;
+            if (td) {
+              const idx = regions.findIndex((r) =>
+                r.start === rv.start && r.end === rv.end
+              );
+              if (idx >= 0) explainedAwayIndices.push(idx);
+            }
+          }
         }
       }
 
@@ -1128,11 +2058,44 @@ async function crossRegionVotes(
         wFocus: w,
         absorbed: 1 + explainedAway,
       });
+      if (td) {
+        td.crossRegionJunctionVotes.push({
+          container: best.id,
+          span: [spanStart, spanEnd],
+          roots: [...reach.roots],
+          sourceRegionIndices: [cand[a], cand[b], ...bestExtras],
+          explainedAwayRegionIndices: explainedAwayIndices,
+          absorbed: 1 + explainedAway,
+          tier,
+        });
+      }
 
       const label = [cand[a], cand[b], ...bestExtras]
         .sort((x, y) => regions[x].start - regions[y].start)
         .map((ri) => dec(query.subarray(regions[ri].start, regions[ri].end)))
         .join(" ▸ ");
+      const tierNote = tier === "exact"
+        ? `junction node ${best.id}` +
+          (best.interior.length === 0
+            ? " (adjacent)"
+            : ` (interior "${dec(best.interior)}")`) +
+          ", by content-addressed ascent"
+        : tier === "structural-resonance"
+        ? `structurally-composed ANN proposal, node ${best.id} — the query ` +
+          `structurally composed the endpoint regions, the real middle-` +
+          `query structure, and the selected halo-sibling endpoint ` +
+          `direction(s) (variant ${structuralPick!.proposal.variant}, ` +
+          `annScore ${structuralPick!.proposal.annScore.toFixed(3)} × ` +
+          `semanticConfidence ${
+            structuralPick!.proposal.semanticConfidence.toFixed(3)
+          } = effectiveScore ${
+            structuralPick!.proposal.effectiveScore.toFixed(3)
+          }); it did not concatenate endpoint bytes or rewrite the query`
+        : `${tier} junction node ${best.id}` +
+          (best.interior.length === 0
+            ? " (adjacent)"
+            : ` (interior "${dec(best.interior)}")`) +
+          `, by halo-sibling DAG ascent (confidence ${confidence.toFixed(3)})`;
       ctx.trace?.step(
         "crossRegion",
         [{ text: label, role: "pair" }],
@@ -1141,11 +2104,7 @@ async function crossRegionVotes(
           node: r,
           role: "joint-context",
         })),
-        `${label} → junction node ${best.id}` +
-          (best.interior.length === 0
-            ? " (adjacent)"
-            : ` (interior "${dec(best.interior)}")`) +
-          ` → ${reach.roots.length} context(s), by content-addressed ascent` +
+        `${label} → ${tierNote} → ${reach.roots.length} context(s)` +
           (superseded.size > 0
             ? `; ${superseded.size} aliasing vote(s) explained away`
             : ""),
@@ -1154,15 +2113,25 @@ async function crossRegionVotes(
     }
   }
 
+  if (td) td.supersededOrdinaryVotes = superseded.size;
   return { votes: out, superseded };
 }
 
+/** Emit the "climbConsensus" step — the human-readable note this always
+ *  produced, now paired (when `ctx.trace` and `cfg` are both present) with
+ *  the structured {@link ClimbConsensusData} payload on the SAME step's
+ *  `data` field.  Every exit of {@link computeAttention} funnels through
+ *  here, so instrumentation and the existing rationale text can never drift
+ *  apart — see the instrumentation spec's §9 "every exit path". */
 export function traceAttention(
   ctx: MindContext,
   regions: ReadonlyArray<{ start: number; end: number }>,
   regionVoter: ReadonlyArray<{ id: number; score: number; w: number } | null>,
   roots: ReadonlyArray<Attention>,
   steps: ReadonlyArray<DerivationStep> = [],
+  td?: TraceDraft,
+  cfg?: ClimbConsensusCfg,
+  ranked: ReadonlyArray<Attention> = roots,
 ): void {
   if (!ctx.trace) return;
   const voters: RationaleItem[] = [];
@@ -1177,6 +2146,49 @@ export function traceAttention(
   // The pooled-evidence decision, one DerivationStep per anchor — the same
   // shape {@link GraphSearch}'s own cover steps take (see traceDerivation).
   if (steps.length > 0) traceDerivation(ctx, steps);
+
+  const data: ClimbConsensusData | undefined = (td && cfg)
+    ? {
+      version: 1,
+      cache: { hit: false, detailAvailable: true },
+      config: {
+        annK: cfg.k,
+        crossRegionProbeLimit: cfg.k,
+        mode: cfg.mode,
+        ...(cfg.N !== undefined ? { corpusN: cfg.N } : {}),
+        dimension: ctx.store.D,
+        ...(cfg.N !== undefined ? { hubBound: hubBound(ctx) } : {}),
+        estimatorNoise: estimatorNoise(ctx.store.D),
+        ...(cfg.naturalBreak !== undefined
+          ? { naturalBreak: cfg.naturalBreak }
+          : {}),
+        ...(cfg.consensusFloor !== undefined
+          ? { consensusFloor: cfg.consensusFloor }
+          : {}),
+      },
+      candidates: {
+        perceived: cfg.perceivedCount,
+        recognised: cfg.totalRegions - cfg.perceivedCount,
+        total: cfg.totalRegions,
+      },
+      ...(td.regions.length > 0 ? { regions: td.regions } : {}),
+      ...(cfg.reachMemo ? { reaches: serialiseReaches(cfg.reachMemo) } : {}),
+      ...(td.crossRegionSummary
+        ? {
+          crossRegion: {
+            ...td.crossRegionSummary,
+            junctionVotes: td.crossRegionJunctionVotes,
+            supersededOrdinaryVotes: td.supersededOrdinaryVotes,
+          },
+        }
+        : {}),
+      ...(td.saturation ? { saturation: td.saturation } : {}),
+      ...(td.pooling ? { pooling: td.pooling } : {}),
+      ...(td.anchors.length > 0 ? { anchors: td.anchors } : {}),
+      result: { roots: [...roots], ranked: [...ranked] },
+    }
+    : undefined;
+
   t.done(
     roots.map((r) => rNode(ctx, r.anchor, "anchor", r.vote)),
     roots.length === 0
@@ -1188,5 +2200,6 @@ export function traceAttention(
       : `${voters.length} of ${regions.length} sub-regions voted; consensus ordered ${roots.length} INDEPENDENT points of attention (votes ${
         roots.map((r) => r.vote.toFixed(2)).join(", ")
       })`,
+    data,
   );
 }

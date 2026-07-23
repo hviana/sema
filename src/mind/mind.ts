@@ -136,6 +136,21 @@ import {
   climbAttention as climbAttentionFn,
   naturalBreak as naturalBreakFn,
 } from "./attention.js";
+export type {
+  AnchorRejectionReason,
+  ClimbConsensusData,
+  ConsensusAnchorTrace,
+  ConsensusReachTrace,
+  ConsensusRegionTrace,
+  CrossRegionTier,
+  JunctionVoteTrace,
+  RegionOutcome,
+} from "./attention.js";
+export type {
+  AncestorReach,
+  SaturationReason,
+  SaturationStop,
+} from "./types.js";
 import { aluToMechanism, defaultMechanisms, think } from "./pipeline.js";
 import { articulate } from "./articulation.js";
 import { ingest } from "./learning.js";

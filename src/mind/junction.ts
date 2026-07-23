@@ -12,6 +12,7 @@
 // adjacent ANSWER pieces) and cross-region attention (the joint CONTEXT of two
 // non-adjacent QUERY regions) ascend by the same disciplined, bounded walk.
 
+import type { Hit } from "../store.js";
 import type { MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
 import { windowIds } from "./canonical.js";
@@ -25,6 +26,52 @@ export interface Junction {
   id: number;
   /** The bytes that belong between left and right. */
   interior: Uint8Array;
+}
+
+/** Which relaxation produced a {@link SynonymJunction}: one side replaced by
+ *  a distributional halo sibling (`single-synonym`), or both (`double-
+ *  synonym`) — the two remaining rungs of the graded ladder below exact DAG
+ *  containment (see the module doc atop {@link junctionSynonyms}). */
+export type SynonymJunctionTier =
+  | "single-synonym"
+  | "double-synonym";
+
+export interface SynonymJunction extends Junction {
+  tier: SynonymJunctionTier;
+  /** Sibling score for a single-synonym junction; min(left, right) sibling
+   *  score for a double-synonym junction. */
+  confidence: number;
+}
+
+/** The exact node ids and halo siblings resolved for one junction call's two
+ *  sides — computed ONCE and reused by every ladder rung that needs them
+ *  (junctionSynonyms' two tiers, and the structural-resonance tier beyond
+ *  it).  A failed synonym junction means only "no common DAG container was
+ *  proven" — it does NOT mean the loaded siblings stop being useful. */
+export interface JunctionSynonymSides {
+  leftId: number | null;
+  rightId: number | null;
+  leftSiblings: Hit[];
+  rightSiblings: Hit[];
+}
+
+/** Resolve `left`/`right` to their exact node ids (when known) and load each
+ *  resolved side's halo siblings once — deterministic (haloSiblings already
+ *  ranks nearest-first) and shared by every ladder rung that consults
+ *  siblings, so no ladder rung repeats a halo ANN query the previous one
+ *  already paid for. */
+export async function loadJunctionSynonymSides(
+  ctx: MindContext,
+  left: Uint8Array,
+  right: Uint8Array,
+): Promise<JunctionSynonymSides> {
+  const leftId = resolve(ctx, left);
+  const rightId = resolve(ctx, right);
+  const leftSiblings = leftId !== null ? await haloSiblings(ctx, leftId) : [];
+  const rightSiblings = rightId !== null
+    ? await haloSiblings(ctx, rightId)
+    : [];
+  return { leftId, rightId, leftSiblings, rightSiblings };
 }
 
 /** Seed node ids to ascend from for one side of a junction: the side's own
@@ -292,20 +339,32 @@ export async function junctionSynonyms(
   right: Uint8Array,
   maxInterior: number,
   unordered = false,
-): Promise<Junction[]> {
-  const out: Junction[] = [];
+  sides?: JunctionSynonymSides,
+): Promise<SynonymJunction[]> {
+  const s = sides ?? await loadJunctionSynonymSides(ctx, left, right);
+  if (s.leftId === null && s.rightId === null) return [];
 
-  const lId = resolve(ctx, left);
-  const rId = resolve(ctx, right);
-  if (lId === null && rId === null) return out;
-
-  const budget = { n: hubBound(ctx) * ctx.space.maxGroup };
+  // ── Tier 2.5a: single-synonym — one side replaced by a halo sibling ──────
+  // ONE shared expansion budget across BOTH directions of this tier.
+  const singleBudget = { n: hubBound(ctx) * ctx.space.maxGroup };
+  const singleOut = new Map<number, SynonymJunction>();
+  const keepBest = (
+    map: Map<number, SynonymJunction>,
+    j: Junction,
+    tier: SynonymJunctionTier,
+    confidence: number,
+  ) => {
+    const prev = map.get(j.id);
+    if (prev === undefined || confidence > prev.confidence) {
+      map.set(j.id, { ...j, tier, confidence });
+    }
+  };
 
   // Left-side synonyms: containers of sibling+right.  `right`'s seeds are
   // FIXED across every sibling this loop tries.
-  if (lId !== null) {
+  if (s.leftId !== null) {
     const rightSeeds = junctionSeeds(ctx, right);
-    for (const sib of await haloSiblings(ctx, lId)) {
+    for (const sib of s.leftSiblings) {
       const sibBytes = read(ctx, sib.id, maxInterior + 1);
       if (sibBytes.length === 0 || sibBytes.length > maxInterior) continue;
       const containers = junctionContainersFrom(
@@ -315,18 +374,20 @@ export async function junctionSynonyms(
         sibBytes.length + right.length + maxInterior,
         junctionSeeds(ctx, sibBytes),
         rightSeeds,
-        budget,
+        singleBudget,
         unordered,
       );
-      for (const c of containers) out.push(c);
+      for (const c of containers) {
+        keepBest(singleOut, c, "single-synonym", sib.score);
+      }
     }
   }
 
   // Right-side synonyms: containers of left+sibling.  `left`'s seeds are
   // likewise fixed across this loop.
-  if (rId !== null) {
+  if (s.rightId !== null) {
     const leftSeeds = junctionSeeds(ctx, left);
-    for (const sib of await haloSiblings(ctx, rId)) {
+    for (const sib of s.rightSiblings) {
       const sibBytes = read(ctx, sib.id, maxInterior + 1);
       if (sibBytes.length === 0 || sibBytes.length > maxInterior) continue;
       const containers = junctionContainersFrom(
@@ -336,12 +397,60 @@ export async function junctionSynonyms(
         left.length + sibBytes.length + maxInterior,
         leftSeeds,
         junctionSeeds(ctx, sibBytes),
-        budget,
+        singleBudget,
         unordered,
       );
-      for (const c of containers) out.push(c);
+      for (const c of containers) {
+        keepBest(singleOut, c, "single-synonym", sib.score);
+      }
     }
   }
 
-  return out;
+  if (singleOut.size > 0) return [...singleOut.values()];
+
+  // ── Tier 2.5b: double-synonym — BOTH sides replaced, tried only when
+  // single-synonym found NOTHING.  Every (leftSibling, rightSibling) pair,
+  // sorted deterministically, bounded to haloQueryK pairs total, ONE fresh
+  // shared budget for the whole tier. ─────────────────────────────────────
+  if (s.leftSiblings.length === 0 || s.rightSiblings.length === 0) return [];
+
+  const pairs: Array<{ l: Hit; r: Hit; confidence: number }> = [];
+  for (const l of s.leftSiblings) {
+    for (const r of s.rightSiblings) {
+      pairs.push({ l, r, confidence: Math.min(l.score, r.score) });
+    }
+  }
+  pairs.sort((a, b) =>
+    b.confidence - a.confidence ||
+    a.l.id - b.l.id ||
+    a.r.id - b.r.id
+  );
+
+  const doubleOut = new Map<number, SynonymJunction>();
+  const budget = { n: hubBound(ctx) * ctx.space.maxGroup };
+  const tries = Math.min(pairs.length, ctx.cfg.haloQueryK);
+  for (let i = 0; i < tries; i++) {
+    const { l, r, confidence } = pairs[i];
+    const lBytes = read(ctx, l.id, maxInterior + 1);
+    const rBytes = read(ctx, r.id, maxInterior + 1);
+    if (
+      lBytes.length === 0 || lBytes.length > maxInterior ||
+      rBytes.length === 0 || rBytes.length > maxInterior
+    ) continue;
+    const containers = junctionContainersFrom(
+      ctx,
+      lBytes,
+      rBytes,
+      lBytes.length + rBytes.length + maxInterior,
+      junctionSeeds(ctx, lBytes),
+      junctionSeeds(ctx, rBytes),
+      budget,
+      unordered,
+    );
+    for (const c of containers) {
+      keepBest(doubleOut, c, "double-synonym", confidence);
+    }
+  }
+
+  return [...doubleOut.values()];
 }

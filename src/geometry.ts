@@ -7,7 +7,7 @@
 //      identically regardless of what follows — pure structural stability.
 //   3. The same rule recurses level after level until one root remains.
 
-import { normalize, Vec } from "./vec.js";
+import { addInto, copy, normalize, Vec, zeros } from "./vec.js";
 import { Sema, sema, Space } from "./sema.js";
 import { Alphabet } from "./alphabet.js";
 
@@ -461,8 +461,10 @@ function fold2(space: Space, a: Folded, b: Folded): Folded {
 /** Plain river fold WITHOUT the final root normalize — the segment-level
  *  building block of {@link stablePrefixFold} (interiors must keep their
  *  byte-proportional magnitude; only the whole perception's root is ever
- *  normalized). */
-function riverFoldRaw(space: Space, row: Folded[]): Folded {
+ *  normalized).  Exported so callers that COMPOSE already-existing structural
+ *  parts into a hypothetical synthetic root (see {@link composeStructuralGist})
+ *  can feed the same raw primitive instead of duplicating its mathematics. */
+export function riverFoldRaw(space: Space, row: Folded[]): Folded {
   if (row.length === 0) {
     const z = new Float32Array(space.D);
     return { tree: sema(z, new Uint8Array(0), null), len: 0 };
@@ -475,6 +477,53 @@ function riverFoldRaw(space: Space, row: Folded[]): Folded {
     level = next;
   }
   return level[0];
+}
+
+// ---- structural composition (synthesize from EXISTING structural parts) ----
+
+/** One already-existing structural vector to compose, paired with the byte
+ *  span (query-slot) length it stands in for.  `len`, not the vector's own
+ *  magnitude, is what {@link composeStructuralGist} restores — the composed
+ *  slot's NATURAL span, exactly as the linear river fold would carry it. */
+export interface StructuralPart {
+  v: Vec;
+  len: number;
+}
+
+/** Synthesize a hypothetical internal structure from already-existing
+ *  structural vectors — NOT from bytes.  This is the raw positional
+ *  composition the linear river fold already uses (see the folding header
+ *  above): each part is positionally bound into its own seat, its natural
+ *  span magnitude is preserved, the parts are linearly superposed, and only
+ *  the final synthetic root is normalized.  It never calls {@link gistOf}
+ *  (there is no `gistOf` here — geometry.ts has no store), never perceives a
+ *  concatenated byte string, and never interns or stores a new node: the
+ *  result is an opaque, ungrounded Vec for an ANN probe only. */
+export function composeStructuralGist(
+  space: Space,
+  parts: readonly StructuralPart[],
+): Vec {
+  const foldedParts: Folded[] = [];
+
+  for (const part of parts) {
+    if (part.len <= 0) continue;
+
+    const direction = copy(part.v);
+    normalize(direction);
+
+    const scaled = zeros(space.D);
+    addInto(scaled, direction, Math.sqrt(part.len));
+
+    foldedParts.push({ tree: sema(scaled), len: part.len });
+  }
+
+  if (foldedParts.length === 0) return zeros(space.D);
+
+  const rawRoot = riverFoldRaw(space, foldedParts);
+
+  const result = copy(rawRoot.tree.v);
+  normalize(result);
+  return result;
 }
 
 // ---- pyramid fold (incremental plain perception) ----
