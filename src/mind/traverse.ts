@@ -147,6 +147,8 @@ export function edgeAncestors(
             observed: atomReach(ctx, contextCount),
             limit: bound0,
           },
+          visited: 0,
+          maxDepth: 0,
         }
         : {}),
     };
@@ -201,7 +203,20 @@ export function edgeAncestors(
   // while the context account never decided.
   let lateral = 0;
 
+  // CLIMB READ-OUT (pure instrumentation, same contract as satStop): the
+  // parallel `depths` stack mirrors every push/pop of `stack`, so a node's
+  // ascent distance is known at its pop.  Allocated only when a trace is
+  // requested; the climb itself never reads any of these back.
+  const depths: number[] | null = ctx.trace ? [] : null;
+  let curDepth = 0;
+  let visitedCount = 0;
+  let maxDepth = 0;
+
   const visit = (x: number): boolean => {
+    if (depths) {
+      visitedCount++;
+      if (curDepth > maxDepth) maxDepth = curDepth;
+    }
     const hasNx = cachedHasNext(ctx, x, structCache);
     const pc = cachedPrevCount(ctx, x, structCache);
     if (hasNx || pc > 0) {
@@ -251,6 +266,7 @@ export function edgeAncestors(
       if (!seen.has(p)) {
         seen.add(p);
         stack.push(p);
+        depths?.push(curDepth + 1);
         fresh++;
       }
     }
@@ -274,7 +290,10 @@ export function edgeAncestors(
 
   const stack: number[] = [];
   const containment = !cachedHasParents(ctx, id, structCache);
-  if (!containment) stack.push(id);
+  if (!containment) {
+    stack.push(id);
+    depths?.push(0);
+  }
 
   // The containment seed is STREAMED in pages of √N: a distinctive window's
   // containers (which converge on one or two contexts, however many chunks
@@ -295,15 +314,19 @@ export function edgeAncestors(
         if (!seen.has(c)) {
           seen.add(c);
           stack.push(c);
+          depths?.push(1);
         }
       }
       if (stack.length === 0) {
-        if (containerOff === 0) stack.push(id); // no containers at all
-        else break;
+        if (containerOff === 0) {
+          stack.push(id); // no containers at all
+          depths?.push(0);
+        } else break;
       }
     }
     while (stack.length > 0) {
       let x = stack.pop()!;
+      if (depths) curDepth = depths.pop()!;
       // TRANSPARENT-CHAIN HOP: a node with no edges in or out and exactly one
       // parent contributes nothing here — no root, no context, no lateral
       // entry — so the run to its first non-transparent ancestor is skipped
@@ -321,6 +344,9 @@ export function edgeAncestors(
         for (let i = 1; i < run.length; i++) seen.add(run[i]);
         if (dup) continue;
         x = top;
+        // The chain's interior hops are part of the terminal's ascent
+        // distance — count them exactly as a node-at-a-time ascent would.
+        if (depths) curDepth += run.length - 1;
       }
       if (!visit(x)) {
         saturated = true;
@@ -334,6 +360,7 @@ export function edgeAncestors(
     contextsReached: ctxSeen.size,
     saturated,
     ...(saturated && satStop ? { saturation: satStop } : {}),
+    ...(depths ? { visited: visitedCount, maxDepth } : {}),
   };
   memo?.set(id, reach);
   return reach;

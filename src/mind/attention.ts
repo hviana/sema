@@ -149,6 +149,11 @@ export interface ConsensusReachTrace {
   contextsReached: number;
   saturated: boolean;
   saturation?: SaturationStop;
+  /** Nodes the climb processed — see {@link AncestorReach.visited}.  Absent
+   *  on payloads recorded before this field existed. */
+  visited?: number;
+  /** Maximum ascent distance — see {@link AncestorReach.maxDepth}. */
+  maxDepth?: number;
 }
 
 export type AnchorRejectionReason =
@@ -419,6 +424,9 @@ function serialiseReaches(
       contextsReached: r.contextsReached,
       saturated: r.saturated,
       ...(r.saturation ? { saturation: r.saturation } : {}),
+      ...(r.visited !== undefined
+        ? { visited: r.visited, maxDepth: r.maxDepth }
+        : {}),
     });
   }
   return out;

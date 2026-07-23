@@ -205,6 +205,17 @@ export interface AncestorReach {
    *  a non-saturated reach, and absent (even when saturated) when no trace
    *  was requested — instrumentation must not allocate when tracing is off. */
   saturation?: SaturationStop;
+  /** The number of nodes the climb actually PROCESSED (popped and examined
+   *  by its visit step; a transparent chain counts as its one terminal).
+   *  Present only when a trace was requested — same contract as
+   *  {@link saturation}: instrumentation must not allocate when tracing is
+   *  off.  Purely a read-out; the climb never consults it. */
+  visited?: number;
+  /** The maximum structural ascent distance (in parent/containment hops,
+   *  transparent-chain interiors counted) from the start node among the
+   *  processed nodes.  Present only when a trace was requested — see
+   *  {@link visited}. */
+  maxDepth?: number;
 }
 
 /** Saturated-interval information for the noise-drop gate. */
