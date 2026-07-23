@@ -32,3 +32,9 @@ export type {
   SaturationReason,
   SaturationStop,
 } from "./types.js";
+export type { DepositReport } from "./learning.js";
+export type {
+  DecideGroundingData,
+  NarrowDecisionData,
+  Provenance,
+} from "./pipeline.js";

@@ -767,11 +767,15 @@ export class Mind implements MindContext {
 
   // ── Learning ─────────────────────────────────────────────────────────────
 
+  /** See {@link import("./learning.js").ingest} — `onDeposit`, when given,
+   *  reports each ingested item's deposited root node ids
+   *  ({@link DepositReport}); purely observational. */
   async ingest(
     input: Input | (Input | [Input, Input])[],
     second?: Input,
+    onDeposit?: (report: import("./learning.js").DepositReport) => void,
   ): Promise<(Sema & { id: number }) | undefined> {
-    return ingest(this, input, second);
+    return ingest(this, input, second, onDeposit);
   }
 
   // ── Extension Surface ────────────────────────────────────────────────────

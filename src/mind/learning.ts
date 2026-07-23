@@ -215,12 +215,32 @@ async function propagateSuffixes(
   }
 }
 
-/** Ingest a pair (context, continuation) — learn an edge and pour halos. */
+/** What one ingested item deposited — reported through {@link ingest}'s
+ *  optional `onDeposit` callback.  Pure provenance read-out: node ids are
+ *  content-addressed, so two byte-identical items report the SAME ids (that
+ *  is content addressing working, not an error), and the callback observes
+ *  the deposit without influencing it. */
+export interface DepositReport {
+  /** Zero-based position of the item in the ingested input (0 for a scalar
+   *  or single pair). */
+  index: number;
+  /** Whether the item was a bare experience or a (context, continuation)
+   *  pair. */
+  kind: "one" | "pair";
+  /** Root node id of the item's (context) bytes. */
+  contextId: number;
+  /** Root node id of the continuation bytes — pairs only. */
+  continuationId?: number;
+}
+
+/** Ingest a pair (context, continuation) — learn an edge and pour halos.
+ *  Returns the deposited root ids (context, continuation) — a pure
+ *  read-out; callers that ignore it behave exactly as before. */
 export async function ingestPair(
   ctx: MindContext,
   ctxInput: Input,
   cont: Input,
-): Promise<void> {
+): Promise<{ ctxId: number; contId: number }> {
   const c = await deposit(ctx, ctxInput, true, true);
   const cont_ = await deposit(ctx, cont, false);
   const ctxId = c.rootId, contId = cont_.rootId;
@@ -249,6 +269,7 @@ export async function ingestPair(
       bindSeat(ctx.space, companySignature(ctx.space, partId), 0),
     );
   }
+  return { ctxId, contId };
 }
 
 /** Dispatch the public ingest input shapes onto one-input / pair handlers —
@@ -286,16 +307,36 @@ export async function dispatchIngest(
   return undefined;
 }
 
-/** Ingest an input or array of inputs/pairs.  The public ingest entry point. */
+/** Ingest an input or array of inputs/pairs.  The public ingest entry point.
+ *
+ *  `onDeposit`, when given, is invoked once per ingested item with the
+ *  deposited root node ids ({@link DepositReport}) — item-level provenance
+ *  for tooling that needs to know which stored node an ingested item became.
+ *  Purely observational: the callback runs after the item's deposit
+ *  completed and nothing reads its result. */
 export async function ingest(
   ctx: MindContext,
   input: Input | (Input | [Input, Input])[],
   second?: Input,
+  onDeposit?: (report: DepositReport) => void,
 ): Promise<(Sema & { id: number }) | undefined> {
+  let index = 0;
   return dispatchIngest(
     input,
     second,
-    (i) => ingestOne(ctx, i),
-    (a, b) => ingestPair(ctx, a, b),
+    async (i) => {
+      const r = await ingestOne(ctx, i);
+      onDeposit?.({ index: index++, kind: "one", contextId: r.id });
+      return r;
+    },
+    async (a, b) => {
+      const { ctxId, contId } = await ingestPair(ctx, a, b);
+      onDeposit?.({
+        index: index++,
+        kind: "pair",
+        contextId: ctxId,
+        continuationId: contId,
+      });
+    },
   );
 }
