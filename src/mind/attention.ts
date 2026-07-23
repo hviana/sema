@@ -1613,19 +1613,32 @@ function buildStructuralVariantSpecs(
   return specs;
 }
 
+/** A sibling gist cached in the shared, climb-wide memo alongside the
+ *  COMPLETE stored byte length it was reconstructed from — the length is
+ *  required to tell whether a cache hit is still valid under a probe whose
+ *  `maxSiblingBytes` bound is smaller than the one that first cached it. */
+interface CachedSiblingGist {
+  gist: Vec;
+  length: number;
+}
+
 /** A halo sibling's structural gist, bounded to `maxBytes` of stored content
  *  and reused across the whole climb.  `positiveMemo` (shared across every
  *  probe in the climb, passed in by the caller) remembers only successfully
- *  reconstructed complete gists — a sibling rejected here for being too
- *  large for THIS pair's phrase-scale bound may still be admissible for a
- *  larger-spanning pair later, so a rejection is never memoized globally.
- *  `localMemo` is scoped to one `buildStructuralVariants` call, where every
- *  variant shares the same bound, so a `null` there is safe to reuse. */
+ *  reconstructed complete gists together with their complete byte length —
+ *  a sibling rejected here for being too large for THIS pair's phrase-scale
+ *  bound may still be admissible for a larger-spanning pair later, so a
+ *  rejection is never memoized globally, and a sibling cached by a LARGER
+ *  probe is only reused here when its length still fits THIS probe's
+ *  (possibly smaller) bound — eligibility must never depend on which probe
+ *  happened to cache the sibling first.  `localMemo` is scoped to one
+ *  `buildStructuralVariants` call, where every variant shares the same
+ *  bound, so a `null` there is safe to reuse. */
 function loadBoundedSiblingGist(
   ctx: MindContext,
   id: number,
   maxBytes: number,
-  positiveMemo: Map<number, Vec>,
+  positiveMemo: Map<number, CachedSiblingGist>,
   localMemo: Map<number, Vec | null>,
 ): Vec | null {
   if (localMemo.has(id)) {
@@ -1634,8 +1647,9 @@ function loadBoundedSiblingGist(
 
   const cached = positiveMemo.get(id);
   if (cached !== undefined) {
-    localMemo.set(id, cached);
-    return cached;
+    const result = cached.length <= maxBytes ? cached.gist : null;
+    localMemo.set(id, result);
+    return result;
   }
 
   const length = ctx.store.contentLen(id, maxBytes + 1);
@@ -1651,7 +1665,7 @@ function loadBoundedSiblingGist(
   }
 
   const gist = gistOf(ctx, bytes);
-  positiveMemo.set(id, gist);
+  positiveMemo.set(id, { gist, length });
   localMemo.set(id, gist);
   return gist;
 }
@@ -1669,7 +1683,7 @@ export function buildStructuralVariants(
   ra: Region,
   rb: Region,
   sides: JunctionSynonymSides,
-  siblingGistMemo: Map<number, Vec>,
+  siblingGistMemo: Map<number, CachedSiblingGist>,
 ): {
   variants: StructuralVariant[];
   exactLeft: StructuralPart;
@@ -1778,7 +1792,7 @@ export async function structuralResonance(
   ra: Region,
   rb: Region,
   sides: JunctionSynonymSides,
-  siblingGistMemo: Map<number, Vec>,
+  siblingGistMemo: Map<number, CachedSiblingGist>,
   k: number,
   N: number,
   reachMemo: Map<number, AncestorReach>,
@@ -1977,7 +1991,7 @@ async function crossRegionVotes(
   // Shared across every cross-region probe in this climb: a sibling
   // successfully reconstructed while probing one pair must not be read and
   // perceived again while probing another pair in the same climb.
-  const siblingGistMemo = new Map<number, Vec>();
+  const siblingGistMemo = new Map<number, CachedSiblingGist>();
   const votedSpans = new Set<string>();
   for (const rv of rvs.votes) votedSpans.add(`${rv.start},${rv.end}`);
   const seen = new Set<string>();
