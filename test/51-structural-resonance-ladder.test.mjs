@@ -381,6 +381,7 @@ test("7/8/9. buildStructuralVariants always includes exact-exact, left-synonym, 
     ra,
     rb,
     sides,
+    new Map(),
   );
   assert.equal(variants[0].kind, "exact-exact");
   assert.equal(variants[0].semanticConfidence, 1);
@@ -410,7 +411,7 @@ test("11. synonym variants are bounded to haloQueryK, in addition to the always-
     enc("crimson"),
     enc("square"),
   );
-  const { variants } = buildStructuralVariants(m, ra, rb, sides);
+  const { variants } = buildStructuralVariants(m, ra, rb, sides, new Map());
   assert.ok(variants.length <= 1 + m.cfg.haloQueryK);
   await m.store.close();
 });
@@ -428,7 +429,7 @@ test("12. a sibling's structural part keeps the ORIGINAL query-region slot lengt
     enc("crimson"),
     enc("square"),
   );
-  const { variants } = buildStructuralVariants(m, ra, rb, sides);
+  const { variants } = buildStructuralVariants(m, ra, rb, sides, new Map());
   for (const v of variants) {
     assert.equal(
       v.left.len,
@@ -483,6 +484,7 @@ test("13/18. structuralResonance composes the real middle query bytes and applie
     ra,
     rb,
     sides,
+    new Map(),
     12,
     N,
     new Map(),
@@ -520,7 +522,7 @@ test("15. two variants proposing the SAME candidate keep only the higher-effecti
     enc("crimson"),
     enc("square"),
   );
-  const { variants } = buildStructuralVariants(m, ra, rb, sides);
+  const { variants } = buildStructuralVariants(m, ra, rb, sides, new Map());
   // Directly exercise the merge logic's contract: build two synthetic
   // proposals for the SAME id with different effectiveScore and confirm the
   // higher one is what a caller keeps (mirrors betterProposal's tie-break,
@@ -533,6 +535,7 @@ test("15. two variants proposing the SAME candidate keep only the higher-effecti
     ra,
     rb,
     sides,
+    new Map(),
     12,
     N,
     new Map(),

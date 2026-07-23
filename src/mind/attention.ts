@@ -1549,86 +1549,137 @@ const VARIANT_KIND_ORDER: Record<StructuralVariant["kind"], number> = {
   "double-synonym": 2,
 };
 
-/** A node's structural gist, read directly from its own stored bytes — the
- *  repository's node → gist accessor: content is immutable and perception is
- *  a pure function of bytes, so re-perceiving a node's full stored bytes
- *  reproduces exactly the gist it was interned with.  Never concatenates
- *  the sibling's bytes with anything else. */
-function storedNodeGist(ctx: MindContext, id: number): Vec {
-  return gistOf(ctx, read(ctx, id));
+/** A lightweight, cost-free descriptor of one candidate structural variant —
+ *  enough to rank it, but with no bytes read and no vector materialized. */
+interface StructuralVariantSpec {
+  kind: "left-synonym" | "right-synonym" | "double-synonym";
+  semanticConfidence: number;
+  leftSiblingId?: number;
+  rightSiblingId?: number;
 }
 
-/** A halo sibling's structural part, occupying the ORIGINAL query-region
- *  slot length — the sibling replaces only the DIRECTION, never the query's
- *  own bytes, position, or gap (see §6 of the spec this implements). */
-function siblingPart(
+/** Same deterministic ordering the old implementation applied to already-
+ *  materialized variants (§8): semantic confidence desc, then kind
+ *  (left-synonym, right-synonym, double-synonym), then sibling ids asc. */
+function compareStructuralVariantSpecs(
+  a: StructuralVariantSpec,
+  b: StructuralVariantSpec,
+): number {
+  return b.semanticConfidence - a.semanticConfidence ||
+    VARIANT_KIND_ORDER[a.kind] - VARIANT_KIND_ORDER[b.kind] ||
+    (a.leftSiblingId ?? -1) - (b.leftSiblingId ?? -1) ||
+    (a.rightSiblingId ?? -1) - (b.rightSiblingId ?? -1);
+}
+
+/** Every single- and double-synonym combination, as cost-free descriptors —
+ *  no `read`, `gistOf`, `perceive` or `StructuralPart` allocation.  Both
+ *  sibling lists are already bounded by `haloQueryK`, so the O(haloQueryK²)
+ *  cross-product here is cheap; only the SELECTED specs go on to pay for
+ *  sibling reconstruction. */
+function buildStructuralVariantSpecs(
+  sides: JunctionSynonymSides,
+): StructuralVariantSpec[] {
+  const specs: StructuralVariantSpec[] = [];
+
+  for (const left of sides.leftSiblings) {
+    specs.push({
+      kind: "left-synonym",
+      semanticConfidence: left.score,
+      leftSiblingId: left.id,
+    });
+  }
+
+  for (const right of sides.rightSiblings) {
+    specs.push({
+      kind: "right-synonym",
+      semanticConfidence: right.score,
+      rightSiblingId: right.id,
+    });
+  }
+
+  for (const left of sides.leftSiblings) {
+    for (const right of sides.rightSiblings) {
+      specs.push({
+        kind: "double-synonym",
+        semanticConfidence: Math.min(left.score, right.score),
+        leftSiblingId: left.id,
+        rightSiblingId: right.id,
+      });
+    }
+  }
+
+  specs.sort(compareStructuralVariantSpecs);
+
+  return specs;
+}
+
+/** A halo sibling's structural gist, bounded to `maxBytes` of stored content
+ *  and reused across the whole climb.  `positiveMemo` (shared across every
+ *  probe in the climb, passed in by the caller) remembers only successfully
+ *  reconstructed complete gists — a sibling rejected here for being too
+ *  large for THIS pair's phrase-scale bound may still be admissible for a
+ *  larger-spanning pair later, so a rejection is never memoized globally.
+ *  `localMemo` is scoped to one `buildStructuralVariants` call, where every
+ *  variant shares the same bound, so a `null` there is safe to reuse. */
+function loadBoundedSiblingGist(
   ctx: MindContext,
-  sibling: Hit,
-  originalRegion: { start: number; end: number },
-): StructuralPart {
-  return {
-    v: storedNodeGist(ctx, sibling.id),
-    len: originalRegion.end - originalRegion.start,
-  };
+  id: number,
+  maxBytes: number,
+  positiveMemo: Map<number, Vec>,
+  localMemo: Map<number, Vec | null>,
+): Vec | null {
+  if (localMemo.has(id)) {
+    return localMemo.get(id) ?? null;
+  }
+
+  const cached = positiveMemo.get(id);
+  if (cached !== undefined) {
+    localMemo.set(id, cached);
+    return cached;
+  }
+
+  const length = ctx.store.contentLen(id, maxBytes + 1);
+  if (length <= 0 || length > maxBytes) {
+    localMemo.set(id, null);
+    return null;
+  }
+
+  const bytes = read(ctx, id, maxBytes + 1);
+  if (bytes.length === 0 || bytes.length > maxBytes) {
+    localMemo.set(id, null);
+    return null;
+  }
+
+  const gist = gistOf(ctx, bytes);
+  positiveMemo.set(id, gist);
+  localMemo.set(id, gist);
+  return gist;
 }
 
 /** Build, bound and order every mandatory structural variant (§7-8): the
  *  exact/exact composition is always kept; up to `ctx.cfg.haloQueryK`
  *  synonym variants (single- and double-synonym combined, one shared
- *  budget) are appended, ordered by confidence, then kind, then sibling id. */
+ *  budget) are appended, ordered by confidence, then kind, then sibling id.
+ *  Variant selection is entirely lightweight (see {@link
+ *  buildStructuralVariantSpecs}); a sibling's bytes are read and perceived
+ *  only for specs actually retained, and at most once per sibling id per
+ *  climb via `siblingGistMemo`. */
 export function buildStructuralVariants(
   ctx: MindContext,
   ra: Region,
   rb: Region,
   sides: JunctionSynonymSides,
+  siblingGistMemo: Map<number, Vec>,
 ): {
   variants: StructuralVariant[];
   exactLeft: StructuralPart;
   exactRight: StructuralPart;
 } {
-  const exactLeft: StructuralPart = { v: ra.v, len: ra.end - ra.start };
-  const exactRight: StructuralPart = { v: rb.v, len: rb.end - rb.start };
+  const leftLen = ra.end - ra.start;
+  const rightLen = rb.end - rb.start;
 
-  const synonymVariants: StructuralVariant[] = [];
-  for (const ls of sides.leftSiblings) {
-    synonymVariants.push({
-      left: siblingPart(ctx, ls, ra),
-      right: exactRight,
-      kind: "left-synonym",
-      semanticConfidence: ls.score,
-      leftSiblingId: ls.id,
-    });
-  }
-  for (const rs of sides.rightSiblings) {
-    synonymVariants.push({
-      left: exactLeft,
-      right: siblingPart(ctx, rs, rb),
-      kind: "right-synonym",
-      semanticConfidence: rs.score,
-      rightSiblingId: rs.id,
-    });
-  }
-  for (const ls of sides.leftSiblings) {
-    for (const rs of sides.rightSiblings) {
-      synonymVariants.push({
-        left: siblingPart(ctx, ls, ra),
-        right: siblingPart(ctx, rs, rb),
-        kind: "double-synonym",
-        semanticConfidence: Math.min(ls.score, rs.score),
-        leftSiblingId: ls.id,
-        rightSiblingId: rs.id,
-      });
-    }
-  }
-
-  // §8: semantic confidence desc, then kind (left-synonym, right-synonym,
-  // double-synonym), then left sibling id asc, then right sibling id asc.
-  synonymVariants.sort((a, b) =>
-    b.semanticConfidence - a.semanticConfidence ||
-    VARIANT_KIND_ORDER[a.kind] - VARIANT_KIND_ORDER[b.kind] ||
-    (a.leftSiblingId ?? -1) - (b.leftSiblingId ?? -1) ||
-    (a.rightSiblingId ?? -1) - (b.rightSiblingId ?? -1)
-  );
+  const exactLeft: StructuralPart = { v: ra.v, len: leftLen };
+  const exactRight: StructuralPart = { v: rb.v, len: rightLen };
 
   const variants: StructuralVariant[] = [
     {
@@ -1637,8 +1688,60 @@ export function buildStructuralVariants(
       kind: "exact-exact",
       semanticConfidence: 1,
     },
-    ...synonymVariants.slice(0, ctx.cfg.haloQueryK),
   ];
+
+  // Same phrase-scale bound the cross-region junction ladder uses
+  // (`maxInterior`): a sibling whose complete stored content exceeds it is
+  // not materialized as a structural-resonance endpoint, keeping sibling
+  // reconstruction phrase-scale even for a large deposit or conversation
+  // root that merely appeared in a halo result.
+  const maxSiblingBytes = (leftLen + rightLen) * ctx.space.maxGroup;
+
+  const specs = buildStructuralVariantSpecs(sides);
+  const localGistMemo = new Map<number, Vec | null>();
+  let retainedSynonyms = 0;
+
+  for (const spec of specs) {
+    if (retainedSynonyms >= ctx.cfg.haloQueryK) break;
+
+    let left = exactLeft;
+    let right = exactRight;
+
+    if (spec.leftSiblingId !== undefined) {
+      const gist = loadBoundedSiblingGist(
+        ctx,
+        spec.leftSiblingId,
+        maxSiblingBytes,
+        siblingGistMemo,
+        localGistMemo,
+      );
+      if (gist === null) continue;
+      left = { v: gist, len: leftLen };
+    }
+
+    if (spec.rightSiblingId !== undefined) {
+      const gist = loadBoundedSiblingGist(
+        ctx,
+        spec.rightSiblingId,
+        maxSiblingBytes,
+        siblingGistMemo,
+        localGistMemo,
+      );
+      if (gist === null) continue;
+      right = { v: gist, len: rightLen };
+    }
+
+    variants.push({
+      left,
+      right,
+      kind: spec.kind,
+      semanticConfidence: spec.semanticConfidence,
+      leftSiblingId: spec.leftSiblingId,
+      rightSiblingId: spec.rightSiblingId,
+    });
+    retainedSynonyms++;
+  }
+
   return { variants, exactLeft, exactRight };
 }
 
@@ -1675,6 +1778,7 @@ export async function structuralResonance(
   ra: Region,
   rb: Region,
   sides: JunctionSynonymSides,
+  siblingGistMemo: Map<number, Vec>,
   k: number,
   N: number,
   reachMemo: Map<number, AncestorReach>,
@@ -1692,7 +1796,13 @@ export async function structuralResonance(
   | { proposal: StructuralResonanceProposal; reach: AncestorReach; idf: number }
   | null
 > {
-  const { variants } = buildStructuralVariants(ctx, ra, rb, sides);
+  const { variants } = buildStructuralVariants(
+    ctx,
+    ra,
+    rb,
+    sides,
+    siblingGistMemo,
+  );
   if (trace) trace.variantBudget = ctx.cfg.haloQueryK;
 
   const middleBytes = query.subarray(ra.end, rb.start);
@@ -1864,6 +1974,10 @@ async function crossRegionVotes(
   //
   // Only MAXIMAL spans compose: a span contained in another candidate is a
   // fragment of that candidate's evidence, never independent of it.
+  // Shared across every cross-region probe in this climb: a sibling
+  // successfully reconstructed while probing one pair must not be read and
+  // perceived again while probing another pair in the same climb.
+  const siblingGistMemo = new Map<number, Vec>();
   const votedSpans = new Set<string>();
   for (const rv of rvs.votes) votedSpans.add(`${rv.start},${rv.end}`);
   const seen = new Set<string>();
@@ -2155,6 +2269,7 @@ async function crossRegionVotes(
             ra,
             rb,
             sides,
+            siblingGistMemo,
             k,
             N,
             reachMemo,
