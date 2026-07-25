@@ -2,9 +2,9 @@
 // must recover a trained form whose edge misalignment is MORE than one byte
 // (the shipped ±1 fix only covers a single stray edge byte).
 //
-// bytesToTree's plain fold is RADIX-ALIGNED: a chunk's own boundary is a
-// multiple of the geometry's group width W from the LOCAL start of whatever
-// it was folded from (see geometry.ts's FoldPyramid comment).  A query whose
+// bytesToTree's fold is CONTENT-DEFINED: a chunk's own boundary is a cut the
+// bytes chose (see geometry.ts's contentBoundaries), so it moves with the
+// content rather than with an absolute offset.  A query whose
 // recognised span sits at a different local offset than the trained deposit
 // did — e.g. extra leading whitespace, which canon deliberately preserves
 // verbatim at the edges, only collapsing INTERIOR whitespace — shifts every

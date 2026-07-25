@@ -90,6 +90,11 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   const leaves: Leaf[] = [];
   const splits = new Set<number>();
   const starts = new Set<number>();
+  // The same cuts in ASCENDING order.  The post-order walk below visits
+  // leaf-parents left to right, so appending as they are added keeps this
+  // sorted with no comparison — which is what lets the composite search find
+  // its candidates by binary search instead of rescanning the whole set.
+  const startList: number[] = [];
   if (bytes.length === 0) return { sites, leaves, splits, starts };
 
   // Span-resolve memo for THIS call: the structural pass (sub-runs inside
@@ -167,6 +172,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
 
   // ── structural: the query's own perceived tree ──────────────────────
   starts.add(0);
+  startList.push(0);
   foldTree(ctx, perceive(ctx, bytes), 0, (n, start, end, node) => {
     if (n.kids === null) {
       leaves.push({ start, end, bytes: n.leaf ?? new Uint8Array(0), node });
@@ -240,25 +246,47 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         // "And " prepended to a follow-up turn — not boundary noise, actual
         // content the injected canonicalizer has no equivalence for) shows
         // up as a canon-miss too big for the chunk-scale search above: the
-        // turn is its OWN segment (stable-prefix folded independently — see
-        // mind.ts's _growContext), so it can be turn/segment-scale, not
-        // chunk-scale.  Widening the size bound itself reopens the root-
-        // scale false-positive this module already fixed once (test/46);
-        // widening the SEARCH instead — trying every position up to W
-        // chunk-widths from the left edge that the query's OWN fold treats
-        // as a chunk boundary (`starts`, the same set the canonical pass
-        // privileges with full chain reach) — does not: `starts.has(p)` is
-        // fold EVIDENCE the query produced on its own (a leaf-parent chunk
-        // like "And " is visited, and its start added to `starts`, before
-        // this composite ever runs — foldTree is post-order), never a blind
-        // guess.  Bounded to W candidates, each an O(1) set lookup before
-        // paying for the real canonResolve fold — canonResolve, not
-        // resolve()/findBranch, because the gap here is often exactly the
-        // kind of equivalence (case, in the live trace) canon exists for,
-        // not just an exact-content coincidence.
-        for (let k = 1; k <= W; k++) {
-          const p = start + k * W;
-          if (p >= end - 1 || !starts.has(p)) continue;
+        // turn is its OWN segment, so it can be turn/segment-scale, not
+        // chunk-scale.  Widening the size bound itself reopens the root-scale
+        // false-positive this module already fixed once (test/46); widening the
+        // SEARCH instead does not, because every candidate is a cut the query's
+        // OWN fold drew (`starts`, the same set the canonical pass privileges
+        // with full chain reach) — fold EVIDENCE, never a blind guess.
+        //
+        // The candidates are the fold's own segment starts inside this span, in
+        // order.  They used to be probed at `start + k*W`, which assumed cuts
+        // land on multiples of W; content-defined cuts do not, so that stride
+        // tested offsets no segment ever began at and this search silently
+        // never fired (test/44 pins it).  Still bounded to W candidates, each
+        // one O(1) from the sorted cut list before paying for a real
+        // canonResolve fold — canonResolve, not resolve()/findBranch, because
+        // the gap here is often exactly the kind of equivalence (case, in the
+        // live trace) canon exists for, not an exact-content coincidence.
+        // A deposit's ROOT is a whole-stream node, and a stream's ends are not
+        // content cuts — so an embedded occurrence of a trained form reproduces
+        // its SEGMENTS (which are offset-free) but never its root.  What is
+        // being looked for is therefore a suffix of this span that happens to be
+        // a whole trained form, and its left edge can only be a cut the fold
+        // itself drew.  Candidates are taken from the RIGHT, nearest the end
+        // first: the form ends where this node ends, so its start is near it.
+        // Left-to-right was wrong — in test/44 the target's start is the 6th cut
+        // from the end but the 12th from the beginning.
+        //
+        // `starts` is still filling (this runs inside the post-order walk), but
+        // post-order guarantees every chunk BELOW this span is already in it —
+        // exactly the set wanted.  Bounded to chainReach(W) candidates, the same
+        // reach the canonical pass trusts, so cost stays O(reach · span).
+        let hi = startList.length; // first index past the last usable cut
+        let lo = 0;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (startList[mid] < end - 1) lo = mid + 1;
+          else hi = mid;
+        }
+        const reach = chainReach(W);
+        for (let k = 0; k < reach; k++) {
+          const p = startList[lo - 1 - k];
+          if (p === undefined || p <= start) break;
           const cid = canonResolve(ctx, bytes.subarray(p, end));
           if (cid !== null) emit(p, end, cid);
         }
@@ -266,6 +294,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     }
     if (isChunk(n)) {
       starts.add(start);
+      if (startList[startList.length - 1] !== start) startList.push(start);
       // Try every sub-span within this leaf-parent.
       const leafOffsets: number[] = [];
       let off = start;

@@ -20,7 +20,7 @@ import type {
   Site,
 } from "./graph-search.js";
 import type { Rationale } from "./rationale.js";
-import type { FoldPyramid, Grid, StableFold } from "../geometry.js";
+import type { Grid, StableFold } from "../geometry.js";
 
 /** One {@link MindContext._depositTrees} entry — see that field's doc. */
 export interface DepositCacheEntry {
@@ -28,8 +28,6 @@ export interface DepositCacheEntry {
    *  strictly increasing proper offsets, each a previously-deposited
    *  whole-context length.  Empty for a first-seen (single-turn) input. */
   boundaries: number[];
-  /** Plain-fold pyramid (first-seen inputs only). */
-  pyramid?: FoldPyramid;
   /** Stable-prefix segment folds (grown-context inputs only). */
   stable?: StableFold;
   /** The continuation bytes this ctxInput was paired with in ingestPair, if
@@ -178,6 +176,19 @@ export interface RegionVote {
    *  to "one region" just because it collapsed to one pooled axiom.
    *  Defaults to 1 when absent. */
   absorbed?: number;
+  /** The SEPARATE query places this vote's evidence occupies, when that is
+   *  more than the one contiguous run [start, end].  A cross-region junction
+   *  vote is pooled as a single synthetic region spanning its endpoints and
+   *  the gap between them, so `[start, end]` reads as ONE place — yet the
+   *  vote exists precisely because two non-adjacent regions each voted and
+   *  only their conjunction resolved.  Cluster counting (Attention.clusters)
+   *  asks "how many separate places in the query corroborate this?", and
+   *  answering it from the merged span makes every joint binding look like a
+   *  single local neighbourhood; fusion's dispersion gate then drops it
+   *  unless it also explains most of the whole query, which a binding inside
+   *  a MULTI-topic query structurally cannot.  Absent for an ordinary
+   *  per-region vote, where the merged span already is the truth. */
+  parts?: readonly (readonly [number, number])[];
 }
 
 /** The structural gate that first decided an {@link edgeAncestors} climb was
@@ -305,8 +316,9 @@ export interface MindContext extends GraphSearchHost {
    *  folds with the SAME stable-prefix fold query-time perception uses
    *  (structural train/inference agreement, load-bearing for recall),
    *  reusing every already-folded segment via `stable` (see StableFold) —
-   *  O(turn) per deposit instead of O(context).  A first-seen input keeps
-   *  the plain fold and caches its `pyramid` (see FoldPyramid).  Purely a
+   *  O(turn) per deposit instead of O(context).  A first-seen input takes the
+   *  same fold with no boundaries at all, and caches the segments it produced
+   *  so a later turn of the same conversation reuses them.  Purely a
    *  performance cache for the FOLD STATE; the boundaries are semantic but
    *  derived only from the deposit sequence itself (an evicted chain falls
    *  back to plain-fold behavior, exactly the pre-boundary shape). */

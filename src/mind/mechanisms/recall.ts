@@ -389,15 +389,30 @@ export async function recallByResonance(
             : `substitution bridge — a trained context accounts for the ` +
               `query up to ${bridged.subs.length} corroborated ` +
               `substitution(s)`,
-          // WHAT THIS GROUNDING EXPLAINS, and why the two cases differ.
+          // WHAT THIS GROUNDING EXPLAINS — the spans its alignment covers,
+          // matched AND substituted, for BOTH tiers.
           //
-          // A SUBSTITUTED bridge accounts for NOTHING — the same epistemic
-          // humility as the echo tier below: it stood a word the store never
-          // wrote into the query's place, so it is a last resort that must
-          // lose to ANY mechanism that actually explained the query
-          // (observed: pricing the aligned spans here outweighed
-          // extraction's correct answer in the grounding decider), while
-          // still beating silence when everything else refused.
+          // A corroborated substitution is not a gap in the explanation; it is
+          // an explanation the mechanism PAID for, one CONCEPT each in `moves`
+          // just below.  Leaving its span unaccounted charges the same act
+          // twice — once as a move, once as PASS-per-unexplained-byte — and the
+          // second charge is far the larger, so a bridge that matched 28 of 29
+          // bytes declared the whole query unexplained and lost to any
+          // mechanism with a smaller honest claim.  Measured on test/49's
+          // paraphrase: it FOUND the trained fact through two corroborated case
+          // substitutions and was outbid 29011 to 1012 by a CAST comparison
+          // that voiced the wrong country.
+          //
+          // This tier DID once report `[]` for the substituted case, against
+          // the observation that "pricing the aligned spans outweighed
+          // extraction's correct answer in the grounding decider".  That is no
+          // longer so and the suite is the witness: with the fold's regions
+          // content-defined and the junction tiers no longer consuming each
+          // other's candidates, full accounting here passes every test that
+          // refutation was recorded for.  Reporting only the LITERALLY matched
+          // spans (accounted minus the substituted ones) was also implemented
+          // and is a strictly worse reading of the same ladder — it still
+          // double-charges, just less.
           //
           // An IDENTITY bridge (zero substitutions) substituted nothing, so
           // there is nothing to be humble about: every accounted byte is a
@@ -410,7 +425,7 @@ export async function recallByResonance(
           // correct "What is the process of photosynthesis?" grounding was
           // fused away into an unrelated "Hello! How can I assist you
           // today?" point of attention.
-          bridged.subs.length === 0 ? [...bridged.accounted] : [],
+          [...bridged.accounted],
           CONCEPT * bridged.subs.length + STEP,
           false,
           // COMPLETE only for the identity tier: the query IS this trained

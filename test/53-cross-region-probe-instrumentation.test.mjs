@@ -47,6 +47,27 @@ const SYN_ATTR_CORPUS = [
   ["blue square", "answer delta"],
 ];
 
+// Structural-resonance is the LAST rung: it runs only when every DAG tier —
+// exact junction, single- and double-synonym — found no container at all.
+// SYN_ATTR_CORPUS cannot reach it, and no longer pretends to: every attribute
+// there shares a context ("is a color" / "is a shape") with its neighbours, so
+// the single-synonym tier always finds a bridge and accepts before the ladder
+// gets this far.  (It once did reach resonance, when the junction search was
+// phase-dependent and missed containers it should have found; asserting the
+// weaker rung still fires would now be asserting a defect.)
+//
+// This corpus withholds exactly what the synonym tiers need: each attribute's
+// context is unique, so no two attributes are halo siblings, and `red` and
+// `square` never co-occur.  `red then square` therefore exhausts the DAG tiers
+// and reaches resonance for real — one probe margin-rejected, one ineligible.
+const NO_BRIDGE_CORPUS = [
+  ["red", "warm hue"],
+  ["square", "four sides"],
+  ["circle", "round form"],
+  ["red circle", "answer alpha"],
+  ["blue square", "answer delta"],
+];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. ordinary-region contrastive rival.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -204,8 +225,8 @@ test("5. double-synonym tier: probe fields report single returned zero and doubl
 
 test("6. structural-resonance: eligible probes report variants, merged proposals and an examined sequence with effectiveScore = annScore * semanticConfidence", async () => {
   const m = mk(1);
-  await m.ingest(SYN_ATTR_CORPUS);
-  const { steps } = await trace(m, "crimson then square");
+  await m.ingest(NO_BRIDGE_CORPUS);
+  const { steps } = await trace(m, "red then square");
   await m.store.close();
 
   const step = climbStep(steps);
@@ -262,10 +283,10 @@ test("6. structural-resonance: eligible probes report variants, merged proposals
 
 test("7. resonance outcomes: ineligible reasons are named and a margin-rejected probe reports a sub-noise-floor margin", async () => {
   const mIneligible = mk(1);
-  await mIneligible.ingest(SYN_ATTR_CORPUS);
+  await mIneligible.ingest(NO_BRIDGE_CORPUS);
   const { steps: ineligibleSteps } = await trace(
     mIneligible,
-    "crimson beside square",
+    "red then square",
   );
   await mIneligible.store.close();
 
@@ -286,9 +307,18 @@ test("7. resonance outcomes: ineligible reasons are named and a margin-rejected 
     assert.equal(p.outcome, "resonance-ineligible");
   }
 
+  // A margin rejection needs resonance to actually PRODUCE a proposal and
+  // then find it indistinguishable from its runner-up.  On the tight
+  // `red then square` the single surviving proposal clears the noise floor and
+  // is accepted; spreading the two attributes apart puts many more pairs in
+  // play, and the pair that reaches resonance proposes an ANN neighbour its
+  // rival matches — which is exactly the case this field exists to report.
   const mMargin = mk(1);
-  await mMargin.ingest(SYN_ATTR_CORPUS);
-  const { steps: marginSteps } = await trace(mMargin, "crimson then square");
+  await mMargin.ingest(NO_BRIDGE_CORPUS);
+  const { steps: marginSteps } = await trace(
+    mMargin,
+    "red and a very long interior gap before square",
+  );
   await mMargin.store.close();
   const marginStep = climbStep(marginSteps);
   const marginRejected = (marginStep.data.crossRegion?.probes ?? []).filter(

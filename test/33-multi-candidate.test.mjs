@@ -142,7 +142,19 @@ test("3 — a near-tie between the winner and runner-up emits narrowDecision", a
     ["steel is hard so steel is strong", "strong"],
     ["water is frigid so water is freezing", "freezing"],
   ]);
-  const { steps } = await trace(m, "steel is frigid so steel is ???");
+  // The near-tie has to be REAL: two candidates whose accounted spans are the
+  // same, separated by a single move.  `steel is hard so steel is` is that —
+  // extraction and recall both explain the whole prefix (grades 21011 and
+  // 21010, margin 1).
+  //
+  // The old fixture, `steel is frigid so steel is ???`, was a near-tie only
+  // while CAST could not fire on it: the counterfactual subject and the seat
+  // it fills sit on opposite sides of one recurring structure, and CAST's
+  // subject gate used to reject any point whose alignment continued PAST the
+  // seat — which that very recurrence guarantees.  With CAST firing, it leaves
+  // only "???" unexplained and wins by 22008; a decisive win is the opposite
+  // of what this test pins, and test 3b already covers it.
+  const { steps } = await trace(m, "steel is hard so steel is");
   const narrow = stepsNamed(steps, "narrowDecision");
   assert.equal(narrow.length, 1, "expected exactly one narrowDecision step");
   assert.ok(/margin \d+ grade-unit/.test(narrow[0].note), narrow[0].note);

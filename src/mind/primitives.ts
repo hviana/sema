@@ -7,7 +7,6 @@ import { Vec } from "../vec.js";
 import { Sema } from "../sema.js";
 import {
   bytesToTree,
-  bytesToTreePyramid,
   Grid,
   gridToTree,
   hilbertBytes,
@@ -104,21 +103,17 @@ export function perceive(
   return gridToTree(ctx.space, ctx.alphabet, input as Grid);
 }
 
-/** The DEPOSIT-shaped perceive.  A FIRST-SEEN input takes the PLAIN fold
- *  (bit-identical to inference perception of a standalone query — that
- *  structural train/inference agreement is load-bearing for exact recall),
- *  computed incrementally via the fold's level pyramid
- *  ({@link bytesToTreePyramid}).  An input that EXTENDS a previously
- *  deposited one is a conversation context grown by one turn — the cached
- *  prefix length IS the turn boundary (derived from the deposit sequence
- *  itself, never from content conventions) — and takes the STABLE-PREFIX
- *  fold over the accumulated boundaries, bit-identical to the boundary
- *  fold query-time conversation perception uses, so the trained context
- *  node and the query's context subtree are the SAME node.  Segment folds
- *  reuse across deposits ({@link stablePrefixFoldIncremental}) — O(turn)
- *  instead of O(context) per turn.  The fold state is purely a cache; the
- *  boundary accumulation is what an evicted chain loses (falling back to
- *  the plain fold, the pre-boundary shape — a warm replay restores it). */
+/** The DEPOSIT-shaped perceive.  Folds over the stream's own content cuts —
+ *  bit-identical to what inference computes for the same bytes, and that
+ *  train/inference agreement is load-bearing for exact recall.  An input that
+ *  EXTENDS a previously deposited one is a conversation context grown by one
+ *  turn; the cached prefix length IS the turn boundary (derived from the deposit
+ *  sequence itself, never from a content convention) and joins the cut set, so
+ *  the trained context node and the query's context subtree are the SAME node.
+ *  Segment folds reuse across deposits ({@link stablePrefixFoldIncremental}) —
+ *  O(turn) instead of O(context) per turn.  All of it is purely a cache: an
+ *  evicted chain loses only the turn boundaries, and since the content cuts do
+ *  not depend on the cache, the segments themselves are unchanged. */
 export function perceiveDeposit(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -151,24 +146,32 @@ export function perceiveDeposit(
       }
     }
   }
-  let tree: Sema;
-  let entry: DepositCacheEntry;
+  // ONLY turn boundaries belong here.  The stream's own content cuts are NOT
+  // passed in: `bytesToTree` and `stablePrefixFoldIncremental` both derive them
+  // per span, at every level, and handing the level-0 cuts in as stable-prefix
+  // boundaries instead produces a LEFT-NESTED join of flat segments — a
+  // different tree from the one inference builds for the same bytes.  When that
+  // happened, a deposit's context root and `resolve(question)` were different
+  // nodes, so the trained edge hung off a node inference never reached and
+  // recall went silent (test/44 caught it as a site that could not be emitted
+  // because the resolved node led nowhere).  Train and infer must fold
+  // identically; the way to guarantee that is to give this function nothing
+  // extra to say.
+  const cuts = new Set<number>();
   if (prev !== undefined) {
-    const boundaries = [...prev.boundaries, prefixLen];
-    const folded = stablePrefixFoldIncremental(
-      ctx.space,
-      ctx.alphabet,
-      bytes,
-      boundaries,
-      prev.stable,
-    );
-    tree = folded.tree;
-    entry = { boundaries, stable: folded.fold };
-  } else {
-    const plain = bytesToTreePyramid(ctx.space, ctx.alphabet, bytes);
-    tree = plain.tree;
-    entry = { boundaries: [], pyramid: plain.pyramid };
+    for (const b of prev.boundaries) cuts.add(b);
+    cuts.add(prefixLen);
   }
+  const boundaries = [...cuts].sort((a, b) => a - b);
+  const folded = stablePrefixFoldIncremental(
+    ctx.space,
+    ctx.alphabet,
+    bytes,
+    boundaries,
+    prev?.stable,
+  );
+  const tree = folded.tree;
+  const entry: DepositCacheEntry = { boundaries, stable: folded.fold };
   // Only a conversational deposit writes the cache too — otherwise a bare
   // fact's plain fold could later be misread as a conversation's turn-zero
   // boundary by an unrelated conversational deposit that happens to extend

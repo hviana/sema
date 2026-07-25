@@ -69,9 +69,16 @@ test("fuseAttention: a root whose continuation is already answered in the query 
   // topic with no such embedded answer.
   const q = enc("greet reply-greet then red then circle");
   const roots = await m.climbAttention(q, 24);
-  const greet = roots.find((r) => r.start === 0);
-  const redCircle = roots.find((r) => r.start !== 0);
-  assert.ok(greet, "expected the 'greet' root at query offset 0");
+  // Roots are identified by the ANCHOR they climbed to, never by the query
+  // offset of the region that got there: which region wins the climb is a
+  // property of the evidence, and the fold's cuts are content-defined, so an
+  // offset test would be asserting where a cut happened to fall.  (It did:
+  // this once read `r.start === 0`, and passed only while the region reaching
+  // `greet` began at byte 0 — it now begins at 6, on the same anchor.)
+  const anchorOf = (r) => dec(m.store.bytesPrefix(r.anchor, 1e9));
+  const greet = roots.find((r) => anchorOf(r) === "greet");
+  const redCircle = roots.find((r) => anchorOf(r) === "red circle");
+  assert.ok(greet, "expected a root anchored on 'greet'");
   assert.ok(redCircle, "expected the 'red circle' binding root");
 
   const guide = gistOf(m, q);

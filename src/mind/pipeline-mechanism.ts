@@ -17,6 +17,8 @@ import type { AncestorReach, MindContext, Recognition } from "./types.js";
 import type { AttentionRead } from "./types.js";
 import type { ComputedSpan } from "../extension.js";
 import type { Vec } from "../vec.js";
+import { indexOf } from "../bytes.js";
+import { dominates } from "../geometry.js";
 import { windowIds } from "./canonical.js";
 import { read, resolve } from "./primitives.js";
 import { alignGraded, type GradedRun, skillExemplar } from "./match.js";
@@ -215,6 +217,7 @@ function computeWeave(
   const rankedCapped = ranked.length > pre.k ? ranked.slice(0, pre.k) : ranked;
   const depth = new Float64Array(query.length);
   const points: WeaveInfo["points"] = [];
+  const byAnchor = new Map<number, WeaveInfo["points"][number]>();
 
   // WEAVE-SCALE anchors only: CAST transfers structure between things the
   // QUERY weaves together — query-scale structures.  A context an order of
@@ -230,6 +233,38 @@ function computeWeave(
   // uncapped weaves spent 5–8s per query recognising conversation-length
   // anchors that could never form a weave point.
   const capBytes = query.length * quantum;
+  // EXCLUSIVITY IS ARBITRATED BY THE CLIMB'S VOTE ORDER, DELIBERATELY.  A query
+  // byte can only be independent evidence for ONE point, so points are built in
+  // ranked order and each new point's runs are trimmed against every point
+  // already accepted; a point left with no run of a full quantum drops out of
+  // the weave.
+  //
+  // That reads like first-come-wins — a point that merely ranked higher taking
+  // a span from the point that actually explains it — and arbitrating by LOCAL
+  // evidence instead (ownership of each byte to the longest covering run, then
+  // the heavier weight, then rank) was implemented and MEASURED: test/29 went
+  // 9/2 to 7/4, and the new failures name the reason. CAST requires the weave
+  // to touch a COMMITTED point of attention ("2 aligned structure(s), but none
+  // is one of the climb's 1 committed root(s)"), and it was precisely the vote
+  // order that kept the committed root's own point alive in the weave. Local
+  // run length knows nothing about what the climb settled on, so it evicted the
+  // root's evidence and left CAST refusing on its own consistency check.
+  //
+  // So the vote order here is not an accident of construction — it is what
+  // holds the weave and the climb to the same conclusion. Weave-local
+  // measures decide what is FRAME inside the weave (see the frame gates in
+  // cast.ts); which structures are in the weave at all stays the climb's call.
+  //
+  // TWO PASSES.  `depth` — how much of the weave agrees on each query byte, and
+  // therefore what counts as FRAME — must be the whole weave's, not "whatever
+  // has been processed so far": read in one pass it made a candidate's own
+  // frame reading depend on its rank, and the proposed-run gate below needs the
+  // real thing.
+  const cands: Array<{
+    cand: (typeof rankedCapped)[number];
+    ctxBytes: Uint8Array;
+    raw: GradedRun[];
+  }> = [];
   for (const cand of rankedCapped) {
     const ctxBytes = read(ctx, cand.anchor, capBytes + 1);
     if (ctxBytes.length === 0 || ctxBytes.length > capBytes) continue;
@@ -238,6 +273,9 @@ function computeWeave(
     for (const r of raw) {
       for (let i = r.qs; i < r.qe; i++) depth[i] += r.weight;
     }
+    cands.push({ cand, ctxBytes, raw });
+  }
+  for (const { cand, ctxBytes, raw } of cands) {
     const free: GradedRun[] = [];
     for (const r of raw) {
       let { qs, qe, cs, weight } = r;
@@ -259,12 +297,122 @@ function computeWeave(
       }
     }
     if (free.length > 0) {
-      points.push({
+      const pt = {
         anchor: cand.anchor,
         vote: cand.vote,
         ctx: ctxBytes,
         runs: free,
-      });
+      };
+      byAnchor.set(cand.anchor, pt);
+      points.push(pt);
+    }
+  }
+
+  // A byte is FRAME when more than half the weave shares it, and a SPAN is
+  // frame when more than half its bytes are — the same two-level
+  // half-dominance reading cast.ts's own frame gate uses, over the same
+  // `depth`.  Read against the accepted POINTS (as cast.ts does), so it is
+  // only meaningful once phase 1 has run.
+  const framed = (from: number, to: number): boolean => {
+    let n = 0;
+    for (let i = from; i < to; i++) if (dominates(depth[i], points.length)) n++;
+    return dominates(n, to - from);
+  };
+  // PHASE 2 — THE CLIMB'S OWN CONCLUSION IS AN ALIGNMENT THE LITERAL MATCHER
+  // CANNOT SEE.  `alignRuns` seeds on W-grams, so two forms differing by a
+  // single byte share no run at all: on `How is ice like steel?` against a
+  // store holding `Ice is cold`, the query's `ice` and the stored `Ice` agree
+  // on only `ce ` — three bytes, never seeded — so that structure entered the
+  // weave carrying nothing but the ` is ` scaffolding every exemplar shares,
+  // lost it to the first point that claimed it, and vanished.  The climb had
+  // ALREADY identified it: its resonance elected `Ice is cold` from the query
+  // span `ce l` and `Steel is hard` from `stee`, two disjoint spans each naming
+  // its own structure, weighed through the region's contrastive margin and its
+  // IDF — gates the aligner has no equivalent of.
+  //
+  // So the climb PROPOSES the pairing (which structure, which query span) and
+  // bytes DECIDE its terms (§2.3).  Three gates, each one measured:
+  //
+  //   • it may only take query bytes NO literal run claimed.  Run inline with
+  //     phase 1 this did the opposite of "exact decides" — a higher-ranked
+  //     candidate's proposal trimmed a lower-ranked candidate's byte-for-byte
+  //     match out of existence (`he W`, proposed for `a nickname meaning the
+  //     divine one`, cut the literal `The ` out of `The Starry Night was
+  //     painted by Vincent van Gogh.` and CAST's redirection lost its
+  //     dominant — test/29 C4).  Hence a second pass, after every literal run
+  //     is placed.
+  //   • the literal agreement must DOMINATE the span.  A climb vote is not by
+  //     itself an alignment: on `The Persistence of Memory was painted by
+  //     Salvador Dali.` the climb elects `The Starry Night…` from the span
+  //     ` Dali.`, which shares barely a byte with it — the resonance was
+  //     carried by the frame those exemplars share.  Admitting it let CAST
+  //     weave points out of pure scaffolding and out-account the correct
+  //     extraction (test/00, test/24).  Where the proposal is real the
+  //     agreement is overwhelming: both C1 spans agree on three of four bytes.
+  //   • and the span must not be FRAME.  Literal dominance alone is too weak
+  //     at this scale — a 4-byte span agrees three-of-four with half the
+  //     corpus by accident (`he W` against `a nickname meaning the divine
+  //     one`).  Frame is the weave-local measure of exactly that.
+  const claimed = new Uint8Array(query.length);
+  for (const p of points) {
+    for (const r of p.runs) claimed.fill(1, r.qs, r.qe);
+  }
+  for (const { cand, ctxBytes } of cands) {
+    if (cand.end > cand.start) {
+      let qs = cand.start;
+      let qe = cand.end;
+      while (qs < qe && claimed[qs]) qs++;
+      while (qe > qs && claimed[qe - 1]) qe--;
+      let clear = true;
+      for (let i = qs; i < qe; i++) if (claimed[i]) clear = false;
+      if (clear && qe - qs >= Math.min(quantum, ctxBytes.length)) {
+        // The gate only asks whether the agreement DOMINATES the span, so
+        // search DOWNWARD from the whole span and stop at the first hit: the
+        // first length found is both the longest agreement and, by
+        // construction, already past the dominance bar.  At most O(W²) bounded
+        // substring probes — a span is one segment (≤ 2W) — where a full
+        // longest-common-substring scan would be O(|span|² · |ctx|) against a
+        // context that may be W× the query.
+        const span = query.subarray(qs, qe);
+        const bar = Math.floor(span.length / 2) + 1; // dominates(bar, length)
+        let bestLen = 0;
+        let bestCs = 0;
+        for (let len = span.length; len >= bar && bestLen === 0; len--) {
+          for (let off = 0; off + len <= span.length; off++) {
+            const at = indexOf(ctxBytes, span.subarray(off, off + len), 0);
+            if (at < 0) continue;
+            bestLen = len;
+            // Where the span's FIRST byte lands, so `cs` means the same thing
+            // it does for a literal run: the context offset the run starts at.
+            bestCs = Math.max(0, at - off);
+            break;
+          }
+        }
+        if (bestLen > 0 && !framed(qs, qe)) {
+          const run = {
+            qs,
+            qe,
+            cs: bestCs,
+            weight: bestLen / (qe - qs),
+            proposed: true,
+          };
+          claimed.fill(1, qs, qe);
+          const pt = byAnchor.get(cand.anchor);
+          if (!pt) {
+            const made = {
+              anchor: cand.anchor,
+              vote: cand.vote,
+              ctx: ctxBytes,
+              runs: [run],
+            };
+            byAnchor.set(cand.anchor, made);
+            points.push(made);
+          } else {
+            pt.runs.push(run);
+            pt.runs.sort((x, y) => x.qs - y.qs);
+          }
+        }
+      }
     }
   }
   return { points, depth };

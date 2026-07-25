@@ -538,6 +538,22 @@ export async function computeAttention(
       v: gistOf(ctx, query.subarray(s.start, s.end)),
       start: s.start,
       end: s.end,
+      // NOT a chunk — a precondition, not a judgement about the evidence.
+      // `chunk` admits a region into the saturated-INTERVAL builder (see
+      // crossRegionVotes), which walks regions as a SEQUENCE and merges
+      // neighbouring saturated ones into runs.  Its own contract requires the
+      // regions it reads to be DISJOINT and in byte order — true of
+      // leaf-parents, false of sites, which overlap each other and the chunks
+      // ("red", "circle" and "red circle" are all present at once).
+      //
+      // Admitting them was measured both ways and is unprincipled in each
+      // direction: a saturated site EXTENDS a run and masks votes that should
+      // have won (test/37 lost all three — roots became "red " and "hat"
+      // instead of "red circle" and "2"), while a non-saturated one BREAKS a
+      // run and unmasks votes that should have been dropped, which is the only
+      // reason it appeared to fix test/34.  Either way the outcome turns on
+      // where an overlapping span happens to fall in the array — the same
+      // positional accident this work exists to remove.
       chunk: false,
       known: true, // a recognised site IS a stored form
     });
@@ -647,7 +663,19 @@ export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
   // node, the same lookups a deposit pays.
   foldTree(ctx, perceive(ctx, query), 0, (n, start, end, node) => {
     if (n.kids === null) return;
-    if (!dominates(end - start, query.length) || regions.length === 0) {
+    // The dominance filter is about WRAPPERS, not about size.  A chunk is the
+    // smallest grouped unit — it wraps no other region — so it can never be the
+    // "broad, non-discriminative wrapper" this rule exists to exclude, however
+    // much of a short query it happens to cover.  Testing it by span alone was
+    // safe only while chunks were exactly W bytes: content-defined segments run
+    // up to the keyring's seat count, so on a 15-byte query the 8-byte segment
+    // "is frigi" counted as dominant and was discarded, leaving CAST one point
+    // of attention where it needs two (test/29 D1/D2).  Composites are still
+    // filtered exactly as before.
+    if (
+      isChunk(n) || !dominates(end - start, query.length) ||
+      regions.length === 0
+    ) {
       regions.push({
         v: n.v,
         start,
@@ -656,6 +684,25 @@ export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
         known: node !== null,
       });
     }
+    // MEASURED AND REFUTED — subdividing a long segment into W-scale tiles.
+    // A content segment runs from W−1 up to the keyring's seat count (2W) and
+    // folds FLAT, so its only sub-units are single bytes; the grid's regions
+    // were always exactly W.  Offering each segment's W-byte tiles as extra
+    // regions (gists only, no stored nodes, anchored on the segment's own
+    // content-defined start so invariance is kept) does restore that finer
+    // grain: on `How is ice like steel?` the climb went from ONE ranked anchor
+    // to three, and test/33's own CAST-candidate spread was recovered.
+    //
+    // It is still wrong, and net worse (measured: test/29 went 9/2 to 7/4).
+    // canonicalWindows governs EXACT identity lookup, which recognition
+    // already probes at every offset — it says nothing about the grain of an
+    // approximate gist, so "the write side's unit scale" was two machineries
+    // conflated.  What the tiles actually do is reintroduce a fixed stride
+    // inside the segment, and the extra votes reorder the climb: on
+    // `How is Shakespeare like Leonardo da Vinci?` the short name deposits
+    // outranked the exemplar sentences, claimed their aligned runs first, and
+    // left the sentences CAST needs with no free run at all (C2, C3).  A
+    // region must come from the fold, not from a stride over it.
   });
   return regions;
 }
@@ -680,8 +727,12 @@ export async function voteRegions(
   const regionVoter: Array<{ id: number; score: number; w: number } | null> =
     ctx.trace ? regions.map(() => null) : [];
 
+  const W = ctx.space.maxGroup;
   for (let ri = 0; ri < regions.length; ri++) {
-    const { v, start, end, chunk, known } = regions[ri];
+    // `v`/`start`/`end` are rebindable: a long approximate segment may vote
+    // with the sub-span that actually carries its evidence — see below.
+    let { v, start, end } = regions[ri];
+    const { chunk, known } = regions[ri];
     // Trace-only bookkeeping for this region — allocated only under `td`
     // (i.e. only when ctx.trace is set); see ConsensusRegionTrace/
     // RegionOutcome (spec §4).  `examinedIds` tracks distinct ANN hits
@@ -725,10 +776,10 @@ export async function voteRegions(
     // the resonate() call for most exact regions — the single largest
     // remaining inference sink — with the anchor choice unchanged (the
     // canonical branch already ignored hits[0]).
-    const canonicalId = chunk
+    let canonicalId = chunk
       ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
       : null;
-    const canonicalUsable = canonicalId !== null &&
+    let canonicalUsable = canonicalId !== null &&
       (ctx.store.hasParents(canonicalId) ||
         ctx.store.hasContainers(canonicalId));
     let hits: readonly Hit[] | null = null;
@@ -739,6 +790,80 @@ export async function voteRegions(
       }
       return hits;
     };
+
+    // A DILUTED SEGMENT VOTES WITH THE SPAN THAT CARRIES ITS EVIDENCE.
+    //
+    // A content segment runs up to the keyring's seat count and folds FLAT, so
+    // its gist superposes every one of its bytes: an entity inside a longer
+    // segment is averaged together with whatever scaffolding shares the
+    // segment, and the resonance reads the average.  Measured on
+    // `How is ice like steel?` against a store holding `Steel is hard`: the
+    // segment `ike stee` resonates to `Ice is c` at 0.297 — the WRONG deposit —
+    // with `Steel ` fourth at 0.123, while the sub-span `stee` resonates to
+    // `Steel ` at 0.627.  The evidence is there; the whole-segment read cannot
+    // see it, and `Steel is hard` received no vote at all (test/29 C1).
+    //
+    // Entered only after the EXACT path has already failed — a chunk with a
+    // usable canonical identity has a content-addressed handle on its own bytes
+    // and needs no estimator at all — so this is honest degradation, not extra
+    // work on regions that already resolved.  The candidates are the segment's
+    // two EDGE sub-spans at the write side's own unit scale (W) — the scale
+    // `canonicalWindows` interns, and the only one at which a sub-span could
+    // carry a stored identity; a segment of W or less has no interior at all.
+    // Edges because a content cut lands INSIDE a unit, so the remnant it split
+    // sits against the cut: `steel` is cut after `stee`.  Offering every
+    // interior offset instead was measured and is worse — it re-anchors
+    // segments on spans no boundary ever separated, and broke three of
+    // test/17's vote-distribution and root-count assertions (428/1 → 424/5).
+    //
+    // Selection is by the SAME quantity the region's vote is weighted by —
+    // score² · idf — never by score alone: the scaffolding window `is i`
+    // resonates at 0.832, far above `stee`, and is worth nothing because its
+    // reach is the whole corpus.  Nothing new is being measured here; the
+    // choice the code did not previously make is made with the criterion it
+    // already uses.  The region's SPAN narrows with its gist, so breadth,
+    // clusters and cross-region pairing all see where the evidence really sits.
+    if (!canonicalUsable && chunk && !known && end - start > W) {
+      const weigh = (h: Hit): { w: number; id: number } | null => {
+        const r = edgeAncestors(ctx, h.id, N, reachMemo);
+        if (r.saturated || r.roots.length === 0) return null;
+        const idf = Math.log(N / Math.max(1, r.contextsReached));
+        if (idf <= 0) return null;
+        return { w: h.score * h.score * idf, id: h.id };
+      };
+      // The whole-segment candidate reuses the ranking the region needs
+      // anyway, so only the two edge probes are new work.
+      const scoreOf = async (
+        gist: Vec,
+      ): Promise<{ w: number; id: number } | null> => {
+        const h = await ctx.store.resonate(gist, 1);
+        return h.length === 0 ? null : weigh(h[0]);
+      };
+      const h0 = await ensureHits();
+      let best = h0.length > 0 ? weigh(h0[0]) : null;
+      let bestSpan: [number, number, Vec] | null = null;
+      for (const s0 of [start, end - W]) {
+        const sub = gistOf(ctx, query.subarray(s0, s0 + W));
+        const cand = await scoreOf(sub);
+        if (cand !== null && (best === null || cand.w > best.w)) {
+          best = cand;
+          bestSpan = [s0, s0 + W, sub];
+        }
+      }
+      if (bestSpan !== null) {
+        [start, end, v] = bestSpan;
+        hits = null; // the whole-segment ranking no longer describes this span
+        canonicalId = canonicalChunkId(
+          ctx,
+          query.subarray(start, end),
+          N,
+          reachMemo,
+        );
+        canonicalUsable = canonicalId !== null &&
+          (ctx.store.hasParents(canonicalId) ||
+            ctx.store.hasContainers(canonicalId));
+      }
+    }
 
     const canonicalFailed = chunk && canonicalId === null;
     let voterId: number;
@@ -1123,7 +1248,12 @@ export function poolVotes(
         const rv = regionVotes[p0.ri];
         breadthSum += rv.absorbed ?? 1;
         premises.push({ kind: "form", span: [rv.start, rv.end] });
-        spans.push([rv.start, rv.end]);
+        // A vote knows where its own evidence sits: `parts` when it stands on
+        // several separate places (a joint binding), the merged span
+        // otherwise.  See RegionVote.parts.
+        if (rv.parts !== undefined) {
+          for (const [s, e] of rv.parts) spans.push([s, e]);
+        } else spans.push([rv.start, rv.end]);
       }
       regionSupport.set(pc.item.id, breadthSum);
       regionSpans.set(pc.item.id, spans);
@@ -1428,13 +1558,38 @@ export function canonicalChunkId(
   reachMemo?: Map<number, AncestorReach>,
 ): number | null {
   const len = Math.min(regionBytes.length, ctx.space.maxGroup);
+  // WHICH window anchors a region is decided by reach, not by position.  This
+  // used to return at the FIRST offset that matched, which was indistinguishable
+  // from correct while every region was exactly W bytes — there was only one
+  // offset.  A content-defined segment is longer, and its first window is
+  // whatever happens to start it: for "is frigi" that is " is ", pure
+  // scaffolding, which reaches every context, saturates, and makes the whole
+  // region ABSTAIN.  The region's own content ("frigi") never got a say, and
+  // CAST lost a point of attention it needed (test/29 D1/D2).
+  //
+  // So scan every offset and prefer an anchor that still discriminates: not
+  // saturated, and among those the one reaching the FEWEST contexts (§2.7,
+  // corpus-global).  Only when every window in the region saturates does the
+  // old generalising choice stand — there is then no discriminative anchor to
+  // find, and abstaining is the honest outcome.
+  let discId: number | null = null;
+  let discReached = Infinity;
+  let fallback: number | null = null;
   for (let off = 0; off + len <= regionBytes.length; off++) {
     const ids = leafIdRun(ctx, regionBytes, off, off + len);
-    if (ids === null) return null;
+    // An unknown byte disqualifies THIS window, not the region.  This used to
+    // abandon the whole region on the first unseen byte, which was
+    // indistinguishable from correct while regions were exactly W bytes — there
+    // was one window, so failing it was failing the region.  A content-defined
+    // segment holds several windows, and a single unknown byte near its start
+    // was silently costing the region its anchor entirely.
+    if (ids === null) continue;
     const flatId = ctx.store.findBranch(ids);
     if (flatId === null) continue;
     if (len < 2) return flatId;
 
+    // Within one window, the widest reach is still the right CANONICAL
+    // identity — a chunk's anchor should be its most general stable form.
     let bestId = flatId;
     let bestReach = edgeAncestors(ctx, flatId, N, reachMemo);
     for (let k2 = 1; k2 < len; k2++) {
@@ -1450,9 +1605,16 @@ export function canonicalChunkId(
         bestReach = shortReach;
       }
     }
-    return bestId;
+    if (fallback === null) fallback = bestId;
+    if (!bestReach.saturated && bestReach.contextsReached < discReached) {
+      discId = bestId;
+      discReached = bestReach.contextsReached;
+      // Nothing can discriminate better than reaching ONE context, so the scan
+      // stops there rather than pricing the rest of the segment's windows.
+      if (discReached <= 1) break;
+    }
   }
-  return null;
+  return discId ?? fallback;
 }
 
 export function naturalBreak(votes: number[]): number {
@@ -2030,7 +2192,19 @@ async function crossRegionVotes(
   // one side is always individually discriminative.
   //
   // Only MAXIMAL spans compose: a span contained in another candidate is a
-  // fragment of that candidate's evidence, never independent of it.
+  // fragment of that candidate's evidence, never independent of it — but
+  // containment alone does not establish that relation.  An APPROXIMATE
+  // container (a fold segment whose gist merely resonated) does not hold the
+  // evidence of an EXACT one (a recognised site, content-addressed): its
+  // bytes straddle the site rather than explain it, so calling the site a
+  // fragment of it discards the only exact reading of those bytes.  Measured:
+  // on `blue then square` the segment `blue t` swallowed the site `blue`,
+  // leaving one candidate and no pair, while on `red then circle` the
+  // segment happened to end at `red `'s edge and the same query shape
+  // composed — the outcome turned on where a cut fell.  This is the same
+  // discipline the between-region gate below already states: an approximate
+  // region climbing "somewhere" is ordinary noise, not evidence.
+  //
   // Shared across every cross-region probe in this climb: a sibling
   // successfully reconstructed while probing one pair must not be read and
   // perceived again while probing another pair in the same climb.
@@ -2054,7 +2228,8 @@ async function crossRegionVotes(
       y !== x &&
       regions[y].start <= regions[x].start &&
       regions[x].end <= regions[y].end &&
-      regions[y].end - regions[y].start > regions[x].end - regions[x].start
+      regions[y].end - regions[y].start > regions[x].end - regions[x].start &&
+      (regions[y].known || !regions[x].known)
     )
   );
   const none = { votes: [], superseded: new Set<RegionVote>() };
@@ -2497,9 +2672,26 @@ async function crossRegionVotes(
         spanStart = Math.min(spanStart, regions[ei].start);
         spanEnd = Math.max(spanEnd, regions[ei].end);
       }
-      consumed.add(cand[a]);
-      consumed.add(cand[b]);
-      for (const ei of bestExtras) consumed.add(ei);
+      // CONSUMPTION IS FOR CONTAINER-BACKED EVIDENCE ONLY.  Consuming a
+      // candidate says "its evidence is already composed at full joint
+      // strength, re-pairing it would vote the same container twice" — a
+      // claim only a real container can make.  A structural-resonance pick
+      // has none (see above: it is NOT a Junction), so consuming its
+      // endpoints locks up candidates on the strength of an ANN guess and
+      // stops genuine evidence from ever composing them.  Measured: on
+      // `greet reply-greet then red then circle` the pair
+      // `reply-greet` ▸ `red` resonated to `red square` and consumed `red`,
+      // after which `red` ▸ `circle` was never probed and the exact junction
+      // `red circle` — a stored whole, sitting right there — went unfound.
+      // This is spec §15's asymmetry (only exact DAG evidence may explain
+      // ordinary votes away) applied to the other way a tier can silence
+      // evidence.  Both votes now stand and pooling decides between them,
+      // which is what the mechanism market is for.
+      if (structuralPick === null) {
+        consumed.add(cand[a]);
+        consumed.add(cand[b]);
+        for (const ei of bestExtras) consumed.add(ei);
+      }
 
       // EXPLAINING AWAY — see the block comment above the function.  Byte
       // containment in the joint container is the relatedness test (the
@@ -2549,6 +2741,16 @@ async function crossRegionVotes(
         w,
         wFocus: w,
         absorbed: 1 + explainedAway,
+        // The places this junction actually stands on — its two endpoints and
+        // any N-ary extras, NOT the merged span [spanStart, spanEnd], which
+        // swallows the gap and reads as one neighbourhood.  See
+        // RegionVote.parts.
+        parts: [cand[a], cand[b], ...bestExtras]
+          .map((ri): readonly [number, number] => [
+            regions[ri].start,
+            regions[ri].end,
+          ])
+          .sort((x, y) => x[0] - y[0]),
       });
       pushProbe("accepted");
       if (td) {

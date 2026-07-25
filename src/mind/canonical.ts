@@ -27,7 +27,12 @@ import type { MindContext } from "./types.js";
 
 /** The two sliding-window lengths the WRITE side interns over a stream's leaf
  *  ids: W−1 and W (the river's grouping quantum and its off-by-one neighbour,
- *  so a form straddling a group boundary is reachable from either cut). */
+ *  so a form straddling a group boundary is reachable from either cut).
+ *
+ *  Widening this to cover the reader's full segment scale (W−1..2W) was
+ *  measured and REFUTED: it tripled the store (3,160 → 8,980 nodes on a
+ *  200-pair corpus), slowed ingest 80%, and fixed not one test.  Unknown
+ *  regions are not caused by the index's scale. */
 export function canonicalWindows(W: number): [number, number] {
   return [W - 1, W];
 }

@@ -351,14 +351,27 @@ export async function counterfactualTransfer(
       ? s.ctx.subarray(0, r.cs + (r.qe - r.qs))
       : query.subarray(r.qs, r.qe);
   };
+  // The subject is the closest structure whose FILLER RUN precedes the seat.
+  // The gate is on `runs[0]` — the run `fillerOf` actually reads — not on the
+  // point's LAST run: requiring the subject's whole alignment to end before
+  // the seat disqualifies any structure the query mentions on BOTH sides of
+  // it, which is the shape CAST exists for.  Measured on
+  // `steel is frigid so steel is ???` against `steel is hard so steel is
+  // strong` (runs "steel is " at 0-9 and "d so steel is " at 14-28) and
+  // `water is frigid so water is freezing` (seat "frigi" at 9-14): the
+  // subject's filler run sits squarely before the seat, but its second run —
+  // the recurrence AFTER it, the very thing that makes the sentence an
+  // analogy — pushed lastRun past the seat and no substitution fired at all.
+  // The ordering key follows the gate to the same run, so "closest preceding"
+  // still means closest by the evidence actually used.
   const beforeOf = (p: Point, r: GradedRun): Point | undefined =>
     argmaxBy(
       points.filter((s) =>
-        s !== p && lastRun(s).qe <= r.qs &&
+        s !== p && s.runs[0].qe <= r.qs &&
         s.runs[0].cs < quantum &&
         usable(s.runs[0].qs, s.runs[0].qe)
       ),
-      (s) => lastRun(s).qs,
+      (s) => s.runs[0].qs,
       -Infinity,
       true,
     )?.item;
@@ -371,6 +384,18 @@ export async function counterfactualTransfer(
       const before = beforeOf(p, r);
       if (before === undefined) return null;
       if (r.cs > fillerOf(before).length + quantum) return null;
+      // SUBSTITUTION MUST ACTUALLY DISPLACE.  The schema's premise is that the
+      // displaced structure's seat is held by something ELSE, which the
+      // subject then replaces.  When the subject's filler already occurs in
+      // that structure, there is nothing to displace — the "transfer" restates
+      // the structure with its own occupant put back, and the answer is a
+      // tautology.  Measured on `Michelangelo is to sculpture as who is to
+      // literature?`: the weave aligned the concept `Michelangelo` and the
+      // exemplar `The David was sculpted by Michelangelo.`, and substitution
+      // produced `Michelangelo sculpted by Michelangelo.` — then outbid every
+      // honest candidate with it (test/29 A2).  Byte containment, the same
+      // primitive the self-evidence and contradiction guards use.
+      if (indexOf(p.ctx, fillerOf(before), 0) >= 0) return null;
       return { p, before, depth: p.ctx.length - r.cs };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
@@ -479,13 +504,27 @@ export async function counterfactualTransfer(
      *  schema accounts them. */
     src: Point;
   }
+  // QUERY-SCALE — "this learnt context is the same size as the question", the
+  // bound comparison holds its dominant and its analogs to.  A byte-exact
+  // `<= query.length` made that judgement turn on a difference the
+  // architecture cannot perceive: on `The Weeping Woman was painted by Pablo
+  // Picasso.` (47 bytes) the weave's dominant was `The Night Watch was painted
+  // by Rembrandt van Rijn.` (50) — three bytes over, so comparison refused
+  // outright, while the interchangeable `The Mona Lisa was painted by Leonardo
+  // da Vinci.` (47) would have passed.  WHICH exemplar becomes dominant is
+  // settled by run-claiming order among equals, so a 3-byte difference was
+  // deciding whether the schema fires at all (test/33 1b).  W is the smallest
+  // distinction perception can make — the same quantum countClusters separates
+  // neighbourhoods by — so a context within one quantum of the query's length
+  // carries no independently perceivable unit beyond it and is the same scale.
+  const queryScale = (n: number): boolean => n - query.length < quantum;
   const analogs: AnalogCandidate[] = [];
   for (const p of points) {
     if (p === dominant) continue;
     // Push the point's own anchor only when its context fits within
     // the query (the seat sentence must not dominate the comparison).
     if (
-      p.ctx.length <= query.length &&
+      queryScale(p.ctx.length) &&
       indexOf(dominant.ctx, p.ctx, 0) < 0 &&
       indexOf(p.ctx, dominant.ctx, 0) < 0 &&
       indexOf(query, p.ctx, 0) < 0
@@ -504,7 +543,7 @@ export async function counterfactualTransfer(
     for (const nid of ctx.store.nextFirst(p.anchor, hubBound(ctx))) {
       const nctx = read(ctx, nid);
       if (
-        nctx.length > query.length ||
+        !queryScale(nctx.length) ||
         indexOf(dominant.ctx, nctx, 0) >= 0 ||
         indexOf(nctx, dominant.ctx, 0) >= 0 ||
         indexOf(query, nctx, 0) >= 0
@@ -512,6 +551,23 @@ export async function counterfactualTransfer(
       analogs.push({ anchor: nid, point: null, src: p });
     }
   }
+  // MEASURED AND REFUTED — proposing analogs from the dominant's halo when the
+  // query-local generator finds none.  Both loops above are query-local (an
+  // aligned point, or one forward hop off one), while the gate that judges
+  // candidates — analogyStrength's halo tier — is cross-domain by construction
+  // and is licence enough on its own (`bestHalo` exempts it from the naming and
+  // trusted-root bars).  So the gate reads as strictly more capable than the
+  // generator, and closing that asymmetry looks like the fix for test/29 A2
+  // (`Michelangelo is to sculpture as who is to literature?`, whose only stored
+  // content is `Michelangelo`: the weave aligns the concept and its own
+  // exemplar, each contains the other, so every candidate is excluded and
+  // comparison checks zero).
+  //
+  // It proposes nothing.  Measured on A2's own 13-pair corpus: `Michelangelo`
+  // HAS a halo, and `haloSiblings` returns not one sibling above
+  // significanceBar — the distributional company that would make Shakespeare a
+  // cross-domain analog was never trained.  The asymmetry is real but it is not
+  // what stops A2; the corpus is.
   let bestAnalog: AnalogCandidate | null = null;
   let bestSim = 0;
   let bestHalo = false;
@@ -756,7 +812,7 @@ export async function counterfactualTransfer(
     bestAnalog !== null &&
     (bestHalo || analogNamed || rootTrusted) &&
     !cmpDismisses &&
-    dominant.ctx.length <= query.length &&
+    queryScale(dominant.ctx.length) &&
     roots.length <= 1 &&
     !dominates(cmpMaxGap, query.length) &&
     cmpMaxGap < dominant.ctx.length
@@ -802,7 +858,7 @@ export async function counterfactualTransfer(
     );
   } else if (
     bestAnalog !== null &&
-    dominant.ctx.length <= query.length &&
+    queryScale(dominant.ctx.length) &&
     roots.length <= 1
   ) {
     ctx.trace?.step(

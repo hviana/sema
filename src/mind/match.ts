@@ -127,6 +127,17 @@ export function alignRuns(
     // before it shows up in a call count.
     ctx.meter.alignCells += query.length * ct.length;
   }
+  // MEASURED AND REFUTED — seeding at the write side's unit floor W−1 instead
+  // of W.  `canonicalWindows` interns both lengths precisely so a form
+  // straddling a group boundary is reachable from either cut, and the runs
+  // found here are exactly such remnants: test/29 C1's query shares only `ce `
+  // with `Ice is cold` — three bytes, never seeded at W, so that structure
+  // enters the weave carrying nothing but the scaffolding run every exemplar
+  // shares.  But this is a byte MATCHER between two streams, not an index, and
+  // at W−1 the corpus is dense with spurious 3-byte agreements: the extra runs
+  // reshuffle which point claims which span, and test/29 A2 loses its analog.
+  // C1 does not pass either way.  The store's unit floor does not transfer to
+  // the aligner's seed length.
   const quantum = Math.min(ctx.space.maxGroup, ct.length);
   if (quantum < 1 || query.length < quantum) return [];
   const gram = (b: Uint8Array, at: number): string => {
@@ -175,6 +186,13 @@ export function alignRuns(
  *  kind, so the substitution/redirection schemas work unchanged on conceptual
  *  alignment. */
 export interface GradedRun {
+  /** True for a run the CLIMB proposed rather than the byte matcher found — see
+   *  {@link computeWeave}'s phase 2.  Provenance only: a proposed run reaches
+   *  CAST already gated (dominant literal agreement, not frame, and over bytes
+   *  no literal run claimed), so every consumer reads it exactly like any other
+   *  run.  Filtering seat-shaped reads by this flag was tried and is NOT
+   *  needed — the gates, not the flag, are what make it safe. */
+  proposed?: boolean;
   qs: number;
   qe: number;
   cs: number;
