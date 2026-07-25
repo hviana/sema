@@ -31,6 +31,7 @@
 import { addInto, copy, dot, normalize, Vec } from "./vec.js";
 import { DEFAULT_CONFIG, type StoreConfig } from "./config.js";
 import { identityBar } from "./geometry.js";
+import type { Meter } from "./meter.js";
 
 /** A node id: a dense, non-negative integer assigned in creation order. */
 export type NodeId = number;
@@ -225,6 +226,14 @@ export class BoundedMap<K, V> {
 
 export interface Store {
   readonly D: number;
+
+  /** The work accumulator for the inference call in flight, or null.  The
+   *  Mind attaches one per profiled response and detaches it after (see
+   *  src/meter.ts).  A store MUST only ever write to it — no read may reach
+   *  a decision, or determinism is gone.  An adapter that adds reads of its
+   *  own should bump the matching counter; one that does not simply reports
+   *  less, never wrongly. */
+  meter: Meter | null;
 
   // ── the DAG (hash-consed) ──────────────────────────────────────────────
   /** Insert a leaf, returning its content id. Idempotent. */
@@ -1010,6 +1019,7 @@ export abstract class AbstractStore implements Store {
   // ── DAG traversal ──────────────────────────────────────────────────────
 
   get(id: NodeId): NodeRec | null {
+    if (this.meter) this.meter.nodeRecords++;
     // Byte leaves are implicit — fabricate from the id.
     if (id < 0) {
       return { id, leaf: new Uint8Array([-(id + 1)]), kids: null };
@@ -1030,7 +1040,20 @@ export abstract class AbstractStore implements Store {
    *  counter is what keeps that degradation observable. */
   danglingReads = 0;
 
+  /** {@link Store.meter} — the per-response work accumulator, or null when
+   *  nothing is profiling.  Every read below bumps it through `?.`, so an
+   *  unprofiled store pays one null check per read and allocates nothing. */
+  meter: Meter | null = null;
+
   bytes(id: NodeId): Uint8Array {
+    if (this.meter) {
+      this.meter.byteReads++;
+      // Charged BEFORE the fast path returns, and from the cache entry when
+      // there is one: the volume a caller pulled through is the cost signal
+      // (an unbounded read is unbounded whether or not it was cached).
+      const c = this._bytesCache.get(id);
+      if (c) this.meter.bytesRead += c.length;
+    }
     // Fast path.
     const hit = this._bytesCache.get(id);
     if (hit) return hit;
@@ -1082,7 +1105,9 @@ export abstract class AbstractStore implements Store {
       cache.set(nid, out);
     }
 
-    return cache.get(id) ?? _ZERO;
+    const out = cache.get(id) ?? _ZERO;
+    if (this.meter) this.meter.bytesRead += out.length;
+    return out;
   }
 
   /** First `maxLen` bytes of a node.  Walks only the leftmost branch,
@@ -1093,14 +1118,27 @@ export abstract class AbstractStore implements Store {
    *  may be shared with the byte cache and with other callers — treat them
    *  as read-only.  Mutating one would corrupt every subsequent read. */
   bytesPrefix(id: NodeId, maxLen: number): Uint8Array {
-    if (maxLen <= 0) return _ZERO;
-
     // A FULL read (the ALL sentinel) routes through bytes(), whose
     // reconstruction enters the byte-budget cache.  Without this, the mind's
     // read() — which always passes ALL — re-walked the DAG and re-concatenated
     // on EVERY repeated read of an uncached branch, bypassing the cache that
     // exists precisely for those reconstructions.
     if (maxLen >= 0x7fffffff) return this.bytes(id);
+    // METERING BOUNDARY: this public entry point is charged ONCE per logical
+    // read; the walk below recurses through `_prefix`, which is not charged.
+    // Counting the recursion instead made a single read of an N-byte branch
+    // report as N reads (one per node descended), so `byteReads` measured
+    // tree size rather than read requests — it read as ~1 byte per read.
+    if (this.meter) this.meter.byteReads++;
+    const out = this._prefix(id, maxLen);
+    if (this.meter) this.meter.bytesRead += out.length;
+    return out;
+  }
+
+  /** {@link bytesPrefix}'s recursive body — uncharged; see the metering
+   *  boundary note there. */
+  private _prefix(id: NodeId, maxLen: number): Uint8Array {
+    if (maxLen <= 0) return _ZERO;
 
     // Full-cache hit: bytes() already reconstructed the whole node.
     const full = this._bytesCache.get(id);
@@ -1125,7 +1163,7 @@ export abstract class AbstractStore implements Store {
     let got = 0;
     for (const k of kids) {
       if (got >= maxLen) break;
-      const child = this.bytesPrefix(k, maxLen - got);
+      const child = this._prefix(k, maxLen - got);
       parts.push(child);
       got += child.length;
     }
@@ -1133,6 +1171,7 @@ export abstract class AbstractStore implements Store {
   }
 
   contentLen(id: NodeId, cap = Infinity): number {
+    if (this.meter) this.meter.lenReads++;
     if (id < 0) return 1; // implicit single-byte leaf
     const hit = this._lenCache.get(id);
     if (hit !== undefined) return hit; // exact — valid under any cap
@@ -1159,6 +1198,7 @@ export abstract class AbstractStore implements Store {
   // ── Content-addressed lookup ───────────────────────────────────────────
 
   findLeaf(bytes: Uint8Array): NodeId | null {
+    if (this.meter) this.meter.leafLookups++;
     if (bytes.length === 1) return -(bytes[0] + 1);
     const key = keyOf(bytes);
     const cached = this._leafKey.get(key);
@@ -1169,6 +1209,7 @@ export abstract class AbstractStore implements Store {
   }
 
   findBranch(kids: NodeId[]): NodeId | null {
+    if (this.meter) this.meter.branchLookups++;
     const key = kids.join(",");
     const cached = this._branchKey.get(key);
     if (cached !== undefined) return cached;
@@ -1189,18 +1230,22 @@ export abstract class AbstractStore implements Store {
   // ── Structural parents ─────────────────────────────────────────────────
 
   parents(id: NodeId): NodeId[] {
+    if (this.meter) this.meter.parentReads++;
     return this._dbGetParents(id);
   }
 
   parentsFirst(id: NodeId, limit: number): NodeId[] {
+    if (this.meter) this.meter.parentReads++;
     return this._dbGetParentsFirst(id, limit);
   }
 
   hasParents(id: NodeId): boolean {
+    if (this.meter) this.meter.parentProbes++;
     return this._dbGetParentsFirst(id, 1).length > 0;
   }
 
   chainRun(id: NodeId): readonly NodeId[] {
+    if (this.meter) this.meter.chainRuns++;
     const hit = this._chainMemo.get(id);
     if (hit !== undefined) return hit;
     const run = this._chainWalk(id, CHAIN_DEPTH_CAP);
@@ -1236,12 +1281,14 @@ export abstract class AbstractStore implements Store {
   }
 
   hasContainers(child: NodeId): boolean {
+    if (this.meter) this.meter.containerProbes++;
     if (this._dbContainExists(child)) return true;
     const buf = this._containBuf.get(child);
     return buf !== undefined && buf.size > 0;
   }
 
   containersSlice(child: NodeId, offset: number, limit: number): NodeId[] {
+    if (this.meter) this.meter.containerReads++;
     const out = this._dbGetContainParentsSlice(child, offset, limit);
     if (out.length >= limit) return out;
     // Buffered adds page in AFTER the stored ones.  A buffered parent that is
@@ -1262,6 +1309,7 @@ export abstract class AbstractStore implements Store {
   }
 
   containers(child: NodeId): NodeId[] {
+    if (this.meter) this.meter.containerReads++;
     const stored = this._dbGetContainParents(child);
     const buf = this._containBuf.get(child);
     if (stored.length === 0) return buf ? [...buf] : [];
@@ -1662,9 +1710,13 @@ export abstract class AbstractStore implements Store {
     const cache = this._resonateCache;
     if (cache) {
       const hit = cache.get(rk);
-      if (hit !== undefined) return hit;
+      if (hit !== undefined) {
+        if (this.meter) this.meter.annCacheHits++;
+        return hit;
+      }
     }
 
+    if (this.meter) this.meter.annQueries++;
     const clusters = this._vecContentClusterCount();
     const results = this._vecContentQuery(
       normalize(copy(v)),
@@ -1681,6 +1733,10 @@ export abstract class AbstractStore implements Store {
       out.push({ id, score: 1 - r.distance });
       if (out.length >= k) break;
     }
+
+    // Vectors the index actually scored for THIS descent — the counter that
+    // exposes a query whose ANN cost is growing with the corpus.
+    if (this.meter) this.meter.annVectorReads += this._vecContentLastReads();
 
     const rc = this._resonateCache ??= new Map();
     if (rc.size >= RESONATE_CACHE_MAX) rc.clear();
@@ -1924,29 +1980,35 @@ export abstract class AbstractStore implements Store {
   }
 
   next(id: NodeId): NodeId[] {
+    if (this.meter) this.meter.edgeReads++;
     return this._dbGetNextEdges(id);
   }
 
   /** {@link Store.hasNext} — one indexed point probe, never a range read. */
   hasNext(id: NodeId): boolean {
+    if (this.meter) this.meter.edgeProbes++;
     return this._dbEdgeSrcExists(id);
   }
 
   prev(id: NodeId): NodeId[] {
+    if (this.meter) this.meter.prevReads++;
     return this._dbGetPrevEdges(id);
   }
 
   nextFirst(id: NodeId, limit: number): NodeId[] {
+    if (this.meter) this.meter.edgeReads++;
     return this._dbGetNextEdgesFirst(id, limit);
   }
 
   prevFirst(id: NodeId, limit: number): NodeId[] {
+    if (this.meter) this.meter.prevReads++;
     return this._dbGetPrevEdgesFirst(id, limit);
   }
 
   /** {@link Store.prevCount}.  Subclasses with an indexed reverse-edge count
    *  should override; this default materialises (correct, not optimal). */
   prevCount(id: NodeId): number {
+    if (this.meter) this.meter.prevProbes++;
     return this._dbGetPrevEdges(id).length;
   }
 
@@ -1964,11 +2026,13 @@ export abstract class AbstractStore implements Store {
   // ── Halos ──────────────────────────────────────────────────────────────
 
   haloMass(id: NodeId): number {
+    if (this.meter) this.meter.haloProbes++;
     const r = this._dbGetHalo(id);
     return r ? r.mass : 0;
   }
 
   halo(id: NodeId): Vec | null {
+    if (this.meter) this.meter.haloReads++;
     const cached = this._haloNorm.get(id);
     if (cached !== undefined) return copy(cached);
     const r = this._dbGetHalo(id);
@@ -1982,6 +2046,7 @@ export abstract class AbstractStore implements Store {
   /** {@link Store.hasHalo} — MUST mirror {@link halo}'s null condition
    *  exactly (row present AND mass ≥ minHaloMass), minus the decode. */
   hasHalo(id: NodeId): boolean {
+    if (this.meter) this.meter.haloProbes++;
     const r = this._dbGetHalo(id);
     return r !== null && r.mass >= this.minHaloMass;
   }
@@ -2018,9 +2083,13 @@ export abstract class AbstractStore implements Store {
     const cache = this._resonateHaloCache;
     if (cache) {
       const hit = cache.get(rk);
-      if (hit !== undefined) return hit;
+      if (hit !== undefined) {
+        if (this.meter) this.meter.annCacheHits++;
+        return hit;
+      }
     }
 
+    if (this.meter) this.meter.haloQueries++;
     const results = this._vecHaloQuery(
       normalize(copy(v)),
       k * this.overfetch,

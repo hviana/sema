@@ -7,6 +7,7 @@
 // symbolic-rewriting mechanism. See ./../README.md for the design.
 
 export { lightestDerivation } from "./deduction.js";
+export type { SearchStats } from "./deduction.js";
 export type {
   DeductionSystem,
   Derivation,

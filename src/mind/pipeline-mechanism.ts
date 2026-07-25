@@ -19,9 +19,9 @@ import type { ComputedSpan } from "../extension.js";
 import type { Vec } from "../vec.js";
 import { windowIds } from "./canonical.js";
 import { read, resolve } from "./primitives.js";
-import { alignGraded, type GradedRun } from "./match.js";
+import { alignGraded, type GradedRun, skillExemplar } from "./match.js";
 import { climbAttentionAll } from "./attention.js";
-import { skillExemplar } from "./mechanisms/extraction.js";
+import { sharedReachMemo } from "./traverse.js";
 
 // ── Precomputed ──────────────────────────────────────────────────────────────
 //
@@ -94,9 +94,16 @@ export class Precomputed {
   }
 
   /** Shared memo for {@link reachOf} (structural-IDF reads): a window's
-   *  ancestor reach is a pure function of the read-only store, so one
-   *  response-scoped memo serves every mechanism that prices commonality. */
-  readonly reachMemo = new Map<number, AncestorReach>();
+   *  ancestor reach is a pure function of the read-only store, so one memo
+   *  serves every mechanism that prices commonality — AND the consensus
+   *  climb, which is the largest consumer and used to build its own.  The
+   *  ONE definition of its lifetime lives in traverse.ts
+   *  ({@link sharedReachMemo}): response-scoped for respond(),
+   *  conversation-scoped across turns, always cold under a trace. */
+  private _reach?: Map<number, AncestorReach>;
+  get reachMemo(): Map<number, AncestorReach> {
+    return this._reach ??= sharedReachMemo(this.ctx);
+  }
 
   // ── Expensive lazy analyses ───────────────────────────────────────────
   //
@@ -105,16 +112,26 @@ export class Precomputed {
   // mechanism MUST check its cheap floor gates and the pipeline's
   // `worthRunning` predicate before first-touching one of these.
 
+  /** Charge a lazily-shared analysis to its OWN phase rather than to the
+   *  mechanism that happened to first-touch it.  Without this the profile
+   *  reads as "cast.floor costs 2 s" when what actually cost 2 s is the
+   *  consensus climb — which cast merely paid for on everyone's behalf, and
+   *  which every later consumer then got free.  Attribution must follow the
+   *  work, not the caller. */
+  private shared<T>(phase: string, fn: () => Promise<T>): Promise<T> {
+    const meter = this.ctx.meter;
+    return meter ? meter.time(phase, fn) : fn();
+  }
+
   private _attention?: Promise<AttentionRead>;
   /** The full consensus climb (roots + ranked anchors) — the query-level
    *  evidence CAST, confluence, extraction, recall's scaffolding tier, and
    *  fusion all share.  Computed on first access; a query no mechanism
    *  climbs for (e.g. one an extension decided outright) never pays for it. */
   attention(): Promise<AttentionRead> {
-    return this._attention ??= climbAttentionAll(
-      this.ctx,
-      this.query,
-      this.k,
+    return this._attention ??= this.shared(
+      "attention",
+      () => climbAttentionAll(this.ctx, this.query, this.k),
     );
   }
 
@@ -124,7 +141,10 @@ export class Precomputed {
    *  mechanism doing analogical transfer. */
   weave(): Promise<WeaveInfo> {
     return this._weave ??= this.attention().then((climb) =>
-      computeWeave(this.ctx, this.query, this, climb)
+      this.shared(
+        "weave",
+        async () => computeWeave(this.ctx, this.query, this, climb),
+      )
     );
   }
 
@@ -140,7 +160,10 @@ export class Precomputed {
   spanShapedOf(anchor: number): Promise<SkillInfo | null> {
     let p = this._spanShaped.get(anchor);
     if (p === undefined) {
-      p = skillExemplar(this.ctx, anchor, this.guide);
+      p = this.shared(
+        "spanShaped",
+        () => skillExemplar(this.ctx, anchor, this.guide),
+      );
       this._spanShaped.set(anchor, p);
     }
     return p;
@@ -277,6 +300,25 @@ export interface MechanismResult {
   /** Override the mechanism's default provenance for this result.
    *  When absent, the pipeline uses `mech.provenance`. */
   provenance?: string;
+
+  /** This grounding is a COMPLETE trained answer — post-grounding must not
+   *  extend it.  Declared by the mechanism about its own result, exactly like
+   *  `accounted`/`used`/`unexplained`; the decider honours the property and
+   *  never asks which mechanism set it, so the market stays uniform.
+   *
+   *  Set it only when the answer is a stored form's OWN continuation reached
+   *  through an identity claim about the query — i.e. the query IS some
+   *  trained context, so its continuation is the whole read-out and a further
+   *  multi-hop pivot would chain PAST the fact that produced the answer.
+   *  That is the same reasoning `reason`'s echo guard already applies to a
+   *  query that resolves exactly (see reasoning.ts); this carries the claim
+   *  for the mechanisms that establish the identity by another route.
+   *
+   *  Observed without it: the correct "What is the process of
+   *  photosynthesis?" grounding was pivoted forward four times, out of the
+   *  fact that answered it and into an unrelated "Hello! How can I assist you
+   *  today?" conversational turn. */
+  complete?: boolean;
 }
 
 // ── PipelineMechanism ────────────────────────────────────────────────────────

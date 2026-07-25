@@ -64,7 +64,14 @@ export function perceive(
       if (memo) {
         const key = latin1Key(bytes);
         const hit = memo.get(key);
-        if (hit !== undefined) return hit;
+        if (hit !== undefined) {
+          if (ctx.meter) ctx.meter.perceiveHits++;
+          return hit;
+        }
+        if (ctx.meter) {
+          ctx.meter.perceptions++;
+          ctx.meter.perceivedBytes += bytes.length;
+        }
         const tree = bytesToTree(
           ctx.space,
           ctx.alphabet,
@@ -75,6 +82,10 @@ export function perceive(
         );
         memo.set(key, tree);
         return tree;
+      }
+      if (ctx.meter) {
+        ctx.meter.perceptions++;
+        ctx.meter.perceivedBytes += bytes.length;
       }
       return bytesToTree(
         ctx.space,
@@ -243,6 +254,7 @@ export function foldTree(
  *  unknown. */
 export function resolve(ctx: MindContext, bytes: Uint8Array): number | null {
   if (bytes.length === 0) return null;
+  if (ctx.meter) ctx.meter.resolves++;
   const exact = foldTree(ctx, perceive(ctx, bytes), 0).node;
   if (exact !== null) return exact;
   return canonResolve(ctx, bytes);
@@ -283,6 +295,7 @@ export function canonResolve(
     const direct = foldTree(ctx, perceive(ctx, key), 0).node;
     if (direct !== null) return set(direct);
   }
+  if (ctx.meter) ctx.meter.canonLookups++;
   const candidates = store.canonFind(canonHash(key));
   if (candidates.length === 0) return set(null);
   let best: number | null = null;

@@ -350,6 +350,18 @@ export class GraphSearch {
     private readonly host: GraphSearchHost,
   ) {}
 
+  /** The hub bound √N (AGENTS §2.8) — the ONE fan-out cap, stated here
+   *  rather than imported from `traverse.ts` because this module is
+   *  deliberately host-based (it holds a bare Store, never a MindContext).
+   *  That is the same write/read-side duplication convention canonical.ts's
+   *  header documents: if the formula changes it must change in BOTH places.
+   *  It is stated ONCE per side, though — the expression used to be spelled
+   *  out at three call sites here, one of them inside a per-item rules
+   *  generator, and they had already drifted on the `Math.max(2, …)` floor. */
+  private hubBound(): number {
+    return Math.ceil(Math.sqrt(Math.max(2, this.store.edgeSourceCount())));
+  }
+
   /** Explore the Sema graph for the lightest cover of the query and return its
    *  chosen spans left-to-right — WITH the derivation's total weight (the g
    *  value of the goal item, in the exported cost ladder), which think's
@@ -442,7 +454,17 @@ export class GraphSearch {
       connectors,
       computedResults,
     );
-    const derivation = lightestDerivation(system);
+    // Search-effort accounting (src/meter.ts): the chart's pops/pushes are
+    // the cover's real cost, and a heuristic that stops being admissible
+    // shows up as a pop count that explodes while the answer stays the same.
+    const meter = this.host.meter;
+    const stats = meter ? { pops: 0, pushes: 0 } : undefined;
+    const derivation = lightestDerivation(system, stats);
+    if (meter && stats) {
+      meter.searches++;
+      meter.searchPops += stats.pops;
+      meter.searchPushes += stats.pushes;
+    }
     // When covering under a substitution map (articulation), a form→out rule is
     // the form EMITTING the asker's voice, not grounding to its own answer — so
     // tell the reader to name those moves `voice` rather than `ground`.
@@ -475,15 +497,12 @@ export class GraphSearch {
   ): DeductionSystem<GItem> {
     const W = this.maxGroup; // fusible span ceiling (shortest composite bound)
     // Same corpus-scale hub floor {@link atomIsHub}/{@link atomReach} (traverse.ts)
-    // derive for byte atoms — duplicated here rather than imported because this
-    // module is deliberately host-based (no MindContext), and both inputs
-    // (maxGroup, edgeSourceCount) are already in scope with no ctx needed.  If
-    // the formula ever changes, it must change in BOTH places (see canonical.ts's
-    // header for the same write/read-side duplication convention).
+    // derive for byte atoms — see {@link hubBound} below for why this module
+    // states the formula itself instead of importing it.
     const atomsAreHubs = Math.max(
       1,
       Math.ceil((this.store.edgeSourceCount() * W) / 256),
-    ) > Math.ceil(Math.sqrt(Math.max(2, this.store.edgeSourceCount())));
+    ) > this.hubBound();
     const nodeBytes = (n: number) => this.store.bytesPrefix(n, ALL);
     // Content-addressed probes over the store's hash-cons maps — the same keys
     // training filled.  No byte-by-byte trie walk.
@@ -753,10 +772,7 @@ export class GraphSearch {
       // guard then dead-ends it) with no way to reach the forward edge.
       // Forking offers every continuation as its own rule so the one that
       // genuinely advances (not a duplicate) is still reachable.
-      const bound = Math.ceil(
-        Math.sqrt(Math.max(2, this.store.edgeSourceCount())),
-      );
-      const nx = this.store.nextFirst(it.node, bound);
+      const nx = this.store.nextFirst(it.node, this.hubBound());
       if (nx.length) {
         // The SAME evidence-weighted disambiguation the first hop uses
         // (below) identifies the most-corroborated continuation.  Yielding
@@ -1142,16 +1158,39 @@ export class GraphSearch {
     // is opportunistic cross-leaf recovery exactly like recognition.ts's own
     // canonical chain — findLeaf/findBranch here have no idea WHY these two
     // leaves are adjacent, only that their concatenation happens to spell a
-    // trained form ("hi" recovered from "W[hi]ch").  The same corpus-scale
-    // caution recognition.ts's `boundary` gate applies: trust it fully when
-    // `l.i` is a position the query's OWN fold chose as a boundary (real
-    // structural evidence); past the scale where atoms themselves stop
-    // discriminating, an interior offset's opportunistic match is noise, not
-    // a genuine cross-leaf recovery.  A completion-involved fuse (l.rec ||
-    // r.rec) is a different, legitimate case — a rewrite growing into its
-    // neighbour — and is exempt, same as recognition.ts's rec-derived sites.
-    const trusted = l.rec || r.rec || ctx.starts.has(l.i) ||
-      !ctx.atomsAreHubs;
+    // trained form ("hi" recovered from "W[hi]ch").  At hub scale, where
+    // atoms themselves no longer discriminate, that coincidence is noise.
+    //
+    // A FOLD BOUNDARY IS NOT EVIDENCE.  This gate used to exempt any fuse
+    // starting at `starts.has(l.i)` — documented as "a position the query's
+    // OWN fold chose as a boundary (real structural evidence)".  The plain
+    // river fold CHOOSES NOTHING: `riverFold` groups fixed-arity
+    // (`for (i = 0; i < complete; i += mg)`), so `starts` is exactly
+    // {0, W, 2W, 3W, …} for every query.  Measured on three unrelated
+    // queries: starts = 0,4,8,12,16,20,24,28[,32] in every case — the set
+    // carries ZERO content information, and the exemption therefore fired at
+    // a quarter of all offsets by arithmetic alone.
+    //
+    // What it cost (17.9M-node store, W=4): "In which country is the Eiffel
+    // Tower?" fused the atoms "h"+"i" at offset 4 — trusted only because
+    // 4 ≡ 0 (mod 4) — into the trained form "hi", followed its continuation
+    // edge, and grounded "Hello there. If you are looking for Open
+    // Assistant, look no further." as a FACT, explaining 2 of 37 bytes
+    // (density 0.054, a fifth of the 1/W honesty bar `thinGrounding`
+    // reports and does not enforce).
+    //
+    // So the exemption is removed rather than replaced: there is no cheap
+    // signal here that means what it claimed to mean, and inventing one
+    // would be worse than admitting the absence. Genuine cross-leaf forms
+    // are not lost — recognition.ts's canonical pass already probes EVERY
+    // byte offset for the write side's interned windows and emits them as
+    // sites, which arrive here as `l.rec`/`r.rec` and stay exempt. What
+    // remains excluded at hub scale is precisely the case with no evidence
+    // behind it: two byte atoms that happen to spell something.
+    //
+    // Below hub scale nothing changes (`!atomsAreHubs`): on a small store
+    // coincidence is rare and every chain is real evidence.
+    const trusted = l.rec || r.rec || !ctx.atomsAreHubs;
     let node = (trusted && bytes.length <= ctx.W)
       ? ctx.findLeafU(bytes)
       : undefined;

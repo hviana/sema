@@ -128,12 +128,25 @@ export interface Derivation<I> {
   premises: Array<Derivation<I>>;
 }
 
+/** Optional search-effort read-out, filled in place while the search runs.
+ *  A plain structural record so the sublibrary stays firewalled (it imports
+ *  nothing from Sema, and Sema copies these into its own accounting).  Purely
+ *  observational: the search never reads it back. */
+export interface SearchStats {
+  /** Agenda entries popped, stale lazy-deletion entries included — the chart
+   *  work actually done. */
+  pops: number;
+  /** Agenda entries pushed by a successful relaxation. */
+  pushes: number;
+}
+
 /**
  * Find a lightest derivation of a goal item, or `null` if none exists.
  * `cost` on the returned root is the total derivation cost.
  */
 export function lightestDerivation<I>(
   system: DeductionSystem<I>,
+  stats?: SearchStats,
 ): Derivation<I> | null {
   const g = new Map<string, number>(); // best known cost per item
   const proof = new Map<string, Rule<I> | null>(); // producing rule per item
@@ -177,6 +190,7 @@ export function lightestDerivation<I>(
       g.set(key, cost);
       proof.set(key, rule);
       items.set(key, item);
+      if (stats) stats.pushes++;
       agenda.push(cost + h(item, key), { key, g: cost });
     }
   };
@@ -185,6 +199,7 @@ export function lightestDerivation<I>(
 
   while (agenda.size > 0) {
     const { value } = agenda.pop() as { value: { key: string; g: number } };
+    if (stats) stats.pops++;
     const key = value.key;
     // Lazy deletion: an entry is stale if a cheaper derivation has since been
     // recorded for the same item.

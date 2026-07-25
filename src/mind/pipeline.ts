@@ -32,12 +32,18 @@ export { aluToMechanism } from "./mechanisms/alu.js";
 // ── Extension dispatch (pre-loop parse) ─────────────────────────────────────
 
 async function collectComputed(
+  ctx: MindContext,
   mechanisms: readonly PipelineMechanism[],
   query: Uint8Array,
 ): Promise<ComputedSpan[]> {
   const out: ComputedSpan[] = [];
+  const meter = ctx.meter;
   for (const m of mechanisms) {
-    if (m.parse) out.push(...await m.parse(query));
+    if (!m.parse) continue;
+    const spans = meter
+      ? await meter.time(`${m.name}.parse`, () => m.parse!(query))
+      : await m.parse(query);
+    out.push(...spans);
   }
   return out;
 }
@@ -143,7 +149,7 @@ export async function think(
   const rec = recognise(ctx, query);
 
   // Phase 1: collect computed spans from mechanisms that implement parse()
-  const computed = await collectComputed(mechanisms, query);
+  const computed = await collectComputed(ctx, mechanisms, query);
 
   if (computed.length > 0) {
     ctx.trace?.step(
@@ -181,6 +187,7 @@ export async function think(
     used?: ReadonlySet<number>;
     accounted: ReadonlyArray<[number, number]>;
     unexplained: string;
+    complete?: boolean;
   }
   const grade = (w: number) => Math.floor(w / STEP);
   const unaccounted = (spans: ReadonlyArray<[number, number]>): number =>
@@ -195,6 +202,7 @@ export async function think(
   let best: Candidate | null = null;
   const consider = (c: Candidate) => {
     if (c.bytes.length === 0) return;
+    if (ctx.meter) ctx.meter.candidates++;
     candidates.push(c);
     if (best === null || grade(c.weight) < grade(best.weight)) best = c;
   };
@@ -202,8 +210,21 @@ export async function think(
     best === null || grade(floor) < grade(best.weight);
 
   // Phase 3: grounding loop
+  // Per-mechanism accounting (src/meter.ts).  The market's whole premise is
+  // that mechanisms compete on one cost scale — so the profiling read-out is
+  // also per-mechanism, uniformly: the loop never asks which one it holds.
+  const meter = ctx.meter;
   for (const mech of mechanisms) {
-    const floor = await mech.floor(ctx, query, pre, worthRunning);
+    const floor = meter
+      ? await meter.time(
+        `${mech.name}.floor`,
+        () => mech.floor(ctx, query, pre, worthRunning),
+      )
+      : await mech.floor(ctx, query, pre, worthRunning);
+    if (meter) {
+      if (floor === null) meter.mechanismSkips++;
+      else meter.mechanismFloors++;
+    }
     if (floor === null) {
       ctx.trace?.step(
         "skipMechanism",
@@ -224,7 +245,10 @@ export async function think(
       );
       continue;
     }
-    const results = await mech.run(ctx, query, pre);
+    if (meter) meter.mechanismRuns++;
+    const results = meter
+      ? await meter.time(`${mech.name}.run`, () => mech.run(ctx, query, pre))
+      : await mech.run(ctx, query, pre);
     for (const r of results) {
       const weight = r.weight ?? weigh(r.accounted, r.moves);
       consider({
@@ -234,6 +258,7 @@ export async function think(
         used: r.used,
         accounted: r.accounted,
         unexplained: r.unexplained,
+        complete: r.complete,
       });
     }
   }
@@ -338,7 +363,16 @@ export async function think(
     : provenance === "recall" || provenance === "recall-echo"
     ? new Set<number>()
     : new Set(recognise(ctx, answer).sites.map((s) => s.payload));
-  const reasoned = await reason(ctx, query, answer, preConsumed, pre);
+  // A grounding that DECLARED itself complete is not extended: the answer is
+  // already a trained form's own continuation, reached through an identity
+  // claim about the query, so a multi-hop pivot could only chain past the
+  // fact that produced it (see MechanismResult.complete).
+  const reasoned = decided.complete ? answer : meter
+    ? await meter.time(
+      "reason",
+      () => reason(ctx, query, answer, preConsumed, pre),
+    )
+    : await reason(ctx, query, answer, preConsumed, pre);
 
   // Fuse only when the query has a genuine REMAINDER no mechanism's
   // structural evidence touched at all.  `decided.accounted` alone
@@ -374,9 +408,32 @@ export async function think(
     decided.accounted.every(([i, j]) =>
       pre.computed.some((u) => u.i === i && u.j === j)
     );
-  const fused = remainder >= ctx.space.maxGroup
-    ? await fuseAttention(ctx, query, reasoned, pre, unclimbed)
-    : reasoned;
+  // Where the winning grounding stands in the query — fusion places primary
+  // by it (see fuseAttention's `primarySpans`).  `accounted` is the
+  // cost-ladder read and is authoritative when non-empty; when it is empty
+  // the grounding is a pure COMPUTATION, whose evidence is its computed span.
+  // Exactly the cost-ladder-vs-coverage distinction `explained` above draws,
+  // read here for POSITION instead of for coverage — and resolved here, where
+  // both readings are in hand, rather than inside fuseAttention.
+  const primarySpans: ReadonlyArray<[number, number]> =
+    decided.accounted.length > 0
+      ? decided.accounted
+      : pre.computed.map((u): [number, number] => [u.i, u.j]);
+  const fused = remainder < ctx.space.maxGroup
+    ? reasoned
+    : meter
+    ? await meter.time(
+      "fuse",
+      () => fuseAttention(ctx, query, reasoned, pre, unclimbed, primarySpans),
+    )
+    : await fuseAttention(
+      ctx,
+      query,
+      reasoned,
+      pre,
+      unclimbed,
+      decided.accounted,
+    );
 
   done(
     fused,

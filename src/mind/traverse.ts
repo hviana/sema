@@ -32,6 +32,50 @@ interface StructCache {
 }
 const structCaches = new WeakMap<object, StructCache>();
 
+// ── The shared ancestor-reach memo ──────────────────────────────────────
+//
+// `edgeAncestors` is a pure function of (node, N) over a read-only store —
+// asking never writes — so its result is reusable for as long as the store
+// is not written to.  There used to be TWO memos and they never met: the
+// climb built a private one per call (computeAttention), while
+// `Precomputed.reachMemo` — documented as "one response-scoped memo serves
+// every mechanism that prices commonality" — was reached only by confluence.
+// The climb is by far the biggest consumer.
+//
+// Keyed off `ctx.climbMemo`'s OBJECT IDENTITY, exactly like the struct cache
+// above, which buys the right lifetime for free: a plain respond() has a
+// fresh climbMemo, so the memo is response-scoped; a conversation turn has
+// the conversation's persistent one, so it is conversation-scoped.  That
+// matters — the stable-prefix fold makes each turn's subtree independent of
+// what follows, so 59–70% of a later turn's climb regions are byte-identical
+// repeats of an earlier turn's (measured on a 4-turn session), and every one
+// of them used to re-climb from cold.
+//
+// Budgeted, not unbounded (AGENTS §2.12): past the cap the whole map is
+// dropped and re-derived, costing a cold climb and never a wrong answer.
+const REACH_MEMO_MAX = 100_000;
+const reachCaches = new WeakMap<object, Map<number, AncestorReach>>();
+
+/** The reach memo this response should use — see the note above.
+ *
+ *  A TRACED response always gets a fresh, empty one.  `AncestorReach`'s
+ *  `visited`/`maxDepth`/`saturation` fields are populated only when a trace
+ *  is attached, so an entry deposited by an untraced earlier turn would
+ *  silently black out the reach detail of a later traced one; and the trace's
+ *  reach payload is serialised by ITERATING this map, which must therefore
+ *  hold what THIS climb consulted, not the whole conversation's history.
+ *  Consistent with AGENTS §2.11: a traced response is a different machine —
+ *  never benchmark with a trace attached. */
+export function sharedReachMemo(
+  ctx: MindContext,
+): Map<number, AncestorReach> {
+  if (ctx.trace !== null || ctx.climbMemo === null) return new Map();
+  let m = reachCaches.get(ctx.climbMemo);
+  if (m === undefined) reachCaches.set(ctx.climbMemo, m = new Map());
+  else if (m.size >= REACH_MEMO_MAX) m.clear();
+  return m;
+}
+
 function getStructCache(ctx: MindContext): StructCache | null {
   if (ctx.climbMemo === null) return null;
   let c = structCaches.get(ctx.climbMemo);
@@ -134,7 +178,7 @@ export function edgeAncestors(
   // is withdrawn.  On a small store the floor stays ≤ √N and the atom
   // climbs exactly as before, so single-letter facts keep working.
   if (id < 0 && atomIsHub(ctx, contextCount)) {
-    const bound0 = Math.ceil(Math.sqrt(Math.max(2, contextCount)));
+    const bound0 = boundFor(contextCount);
     const reach: AncestorReach = {
       roots: [],
       contextsReached: 0,
@@ -156,7 +200,7 @@ export function edgeAncestors(
     return reach;
   }
 
-  const bound = Math.ceil(Math.sqrt(contextCount));
+  const bound = boundFor(contextCount);
   const roots: number[] = [];
   const seen = new Set<number>([id]);
   const ctxSeen = new Set<number>();
@@ -213,6 +257,7 @@ export function edgeAncestors(
   let maxDepth = 0;
 
   const visit = (x: number): boolean => {
+    if (ctx.meter) ctx.meter.ancestorVisits++;
     if (depths) {
       visitedCount++;
       if (curDepth > maxDepth) maxDepth = curDepth;
@@ -395,8 +440,7 @@ export function atomReach(ctx: MindContext, contextCount: number): number {
  *  atom votes and is recognised exactly as any stored form; above it the
  *  alphabet is scaffolding everywhere and abstains. */
 export function atomIsHub(ctx: MindContext, contextCount: number): boolean {
-  return atomReach(ctx, contextCount) >
-    Math.ceil(Math.sqrt(Math.max(2, contextCount)));
+  return atomReach(ctx, contextCount) > boundFor(contextCount);
 }
 
 /** Whether a node LEADS SOMEWHERE — it bears a continuation edge or a halo.
@@ -444,7 +488,17 @@ export function corpusN(ctx: MindContext): number {
  *  materialised list.  {@link hubCap} is the list-side reading of the same
  *  convention. */
 export function hubBound(ctx: MindContext): number {
-  return Math.ceil(Math.sqrt(corpusN(ctx)));
+  return boundFor(corpusN(ctx));
+}
+
+/** √N for an EXPLICIT context count — the ctx-free reading of {@link
+ *  hubBound}, for the callers inside this module that are handed a count
+ *  rather than a context ({@link edgeAncestors}, {@link atomIsHub}).  The
+ *  floor at 2 matches {@link corpusN}'s, so both readings agree for every
+ *  input: the two used to be spelled out inline, once WITH the floor and
+ *  once without, in the same function. */
+function boundFor(contextCount: number): number {
+  return Math.ceil(Math.sqrt(Math.max(2, contextCount)));
 }
 
 /** Cap a candidate list at the hub bound √N (insertion order) — the ONE

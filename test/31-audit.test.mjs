@@ -235,8 +235,11 @@ test("H2: the ALU meaning-memo does not change answers across repeat responds", 
 // ═══════════════════════════════════════════════════════════════════════
 
 test("I1: containsSpan rejects a sparse subsequence that isSpanShaped accepts", async () => {
+  // The span-shape family lives in the shared match/project family
+  // (match.ts), not inside a mechanism: pipeline-mechanism.ts and
+  // reasoning.ts both consume it, so a mechanism may not own it.
   const { containsSpan, isSpanShaped } = await import(
-    "../dist/src/mind/mechanisms/extraction.js"
+    "../dist/src/mind/match.js"
   );
   const m = newMind();
   await m.ingest([["what is ice?", "ice is frozen water"]]);

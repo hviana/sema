@@ -7,7 +7,7 @@ import { rItem, rNode } from "./trace.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { resolve } from "./primitives.js";
-import { corpusN } from "./traverse.js";
+import { corpusN, hubBound } from "./traverse.js";
 import { follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
@@ -57,16 +57,16 @@ export async function reason(
   // convention every fan-out decision uses (first √N in the relation's own
   // read order); a pivot suppressed only by a beyond-cap neighbour may now
   // fire — the same visibility trade chooseNext documents.
-  const hubBound = Math.ceil(Math.sqrt(corpusN(ctx)));
+  const bound = hubBound(ctx);
   const consumeNode = (id: number | null) => {
     if (id === null) return;
     consumed.add(id);
-    for (const p of ctx.store.prevFirst(id, hubBound)) consumed.add(p);
+    for (const p of ctx.store.prevFirst(id, bound)) consumed.add(p);
   };
   const consumeAll = (id: number | null) => {
     if (id === null) return;
     consumeNode(id);
-    for (const n of ctx.store.nextFirst(id, hubBound)) consumed.add(n);
+    for (const n of ctx.store.nextFirst(id, bound)) consumed.add(n);
   };
 
   // Pre-consume whatever the grounding stage already spoke for.  The halo
@@ -99,7 +99,7 @@ export async function reason(
     // for, so a consumed fixpoint falls through to the pivot step instead.
     if (
       curId !== null &&
-      ctx.store.nextFirst(curId, hubBound).some((n) => !consumed.has(n))
+      ctx.store.nextFirst(curId, bound).some((n) => !consumed.has(n))
     ) {
       const fwd = await follow(ctx, curId, qv);
       const fwdId = fwd !== null ? resolve(ctx, fwd) : null;
@@ -164,6 +164,12 @@ export async function fuseAttention(
    *  primary is unclimbed.  Absent or false preserves the original
    *  behaviour exactly. */
   unclimbed = false,
+  /** The query spans `primary`'s own grounding stands on — used ONLY to place
+   *  primary in the fused reading order (see below).  Resolved by the caller,
+   *  which is the layer that knows how a given grounding records its evidence;
+   *  fuseAttention just reads a position from it.  Empty or absent preserves
+   *  the original behaviour exactly. */
+  primarySpans: ReadonlyArray<readonly [number, number]> = [],
 ): Promise<Uint8Array> {
   // When the answer is structurally drawn from the query itself
   // (extraction), it already spans all the query's pieces — fusion
@@ -194,8 +200,34 @@ export async function fuseAttention(
     return primary;
   }
 
+  // WHERE THE QUERY ASKED FOR IT.  The sort below orders the fused pieces by
+  // query position, which is the whole point of the `start` field: a
+  // multi-topic answer should read in the order the question posed its
+  // topics.  Every ROOT carries its own start.  `primary` did not — it was
+  // given forest[0].start, the FIRST attention root's position, which is
+  // primary's own source only when primary happens to come from that root.
+  // When it does not, primary is sorted to a position it never occupied.
+  //
+  // Observed live: "What is the capital of France? And what is 2 + 2?"
+  // answered "4The capital city of France is Paris." — the ALU result, whose
+  // evidence is the "2 + 2" span near the END of the query, inherited the
+  // France root's start of 0 and sorted ahead of the France answer.  Both
+  // pieces were right; only the order was.
+  //
+  // primary's own position is the earliest query byte its grounding stands
+  // on.  `accounted` is the cost-ladder read of that and is authoritative
+  // when non-empty; when it is empty the grounding is a pure COMPUTATION,
+  // whose evidence is its computed span — the same cost-ladder-vs-coverage
+  // distinction think() already draws for the fusion remainder ("`accounted`
+  // alone undercounts this ... cover prices its computed spans at near-zero
+  // and deliberately leaves them out"), read here for position instead of
+  // for coverage.  With neither, nothing is known and the old behaviour
+  // (forest[0].start) stands.
+  const primaryStart = primarySpans.length > 0
+    ? primarySpans.reduce((m, [s]) => Math.min(m, s), Infinity)
+    : forest[0].start;
   const pieces: Array<{ start: number; bytes: Uint8Array }> = [
-    { start: forest[0].start, bytes: primary },
+    { start: primaryStart, bytes: primary },
   ];
   const qv = pre.guide; // once, not per root
   const rest = lonePromotes ? forest : forest.slice(1);
@@ -287,4 +319,4 @@ export async function fuseAttention(
 
 // (resonance.js is already a static dependency above — `bridge` — so the old
 // dynamic import of pivotInto guarded against a cycle that does not exist.)
-import { containsSpan } from "./mechanisms/extraction.js";
+import { containsSpan } from "./match.js";

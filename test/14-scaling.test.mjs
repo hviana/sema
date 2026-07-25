@@ -376,16 +376,26 @@ test("inference: input is processed at a roughly constant KB/s (linear, not quad
 
   await mind.respond(queries[queries.length - 1]); // warm up
 
-  const times = [];
-  for (const q of queries) {
-    const samples = [];
-    for (let r = 0; r < 5; r++) {
+  // INTERLEAVED sampling — round-robin across sizes, not size-at-a-time.
+  // The inputs and the store are deterministic, so the WORK per query is
+  // fixed; only wall clock varies.  Sampling one size to completion before
+  // moving on let a single GC/JIT episode land on one size's ENTIRE sample
+  // block, so even `fastest` (min of 5) came back ~2.7x high for that size
+  // alone — a bimodal reading that made the throughput-band ratio below trip
+  // intermittently (observed on both the 1KB point and, more weakly, before
+  // any of this file's callers changed).  Round-robin spreads every episode
+  // across all sizes, so `fastest` sees at least one clean sample each.
+  // This does not weaken the assertion — it removes the sampling artefact
+  // the assertion was reacting to.
+  const samples = queries.map(() => []);
+  for (let r = 0; r < 5; r++) {
+    for (let i = 0; i < queries.length; i++) {
       const t0 = performance.now();
-      await mind.respond(q);
-      samples.push(performance.now() - t0);
+      await mind.respond(queries[i]);
+      samples[i].push(performance.now() - t0);
     }
-    times.push(fastest(samples));
   }
+  const times = samples.map(fastest);
   await mind.store.close();
 
   const rates = bytes.map((b, i) => (b / 1024) / (times[i] / 1000)); // KB/s

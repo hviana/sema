@@ -7,6 +7,7 @@ export * from "./sema.js";
 export * from "./alphabet.js";
 export * from "./geometry.js";
 export * from "./store.js";
+export * from "./meter.js";
 export * from "./mind/rationale.js";
 export * from "./mind/index.js";
 export * from "./store-sqlite.js";

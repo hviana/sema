@@ -31,7 +31,7 @@ import { conceptThreshold, identityBar, significanceBar } from "../geometry.js";
 import { indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { leafIdRun } from "./canonical.js";
-import { gistOf, read, resolve } from "./primitives.js";
+import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
 import {
   argmaxCosine,
   chooseAmong,
@@ -119,6 +119,14 @@ export function alignRuns(
   query: Uint8Array,
   ct: Uint8Array,
 ): Array<{ qs: number; qe: number; cs: number }> {
+  if (ctx.meter) {
+    ctx.meter.alignments++;
+    // The alignment family's honest unit: the seed index is O(|query|) but
+    // the run extension is O(|query|·|ct|) in the worst case, and a weave
+    // that starts scanning conversation-length contexts shows up HERE long
+    // before it shows up in a call count.
+    ctx.meter.alignCells += query.length * ct.length;
+  }
   const quantum = Math.min(ctx.space.maxGroup, ct.length);
   if (quantum < 1 || query.length < quantum) return [];
   const gram = (b: Uint8Array, at: number): string => {
@@ -541,4 +549,123 @@ export async function project(
   const fc = await follow(ctx, id, guide);
   if (fc) return fc;
   return reverseContext(ctx, id, guide);
+}
+
+// ── The span-shape family ───────────────────────────────────────────────────
+//
+// "Is this answer drawn from this context?" has TWO formally distinct
+// readings, and the pair plus the anchor classifier built on them are SHARED
+// machinery — extraction proposes span-shaped exemplars with them, the
+// shared `Precomputed.spanShapedOf` container computes them, and fusion
+// (reasoning.ts) gates on the strict one.  They lived inside
+// mechanisms/extraction.ts, so `pipeline-mechanism.ts` and `reasoning.ts`
+// both had to import back OUT of a specific mechanism — an inversion the
+// mechanism market forbids (AGENTS §2.6: the shared contract may not depend
+// on any one mechanism; §2.5: a shared matcher belongs to this family, never
+// to a mechanism's private helpers).  Deleting extraction must not break the
+// shared container, so they live here.
+//
+//   • isSpanShaped  — the OPEN reading (sparse in-order embedding).
+//   • containsSpan  — the STRICT reading (contiguous run or resolved node).
+//   • skillExemplar — classify one anchor into (context, answer) using them.
+//
+// The two readings are NOT interchangeable; AGENTS §2.5 pins the distinction
+// and each function's own doc states what breaks if it is substituted.
+
+/** Check whether an anchor is a span-shaped skill exemplar: it represents a
+ *  fact whose context and answer together form a span-in-context pattern.
+ *  If the anchor has a nextOf continuation, that is the answer and the anchor
+ *  itself is the context.  Otherwise the anchor's prevOf parents provide
+ *  candidate contexts, and the longest one whose span is span-shaped wins. */
+export async function skillExemplar(
+  ctx: MindContext,
+  anchor: number,
+  guide?: Vec | null,
+): Promise<{ contextBytes: Uint8Array; answerBytes: Uint8Array } | null> {
+  if (ctx.store.hasNext(anchor)) {
+    const contextBytes = read(ctx, anchor);
+    const answerBytes = await follow(ctx, anchor, guide);
+    if (
+      answerBytes !== null && isSpanShaped(ctx, contextBytes, answerBytes)
+    ) {
+      return { contextBytes, answerBytes };
+    }
+    return null;
+  }
+  const answerBytes = read(ctx, anchor);
+  // Candidate contexts, capped at the hub bound (a common answer's reverse
+  // fan-in is corpus-sized).
+  const capped = ctx.store.prevFirst(anchor, hubBound(ctx));
+  const spanShaped: Array<{ id: number; bytes: Uint8Array }> = [];
+  for (const p of capped) {
+    const ctxB = read(ctx, p);
+    if (ctxB.length > 0 && isSpanShaped(ctx, ctxB, answerBytes)) {
+      spanShaped.push({ id: p, bytes: ctxB });
+    }
+  }
+  if (spanShaped.length === 0) return null;
+  // Among span-shaped contexts, the longest wins (the smallest spanning frame
+  // heuristic's dual: more frame to locate in the query); the query gist,
+  // when given, breaks LENGTH TIES via chooseAmong — the same reverse-regime
+  // disambiguator every context pick uses, whose gist cache spares the
+  // re-fold this block once paid per tied candidate.  Same strict first-seen
+  // tie-break as the hand loop it replaces.
+  const maxLen = Math.max(...spanShaped.map((s) => s.bytes.length));
+  const longest = spanShaped.filter((s) => s.bytes.length === maxLen);
+  let contextBytes = longest[0].bytes;
+  if (guide && longest.length > 1) {
+    const pick = chooseAmong(ctx, longest.map((s) => s.id), guide).id;
+    contextBytes = longest.find((s) => s.id === pick)!.bytes;
+  }
+  return { contextBytes, answerBytes };
+}
+
+/** Whether the answer is a SPARSE subsequence of the context (bytes in
+ *  order, arbitrary gaps) — the OPEN span-shape reading (see the section
+ *  note above).  This is what lets extraction validate a MULTI-PIECE
+ *  exemplar whose answer is stitched from several context runs — but it is
+ *  deliberately permissive, so it must never be used as evidence that one
+ *  span was "drawn from" another (see {@link containsSpan} for that).
+ *
+ *  There is deliberately NO containsSpan pre-check here: strict containment
+ *  IMPLIES the subsequence embedding (a contiguous run, or a resolved node —
+ *  whose content-addressed identity means its bytes occur contiguously — is
+ *  an in-order embedding with zero gaps), so the scan below decides alone,
+ *  with the same truth value.  The old pre-check re-perceived the context
+ *  (a full river fold) per CANDIDATE in skillExemplar's √N-capped loop —
+ *  pure cost, no discrimination. */
+export function isSpanShaped(
+  _ctx: MindContext,
+  context: Uint8Array,
+  answer: Uint8Array,
+): boolean {
+  let ai = 0;
+  for (let ci = 0; ci < context.length && ai < answer.length; ci++) {
+    if (context[ci] === answer[ai]) ai++;
+  }
+  return ai === answer.length;
+}
+
+/** STRICT containment: the answer's resolved node appears in the context's
+ *  folded tree, or the answer occurs as one CONTIGUOUS byte run of the
+ *  context.  This is real evidence the answer was drawn from the context.
+ *  Fusion gates on this — the sparse-subsequence reading of
+ *  {@link isSpanShaped} is trivially satisfied by short answers over long
+ *  queries ("cold" is a gap-tolerant subsequence of most sentences holding
+ *  c…o…l…d in order), and gating fusion on it silently starved multi-topic
+ *  queries of their further points of attention. */
+export function containsSpan(
+  ctx: MindContext,
+  context: Uint8Array,
+  answer: Uint8Array,
+): boolean {
+  const ansId = resolve(ctx, answer);
+  if (ansId !== null) {
+    let found = false;
+    foldTree(ctx, perceive(ctx, context), 0, (_n, _s, _e, node) => {
+      if (node === ansId) found = true;
+    });
+    if (found) return true;
+  }
+  return indexOf(context, answer, 0) >= 0;
 }

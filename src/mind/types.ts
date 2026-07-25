@@ -9,6 +9,7 @@ import type { BoundedMap, Store } from "../store.js";
 import type { Space } from "../sema.js";
 import type { Alphabet } from "../alphabet.js";
 import type { MindConfig } from "../config.js";
+import type { Meter } from "../meter.js";
 import type {
   ComputedResult,
   DerivationItem,
@@ -59,6 +60,10 @@ export type Input = string | Uint8Array | Grid | Grid[];
 /** The host capabilities GraphSearch consults during a cover.  MindContext
  *  extends this so the Mind can pass itself as the host. */
 export interface GraphSearchHost {
+  /** Work accumulator, or null/absent when nothing is profiling — see
+   *  src/meter.ts.  Declared here (not only on MindContext) so the graph
+   *  search can report its chart effort without importing mind code. */
+  readonly meter?: Meter | null;
   resolve(bytes: Uint8Array): number | null;
   recogniseSpan?(bytes: Uint8Array): {
     sites: ReadonlyArray<Site>;
@@ -237,6 +242,12 @@ export type AItem =
 
 export interface MindContext extends GraphSearchHost {
   store: Store;
+  /** The work accumulator for the inference call in flight, or null when
+   *  nothing is profiling — see src/meter.ts.  WRITE-ONLY from the engine's
+   *  point of view: no inference decision may read a counter, or the
+   *  determinism contract (AGENTS §2.1) is gone.  Every call site is
+   *  `ctx.meter?.x++`, so an unprofiled response allocates nothing. */
+  meter: Meter | null;
   space: Space;
   alphabet: Alphabet;
   cfg: MindConfig;

@@ -58,6 +58,7 @@ export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
     const key = latin1Key(bytes);
     const hit = ctx.recogniseMemo.get(key);
     if (hit !== undefined) {
+      if (ctx.meter) ctx.meter.recogniseHits++;
       ctx.trace?.step(
         "recognise",
         [rItem(bytes, "query")],
@@ -80,6 +81,10 @@ export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
 }
 
 function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
+  if (ctx.meter) {
+    ctx.meter.recognitions++;
+    ctx.meter.recognisedBytes += bytes.length;
+  }
   const store = ctx.store;
   const sites: Site[] = [];
   const leaves: Leaf[] = [];
@@ -124,6 +129,34 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   const seen = new Set<string>();
   const emit = (start: number, end: number, id: number) => {
     if (id < 0 && atomsAreHubs) return;
+    // A SITE MUST SPAN ONE RIVER WINDOW.  Below W, byte overlap is chance,
+    // not evidence — the principle identityBar already states ("below one
+    // river window, byte overlap is chance") and the bridge's attestedQ
+    // already applies ("spans shorter than W carry no window of their own").
+    // No new constant.
+    //
+    // This REPLACES the false premise it used to share with fuse() and
+    // tryChain: those gates asked "does this offset sit on a fold boundary?"
+    // and read the answer from `starts`, which is exactly {0, W, 2W, …}
+    // because riverFold groups fixed-arity — arithmetic, not evidence.
+    //
+    // Measured on the 17.9M-node store, over the sites of 7 probes (1 good,
+    // 11 junk by hand-labelling, corrected for whole-query forms):
+    //     len >= W        rejects "hi"(2) "of"(2) "is"(2) "di"(2) "the"(3),
+    //                     admits  "Eiffel Tower"(12) and both whole-query forms
+    //     len >= W-1      admits "the" — W-1 is the write side's straddle
+    //                     neighbour for RETRIEVAL, never a claim about units
+    //     §2.7 saturation admits 11/11 junk: edgeAncestors on a site node
+    //                     reaches 1..48 contexts, so dominates(ctx, N) needs
+    //                     ctx > 162805 and never fires; every site reads DISC
+    //     rarity          does not separate: "hi" has 1 container, "the" 572
+    //
+    // A span covering the WHOLE query is exempt: then it is not a fragment of
+    // something longer, it is the question ("hi" asked on its own).
+    if (
+      atomsAreHubs && end - start < ctx.space.maxGroup &&
+      !(start === 0 && end === bytes.length)
+    ) return;
     const key = start + "," + end + "," + id;
     if (seen.has(key)) return;
     seen.add(key);
@@ -304,6 +337,14 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // hub-scale atoms, chained at an offset nothing in the query's own fold
   // selected).  Chains that start ON a boundary carry the fold's own
   // evidence instead and are exempt.
+  //
+  // NOTE (2026-07-24): that last sentence is FALSE — `starts` is exactly
+  // {0, W, 2W, …} (riverFold groups fixed-arity), so the exemption is
+  // arithmetic, not evidence.  Removing it wholesale was measured and
+  // REVERTED: it also drops legitimate multi-byte chains (the 12-byte
+  // "Eiffel Tower" site vanished with it).  The premise is wrong but the
+  // trust it stood in for is real; a replacement signal is still open work.
+  // See bench/README.md.
   const tryChain = (
     p: number,
     maxIds: number,

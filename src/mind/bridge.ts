@@ -94,9 +94,14 @@ import { cosine } from "../vec.js";
 import { conceptThreshold, dominates } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { foldTree, perceive } from "./primitives.js";
+import { foldTree, perceive, read } from "./primitives.js";
 import { chainReach, leafIdRun } from "./canonical.js";
-import { corpusN, edgeAncestors, hubBound } from "./traverse.js";
+import {
+  corpusN,
+  edgeAncestors,
+  hubBound,
+  sharedReachMemo,
+} from "./traverse.js";
 import { rItem, rNode } from "./trace.js";
 
 /** One accepted substitution: query span [qs,qe) stands in for the
@@ -242,10 +247,30 @@ function align(
 
 /** Recall's corroborated-substitution bridge — see the module comment.
  *  Returns the best bridged grounding proposal, or null. */
+/** `proposed` is a THUNK, not a list: the bridge's own cheap gates (the
+ *  two-quantum query floor and the O(|query|) stored-window anchor scan)
+ *  decide whether ANY candidate can be aligned, and they need no proposals
+ *  to do it.  Resolving the caller's proposals eagerly meant recall paid its
+ *  exhaustive whole-index resonance — the most expensive single act on the
+ *  refusal path — for every query, including the ones whose windows the
+ *  store has never seen and which the anchor scan rejects outright.  Same
+ *  investment discipline the mechanism floors follow (AGENTS §2.6): never
+ *  compute a shared analysis just to discard it. */
 export async function substitutionBridge(
   ctx: MindContext,
   query: Uint8Array,
-  proposed: ReadonlyArray<number> = [],
+  proposed: () => Promise<ReadonlyArray<number>> = async () => [],
+): Promise<BridgeHit | null> {
+  const meter = ctx.meter;
+  return meter
+    ? meter.time("substitutionBridge", () => bridgeImpl(ctx, query, proposed))
+    : bridgeImpl(ctx, query, proposed);
+}
+
+async function bridgeImpl(
+  ctx: MindContext,
+  query: Uint8Array,
+  proposed: () => Promise<ReadonlyArray<number>>,
 ): Promise<BridgeHit | null> {
   const W = ctx.space.maxGroup;
   if (query.length < 2 * W) return null;
@@ -253,6 +278,38 @@ export async function substitutionBridge(
   const N = corpusN(ctx);
   const bar = conceptThreshold(ctx.store.D);
   const reachCap = chainReach(W);
+
+  // PHRASE-SCALE CANDIDATE CAP — the same |content|·W bound the weave
+  // (pipeline-mechanism.ts), the cross-region junction ladder's
+  // `maxInterior`, and structural resonance's `maxSiblingBytes` all apply,
+  // for the same reason and now at the one remaining place that read
+  // candidate contexts WHOLE.
+  //
+  // The bridge accepts a candidate only when the query is DOMINATED by its
+  // matched runs plus substitutions, with at most one window W of slack at
+  // each edge and at most one chain reach (W²) per interior gap — so the
+  // candidate region an accepted alignment can ever consume is bounded by
+  // |query|·W.  Content beyond that cannot participate in any alignment
+  // this function would accept; reading it is pure cost.  And a candidate
+  // an order of magnitude past the query is not a paraphrase of it: it is a
+  // document or a whole conversation that merely quotes a phrase, and
+  // grounding through ITS learnt edge voices that document's continuation,
+  // not a phrase answer.
+  //
+  // Measured on the 17.7M-node / 325K-context store: uncapped, the refusal
+  // path materialised up to ~1 MB of candidate bytes per query (up to √N
+  // proposals plus √N climbed contexts, each read in full), and the frame-
+  // unanimity scan — which walks EVERY collected candidate's bytes, inside
+  // the per-gap expansion loop — paid that volume back tens of times per
+  // substitution.  Recall's run() was 0.7–2.6 s per refusing query.
+  const capBytes = query.length * W;
+  /** A candidate's bytes, phrase-scale capped: null when it exceeds the cap
+   *  (read one byte past it, so "too long" is decided without materialising
+   *  the rest) or has no content. */
+  const candidateBytes = (sid: number): Uint8Array | null => {
+    const b = read(ctx, sid, capBytes + 1);
+    return b.length === 0 || b.length > capBytes ? null : b;
+  };
 
   // 1. The query's stored windows, rarest first (fewest containers — the
   //    most discriminative anchors; hub-clamped like every fan-out read).
@@ -302,6 +359,54 @@ export async function substitutionBridge(
     }
     return false;
   };
+  // ── EXPLAINED SPANS — the scaffolding judgement, corpus-global ──────────
+  //
+  // The question every gap poses is "may the two forms differ HERE without
+  // differing in what they SAY?", and that is the discriminative-vs-
+  // scaffolding question AGENTS §2.7 names, over the CORPUS-GLOBAL
+  // population.  It already has one definition — `dominates(reachOf(...), N)`,
+  // the same gate confluence's filler test uses ("scaffolding never binds").
+  // Nothing new is derived here; the bar is read, not invented.
+  //
+  // A span is explained when EITHER
+  //   • it is sub-quantum (< W) — typographic glue, the tolerance identityBar
+  //     already prices ("below one river window, byte overlap is chance"); or
+  //   • every full W-window inside it is COMMON by the store's own climb:
+  //     the ascent SATURATES (the window sits in more places than √N — the
+  //     climb's own definition of non-discriminative), or it resolves to a
+  //     majority of the corpus's contexts.  "the process of ", " is the ".
+  //
+  // THE READING MATTERS, not just the population (AGENTS §2.7).  This
+  // deliberately does NOT go through `reachOf`, which maps BOTH "saturated"
+  // and "reaches nothing" to Infinity.  For IDF weighting those are the same
+  // thing (no usable identity evidence); for THIS question they are
+  // opposites — a window reaching nothing is novel content, the most
+  // discriminative material there is, and reading it as Infinity would call
+  // it scaffolding.  Measured: with `reachOf`, "Is water wet?" was answered
+  // with "No, heavy water is not wet." — "heav"/"eavy" occur once, reach no
+  // edge-bearing ancestor, and were written off as filler.  So an
+  // empty-rooted window is NEVER explained, and neither is an untrained one
+  // (the same principle attestedQ applies to the query side).
+  const reachMemo = sharedReachMemo(ctx);
+  const explainedSpan = (
+    bytes: Uint8Array,
+    from: number,
+    to: number,
+  ): boolean => {
+    if (to - from < W) return true;
+    for (let o = from; o + W <= to; o++) {
+      const ids = leafIdRun(ctx, bytes, o, o + W);
+      if (ids === null) return false;
+      const wid = ctx.store.findBranch(ids);
+      if (wid === null) return false;
+      const r = edgeAncestors(ctx, wid, N, reachMemo);
+      if (r.saturated) continue; // in too many places to discriminate
+      if (r.roots.length === 0) return false; // reaches nothing: novel content
+      if (!dominates(r.contextsReached, N)) return false;
+    }
+    return true;
+  };
+
   anchors.sort((a, b) => a.rarity - b.rarity);
   // Up to W anchors, at least one window apart — the quantum's own count.
   const picked: typeof anchors = [];
@@ -331,11 +436,13 @@ export async function substitutionBridge(
   // that could align at all: alignment can only seed at a picked anchor
   // window occurring literally in the candidate (measured: unconditional
   // re-folds multiplied the refusal-path latency several-fold).
-  for (const sid of proposed) {
+  // FIRST TOUCH of the caller's proposals — past every gate that could have
+  // refused without them (see substitutionBridge's doc).
+  for (const sid of await proposed()) {
     if (seen.has(sid)) continue;
     seen.add(sid);
-    const tb = ctx.store.bytes(sid);
-    if (tb.length === 0) continue;
+    const tb = candidateBytes(sid);
+    if (tb === null) continue;
     if (
       !picked.some((a) => indexOf(tb, query.subarray(a.off, a.off + W), 0) >= 0)
     ) continue;
@@ -368,8 +475,14 @@ export async function substitutionBridge(
   }
 
   // 3. Align each candidate; gate its mismatches; keep the best.
+  // Over-cap candidates are dropped here rather than earlier: the climb
+  // channel deliberately reads no bytes while collecting (the climb visits
+  // hundreds of roots), so this is where its proposals are first sized.
   const allBytes = new Map<number, Uint8Array>();
-  for (const sid of candidates) allBytes.set(sid, ctx.store.bytes(sid));
+  for (const sid of candidates) {
+    const b = candidateBytes(sid);
+    if (b !== null) allBytes.set(sid, b);
+  }
 
   // FRAME UNANIMITY: a substitution U → C inside the frame (Lf, Rf) is
   // groundable only when the collected candidates — the store's own sample
@@ -428,8 +541,8 @@ export async function substitutionBridge(
   let best: BridgeHit | null = null;
   let bestAccounted = 0;
   for (const sid of candidates) {
-    const cBytes = allBytes.get(sid)!;
-    if (cBytes.length === 0) continue;
+    const cBytes = allBytes.get(sid);
+    if (cBytes === undefined) continue;
     // Seed at the rarest picked anchor that literally occurs in this
     // candidate.
     let seed: { qo: number; co: number } | null = null;
@@ -541,7 +654,7 @@ export async function substitutionBridge(
     // resonance rank but has no outgoing edge to bridge through).  This
     // mechanism exists to explain SUBSTITUTIONS; a query needing none is
     // recall's job, not the bridge's.
-    if (!ok || subs.length === 0) continue;
+    if (!ok) continue;
 
     // Coverage: matched runs plus accepted substitutions must dominate the
     // query, every interior gap already proved ≤ W above, and the EDGES
@@ -564,6 +677,70 @@ export async function substitutionBridge(
     }
     if (spans[0][0] > W || query.length - reachEnd > W) continue;
     if (!dominates(covered, query.length)) continue;
+
+    // ZERO-SUBSTITUTION ADMISSION — an IDENTITY claim, not a substitution.
+    //
+    // A candidate needing no substitution is normally refused (see the trap
+    // above), and that refusal is right for the case it was written for: the
+    // query is a strict byte-PREFIX of several candidates, each of which
+    // continues differently, and nothing here corroborates picking one
+    // continuation over another.  But that trap has a signature — the
+    // candidate carries substantial content BEYOND the alignment, and that
+    // surplus is exactly the "answer" the bridge would be inventing.
+    //
+    // The opposite shape is not ambiguous at all: the alignment explains BOTH
+    // strings end to end, and the only thing between them is sub-quantum glue
+    // — typographic punctuation the fold treats as structure.  Then the two
+    // are the SAME learnt form, and grounding through its edge returns that
+    // form's own trained answer, never a chosen-among-many completion.
+    //
+    // Why the ladder cannot reach these otherwise: the gist is a STRUCTURAL
+    // signature, so a mid-string insertion shifts every fold boundary after
+    // it.  Measured: `Who wrote Romeo and Juliet?` against the trained
+    // `Who wrote "Romeo and Juliet"?` — two inserted quote characters — scores
+    // cos 0.377, BELOW unrelated neighbours like "Who wrote the opera
+    // Carmen??" (0.603).  Recall's identity tiers gate on identityBar (0.969
+    // here) and its reach tiers on 0.875, so no gist-based tier can ever see
+    // it; only byte-exact alignment can, which is what this function does.
+    //
+    // The claim is deliberately strict, in three parts:
+    //
+    //   • QUERY SIDE — EXACT.  Every byte of the query must be a literal
+    //     match against the candidate: covered === query.length, no slack at
+    //     all, not even sub-quantum.  The query is what we are answering, so
+    //     an identity claim about it may write off NOTHING.  This is stricter
+    //     than the ≤ W edge tolerance the substituted path uses, and it has
+    //     to be: with a one-window allowance, `what is 2^10?` matched the
+    //     trained `what is 2+2?` — "^10" against "+2", four bytes, both sides
+    //     below W — and answered "2+2 is 4.", outweighing cover's authoritative
+    //     ALU result.  Below W, byte OVERLAP is chance rather than evidence;
+    //     that never made a below-W DIFFERENCE meaningless, and digits are the
+    //     case that proves it.
+    //   • CANDIDATE SIDE, INTERIOR — each gap must be an EXPLAINED span (see
+    //     explainedSpan): sub-quantum glue, or corpus-global scaffolding.
+    //     This side is asymmetric ON PURPOSE.  Material the CANDIDATE has and
+    //     the query omits is not something the asker asked about: if it is
+    //     scaffolding, dropping it changes nothing ("What is *the process of*
+    //     photosynthesis?"); if it is discriminative, the candidate answers a
+    //     DIFFERENT, narrower question ("Is *heavy* water wet?") and must be
+    //     refused.  Only the corpus can tell those apart, and it does.
+    //   • CANDIDATE SIDE, SURPLUS — its bytes are the matched runs
+    //     (byte-identical to the query's, hence the same total length) plus
+    //     its own gap spans; anything past that is surplus, and surplus is
+    //     the prefix trap.  A prefix-completion candidate fails here by the
+    //     whole length of the completion it wanted to supply — which is why
+    //     admitting scaffolding interiors does not reopen that trap.
+    //
+    // Ordered cheapest-first: the two arithmetic tests run before
+    // explainedSpan, whose per-window `reachOf` climbs are the only costly
+    // part (shared through the response/conversation reach memo, and reached
+    // only by a candidate that already survived every structural gate).
+    if (subs.length === 0) {
+      if (covered !== query.length) continue;
+      const cGap = gaps.reduce((n, g) => n + (g.ce - g.cs), 0);
+      if (cBytes.length - covered - cGap > W) continue;
+      if (!gaps.every((g) => explainedSpan(cBytes, g.cs, g.ce))) continue;
+    }
 
     // KNOWN content may never be dismissed — see dismissedKnownContent
     // (the live case: "what is the capital of france" aligning into a

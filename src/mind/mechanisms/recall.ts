@@ -29,6 +29,9 @@ export interface RecallResult {
   accounted: Array<[number, number]>;
   moves: number;
   unexplained: string;
+  /** See {@link import("../pipeline-mechanism.js").MechanismResult.complete}
+   *  — set by the IDENTITY-bridge tier alone. */
+  complete?: boolean;
 }
 
 /** Recall the answer by resonating the whole query against the content index. */
@@ -48,6 +51,7 @@ export async function recallByResonance(
     accounted: Array<[number, number]>,
     moves: number,
     echoed = false,
+    complete = false,
   ): RecallResult | null => {
     t?.done(
       bytes === null
@@ -61,6 +65,7 @@ export async function recallByResonance(
       accounted,
       moves,
       unexplained: unexplainedLabel(query, accounted),
+      ...(complete ? { complete } : {}),
     };
   };
   const k = pre.k;
@@ -329,14 +334,35 @@ export async function recallByResonance(
     // natural, tuning-free ceiling (probe every cluster) for a call that
     // is ALREADY refusal-path-only and must not miss a candidate hiding
     // behind an unlucky structural distance.
-    const wide = k < hubBound(ctx)
-      ? await ctx.store.resonate(queryGist, hubBound(ctx), true)
-      : whole;
-    const bridged = await substitutionBridge(
-      ctx,
-      query,
-      wide.map((h) => h.id),
-    );
+    //
+    // MEASURED COST, AND WHY IT STAYS (17.9M vectors / 325K contexts):
+    // this one call is ~570 ms and ~45% of all inference time on a refusing
+    // query.  The cost is entirely `exhaustive` (nprobe = every cluster),
+    // NOT the widened k — timed on that store: k=571 exhaustive 632 ms,
+    // k=24 exhaustive 536 ms, k=571 NON-exhaustive 12 ms.  So narrowing k
+    // buys nothing and the 50x is the whole-index scan itself.
+    // It is load-bearing: over an 18-query battery the bridge produced a
+    // winner 4 times, and ALL FOUR winners came from this proposal channel
+    // — the anchor-climb channel won nothing on its own.  Reordering the
+    // channels (climb first, resonate only on failure) would therefore pay
+    // the climb, fail, and pay this anyway.  Do not weaken it without
+    // re-running that measurement.
+    // Handed to the bridge as a THUNK: this exhaustive whole-index probe is
+    // the most expensive single act on the refusal path, and the bridge's
+    // own cheap gates (query length, the O(|query|) stored-window anchor
+    // scan) can refuse without any proposal at all.  See substitutionBridge.
+    const wideIds = async (): Promise<ReadonlyArray<number>> => {
+      const wide = k >= hubBound(ctx)
+        ? whole
+        : ctx.meter
+        ? await ctx.meter.time(
+          "recall.exhaustiveResonate",
+          () => ctx.store.resonate(queryGist, hubBound(ctx), true),
+        )
+        : await ctx.store.resonate(queryGist, hubBound(ctx), true);
+      return wide.map((h) => h.id);
+    };
+    const bridged = await substitutionBridge(ctx, query, wideIds);
     if (bridged !== null) {
       const g = await project(ctx, bridged.id, queryGist);
       // A projection contained in a substituted candidate-side span is the
@@ -357,16 +383,41 @@ export async function recallByResonance(
       ) {
         return ground(
           g,
-          `substitution bridge — a trained context accounts for the query ` +
-            `up to ${bridged.subs.length} corroborated substitution(s)`,
-          // Accounted NOTHING — the same epistemic humility as the echo
-          // tier below: a substitution-bridged grounding is a last resort
-          // that must lose to ANY mechanism that actually explained the
-          // query (observed: pricing the aligned spans here outweighed
+          bridged.subs.length === 0
+            ? `identity bridge — a trained context IS this query, up to ` +
+              `scaffolding the corpus itself treats as filler`
+            : `substitution bridge — a trained context accounts for the ` +
+              `query up to ${bridged.subs.length} corroborated ` +
+              `substitution(s)`,
+          // WHAT THIS GROUNDING EXPLAINS, and why the two cases differ.
+          //
+          // A SUBSTITUTED bridge accounts for NOTHING — the same epistemic
+          // humility as the echo tier below: it stood a word the store never
+          // wrote into the query's place, so it is a last resort that must
+          // lose to ANY mechanism that actually explained the query
+          // (observed: pricing the aligned spans here outweighed
           // extraction's correct answer in the grounding decider), while
           // still beating silence when everything else refused.
-          [],
+          //
+          // An IDENTITY bridge (zero substitutions) substituted nothing, so
+          // there is nothing to be humble about: every accounted byte is a
+          // LITERAL match against a trained form, and the query is that form
+          // up to scaffolding.  Reporting `[]` for it was actively wrong in
+          // two ways — it priced a full explanation at PASS-per-byte so junk
+          // outweighed it, and, because the honest-remainder test in think()
+          // reads the same spans, it left the whole query "unaccounted" and
+          // forced the multi-topic fusion gate open.  Observed live: the
+          // correct "What is the process of photosynthesis?" grounding was
+          // fused away into an unrelated "Hello! How can I assist you
+          // today?" point of attention.
+          bridged.subs.length === 0 ? [...bridged.accounted] : [],
           CONCEPT * bridged.subs.length + STEP,
+          false,
+          // COMPLETE only for the identity tier: the query IS this trained
+          // context, so `g` is that context's own continuation — the whole
+          // read-out.  A SUBSTITUTED bridge makes no such claim (it stood a
+          // different word in the query's place), so it stays extendable.
+          bridged.subs.length === 0,
         );
       }
     }
@@ -434,6 +485,7 @@ export const recallMechanism: PipelineMechanism = {
       moves: r.moves,
       unexplained: r.unexplained,
       provenance: r.echoed ? "recall-echo" : "recall",
+      ...(r.complete ? { complete: true } : {}),
     }];
   },
 };

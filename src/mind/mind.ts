@@ -155,6 +155,9 @@ import { aluToMechanism, defaultMechanisms, think } from "./pipeline.js";
 import { articulate } from "./articulation.js";
 import { ingest } from "./learning.js";
 import { rItem } from "./trace.js";
+// The work meter is exported from src/index.ts (via src/meter.ts) — the one
+// definition; the Mind only consumes it.
+import { type CostReport, Meter } from "../meter.js";
 
 // ── MindOptions ───────────────────────────────────────────────────────────
 
@@ -174,6 +177,15 @@ export interface MindOptions {
   mechanismFactories?: ((
     host: import("../extension.js").ExtensionHost,
   ) => import("./pipeline-mechanism.js").PipelineMechanism)[];
+  /** Measure the computational usage of every inference call — see
+   *  src/meter.ts.  Off by default and free when off (one null check per
+   *  store read); on, each `respond`/`respondTurn` leaves a {@link
+   *  Mind.lastCost} report behind.  Counters are deterministic, so two runs
+   *  of the same query on the same store are diffable; the millisecond
+   *  fields are not.  Profiling NEVER changes an answer — but note that
+   *  attaching a RATIONALE does (traced responses bypass the ctx memos,
+   *  AGENTS §2.11), so profile without a trace. */
+  profile?: boolean;
   /** Content canonicalizer applied to EVERY response (any modality) for
    *  equivalence-class resolution — see src/canon.ts.  Text entry points
    *  ({@link Mind.respondText}, {@link Mind.respondTurnText}) inject the
@@ -214,6 +226,22 @@ export class Mind implements MindContext {
    *  `false` to disable canonical resolution, or null to let each entry
    *  point decide (text entry points inject {@link textCanon}). */
   private _canonOpt: Canon | false | null = null;
+
+  /** The work accumulator for the inference call in flight — see
+   *  {@link MindContext.meter}.  Non-null only between beginResponse and
+   *  endResponse, and only when the Mind was constructed with
+   *  `{ profile: true }`. */
+  meter: Meter | null = null;
+
+  /** Whether {@link MindOptions.profile} was set. */
+  private _profile = false;
+
+  /** The computational-usage report of the LAST completed inference call, or
+   *  null when profiling is off (or nothing has been asked yet).  Overwritten
+   *  by every `respond`/`respondTurn`; copy it if you are aggregating.  See
+   *  {@link import("../meter.js").CostReport} and `sumReports`/`formatReport`
+   *  for battery-level aggregation. */
+  lastCost: CostReport | null = null;
 
   /** Memo of the consensus climb — content-keyed.  See {@link MindContext.climbMemo}. */
   climbMemo: Map<string, Map<string, AttentionRead>> | null = null;
@@ -326,9 +354,11 @@ export class Mind implements MindContext {
         mechanisms: userMechs,
         mechanismFactories: userFacts,
         canon: optsCanon,
+        profile: optsProfile,
         ...rest
       } = (optsOrCfg ?? {}) as MindOptions;
       this._canonOpt = optsCanon ?? null;
+      this._profile = optsProfile === true;
       this.cfg = resolveConfig(rest as Partial<MindConfig>);
       this.store = optsStore ?? new SQliteStore({
         maxGroup: this.cfg.geometry.maxGroup,
@@ -417,19 +447,48 @@ export class Mind implements MindContext {
     return perceiveImpl(this, input, leafAt, lookup);
   }
 
-  /** Open one response's transient state — the tracer and the per-response
-   *  memos.  Paired with {@link endResponse}; the ONE place this state is
-   *  created, so adding a memo cannot forget its reset. */
+  /** Open one response's transient state — the tracer, the per-response
+   *  memos, the work meter.  The ONE place this state is created, and it
+   *  serves BOTH entry points: `respond` takes fresh per-response memos,
+   *  `respondTurn` passes its conversation, whose memos persist across turns
+   *  (content-keyed, so the previous turn's results are found by this turn's
+   *  sub-span calls) and whose `resolvedSubtrees` makes foldTree O(suffix)
+   *  instead of O(context).  respondTurn used to inline its own copy of this
+   *  and of {@link endResponse}; the two drifted (a memo added to one was
+   *  silently absent from the other), so there is exactly one pair now. */
   private beginResponse(
     inspectRationale?: InspectRationale,
     canon?: Canon | null,
+    conv?: ConversationData,
   ): void {
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
-    this.climbMemo = new Map();
-    this.recogniseMemo = new Map();
-    this.perceiveMemo = new Map();
+    this.climbMemo = conv ? conv.climbMemo : new Map();
+    this.recogniseMemo = conv ? conv.recogniseMemo : new Map();
+    this.perceiveMemo = conv ? conv.perceiveMemo : new Map();
+    this._resolvedSubtrees = conv ? conv.resolvedSubtrees : null;
     this.canon = canon ?? null;
     this.canonMemo = canon ? new Map() : null;
+    this._beginMeter();
+  }
+
+  /** Open (or leave closed) the response's work accumulator.  Separate from
+   *  {@link beginResponse} because {@link respondTurn} keeps its own
+   *  conversation-scoped lifecycle and must not create fresh per-response
+   *  memos — but it DOES meter, through this same pair. */
+  private _beginMeter(): void {
+    if (!this._profile) return;
+    this.meter = new Meter();
+    this.store.meter = this.meter;
+  }
+
+  /** Close the accumulator and publish its report.  Detaching from the store
+   *  matters: a Mind that shares a store with another Mind must not keep
+   *  charging that store's reads to a finished response. */
+  private _endMeter(queryBytes: number): void {
+    if (this.meter === null) return;
+    this.lastCost = this.meter.report(queryBytes);
+    this.store.meter = null;
+    this.meter = null;
   }
 
   /** The canonicalizer a response should carry: the Mind-level option when
@@ -441,12 +500,20 @@ export class Mind implements MindContext {
   }
 
   /** Close one response's transient state — every per-response field, incl.
-   *  the edge guide/choices `think` sets mid-flight. */
-  private endResponse(): void {
+   *  the edge guide/choices `think` sets mid-flight, and the meter's report.
+   *
+   *  A conversation's memo MAPS were mutated in place, so `data.*` still
+   *  points at them and there is nothing to save back.  Clearing the Mind's
+   *  references is what matters: a concurrently-started `respond()` swaps its
+   *  own fresh maps into these pointers, and copying back from them here
+   *  would inject a foreign response's memos into the conversation. */
+  private endResponse(queryBytes: number): void {
+    this._endMeter(queryBytes);
     this.trace = null;
     this.climbMemo = null;
     this.recogniseMemo = null;
     this.perceiveMemo = null;
+    this._resolvedSubtrees = null;
     this.canon = null;
     this.canonMemo = null;
     this._edgeGuide = null;
@@ -464,28 +531,49 @@ export class Mind implements MindContext {
   ): Promise<Response> {
     this.beginResponse(inspectRationale, canon);
     try {
-      const top = this.trace?.enter(traceLabel, [
-        rItem(queryBytes, "query"),
-      ]);
-      const thought = await think(this, queryBytes, this.mechanisms);
-      if (thought === null) {
-        top?.done([], "nothing to perceive or an empty store — no answer");
-        return { v: null, bytes: new Uint8Array(0) };
-      }
-
-      const voiced = await articulate(this, thought.bytes, queryBytes);
-      top?.done(
-        [rItem(voiced, "answer", resolveImpl(this, voiced) ?? undefined)],
-        "the answer, re-voiced in the asker's words",
-      );
-      return {
-        v: gistOf(this, voiced),
-        bytes: voiced,
-        provenance: thought.provenance,
-      };
+      return await this._groundAndVoice(queryBytes, traceLabel);
     } finally {
-      this.endResponse();
+      this.endResponse(queryBytes.length);
     }
+  }
+
+  /** The ONE path from query bytes to a voiced answer: ground (think), then
+   *  re-voice in the asker's words (articulate).  Both entry points run
+   *  exactly this — they differ only in the LIFECYCLE around it (fresh
+   *  per-response memos vs. a conversation's persistent ones) and in what
+   *  they do with the answer afterwards.  It must be called between
+   *  {@link beginResponse} and {@link endResponse}. */
+  private async _groundAndVoice(
+    queryBytes: Uint8Array,
+    traceLabel: string,
+  ): Promise<Response> {
+    const top = this.trace?.enter(traceLabel, [rItem(queryBytes, "query")]);
+    const meter = this.meter;
+    const thought = meter
+      ? await meter.time(
+        "think",
+        () => think(this, queryBytes, this.mechanisms),
+      )
+      : await think(this, queryBytes, this.mechanisms);
+    if (thought === null) {
+      top?.done([], "nothing to perceive or an empty store — no answer");
+      return { v: null, bytes: new Uint8Array(0) };
+    }
+    const voiced = meter
+      ? await meter.time(
+        "articulate",
+        () => articulate(this, thought.bytes, queryBytes),
+      )
+      : await articulate(this, thought.bytes, queryBytes);
+    top?.done(
+      [rItem(voiced, "answer", resolveImpl(this, voiced) ?? undefined)],
+      "the answer, re-voiced in the asker's words",
+    );
+    return {
+      v: gistOf(this, voiced),
+      bytes: voiced,
+      provenance: thought.provenance,
+    };
   }
 
   async respond(
@@ -642,55 +730,30 @@ export class Mind implements MindContext {
 
     const turnBytes = inputBytes(this, turn);
     // Incremental perception — O(turn) instead of O(context).
-    const tree = this._growContext(data, turnBytes);
+    this._growContext(data, turnBytes);
     const newContext = data.bytes;
 
-    // Swap in the conversation's persistent state so the inference
-    // pipeline does not re-process the prefix from scratch.
-    //   perceiveMemo / recogniseMemo / climbMemo — content-keyed;
-    //     the prefix's results from the previous turn are found by
-    //     the current turn's sub-span calls.
-    //   _resolvedSubtrees — Sema-node-keyed; when the pyramid reuses
-    //     prefix subtrees (identical objects), foldTree returns their
-    //     ids immediately — O(suffix) instead of O(context).
-    this.perceiveMemo = data.perceiveMemo;
-    this.recogniseMemo = data.recogniseMemo;
-    this.climbMemo = data.climbMemo;
-    this._resolvedSubtrees = data.resolvedSubtrees;
-    this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
-    // A string turn is text by nature — carry the text equivalence, same as
+    // The conversation's persistent memos and subtree cache are swapped in
+    // by beginResponse (see there) — the SAME lifecycle respond() uses, so a
+    // memo added in one place can never be missing from the other.  A string
+    // turn is text by nature and carries the text equivalence, same as
     // respond() (see _canonFor).
-    this.canon = this._canonFor(typeof turn === "string" ? textCanon : null);
-    this.canonMemo = this.canon ? new Map() : null;
+    //
+    // No recognise-memo pre-seeding here: that used to be necessary because
+    // the flat/positional fold lost visibility into an earlier turn's own
+    // structure once later bytes shifted its position (foldTree no longer
+    // visited the turn's root node).  The STABLE-PREFIX fold (see {@link
+    // ConversationData}) makes every turn's subtree independent of what
+    // follows it by construction, so recognise() finds it correctly on its
+    // own, first-touch, exactly once per turn.
+    this.beginResponse(
+      inspectRationale,
+      this._canonFor(typeof turn === "string" ? textCanon : null),
+      data,
+    );
 
     try {
-      // No recognise-memo pre-seeding here: that used to be necessary
-      // because the flat/positional fold lost visibility into an earlier
-      // turn's own structure once later bytes shifted its position
-      // (foldTree no longer visited the turn's root node).  The
-      // STABLE-PREFIX fold (see {@link ConversationData}) makes every
-      // turn's subtree independent of what follows it by construction, so
-      // recognise() finds it correctly on its own, first-touch, exactly
-      // once per turn — no workaround needed, and none pre-empting
-      // recognise()'s own memo with a partial result.
-      const top = this.trace?.enter("respondTurn", [
-        rItem(newContext, "query"),
-      ]);
-
-      const thought = await think(this, newContext, this.mechanisms);
-      if (thought === null) {
-        top?.done([], "nothing to perceive or an empty store — no answer");
-        return {
-          response: { v: null, bytes: new Uint8Array(0) },
-          state: this.conversationState(conv)!,
-        };
-      }
-
-      const voiced = await articulate(this, thought.bytes, newContext);
-      top?.done(
-        [rItem(voiced, "answer", resolveImpl(this, voiced) ?? undefined)],
-        "the answer, re-voiced in the asker's words",
-      );
+      const response = await this._groundAndVoice(newContext, "respondTurn");
 
       // The REPLY joins the accumulated context the same way a turn does
       // ({@link addTurn}): raw byte append plus a boundary offset — never a
@@ -698,33 +761,11 @@ export class Mind implements MindContext {
       // the cumulative continuous shape multi-turn training deposits, so a
       // later turn can refer to what was ANSWERED ("which of those two…"),
       // not only to what was asked.
-      if (voiced.length > 0) this.addTurn(conv, voiced);
+      if (response.bytes.length > 0) this.addTurn(conv, response.bytes);
 
-      return {
-        response: {
-          v: gistOf(this, voiced),
-          bytes: voiced,
-          provenance: thought.provenance,
-        },
-        state: this.conversationState(conv)!,
-      };
+      return { response, state: this.conversationState(conv)! };
     } finally {
-      // No save-back: the conversation's memo MAPS were mutated in place —
-      // `data.*` still points at them.  Re-assigning from the Mind-level
-      // pointers here was a no-op in the single-flight case and, under a
-      // concurrently-started respond() (which swaps its own fresh maps into
-      // those pointers), would inject a FOREIGN response's memos into this
-      // conversation.  Clear Mind references — non-conversation respond()
-      // calls get fresh per-response memos.
-      this.trace = null;
-      this.perceiveMemo = null;
-      this.recogniseMemo = null;
-      this.climbMemo = null;
-      this.canon = null;
-      this.canonMemo = null;
-      this._resolvedSubtrees = null;
-      this._edgeGuide = null;
-      this._edgeChoice.clear();
+      this.endResponse(newContext.length);
     }
   }
 

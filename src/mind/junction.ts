@@ -186,6 +186,16 @@ function cachedContainers(
  *     few levels of its parts).  A side too common to decide within the
  *     budget abstains here and falls through to the resonance tier (the
  *     climb's own saturation semantics).
+ *
+ *     REFUTED TIGHTENING (measured, 325K contexts): giving this walk
+ *     edgeAncestors' cumulative LATERAL-CONE limit — abstain once the
+ *     accumulated lateral entries pass √N — would cut most of the pops (47
+ *     of 56 walks exceed √N lateral, and 47 exhaust the budget), but TWO OF
+ *     THE FOUR walks that actually found a container had lateral spread of
+ *     1425 and 1426, far past √N.  The cone limit is sound for
+ *     edgeAncestors' question and wrong for this one: a junction container
+ *     is legitimately reached across many containing structures.  Half the
+ *     successful junctions would be lost.
  *   • per-node hub guards — parent fan-outs beyond √N are hubs (not
  *     expanded); each node contributes at most one √N page of containers;
  *     √N collected candidates decide. */
@@ -215,6 +225,7 @@ export function junctionContainersFrom(
   if (seeds.length === 0) return [];
 
   const b = budget ?? { n: bound * ctx.space.maxGroup };
+  if (ctx.meter) ctx.meter.junctionWalks++;
   // DEPTH CAP: perception trees are W-ary and a junction container is
   // phrase-scale, so it sits within ~log_W(maxContainer) structural levels
   // of its parts — at most W levels for any practical W (plus the
@@ -231,6 +242,7 @@ export function junctionContainersFrom(
   }));
   while (stack.length > 0 && out.length < bound && b.n-- > 0) {
     const { id: x, d } = stack.pop()!;
+    if (ctx.meter) ctx.meter.junctionPops++;
     const f = cachedRead(ctx, cache, x, maxContainer);
     if (f.length > maxContainer) continue; // beyond phrase scale: prune branch
     if (unordered) {

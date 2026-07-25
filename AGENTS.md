@@ -145,6 +145,14 @@ matcher or projection, add it **to the shared family** with a derived gate
 aligning, edge-following to a fixpoint, predecessor-picking, or fan-out capping
 is reintroducing duplication that was deliberately removed.
 
+A shared analysis must not live inside a mechanism. If `pipeline-mechanism.ts`
+(the shared contract and `Precomputed`) or a post-grounding stage has to import
+_out of_ `mechanisms/`, the dependency is inverted and the market's decoupling
+(2.6) is broken — deleting that mechanism would break the shared container. The
+span-shape family (`isSpanShaped` / `containsSpan` / `skillExemplar`) was
+exactly this and now lives in `match.ts`, where its two consumers can reach it
+without knowing extraction exists.
+
 Related single-definition contracts (define once, import everywhere):
 
 - `canonical.ts` — the write/read contract for canonical segmentation
@@ -327,7 +335,49 @@ _Follow it:_ when your code can degrade, emit a counter or trace step. And mind
 the classic trap: **empty bytes are truthy** — `Uint8Array(0)` passes
 `if (answer)`; always test `.length`.
 
-### 2.14 Comment style
+### 2.14 Measured, not guessed — the work meter
+
+`src/meter.ts` is the one computational-usage accounting surface: a `Meter`
+counts the WORK one inference call performs at every layer (store reads by kind
+and by VOLUME, ANN queries and vectors scanned, perceptions, recognitions,
+climbs and ancestor visits, alignment cells, chart pops, mechanism floors/runs)
+and times named PHASES. Off by default and free when off;
+`new Mind({ profile:
+true })` attaches one per response and leaves a
+`CostReport` on `mind.lastCost`. `bench/profile-inference.mjs` is the reference
+harness.
+
+It is the profiling counterpart of the rationale — the rationale says why an
+answer was chosen, the meter says what it cost. Four contracts:
+
+1. **Never read by inference.** A counter that reached a decision would end
+   determinism (2.1). Write-only from the engine's side.
+2. **Counts are the product; times are the hint.** Counters are deterministic,
+   so two runs are diffable and a work regression is visible without a
+   stopwatch. Only `elapsedMs` and the phase millisecond totals are not.
+3. **Phases nest, and carry their own counter deltas.** `think` ⊃ `<mech>.run` ⊃
+   `substitutionBridge` ⊃ `recall.exhaustiveResonate`. Inclusive, never summed —
+   but each phase reports the work done inside it (`PhaseCost.counters`), which
+   is what makes "which phase did those byte reads?" answerable at all.
+4. **Count a logical operation once.** A recursive read (`bytesPrefix`
+   descending a branch) is charged at the public entry point only — the private
+   `_prefix` body is uncharged. Counting the recursion made one read of an
+   N-byte branch report as N reads, so the counter measured tree size instead of
+   read requests.
+5. **Shared analyses are charged to themselves.** `attention`, `weave`,
+   `spanShaped` and `substitutionBridge` bill their own phase, not the mechanism
+   that happened to first-touch them — otherwise the profile blames whoever paid
+   on everyone's behalf (it once read "cast.floor costs 2.9 s" when 2.7 s of
+   that was the consensus climb).
+
+_Follow it:_ a new layer that wants to be visible bumps a field in `meter.ts` —
+never a private counter. (`danglingReads`/`compactFailures` in `store.ts` stay:
+those are session-lifetime HEALTH counters, not per-response work.) Add the
+counter to the report the same way, and remember the classic trap: **profile
+without a trace attached** — a trace bypasses the memos (2.11) and measures a
+different machine.
+
+### 2.15 Comment style
 
 Comments state _constraints and failure modes_ — "this guard exists because X
 breaks without it", often naming the test that pins the behaviour — never
@@ -360,6 +410,7 @@ story of the fix.
 | Learning / ingestion / training cache         | `src/mind/learning.ts`, `src/ingest-cache.ts`                          |
 | Post-grounding (reason, fuse, articulate)     | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                    |
 | Rationale / trace                             | `src/mind/rationale.ts`, `src/mind/trace.ts`                           |
+| Computational-usage meter                     | `src/meter.ts` (harness: `bench/profile-inference.mjs`)                |
 | Extension host types                          | `src/extension.ts`                                                     |
 | Sublibraries (own READMEs, own tests)         | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                           |
 
@@ -427,6 +478,19 @@ recognition found, how the climb voted, which edges were followed
 (`disambiguate` steps carry the evidence). `recall-echo` means "nearest stored
 form, not a derived fact". Remember traced responses bypass memos (2.11).
 
+### Profile an answer
+
+```ts
+const mind = new Mind({ store, profile: true }); // no trace — see 2.14
+await mind.respondText(query);
+console.log(formatReport(mind.lastCost!)); // counters by layer + nested phases
+```
+
+`bench/profile-inference.mjs` runs a battery this way and prints per-query and
+aggregate reports; `sumReports` aggregates a run. Diff the COUNTERS between two
+runs to catch a work regression — they are deterministic; read the PHASES to see
+where the wall clock went.
+
 ### Train at scale
 
 Use `CachedIngest` (`ingest-cache.ts`) as a drop-in for `mind.ingest` — it
@@ -450,10 +514,12 @@ against the built `dist/` (`npm test`; one suite:
 - New behaviour ⇒ a test in the matching numbered suite, or a new numbered
   suite.
 - Many tests pin **contracts that look like implementation details** (the bridge
-  tier order, extraction's two span-shape readings, determinism, honest
-  silence). A "simplification" that fails an existing test is wrong until you
-  can argue the _test_ is wrong — several guards exist precisely because a
-  plausible simplification once failed a dozen suites.
+  tier order, the bridge's identity admission vs. its prefix trap and the
+  scaffolding reading behind it, the two span-shape readings (`match.ts`),
+  `MechanismResult.complete`, determinism, honest silence). A "simplification"
+  that fails an existing test is wrong until you can argue the _test_ is wrong —
+  several guards exist precisely because a plausible simplification once failed
+  a dozen suites.
 - Sublibraries test themselves (`src/{alu,derive,rabitq-ivf}/test/`) with zero
   Sema dependency. Keep it so.
 - Performance claims are tested (the rabitq-ivf benchmark asserts sub-linear

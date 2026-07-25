@@ -37,7 +37,12 @@ import {
 import { foldTree, gistOf, latin1Key, perceive, read } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { leafIdRun } from "./canonical.js";
-import { corpusN, edgeAncestors, hubBound } from "./traverse.js";
+import {
+  corpusN,
+  edgeAncestors,
+  hubBound,
+  sharedReachMemo,
+} from "./traverse.js";
 import {
   cachedRead,
   type Junction,
@@ -475,6 +480,7 @@ export async function climbAttentionAll(
     }
     const hit = byRead.get(modeKey);
     if (hit !== undefined) {
+      if (ctx.meter) ctx.meter.climbHits++;
       // Cache-hit exit (spec §9): the abbreviated payload shape — only what
       // is actually stored in the cached AttentionRead is reported.  No
       // candidate, reach, saturation, pooling or anchor detail is fabricated
@@ -514,6 +520,7 @@ export async function computeAttention(
   k: number,
   mode: DFMode,
 ): Promise<AttentionRead> {
+  if (ctx.meter) ctx.meter.climbs++;
   const regions = collectRegions(ctx, query);
   const perceivedCount = regions.length;
 
@@ -557,25 +564,30 @@ export async function computeAttention(
   const N = corpusN(ctx);
   // One climb per distinct anchor for the WHOLE query: regions sharing a
   // chunk, and canonicalChunkId's prefix probes, all hit this memo instead of
-  // re-reading the anchor's full edge fan-out from the store.
-  const reachMemo = new Map<number, AncestorReach>();
-  const rvs = await voteRegions(ctx, query, regions, k, mode, N, reachMemo, td);
+  // re-reading the anchor's full edge fan-out from the store.  The memo is
+  // the SHARED one (traverse.ts) — response-scoped for respond(),
+  // conversation-scoped across turns, and the same map confluence prices
+  // commonality against; it used to be a private per-climb Map, so a
+  // conversation re-climbed its own repeated regions from cold on every
+  // turn.  A traced response still gets a fresh one — see sharedReachMemo.
+  const reachMemo = sharedReachMemo(ctx);
+  const rvs = ctx.meter
+    ? await ctx.meter.time(
+      "climb.voteRegions",
+      () => voteRegions(ctx, query, regions, k, mode, N, reachMemo, td),
+    )
+    : await voteRegions(ctx, query, regions, k, mode, N, reachMemo, td);
 
   // ── Cross-region: DIRECT region-to-region interaction ─────────────────
   // Two regions whose individual climbs land on DIFFERENT contexts leave
   // their JOINT context — the learnt whole that contains BOTH — with no
   // vote.  crossRegionVotes recovers it by the bridge's content-addressed
   // junction ascent (see the note above the function).
-  const cross = await crossRegionVotes(
-    ctx,
-    query,
-    regions,
-    rvs,
-    k,
-    N,
-    reachMemo,
-    td,
-  );
+  const crossArgs = () =>
+    crossRegionVotes(ctx, query, regions, rvs, k, N, reachMemo, td);
+  const cross = ctx.meter
+    ? await ctx.meter.time("climb.crossRegion", crossArgs)
+    : await crossArgs();
   // A vote SUPERSEDED by exact joint evidence (its bytes literally live
   // inside the joint container, yet it climbed elsewhere — grid aliasing)
   // is dropped, not down-weighted: the joint container explains it away.
@@ -662,6 +674,7 @@ export async function voteRegions(
   saturated: boolean[];
   voters: Array<{ id: number; score: number; w: number } | null>;
 }> {
+  if (ctx.meter) ctx.meter.climbRegions += regions.length;
   const regionSaturated: boolean[] = new Array(regions.length).fill(false);
   const regionVotes: RegionVote[] = [];
   const regionVoter: Array<{ id: number; score: number; w: number } | null> =
@@ -1023,6 +1036,9 @@ export function poolVotes(
     };
   }
 
+  // The one hub bound (traverse.ts) — N here IS corpusN, threaded down from
+  // computeAttention.  Read once, not per rule application.
+  const bound = hubBound(ctx);
   const key = (it: AItem) =>
     it.kind === "region"
       ? `r${it.ri}`
@@ -1053,13 +1069,14 @@ export function poolVotes(
       // region's vote across its FULL corpus-sized fan-in yields O(corpus)
       // rule applications per region and near-zero per-target weight anyway.
       // Cap the redistribution at the first √N contexts (insertion order,
-      // the same convention chooseNext caps by).
-      const hubBound = Math.ceil(Math.sqrt(N));
+      // the same convention chooseNext caps by).  Hoisted out of the
+      // generator: `rules` is invoked once per popped item, and this used to
+      // re-derive the bound on every one of them.
       for (const r of rv.roots) {
         // CAPPED read: only the first hubBound targets are ever credited, so
         // only they are read — a common continuation's full reverse fan-in
         // is corpus-sized and is never materialised.
-        const pv = ctx.store.prevFirst(r, hubBound);
+        const pv = ctx.store.prevFirst(r, bound);
         const isAnswer = pv.length > 0 && !ctx.store.hasNext(r);
         const targets = isAnswer ? pv : [r];
         for (const t of targets) {
@@ -1794,6 +1811,24 @@ function betterProposal(
  *  ANN-query each, merge proposals by candidate id, and validate the winner
  *  through the SAME structural gates every other tier answers to (saturation,
  *  roots, IDF, contrastive margin).  Returns null when nothing survives. */
+/** {@link structuralResonance}, charged to its own profiling phase — it is
+ *  the halo-mediated arm of the cross-region ladder and the one part of it
+ *  that resonates. */
+async function meteredStructuralResonance(
+  ...args: Parameters<typeof structuralResonance>
+): Promise<
+  ReturnType<typeof structuralResonance> extends Promise<infer R> ? R
+    : never
+> {
+  const ctx = args[0];
+  return ctx.meter
+    ? await ctx.meter.time(
+      "climb.structuralResonance",
+      () => structuralResonance(...args),
+    )
+    : await structuralResonance(...args);
+}
+
 export async function structuralResonance(
   ctx: MindContext,
   query: Uint8Array,
@@ -2285,7 +2320,7 @@ async function crossRegionVotes(
           const ownRootsB = rvs.votes.find((v) =>
             v.start === rb.start && v.end === rb.end
           )?.roots;
-          structuralPick = await structuralResonance(
+          structuralPick = await meteredStructuralResonance(
             ctx,
             query,
             ra,
