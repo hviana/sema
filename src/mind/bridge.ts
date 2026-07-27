@@ -594,27 +594,62 @@ async function bridgeImpl(
   // hundreds of roots), so this is where its proposals are first sized.
   //
   // Candidate bytes are read LAZILY — on first access during the seed
-  // check — not eagerly for every collected id.  On a 325K-context store
-  // the climb channel alone can propose hundreds of edge-bearing ancestors
-  // (hubBound = 571), most of which will never contain a picked anchor
-  // window and would be discarded at the seed check without their bytes
-  // ever being consulted.  Eager reads for 500+ candidates each traversing
-  // the DAG (profiled at 12K node records and 73KB of bytes read per
-  // refusing query) is the dominant remaining bridge cost after the ANN
-  // gate.  A Map stays available for the frame-unanimity scan below, which
-  // only needs bytes of candidates that actually seeded.
-  const seededBytes = new Map<number, Uint8Array>();
-  /** Read a candidate's bytes once; cache for the seed check AND for the
-   *  frame-unanimity scan that follows alignment.  Returns null when the
-   *  candidate exceeds the phrase-scale cap or has no content. */
+  // check — not eagerly for every collected id. Most climb-proposed
+  // candidates fail the seed check and never reach the expensive identity
+  // and frame-consensus gates.
+  //
+  // Frame unanimity is different: once any candidate reaches that gate, it
+  // must be evaluated against the COMPLETE collected candidate population,
+  // not only the prefix whose bytes happened to be loaded earlier. The full
+  // phrase-scale population is therefore materialised once, lazily, on the
+  // first unanimous() call and reused afterward.
+  //
+  // Null results are memoised too, so an empty or over-cap candidate is never
+  // read repeatedly by the candidate loop and the population materialiser.
+  const candidateByteMemo = new Map<number, Uint8Array | null>();
+
+  /** Read one candidate at most once. Returns null when it exceeds the
+   * phrase-scale cap or has no content. */
   const bytesOfCandidate = (sid: number): Uint8Array | null => {
-    const hit = seededBytes.get(sid);
-    if (hit !== undefined) return hit;
+    const cached = candidateByteMemo.get(sid);
+    if (cached !== undefined) return cached;
+
     const b = candidateBytes(sid);
-    if (b !== null) seededBytes.set(sid, b);
+    candidateByteMemo.set(sid, b);
     return b;
   };
-  if (diagnostics) diagnostics.phraseScale = seededBytes.size;
+
+  let framePopulation: Map<number, Uint8Array> | null = null;
+
+  /** Return the complete phrase-scale candidate population.
+   *
+   * This is intentionally lazy: queries that never reach frame unanimity
+   * keep the cheap per-candidate seed path. Once required, every candidate
+   * is bounded by candidateBytes(), loaded at most once, and all subsequent
+   * unanimity checks observe the same order-independent population.
+   */
+  const ensureFramePopulation = (): ReadonlyMap<number, Uint8Array> => {
+    if (framePopulation !== null) {
+      return framePopulation;
+    }
+
+    const complete = new Map<number, Uint8Array>();
+
+    for (const sid of candidates) {
+      const bytes = bytesOfCandidate(sid);
+      if (bytes !== null) {
+        complete.set(sid, bytes);
+      }
+    }
+
+    framePopulation = complete;
+
+    if (diagnostics) {
+      diagnostics.phraseScale = complete.size;
+    }
+
+    return complete;
+  };
 
   // FRAME UNANIMITY: a substitution U → C inside the frame (Lf, Rf) is
   // groundable only when the collected candidates — the store's own sample
@@ -639,7 +674,9 @@ async function bridgeImpl(
     lf: Uint8Array,
     rf: Uint8Array,
   ): boolean => {
-    for (const bytes of seededBytes.values()) {
+    const population = ensureFramePopulation();
+
+    for (const bytes of population.values()) {
       let from = 0;
       for (;;) {
         const i = indexOf(bytes, lf, from);

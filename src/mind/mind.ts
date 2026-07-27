@@ -482,8 +482,17 @@ export class Mind implements MindContext {
     // Inference is a pure function of cumulative bytes. Conversation
     // boundaries remain persistence/API metadata and must not select a
     // different mechanism path than respond() on the identical byte stream.
-    this.answeredSpans = [];
-    this.currentTurnStart = 0;
+    // answeredSpans and currentTurnStart ARE restored from the conversation,
+    // however — they are pure functions of the cumulative byte stream (the
+    // assistant's own prior replies, and where the current user turn starts,
+    // are deterministic given the full transcript).  Without them confluence,
+    // cover, the weave, and the consensus climb treat prior assistant turns
+    // as fresh query content — re-deriving them as constraints, voting
+    // anchors, and alignment points.
+    this.answeredSpans = conv ? conv.answeredSpans : [];
+    this.currentTurnStart = conv && conv.boundaries.length > 0
+      ? conv.boundaries[conv.boundaries.length - 1]
+      : 0;
     this.canon = canon ?? null;
     this.canonMemo = canon ? new Map() : null;
     this._beginMeter();
