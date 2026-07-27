@@ -57,7 +57,7 @@ async function collectComputed(
 // invests in its own precomputation.  CAST's and confluence's floors (2*STEP,
 // 3*STEP) then fail `worthRunning` and are skipped by the SAME admissible-
 // floor pruning every mechanism is already subject to — not by asking
-// "is this an extension?".  Grade TIES keep the earlier candidate, so this
+// "is this an extension?". Grade TIES keep the earlier candidate, so this
 // order is also the tie-break priority: cover, cast, confluence, extraction,
 // recall.
 export const defaultMechanisms: PipelineMechanism[] = [

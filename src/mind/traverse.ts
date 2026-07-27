@@ -10,9 +10,9 @@ import { cosine, Vec } from "../vec.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { gistOf, read } from "./primitives.js";
 
-// ── Per-response structural memo ────────────────────────────────────────
+// ── Session structural memo ─────────────────────────────────────────────
 //
-// Within one respond() the store is read-only, so structural reads are pure
+// Between ingests the store is read-only, so structural reads are pure
 // functions of the node id.  edgeAncestors climbs different start nodes that
 // share ancestry (regions sharing a chunk, canonicalChunkId's prefix probes)
 // — the reachMemo already caches whole-climb results, but a node visited as an
@@ -42,21 +42,17 @@ const structCaches = new WeakMap<object, StructCache>();
 // every mechanism that prices commonality" — was reached only by confluence.
 // The climb is by far the biggest consumer.
 //
-// Keyed off `ctx.climbMemo`'s OBJECT IDENTITY, exactly like the struct cache
-// above, which buys the right lifetime for free: a plain respond() has a
-// fresh climbMemo, so the memo is response-scoped; a conversation turn has
-// the conversation's persistent one, so it is conversation-scoped.  That
-// matters — the stable-prefix fold makes each turn's subtree independent of
-// what follows, so 59–70% of a later turn's climb regions are byte-identical
-// repeats of an earlier turn's (measured on a 4-turn session), and every one
-// of them used to re-climb from cold.
+// Keyed by the Mind's structural lifecycle identity: ordinary and
+// conversational asks share it, and every ingest invalidates it. A real
+// battery repeatedly reaches the same corpus scaffolding even when its
+// surface questions differ.
 //
 // Budgeted, not unbounded (AGENTS §2.12): past the cap the whole map is
 // dropped and re-derived, costing a cold climb and never a wrong answer.
 const REACH_MEMO_MAX = 100_000;
 const reachCaches = new WeakMap<object, Map<number, AncestorReach>>();
 
-/** The reach memo this response should use — see the note above.
+/** The reach memo this ask should use — see the note above.
  *
  *  A TRACED response always gets a fresh, empty one.  `AncestorReach`'s
  *  `visited`/`maxDepth`/`saturation` fields are populated only when a trace
@@ -70,18 +66,18 @@ export function sharedReachMemo(
   ctx: MindContext,
 ): Map<number, AncestorReach> {
   if (ctx.trace !== null || ctx.climbMemo === null) return new Map();
-  let m = reachCaches.get(ctx.climbMemo);
-  if (m === undefined) reachCaches.set(ctx.climbMemo, m = new Map());
+  let m = reachCaches.get(ctx._structMemoKey);
+  if (m === undefined) reachCaches.set(ctx._structMemoKey, m = new Map());
   else if (m.size >= REACH_MEMO_MAX) m.clear();
   return m;
 }
 
 function getStructCache(ctx: MindContext): StructCache | null {
   if (ctx.climbMemo === null) return null;
-  let c = structCaches.get(ctx.climbMemo);
+  let c = structCaches.get(ctx._structMemoKey);
   if (c === undefined) {
     structCaches.set(
-      ctx.climbMemo,
+      ctx._structMemoKey,
       c = {
         hasNext: new Map(),
         prevCount: new Map(),
@@ -90,6 +86,12 @@ function getStructCache(ctx: MindContext): StructCache | null {
     );
   }
   return c;
+}
+
+/** Invalidate every session-lifetime structural read after a write. */
+export function invalidateStructuralCaches(ctx: MindContext): void {
+  reachCaches.delete(ctx._structMemoKey);
+  structCaches.delete(ctx._structMemoKey);
 }
 
 /** Cached {@link Store.hasNext} — pure during one respond(). */

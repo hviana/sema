@@ -343,6 +343,46 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     return singleLeaf[p];
   };
 
+  // ── exact query-edge forms beyond the canonical chain reach ─────────
+  //
+  // At corpus scale off-boundary atom chains are deliberately suppressed,
+  // but a whole trained form can be longer than chainReach(W) and sit at a
+  // query edge without being a subtree of the query's larger root. Appending
+  // another topic demonstrates the failure: the exact 30-byte trained
+  // question `What is the capital of France?` ends inside the larger query's
+  // [27,33) content segment, so neither the structural walk nor a W² chain
+  // can name it.
+  //
+  // Probe only prefix/suffix endpoints within one maximum segment of the
+  // query's own content cuts. The flat-branch lookup is byte-exact and runs
+  // before resolveSpan pays for a fold; approximate evidence never enters.
+  // This tier is needed only where atom chains are suppressed. Small stores
+  // retain their existing decomposition unchanged.
+  if (atomsAreHubs) {
+    const allLeafIds = singleLeaf.map((x) => x?.id ?? null);
+    if (allLeafIds.every((x): x is number => x !== null)) {
+      const radius = ctx.space.seats.length;
+      const endpoints = new Set<number>([0, bytes.length]);
+      for (const cut of startList) {
+        for (
+          let p = Math.max(0, cut - radius);
+          p <= Math.min(bytes.length, cut + radius);
+          p++
+        ) endpoints.add(p);
+      }
+      const ordered = [...endpoints].sort((a, b) => a - b);
+      const probe = (start: number, end: number): void => {
+        if (end - start < W || end - start <= chainReach(W)) return;
+        const ids = allLeafIds.slice(start, end);
+        if (store.findBranch(ids) === null) return;
+        const id = resolveSpan(start, end);
+        if (id !== null) emit(start, end, id);
+      };
+      for (const end of ordered) probe(0, end);
+      for (const start of ordered) probe(start, bytes.length);
+    }
+  }
+
   const chunkEnd = new Uint32Array(bytes.length);
   const sorted = [...starts].sort((a, b) => a - b);
   for (let si = 0; si < sorted.length; si++) {

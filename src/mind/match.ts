@@ -25,7 +25,7 @@
 // mechanism file states only its configuration, never its own copy of the
 // machinery.  The gates all live in geometry.ts (derived, never tuned).
 
-import { cosine, Vec } from "../vec.js";
+import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
 import type { Hit } from "../store.js";
 import { conceptThreshold, identityBar, significanceBar } from "../geometry.js";
 import { indexOf } from "../bytes.js";
@@ -36,9 +36,12 @@ import {
   argmaxCosine,
   chooseAmong,
   chooseNext,
+  corpusN,
+  edgeAncestors,
   guidedFirst,
   hubBound,
   hubCap,
+  sharedReachMemo,
 } from "./traverse.js";
 import { recognise, segment } from "./recognition.js";
 import type { Site } from "./graph-search.js";
@@ -345,6 +348,94 @@ export async function haloSiblings(
     : [];
   if (memo !== undefined) memo.set(id, out);
   return out;
+}
+
+/** Bundle the distributional company of every addressable W-window in a
+ *  byte span.  This is the query-time counterpart of the write-side halo
+ *  pours: no lexical unit or storage row is invented; the span is represented
+ *  by VSA superposition of the window concepts the store already knows.
+ *
+ *  Components are normalized before bundling so repetition mass remains
+ *  evidence about each stored node, not an accidental weight on one window
+ *  inside the composed phrase.  Returns null when the corpus provides no
+ *  distributional evidence for the span. */
+export function spanHalo(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  from = 0,
+  to = bytes.length,
+): Vec | null {
+  const W = ctx.space.maxGroup;
+  if (to - from < W) return null;
+  if (ctx.meter) ctx.meter.spanHalos++;
+  const out = zeros(ctx.store.D);
+  let found = false;
+  const added = new Set<number>();
+  const episodeRoots: number[][] = [];
+  const N = corpusN(ctx);
+  const reachMemo = sharedReachMemo(ctx);
+  const addHalo = (id: number): void => {
+    if (added.has(id)) return;
+    const halo = ctx.store.halo(id);
+    if (halo === null) return;
+    const norm = Math.sqrt(dot(halo, halo));
+    if (norm === 0) return;
+    added.add(id);
+    addInto(out, halo, 1 / norm);
+    found = true;
+  };
+  const windowCount = to - from - W + 1;
+  const offsets: number[] = [];
+  const samples = Math.min(W, windowCount);
+  for (let i = 0; i < samples; i++) {
+    const relative = samples === 1
+      ? 0
+      : Math.floor((i * (windowCount - 1)) / (samples - 1));
+    const off = from + relative;
+    if (offsets[offsets.length - 1] !== off) offsets.push(off);
+  }
+  for (const off of offsets) {
+    if (ctx.meter) ctx.meter.spanHaloWindows++;
+    const ids = leafIdRun(ctx, bytes, off, off + W);
+    if (ids === null) continue;
+    const id = ctx.store.findBranch(ids);
+    if (id === null) continue;
+    addHalo(id);
+    // Canonical flat windows are retrieval addresses and normally carry no
+    // halo themselves. Their bounded structural ascent reaches the learned
+    // episode forms that contain them; bundling those forms' company is the
+    // distributional meaning of the window, derived entirely from existing
+    // containment and halo state.
+    if (!added.has(id)) {
+      episodeRoots.push(edgeAncestors(ctx, id, N, reachMemo).roots);
+    }
+  }
+  for (let rank = 0; added.size < ctx.cfg.haloQueryK; rank++) {
+    let any = false;
+    for (const roots of episodeRoots) {
+      if (rank >= roots.length) continue;
+      any = true;
+      addHalo(roots[rank]);
+      if (added.size >= ctx.cfg.haloQueryK) break;
+    }
+    if (!any) break;
+  }
+  return found ? normalize(out) : null;
+}
+
+/** Distributional synonym evidence between arbitrary byte spans. Whole words
+ *  need not be independently interned: their stored W-window occurrences are
+ *  lifted to episode halos, bundled, and compared. The caller chooses the
+ *  derived gate appropriate to its claim (concept identity or analogy). */
+export function spanSynonymStrength(
+  ctx: MindContext,
+  a: Uint8Array,
+  b: Uint8Array,
+): number {
+  const ah = spanHalo(ctx, a);
+  const bh = spanHalo(ctx, b);
+  if (ah === null || bh === null) return 0;
+  return cosine(ah, bh);
 }
 
 /** The DISTRIBUTIONAL matcher between two nodes: mutual-nearest-neighbour

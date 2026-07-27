@@ -274,6 +274,18 @@ export async function counterfactualTransfer(
       `${points.length} aligned structure(s), but none is one of the climb's ` +
         `${roots.length} committed root(s) — CAST refuses to transfer through ` +
         `content the climb itself never settled on`,
+      {
+        aligned: points.map((p) => ({
+          anchor: p.anchor,
+          vote: p.vote,
+          runs: p.runs.map((r) => ({ ...r })),
+          coveredBytes: p.runs.reduce((n, r) => n + r.qe - r.qs, 0),
+        })),
+        committedRoots: roots.map((r) => ({
+          anchor: r.anchor,
+          vote: r.vote,
+        })),
+      },
     );
     return [];
   }

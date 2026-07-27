@@ -14,20 +14,25 @@
 // entry point to it — the halo system is real and works, it is simply
 // never asked about a node that was never minted.
 //
-// Fix (units.ts): a derived, corpus-statistics-only notion of a "natural
-// unit" — a run of adjacent chunks whose pairing recurs at least as often
-// as either chunk alone (the same principle behind BPE/content-defined
-// chunking, computed from this store's own reuse/containment counts, no
-// injected modality-specific segmenter).  Interned at deposit time,
-// pairwise halo-poured as each other's company; read at query time via the
-// same derived merge (existingUnits) plus a halo-corroborated substitution
-// fallback in recognise().
+// Fix: compose the distributional meaning of an arbitrary byte span from
+// existing canonical-window containment and episode halos. No lexical unit
+// index is introduced: each stored W-window ascends to the learned episodes
+// containing it, their company halos are VSA-bundled, and the bridge admits
+// the substitution only above the existing significanceBar plus its exact
+// alignment/corroboration gates.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Mind } from "../dist/src/index.js";
+import {
+  conceptThreshold,
+  cosine,
+  Mind,
+  significanceBar,
+} from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import { resolve } from "../dist/src/mind/primitives.js";
+import { substitutionBridge } from "../dist/src/mind/bridge.js";
+import { spanSynonymStrength } from "../dist/src/mind/match.js";
+import { perceive, resolve } from "../dist/src/mind/primitives.js";
 
 const enc = (s) => new TextEncoder().encode(s);
 const dec = (b) => new TextDecoder().decode(b).replace(/\0+$/, "");
@@ -55,18 +60,17 @@ const TRAIN = [
   ["What is the biggest island on Earth?", "The biggest island is Greenland."],
 ];
 
-test("baseline: 'biggest'/'largest' never resolve as independent nodes without natural units", async () => {
+test("bare synonym words remain unaddressable without a lexical unit index", async () => {
   const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
   await m.ingest(TRAIN);
-  // This assertion documents the ROOT CAUSE (still true even after the
-  // fix — units.ts does not change what resolve() itself returns for a
-  // bare word; it changes what recognise() can bridge to via halos).
+  // The capability composes meaning at read time; it deliberately does not
+  // mint or index modality-specific word nodes.
   assert.equal(resolve(m, enc("biggest")), null);
   assert.equal(resolve(m, enc("largest")), null);
   await m.store.close();
 });
 
-test("irrefutable failure: a trained fact is unreachable through an untrained near-synonym", async () => {
+test("a trained fact is reachable through an untrained near-synonym", async () => {
   const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
   await m.ingest(TRAIN);
 
@@ -173,3 +177,40 @@ test(
     );
   },
 );
+
+test("VSA company grounds a differently-spelled synonym without a lexical unit index", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["A physician treats illness.", "A healer treats illness."],
+    ["A doctor treats illness.", "A healer treats illness."],
+    ["The physician named Alice works today.", "Alice is on duty."],
+    ["Which physician is on duty?", "Alice is on duty."],
+  ]);
+
+  const doctor = enc(" doctor");
+  const physician = enc(" physician");
+  const geometric = cosine(
+    perceive(m, doctor).v,
+    perceive(m, physician).v,
+  );
+  const distributional = spanSynonymStrength(m, doctor, physician);
+  assert.ok(
+    geometric < conceptThreshold(m.store.D),
+    "the fixture must not pass through lexical/geometric similarity",
+  );
+  assert.ok(
+    distributional >= significanceBar(m.store.D),
+    "shared episode company must provide significant VSA synonym evidence",
+  );
+
+  const trained = resolve(m, enc("Which physician is on duty?"));
+  assert.notEqual(trained, null);
+  const hit = await substitutionBridge(
+    m,
+    enc("Which doctor is on duty?"),
+    async () => [trained],
+  );
+  assert.equal(hit?.id, trained);
+  assert.ok(hit?.subs.length > 0);
+  await m.store.close();
+});

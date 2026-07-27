@@ -12,11 +12,12 @@
 import type { MindContext } from "../types.js";
 import type { ComputedResult, Site } from "../graph-search.js";
 import { read, resolve } from "../primitives.js";
-import { guidedFirst } from "../traverse.js";
+import { guidedFirst, hubBound } from "../traverse.js";
 import { conceptHop } from "../match.js";
 import { bridge } from "../resonance.js";
 import { liftAnswer, segRestatesQuery } from "../types.js";
 import { decodeText, unexplainedLabel } from "../rationale.js";
+import { indexOf } from "../../bytes.js";
 import type { RationaleItem } from "../rationale.js";
 import { rItem, rNode, traceDerivation } from "../trace.js";
 import type { PipelineMechanism } from "../pipeline-mechanism.js";
@@ -50,10 +51,31 @@ export async function resolveConcepts(
 export async function resolveConnectors(
   ctx: MindContext,
   sites: ReadonlyArray<Site>,
+  query?: Uint8Array,
 ): Promise<Map<string, Uint8Array>> {
   const links = new Map<string, Uint8Array>();
-  const ordered = [...sites].sort((a, b) => a.start - b.start);
   const answerOf = (n: number) => guidedFirst(ctx, n) ?? n;
+  // A site's continuation already present elsewhere in the query is stale
+  // transcript evidence: cover still needs the site for structural context,
+  // but liftAnswer will trim that continuation as already answered. Building
+  // pairwise/n-ary bridges for it can only create connectors that are later
+  // discarded, and on cumulative dialogue that dominated the whole search.
+  let answered = 0;
+  const ordered = [...sites]
+    .sort((a, b) => a.start - b.start)
+    .filter((s) => {
+      while (
+        answered < ctx.answeredSpans.length &&
+        ctx.answeredSpans[answered][1] <= s.start
+      ) answered++;
+      const span = ctx.answeredSpans[answered];
+      if (span && span[0] <= s.start && s.end <= span[1]) return false;
+      if (query === undefined || ctx.answeredSpans.length === 0) return true;
+      const continuations = ctx.store.nextFirst(s.payload, hubBound(ctx));
+      return !continuations.some((answer) =>
+        indexOf(query, read(ctx, answer), 0) >= 0
+      );
+    });
   const bridgePair = async (l: number, r: number) => {
     if (l === r || links.has(l + "," + r)) return;
     const link = await bridge(ctx, read(ctx, l), read(ctx, r));
@@ -156,7 +178,12 @@ export const coverMechanism: PipelineMechanism = {
 
     if (sites.length === 0 && computed.length === 0) return [];
 
-    const connectors = await resolveConnectors(ctx, sites);
+    const connectors = ctx.meter
+      ? await ctx.meter.time(
+        "cover.resolveConnectors",
+        () => resolveConnectors(ctx, sites, query),
+      )
+      : await resolveConnectors(ctx, sites, query);
     let splits = rec.splits;
     let starts = rec.starts;
     if (computed.length > 0) {
@@ -172,7 +199,12 @@ export const coverMechanism: PipelineMechanism = {
         starts.add(u.j);
       }
     }
-    const concepts = await resolveConcepts(ctx, sites);
+    const concepts = ctx.meter
+      ? await ctx.meter.time(
+        "cover.resolveConcepts",
+        () => resolveConcepts(ctx, sites),
+      )
+      : await resolveConcepts(ctx, sites);
 
     const coverDeps = [
       ctx.trace?.lastIndex("recognise"),

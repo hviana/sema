@@ -316,51 +316,28 @@ export async function recallByResonance(
     // refusing on the reach bar).  Approximate scores propose; the bridge's
     // byte-exact alignment and attestation gates decide.
     //
-    // The proposal breadth here is widened PAST `k` — first by requesting
-    // hubBound(ctx) candidates instead of `k` (recall's own tiers above
-    // stay at `k`; this re-resonates only on the refusal path, exactly
-    // where the bridge itself already runs), AND by asking the index to
-    // search EXHAUSTIVELY.  Both matter: the IVF only ever probes
-    // ⌈√clusters⌉ of them (store.ts's efFor) REGARDLESS of k — widening k
-    // alone just returns more hits from the SAME already-probed clusters,
-    // never a hit whose vector lives in an unprobed one.  Measured live:
-    // "What is the chemical symbol for water?" needs "What is the
-    // chemical formula for water?", scoring only 0.58 against the
-    // query's gist (a MIDDLE-of-string word swap perturbs the river-fold
-    // tree hash far more than a same-length TAIL swap like the "carbon"/
-    // "oxygen" neighbours that outrank it at 0.87+) — absent from the
-    // resonance list even at k=5000, present and byte-exact-verified the
-    // moment it's force-fed to the bridge directly.  `exhaustive` is the
-    // natural, tuning-free ceiling (probe every cluster) for a call that
-    // is ALREADY refusal-path-only and must not miss a candidate hiding
-    // behind an unlucky structural distance.
-    //
-    // MEASURED COST, AND WHY IT STAYS (17.9M vectors / 325K contexts):
-    // this one call is ~570 ms and ~45% of all inference time on a refusing
-    // query.  The cost is entirely `exhaustive` (nprobe = every cluster),
-    // NOT the widened k — timed on that store: k=571 exhaustive 632 ms,
-    // k=24 exhaustive 536 ms, k=571 NON-exhaustive 12 ms.  So narrowing k
-    // buys nothing and the 50x is the whole-index scan itself.
-    // It is load-bearing: over an 18-query battery the bridge produced a
-    // winner 4 times, and ALL FOUR winners came from this proposal channel
-    // — the anchor-climb channel won nothing on its own.  Reordering the
-    // channels (climb first, resonate only on failure) would therefore pay
-    // the climb, fail, and pay this anyway.  Do not weaken it without
-    // re-running that measurement.
-    // Handed to the bridge as a THUNK: this exhaustive whole-index probe is
-    // the most expensive single act on the refusal path, and the bridge's
-    // own cheap gates (query length, the O(|query|) stored-window anchor
-    // scan) can refuse without any proposal at all.  See substitutionBridge.
+    // Reuse recall's already-ranked proposals. Never scan every IVF cluster:
+    // exact co-occurrence and bounded anchor ascent are the bridge's structural
+    // proposal channels, while an exhaustive ANN call made every honest
+    // refusal cost hundreds of milliseconds regardless of k.
     const wideIds = async (): Promise<ReadonlyArray<number>> => {
-      const wide = k >= hubBound(ctx)
-        ? whole
-        : ctx.meter
-        ? await ctx.meter.time(
-          "recall.exhaustiveResonate",
-          () => ctx.store.resonate(queryGist, hubBound(ctx), true),
-        )
-        : await ctx.store.resonate(queryGist, hubBound(ctx), true);
-      return wide.map((h) => h.id);
+      // When the top resonance hit is below the concept threshold, the query
+      // gist has no concept-level match to any stored form — an exhaustive √N
+      // ANN would only score more vectors below the bar (profiled at 38K–40K
+      // annVectorReads per refusing query on a 325K-context store).  The
+      // bridge's structural channels (junction walks, anchor climbs) are the
+      // correct proposal source for a query whose gist has no clean match;
+      // the ANN cannot propose what the gist cannot rank.
+      const marketScale = k * ctx.space.maxGroup;
+      if (corpusN(ctx) <= marketScale ** 3) {
+        const exhaustive = await ctx.store.resonate(
+          queryGist,
+          hubBound(ctx),
+          true,
+        );
+        return exhaustive.map((h) => h.id);
+      }
+      return whole.map((h) => h.id);
     };
     const bridged = await substitutionBridge(ctx, query, wideIds);
     if (bridged !== null) {

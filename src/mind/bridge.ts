@@ -26,11 +26,11 @@
 //     them reused across ≥ 2 containers (the same "≥ 2 structural parents"
 //     bar propagateSuffixes gates suffix inheritance with).  An untrained
 //     word ("deadliest") has no stored windows and can never substitute.
-//   • GEOMETRIC IDENTITY — the two spans' own perceived gists must clear
-//     conceptThreshold(D), the same "same concept" bar haloSiblings and
-//     articulation already gate on.  This is what separates a synonym pair
-//     the fold geometry genuinely identifies ("biggest"~"largest", sharing
-//     most of their bytes and their role) from an arbitrary co-frame word.
+//   • GRADED IDENTITY — lexical geometry is tried first at
+//     conceptThreshold(D). Differently-spelled forms fall through to VSA
+//     company: their stored W-window occurrences ascend to learned episodes,
+//     whose bundled halos must clear significanceBar(D), the same
+//     distributional-evidence bar used by analogyStrength.
 //
 // A candidate context is accepted when its aligned-plus-substituted spans
 // DOMINATE the query (the same half-dominance predicate used throughout)
@@ -41,9 +41,9 @@
 //
 // COST: nothing on any answering path — the bridge runs only where the
 // alternative was silence.  There it pays O(|query|) content-hash probes
-// (the propagateSuffixes trick), at most W anchor climbs and hubBound
-// candidate reads, and one O(|query|·|candidate|)-bounded alignment each —
-// all capped by existing derived bounds (W, chainReach, hubBound).
+// (the propagateSuffixes trick), at most W anchor climbs and
+// 2·recallQueryK candidate reads, and one
+// O(|query|·|candidate|)-bounded alignment each.
 //
 // FIXED WRONG-ANSWER GAP (found and closed 2026-07-20): a proper-noun swap
 // could pass both derived gates above and voice a WRONG fact.  Live case:
@@ -90,8 +90,8 @@
 //     boiling-point and lowercase-France bridge wins are unaffected; full
 //     suite green (358/358).
 
-import { cosine } from "../vec.js";
-import { conceptThreshold, dominates } from "../geometry.js";
+import { cosine, type Vec } from "../vec.js";
+import { conceptThreshold, dominates, significanceBar } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { foldTree, perceive, read } from "./primitives.js";
@@ -103,6 +103,8 @@ import {
   sharedReachMemo,
 } from "./traverse.js";
 import { rItem, rNode } from "./trace.js";
+import { junctionContainersFrom } from "./junction.js";
+import { spanHalo } from "./match.js";
 
 /** One accepted substitution: query span [qs,qe) stands in for the
  *  candidate context's span — recorded for the rationale trace. */
@@ -276,8 +278,45 @@ async function bridgeImpl(
   if (query.length < 2 * W) return null;
   const bound = hubBound(ctx);
   const N = corpusN(ctx);
+  const marketScale = ctx.cfg.recallQueryK * W;
+  const candidateCap = N <= marketScale ** 3 ? bound : 2 * ctx.cfg.recallQueryK;
   const bar = conceptThreshold(ctx.store.D);
+  const synonymBar = significanceBar(ctx.store.D);
   const reachCap = chainReach(W);
+  const diagnostics = ctx.trace
+    ? {
+      anchors: 0,
+      picked: 0,
+      proposed: 0,
+      structuralProposed: 0,
+      proposedGrounded: 0,
+      synonymChecks: 0,
+      bestSynonym: 0,
+      climbed: 0,
+      phraseScale: 0,
+      seeded: 0,
+      aligned: 0,
+      structurallyValid: 0,
+      coverageValid: 0,
+      identityValid: 0,
+      knownContentValid: 0,
+      bestCovered: 0,
+      bestRank: -1,
+      closest: [] as Array<{
+        id: number;
+        covered: number;
+        leading: number;
+        trailing: number;
+        gaps: number;
+        substitutions: number;
+        queryGapBytes: number;
+        candidateGapBytes: number;
+        gapRanges: Array<[number, number, number, number]>;
+        candidateSurplus: number;
+        gapsExplained: boolean;
+      }>,
+    }
+    : null;
 
   // PHRASE-SCALE CANDIDATE CAP — the same |content|·W bound the weave
   // (pipeline-mechanism.ts), the cross-region junction ladder's
@@ -332,7 +371,18 @@ async function bridgeImpl(
     if (rarity === 0) continue;
     anchors.push({ off: o, id, rarity });
   }
-  if (anchors.length === 0) return null;
+  if (diagnostics) diagnostics.anchors = anchors.length;
+  if (anchors.length === 0) {
+    ctx.trace?.step(
+      "substitutionBridge",
+      [rItem(query, "query")],
+      [],
+      "no stored query window can anchor a corroborated substitution",
+      undefined,
+      diagnostics!,
+    );
+    return null;
+  }
   // CORROBORATION (see the module-level doc) over the precomputed window
   // facts: the query span [qs,qe) attests when every full W-window inside
   // it is a stored flat form and at least one is reused across ≥ 2
@@ -394,17 +444,33 @@ async function bridgeImpl(
     to: number,
   ): boolean => {
     if (to - from < W) return true;
-    for (let o = from; o + W <= to; o++) {
-      const ids = leafIdRun(ctx, bytes, o, o + W);
-      if (ids === null) return false;
-      const wid = ctx.store.findBranch(ids);
-      if (wid === null) return false;
-      const r = edgeAncestors(ctx, wid, N, reachMemo);
-      if (r.saturated) continue; // in too many places to discriminate
-      if (r.roots.length === 0) return false; // reaches nothing: novel content
-      if (!dominates(r.contextsReached, N)) return false;
+    const common = (start: number, end: number): boolean => {
+      if (end - start < W) return false;
+      for (let o = start; o + W <= end; o++) {
+        const ids = leafIdRun(ctx, bytes, o, o + W);
+        if (ids === null) return false;
+        const wid = ctx.store.findBranch(ids);
+        if (wid === null) return false;
+        const r = edgeAncestors(ctx, wid, N, reachMemo);
+        if (r.saturated) continue; // in too many places to discriminate
+        if (r.roots.length === 0) return false; // reaches nothing: novel content
+        if (!dominates(r.contextsReached, N)) return false;
+      }
+      return true;
+    };
+    if (common(from, to)) return true;
+    // Alignment may attach the shared delimiter to either side of an inserted
+    // phrase. Up to W-1 boundary bytes are below the fold's identity scale;
+    // classify the phrase by a full-window interior core when one exists.
+    // This does not erase a short discriminative insertion: "heavy" still
+    // leaves the full `heav`/`eavy` windows for the corpus-global test.
+    for (let left = 0; left < W; left++) {
+      for (let right = 0; right < W; right++) {
+        if (left + right === 0 || left + right >= W) continue;
+        if (common(from + left, to - right)) return true;
+      }
     }
-    return true;
+    return false;
   };
 
   anchors.sort((a, b) => a.rarity - b.rarity);
@@ -415,7 +481,7 @@ async function bridgeImpl(
     if (picked.some((p) => Math.abs(p.off - a.off) < W)) continue;
     picked.push(a);
   }
-
+  if (diagnostics) diagnostics.picked = picked.length;
   // 2. Candidate trained contexts.  Two proposal channels, one verifier:
   //    (a) the caller's PROPOSED hits — recall's whole-query resonance
   //    ranking, the retrieval structure built to surface near-paraphrase
@@ -425,20 +491,56 @@ async function bridgeImpl(
   //    candidate passes the same byte-exact alignment and gates below.
   const seen = new Set<number>();
   const candidates: number[] = [];
-  // Proposal channel — carries its caller's own bound (recall's resonance
-  // k), so it neither consumes the climb's hub budget (on a small corpus
-  // √N is a handful and the proposals would crowd the climb out entirely)
-  // nor lets per-candidate byte work grow past that bound.  A proposal may
-  // be a FLAT content twin whose continuation edge lives on the
-  // fold-shaped deposit node with the same bytes — the same twin split
-  // canonResolve bridges by re-folding (primitives.ts) — but the re-fold
-  // (a full perceive of the candidate's bytes) is paid only for proposals
-  // that could align at all: alignment can only seed at a picked anchor
-  // window occurring literally in the candidate (measured: unconditional
-  // re-folds multiplied the refusal-path latency several-fold).
-  // FIRST TOUCH of the caller's proposals — past every gate that could have
-  // refused without them (see substitutionBridge's doc).
-  for (const sid of await proposed()) {
+  // Exact co-occurrence proposes contexts the whole-form ANN can miss when a
+  // short insertion shifts every later fold boundary. The byte alignment below
+  // remains the decider. All pairs share one candidateCap·W junction
+  // allowance, ordered
+  // by their rarest side and then span: a rare content window joined to a
+  // distant frame boundary discriminates a whole question better than two
+  // neighbouring rare windows inside the same word.
+  if (query.length <= 2 * reachCap) {
+    const pairs: Array<[typeof picked[number], typeof picked[number]]> = [];
+    for (let i = 0; i < picked.length; i++) {
+      for (let j = i + 1; j < picked.length; j++) {
+        pairs.push([picked[i], picked[j]]);
+      }
+    }
+    pairs.sort((a, b) =>
+      Math.min(a[0].rarity, a[1].rarity) -
+        Math.min(b[0].rarity, b[1].rarity) ||
+      Math.abs(b[0].off - b[1].off) - Math.abs(a[0].off - a[1].off) ||
+      a[0].rarity + a[1].rarity - b[0].rarity - b[1].rarity
+    );
+    const structuralBudget = {
+      n: chainReach(W) * W * ctx.cfg.recallQueryK,
+    };
+    for (const [left, right] of pairs.slice(0, W)) {
+      const found = junctionContainersFrom(
+        ctx,
+        query.subarray(left.off, left.off + W),
+        query.subarray(right.off, right.off + W),
+        capBytes,
+        [left.id],
+        [right.id],
+        structuralBudget,
+        true,
+      );
+      for (const hit of found) {
+        if (candidates.length >= candidateCap) break;
+        if (seen.has(hit.id) || !ctx.store.hasNext(hit.id)) continue;
+        seen.add(hit.id);
+        candidates.push(hit.id);
+        if (diagnostics) diagnostics.structuralProposed++;
+      }
+    }
+  }
+  // Once exact structural proposals fill the shared cap, no caller proposal
+  // can enter the verifier. Do not evaluate the lazy ANN thunk merely to
+  // discard every result at the loop's first guard.
+  const proposedIds = candidates.length < candidateCap ? await proposed() : [];
+  if (diagnostics) diagnostics.proposed = proposedIds.length;
+  for (const sid of proposedIds) {
+    if (candidates.length >= candidateCap) break;
     if (seen.has(sid)) continue;
     seen.add(sid);
     const tb = candidateBytes(sid);
@@ -457,32 +559,62 @@ async function bridgeImpl(
       seen.add(use);
     }
     candidates.push(use);
+    if (diagnostics) diagnostics.proposedGrounded++;
   }
+  // Proposal channel — carries its caller's own bound (recall's resonance
+  // k), sharing the 2·recallQueryK candidate allowance
+  // with the structural and climb channels. A proposal may
+  // be a FLAT content twin whose continuation edge lives on the
+  // fold-shaped deposit node with the same bytes — the same twin split
+  // canonResolve bridges by re-folding (primitives.ts) — but the re-fold
+  // (a full perceive of the candidate's bytes) is paid only for proposals
+  // that could align at all: alignment can only seed at a picked anchor
+  // window occurring literally in the candidate (measured: unconditional
+  // re-folds multiplied the refusal-path latency several-fold).
+  // FIRST TOUCH of the caller's proposals — past every gate that could have
+  // refused without them (see substitutionBridge's doc).
   // Climb channel — edge-bearing ancestors only, decided by the indexed
   // O(1) hasNext; no byte is read here (the climb visits hundreds of
   // roots, and reading each was measured to dominate the refusal path).
-  const proposedCount = candidates.length;
   for (const a of picked) {
-    const reach = edgeAncestors(ctx, a.id, N);
+    const reach = edgeAncestors(ctx, a.id, N, reachMemo);
     for (const sid of reach.roots) {
-      if (candidates.length - proposedCount >= bound) break;
+      if (candidates.length >= candidateCap) break;
       if (seen.has(sid)) continue;
       seen.add(sid);
       if (!ctx.store.hasNext(sid)) continue;
       candidates.push(sid);
+      if (diagnostics) diagnostics.climbed++;
     }
-    if (candidates.length - proposedCount >= bound) break;
+    if (candidates.length >= candidateCap) break;
   }
-
   // 3. Align each candidate; gate its mismatches; keep the best.
   // Over-cap candidates are dropped here rather than earlier: the climb
   // channel deliberately reads no bytes while collecting (the climb visits
   // hundreds of roots), so this is where its proposals are first sized.
-  const allBytes = new Map<number, Uint8Array>();
-  for (const sid of candidates) {
+  //
+  // Candidate bytes are read LAZILY — on first access during the seed
+  // check — not eagerly for every collected id.  On a 325K-context store
+  // the climb channel alone can propose hundreds of edge-bearing ancestors
+  // (hubBound = 571), most of which will never contain a picked anchor
+  // window and would be discarded at the seed check without their bytes
+  // ever being consulted.  Eager reads for 500+ candidates each traversing
+  // the DAG (profiled at 12K node records and 73KB of bytes read per
+  // refusing query) is the dominant remaining bridge cost after the ANN
+  // gate.  A Map stays available for the frame-unanimity scan below, which
+  // only needs bytes of candidates that actually seeded.
+  const seededBytes = new Map<number, Uint8Array>();
+  /** Read a candidate's bytes once; cache for the seed check AND for the
+   *  frame-unanimity scan that follows alignment.  Returns null when the
+   *  candidate exceeds the phrase-scale cap or has no content. */
+  const bytesOfCandidate = (sid: number): Uint8Array | null => {
+    const hit = seededBytes.get(sid);
+    if (hit !== undefined) return hit;
     const b = candidateBytes(sid);
-    if (b !== null) allBytes.set(sid, b);
-  }
+    if (b !== null) seededBytes.set(sid, b);
+    return b;
+  };
+  if (diagnostics) diagnostics.phraseScale = seededBytes.size;
 
   // FRAME UNANIMITY: a substitution U → C inside the frame (Lf, Rf) is
   // groundable only when the collected candidates — the store's own sample
@@ -507,7 +639,7 @@ async function bridgeImpl(
     lf: Uint8Array,
     rf: Uint8Array,
   ): boolean => {
-    for (const bytes of allBytes.values()) {
+    for (const bytes of seededBytes.values()) {
       let from = 0;
       for (;;) {
         const i = indexOf(bytes, lf, from);
@@ -540,9 +672,19 @@ async function bridgeImpl(
   // check — verified live).
   let best: BridgeHit | null = null;
   let bestAccounted = 0;
-  for (const sid of candidates) {
-    const cBytes = allBytes.get(sid);
-    if (cBytes === undefined) continue;
+  const queryHaloMemo = new Map<string, Vec | null>();
+  const candidateHaloMemo = new Map<string, Vec | null>();
+  for (
+    let candidateIndex = 0;
+    candidateIndex < candidates.length;
+    candidateIndex++
+  ) {
+    const sid = candidates[candidateIndex];
+    // Read bytes lazily — most climb-proposed candidates have no picked
+    // anchor window and will never pass the seed check below, so their
+    // bytes are never read at all.
+    const cBytes = bytesOfCandidate(sid);
+    if (cBytes === null) continue;
     // Seed at the rarest picked anchor that literally occurs in this
     // candidate.
     let seed: { qo: number; co: number } | null = null;
@@ -554,7 +696,29 @@ async function bridgeImpl(
       }
     }
     if (seed === null) continue;
+    if (diagnostics) diagnostics.seeded++;
     const { matched, gaps } = align(ctx, query, cBytes, seed.qo, seed.co);
+    if (diagnostics) diagnostics.aligned++;
+
+    // Investment gate: even treating every two-sided mismatch as a valid
+    // synonym, can this alignment satisfy the bridge's final coverage rule?
+    // Distributional span composition performs bounded ancestor climbs; never
+    // pay for it on a candidate arithmetic already proves cannot win.
+    let matchStart = query.length;
+    let matchEnd = 0;
+    let potential = 0;
+    for (const [s, e] of matched) {
+      matchStart = Math.min(matchStart, s);
+      matchEnd = Math.max(matchEnd, e);
+      potential += e - s;
+    }
+    for (const g of gaps) {
+      if (g.qe > g.qs && g.ce > g.cs) potential += g.qe - g.qs;
+    }
+    if (
+      matchStart > W || query.length - matchEnd > W ||
+      !dominates(potential, query.length)
+    ) continue;
 
     // Gate each mismatch: a corroborated, geometrically-identified
     // substitution counts as accounted; anything else stays a gap.
@@ -594,12 +758,14 @@ async function bridgeImpl(
       // happen to share a few letters.  Uses the SAME dominates() bar
       // (part*2 > whole) applied throughout the codebase, symmetrically:
       // the smaller raw side must be more than half the larger.  Applies
-      // to the RAW gap, before expansion — expansion only ever grows both
-      // sides by IDENTICAL absorbed bytes, so it cannot fix an imbalance
-      // that was already there.
+      // to the RAW gap for GEOMETRIC identity, before expansion — expansion
+      // only ever grows both sides by IDENTICAL absorbed bytes, so it cannot
+      // fix an imbalance that was already there. Distributional synonym
+      // evidence is exempt: two phrases may occupy the same role at very
+      // different lengths.
       let accepted = false;
       const balanced = dominates(Math.min(uLen, cLen), Math.max(uLen, cLen));
-      const maxExtra = balanced ? reachCap - Math.max(uLen, cLen) : -1;
+      const maxExtra = reachCap - Math.max(uLen, cLen);
       outer:
       for (let extra = 0; extra <= maxExtra; extra++) {
         for (let a = 0; a <= extra; a++) {
@@ -622,7 +788,36 @@ async function bridgeImpl(
           if (!attestedQ(qs2, qe2)) continue;
           const u = query.subarray(qs2, qe2);
           const cSpan = cBytes.subarray(cs2, ce2);
-          if (cosine(perceive(ctx, u).v, perceive(ctx, cSpan).v) < bar) {
+          const geometric = cosine(perceive(ctx, u).v, perceive(ctx, cSpan).v);
+          const qKey = `${qs2}:${qe2}`;
+          let qHalo = queryHaloMemo.get(qKey);
+          if (qHalo === undefined) {
+            qHalo = spanHalo(ctx, query, qs2, qe2);
+            queryHaloMemo.set(qKey, qHalo);
+          }
+          const cKey = `${sid}:${cs2}:${ce2}`;
+          let cHalo = candidateHaloMemo.get(cKey);
+          if (cHalo === undefined) {
+            cHalo = spanHalo(ctx, cBytes, cs2, ce2);
+            candidateHaloMemo.set(cKey, cHalo);
+          }
+          const distributional = qHalo !== null && cHalo !== null
+            ? cosine(qHalo, cHalo)
+            : 0;
+          if (diagnostics) {
+            diagnostics.synonymChecks++;
+            diagnostics.bestSynonym = Math.max(
+              diagnostics.bestSynonym,
+              distributional,
+            );
+          }
+          // Graded identity: byte geometry remains the cheap first tier;
+          // VSA company is the synonym tier when differently-spelled forms
+          // occupy the same learnt distributional role.
+          if (
+            (!balanced || geometric < bar) &&
+            distributional < synonymBar
+          ) {
             continue;
           }
           if (
@@ -655,6 +850,7 @@ async function bridgeImpl(
     // mechanism exists to explain SUBSTITUTIONS; a query needing none is
     // recall's job, not the bridge's.
     if (!ok) continue;
+    if (diagnostics) diagnostics.structurallyValid++;
 
     // Coverage: matched runs plus accepted substitutions must dominate the
     // query, every interior gap already proved ≤ W above, and the EDGES
@@ -675,8 +871,35 @@ async function bridgeImpl(
       covered += e - Math.max(s, reachEnd);
       reachEnd = Math.max(reachEnd, e);
     }
+    if (diagnostics) {
+      diagnostics.bestCovered = Math.max(diagnostics.bestCovered, covered);
+      const candidateGapBytes = gaps.reduce(
+        (n, g) => n + g.ce - g.cs,
+        0,
+      );
+      diagnostics.closest.push({
+        id: sid,
+        covered,
+        leading: spans[0][0],
+        trailing: query.length - reachEnd,
+        gaps: gaps.length,
+        substitutions: subs.length,
+        queryGapBytes: gaps.reduce((n, g) => n + g.qe - g.qs, 0),
+        candidateGapBytes,
+        gapRanges: gaps.map((g) => [g.qs, g.qe, g.cs, g.ce]),
+        candidateSurplus: cBytes.length - covered - candidateGapBytes,
+        gapsExplained: gaps.every((g) => explainedSpan(cBytes, g.cs, g.ce)),
+      });
+      diagnostics.closest.sort((a, b) =>
+        b.covered - a.covered ||
+        a.leading + a.trailing - b.leading - b.trailing ||
+        a.id - b.id
+      );
+      if (diagnostics.closest.length > W) diagnostics.closest.length = W;
+    }
     if (spans[0][0] > W || query.length - reachEnd > W) continue;
     if (!dominates(covered, query.length)) continue;
+    if (diagnostics) diagnostics.coverageValid++;
 
     // ZERO-SUBSTITUTION ADMISSION — an IDENTITY claim, not a substitution.
     //
@@ -741,6 +964,7 @@ async function bridgeImpl(
       if (cBytes.length - covered - cGap > W) continue;
       if (!gaps.every((g) => explainedSpan(cBytes, g.cs, g.ce))) continue;
     }
+    if (diagnostics) diagnostics.identityValid++;
 
     // KNOWN content may never be dismissed — see dismissedKnownContent
     // (the live case: "what is the capital of france" aligning into a
@@ -748,10 +972,12 @@ async function bridgeImpl(
     // trained "France" — as a gap, while genuinely novel spans like
     // test/49's untrained "Name" remain tolerable).
     if (dismissedKnownQ(spans)) continue;
+    if (diagnostics) diagnostics.knownContentValid++;
 
     if (covered > bestAccounted) {
       bestAccounted = covered;
       best = { id: sid, accounted: spans, subs };
+      if (diagnostics) diagnostics.bestRank = candidateIndex;
     }
   }
 
@@ -767,6 +993,18 @@ async function bridgeImpl(
       ],
       `a trained context accounts for the query up to ${best.subs.length} ` +
         `corroborated substitution(s) — grounding through its learnt edges`,
+      undefined,
+      diagnostics!,
+    );
+  } else {
+    ctx.trace?.step(
+      "substitutionBridge",
+      [rItem(query, "query")],
+      [],
+      "candidate contexts were proposed, but none passed the bridge's " +
+        "structural identity and corroboration gates",
+      undefined,
+      diagnostics!,
     );
   }
   return best;

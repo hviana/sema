@@ -95,9 +95,9 @@ export function junctionSeeds(ctx: MindContext, b: Uint8Array): number[] {
   return [wids[0], wids[wids.length - 1]];
 }
 
-/** Per-response cache of the identity walks' pure reads (capped bytes,
- *  parent pages, container pages), keyed by the response lifecycle object
- *  (ctx.climbMemo).  One response issues many walks whose ancestries overlap
+/** Session cache of the identity walks' pure reads (capped bytes,
+ *  parent pages, container pages), keyed by the write-invalidated structural
+ *  lifecycle object. One response issues many walks whose ancestries overlap
  *  heavily (pair sides repeat across combos, and synonym walks revisit the
  *  same neighbourhoods); the store is read-only while a response is in flight,
  *  so every one of these reads is a pure function of the id — repeats cost a
@@ -110,16 +110,27 @@ export interface WalkCache {
   containers: Map<number, number[]>;
 }
 const walkCaches = new WeakMap<object, WalkCache>();
+const WALK_CACHE_MAX = 100_000;
 export function walkCache(ctx: MindContext): WalkCache | null {
   if (ctx.climbMemo === null) return null;
-  let c = walkCaches.get(ctx.climbMemo);
+  let c = walkCaches.get(ctx._structMemoKey);
   if (c === undefined) {
     walkCaches.set(
-      ctx.climbMemo,
+      ctx._structMemoKey,
       c = { reads: new Map(), parents: new Map(), containers: new Map() },
     );
+  } else if (
+    c.reads.size + c.parents.size + c.containers.size >= WALK_CACHE_MAX
+  ) {
+    c.reads.clear();
+    c.parents.clear();
+    c.containers.clear();
   }
   return c;
+}
+
+export function invalidateJunctionCache(ctx: MindContext): void {
+  walkCaches.delete(ctx._structMemoKey);
 }
 export function cachedRead(
   ctx: MindContext,
@@ -352,13 +363,15 @@ export async function junctionSynonyms(
   maxInterior: number,
   unordered = false,
   sides?: JunctionSynonymSides,
+  sharedBudget?: { n: number },
 ): Promise<SynonymJunction[]> {
   const s = sides ?? await loadJunctionSynonymSides(ctx, left, right);
   if (s.leftId === null && s.rightId === null) return [];
 
   // ── Tier 2.5a: single-synonym — one side replaced by a halo sibling ──────
   // ONE shared expansion budget across BOTH directions of this tier.
-  const singleBudget = { n: hubBound(ctx) * ctx.space.maxGroup };
+  const singleBudget = sharedBudget ??
+    { n: hubBound(ctx) * ctx.space.maxGroup };
   const singleOut = new Map<number, SynonymJunction>();
   const keepBest = (
     map: Map<number, SynonymJunction>,
@@ -439,7 +452,8 @@ export async function junctionSynonyms(
   );
 
   const doubleOut = new Map<number, SynonymJunction>();
-  const budget = { n: hubBound(ctx) * ctx.space.maxGroup };
+  const budget = sharedBudget ??
+    { n: hubBound(ctx) * ctx.space.maxGroup };
   const tries = Math.min(pairs.length, ctx.cfg.haloQueryK);
   for (let i = 0; i < tries; i++) {
     const { l, r, confidence } = pairs[i];

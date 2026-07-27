@@ -74,14 +74,21 @@ export async function reason(
   // grounding can pre-consume one node per recognised site, O(query length));
   // nodes past the cap are still consumed directly, they just skip the
   // synonym expansion.
-  let haloSweeps = 0;
-  for (const id of preConsumed) {
-    consumeNode(id);
-    if (haloSweeps >= ctx.cfg.haloQueryK) continue;
-    const h = ctx.store.halo(id);
-    if (!h) continue;
-    haloSweeps++;
-    for (const sib of await haloSiblings(ctx, id, h)) consumeNode(sib.id);
+  const preconsume = async () => {
+    let haloSweeps = 0;
+    for (const id of preConsumed) {
+      consumeNode(id);
+      if (haloSweeps >= ctx.cfg.haloQueryK) continue;
+      const h = ctx.store.halo(id);
+      if (!h) continue;
+      haloSweeps++;
+      for (const sib of await haloSiblings(ctx, id, h)) consumeNode(sib.id);
+    }
+  };
+  if (ctx.meter) {
+    await ctx.meter.time("reason.preconsumeHalos", preconsume);
+  } else {
+    await preconsume();
   }
 
   let cur = answer;

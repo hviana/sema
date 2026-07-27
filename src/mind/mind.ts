@@ -83,6 +83,10 @@ export interface ConversationState {
    *  is `boundaries[0]`; the second turn starts at that offset, and so
    *  on.  Empty for a single-turn or new conversation. */
   boundaries: number[];
+  /** Byte spans occupied by replies produced by this Mind. Unlike boundary
+   *  parity, this remains exact when a turn receives an empty reply. Optional
+   *  so states saved before the field existed remain restorable. */
+  answeredSpans?: Array<[number, number]>;
 }
 
 /** An active conversation handle.  Opaque — interact through the Mind's
@@ -110,6 +114,7 @@ interface ConversationData {
   tree: Sema;
   bytes: Uint8Array;
   boundaries: number[];
+  answeredSpans: Array<[number, number]>;
   perceiveMemo: Map<string, Sema>;
   recogniseMemo: Map<string, Recognition>;
   climbMemo: Map<string, Map<string, AttentionRead>>;
@@ -128,7 +133,12 @@ import {
   read,
   resolve as resolveImpl,
 } from "./primitives.js";
-import { chooseNext, edgeAncestors as edgeAncestorsFn } from "./traverse.js";
+import {
+  chooseNext,
+  edgeAncestors as edgeAncestorsFn,
+  invalidateStructuralCaches,
+} from "./traverse.js";
+import { invalidateJunctionCache } from "./junction.js";
 import { follow } from "./match.js";
 import { recognise, segment } from "./recognition.js";
 import { meaningOf } from "./resonance.js";
@@ -245,6 +255,7 @@ export class Mind implements MindContext {
 
   /** Memo of the consensus climb — content-keyed.  See {@link MindContext.climbMemo}. */
   climbMemo: Map<string, Map<string, AttentionRead>> | null = null;
+  _structMemoKey: object = {};
 
   /** Memo of recognise() — content-keyed.  See {@link MindContext.recogniseMemo}. */
   recogniseMemo: Map<string, Recognition> | null = null;
@@ -259,6 +270,8 @@ export class Mind implements MindContext {
       { id: number; len: number }
     >
     | null = null;
+  answeredSpans: ReadonlyArray<readonly [number, number]> = [];
+  currentTurnStart = 0;
 
   /** The perceived gist of the query currently being answered.  Set by `think`
    *  before the graph search runs; `chooseNext` consults it as a gate (a null
@@ -466,6 +479,11 @@ export class Mind implements MindContext {
     this.recogniseMemo = conv ? conv.recogniseMemo : new Map();
     this.perceiveMemo = conv ? conv.perceiveMemo : new Map();
     this._resolvedSubtrees = conv ? conv.resolvedSubtrees : null;
+    // Inference is a pure function of cumulative bytes. Conversation
+    // boundaries remain persistence/API metadata and must not select a
+    // different mechanism path than respond() on the identical byte stream.
+    this.answeredSpans = [];
+    this.currentTurnStart = 0;
     this.canon = canon ?? null;
     this.canonMemo = canon ? new Map() : null;
     this._beginMeter();
@@ -514,6 +532,8 @@ export class Mind implements MindContext {
     this.recogniseMemo = null;
     this.perceiveMemo = null;
     this._resolvedSubtrees = null;
+    this.answeredSpans = [];
+    this.currentTurnStart = 0;
     this.canon = null;
     this.canonMemo = null;
     this._edgeGuide = null;
@@ -623,6 +643,15 @@ export class Mind implements MindContext {
     const id = this._nextConvId++;
     const initBytes = state?.context ?? new Uint8Array(0);
     const initBoundaries = state?.boundaries ? [...state.boundaries] : [];
+    const initAnswered = state?.answeredSpans
+      ? state.answeredSpans.map(([start, end]) =>
+        [start, end] as [number, number]
+      )
+      : initBoundaries.flatMap((start, i, cuts) =>
+        i % 2 === 0 && i + 1 < cuts.length
+          ? [[start, cuts[i + 1]] as [number, number]]
+          : []
+      );
     const tree = bytesToTree(
       this.space,
       this.alphabet,
@@ -635,6 +664,7 @@ export class Mind implements MindContext {
       tree,
       bytes: initBytes,
       boundaries: initBoundaries,
+      answeredSpans: initAnswered,
       perceiveMemo: new Map(),
       recogniseMemo: new Map(),
       climbMemo: new Map(),
@@ -657,6 +687,7 @@ export class Mind implements MindContext {
     return {
       context: data.bytes,
       boundaries: [...data.boundaries],
+      answeredSpans: data.answeredSpans.map(([start, end]) => [start, end]),
     };
   }
 
@@ -761,7 +792,11 @@ export class Mind implements MindContext {
       // the cumulative continuous shape multi-turn training deposits, so a
       // later turn can refer to what was ANSWERED ("which of those two…"),
       // not only to what was asked.
-      if (response.bytes.length > 0) this.addTurn(conv, response.bytes);
+      if (response.bytes.length > 0) {
+        const start = data.bytes.length;
+        this.addTurn(conv, response.bytes);
+        data.answeredSpans.push([start, data.bytes.length]);
+      }
 
       return { response, state: this.conversationState(conv)! };
     } finally {
@@ -816,6 +851,8 @@ export class Mind implements MindContext {
     second?: Input,
     onDeposit?: (report: import("./learning.js").DepositReport) => void,
   ): Promise<(Sema & { id: number }) | undefined> {
+    invalidateStructuralCaches(this);
+    invalidateJunctionCache(this);
     return ingest(this, input, second, onDeposit);
   }
 

@@ -100,8 +100,8 @@ export class Precomputed {
    *  serves every mechanism that prices commonality — AND the consensus
    *  climb, which is the largest consumer and used to build its own.  The
    *  ONE definition of its lifetime lives in traverse.ts
-   *  ({@link sharedReachMemo}): response-scoped for respond(),
-   *  conversation-scoped across turns, always cold under a trace. */
+   *  ({@link sharedReachMemo}): session-scoped between writes and always cold
+   *  under a trace. */
   private _reach?: Map<number, AncestorReach>;
   get reachMemo(): Map<number, AncestorReach> {
     return this._reach ??= sharedReachMemo(this.ctx);
@@ -232,7 +232,9 @@ function computeWeave(
   // recognising) a corpus-sized deposit: profiled on a 17.7M-node store,
   // uncapped weaves spent 5–8s per query recognising conversation-length
   // anchors that could never form a weave point.
-  const capBytes = query.length * quantum;
+  const askerBytes = query.length -
+    ctx.answeredSpans.reduce((n, [start, end]) => n + end - start, 0);
+  const capBytes = askerBytes * quantum;
   // EXCLUSIVITY IS ARBITRATED BY THE CLIMB'S VOTE ORDER, DELIBERATELY.  A query
   // byte can only be independent evidence for ONE point, so points are built in
   // ranked order and each new point's runs are trimmed against every point
@@ -265,10 +267,90 @@ function computeWeave(
     ctxBytes: Uint8Array;
     raw: GradedRun[];
   }> = [];
+  const querySegments: Array<[number, number]> = [];
+  let segmentStart = 0;
+  for (const [start, end] of ctx.answeredSpans) {
+    if (segmentStart < start) querySegments.push([segmentStart, start]);
+    segmentStart = Math.max(segmentStart, end);
+  }
+  if (segmentStart < query.length) {
+    querySegments.push([segmentStart, query.length]);
+  }
+  const weaveLength = querySegments.reduce((n, [s, e]) => n + e - s, 0);
+  const weaveQuery = new Uint8Array(weaveLength);
+  const weaveMap: Array<{
+    compactStart: number;
+    originalStart: number;
+    length: number;
+  }> = [];
+  let compactStart = 0;
+  for (const [start, end] of querySegments) {
+    weaveQuery.set(query.subarray(start, end), compactStart);
+    weaveMap.push({
+      compactStart,
+      originalStart: start,
+      length: end - start,
+    });
+    compactStart += end - start;
+  }
+  const segmentOf = (start: number, end: number) => {
+    let lo = 0;
+    let hi = weaveMap.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (weaveMap[mid].originalStart <= start) lo = mid + 1;
+      else hi = mid;
+    }
+    const part = lo > 0 ? weaveMap[lo - 1] : undefined;
+    return part && end <= part.originalStart + part.length ? part : undefined;
+  };
+  const weaveSites = pre.rec.sites.flatMap((s) => {
+    const part = segmentOf(s.start, s.end);
+    return part
+      ? [{
+        ...s,
+        start: part.compactStart + s.start - part.originalStart,
+        end: part.compactStart + s.end - part.originalStart,
+      }]
+      : [];
+  });
   for (const cand of rankedCapped) {
     const ctxBytes = read(ctx, cand.anchor, capBytes + 1);
     if (ctxBytes.length === 0 || ctxBytes.length > capBytes) continue;
-    const raw = alignGraded(ctx, query, ctxBytes, pre.rec.sites);
+    // CAST compares structures stated by the asker. Completed assistant turns
+    // remain available to recognition and the climb as conversation context,
+    // but aligning every candidate across their full prose makes weave work
+    // grow with answer length and lets the engine analogise against its own
+    // previous output. The compact asker stream is aligned once (so candidate
+    // windows are not rebuilt per turn), then every run is split back across
+    // the original turn segments so no evidence crosses an omitted boundary.
+    const raw = alignGraded(ctx, weaveQuery, ctxBytes, weaveSites).flatMap(
+      (r) => {
+        let lo = 0;
+        let hi = weaveMap.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (weaveMap[mid].compactStart <= r.qs) lo = mid + 1;
+          else hi = mid;
+        }
+        const out: GradedRun[] = [];
+        for (let pi = Math.max(0, lo - 1); pi < weaveMap.length; pi++) {
+          const part = weaveMap[pi];
+          if (part.compactStart >= r.qe) break;
+          const partEnd = part.compactStart + part.length;
+          const start = Math.max(r.qs, part.compactStart);
+          const end = Math.min(r.qe, partEnd);
+          if (start >= end) continue;
+          out.push({
+            ...r,
+            qs: part.originalStart + start - part.compactStart,
+            qe: part.originalStart + end - part.compactStart,
+            cs: r.cs + start - r.qs,
+          });
+        }
+        return out;
+      },
+    );
     if (raw.length === 0) continue;
     for (const r of raw) {
       for (let i = r.qs; i < r.qe; i++) depth[i] += r.weight;

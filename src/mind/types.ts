@@ -279,6 +279,9 @@ export interface MindContext extends GraphSearchHost {
    *  Null outside respond(); during respondTurn() the conversation's
    *  persistent map is swapped in. */
   climbMemo: Map<string, Map<string, AttentionRead>> | null;
+  /** Stable identity for session-lifetime, write-invalidated structural
+   *  caches. Query-level climb results remain on climbMemo. */
+  _structMemoKey: object;
   /** Memo of {@link recognise} — content-keyed (latin1) so recognised
    *  forms carry forward across conversation turns.  Bypassed while a
    *  trace is attached.  Null outside respond(). */
@@ -295,6 +298,13 @@ export interface MindContext extends GraphSearchHost {
    *  O(suffix) instead of O(context).  Mind-lifetime (WeakMap keys are
    *  the Sema objects the pyramid keeps alive). */
   _resolvedSubtrees: WeakMap<Sema, { id: number; len: number }> | null;
+  /** Completed assistant-turn byte spans in the current cumulative query.
+   *  Empty for ordinary respond(); response-scoped structural context for
+   *  mechanisms that must not re-derive already-produced replies. */
+  answeredSpans: ReadonlyArray<readonly [number, number]>;
+  /** Start offset of the user turn currently being answered. Zero for an
+   *  ordinary respond() and for the first turn of a conversation. */
+  currentTurnStart: number;
   _edgeGuide: Vec | null;
   _edgeChoice: Map<number, number>;
   _prevSeen: Set<number> | null;

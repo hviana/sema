@@ -2275,6 +2275,16 @@ async function crossRegionVotes(
   // the same container (or a sub-container of it) twice.
   const consumed = new Set<number>();
   let probes = 0;
+  // Once atoms themselves are hubs (N > W²), the cross-region analysis gets
+  // one k·W walk allowance per evidence tier. Without a shared allowance,
+  // each of k candidate pairs spends the full corpus-derived budget and a
+  // cumulative dialogue multiplies bounded work into tens of seconds. Small
+  // corpora retain exhaustive exact traversal: below this same scale the
+  // budget would be smaller than the structures the tests deliberately build.
+  const marketScale = k * ctx.space.maxGroup;
+  const corpusScale = N > marketScale ** 3;
+  const exactBudget = corpusScale ? { n: k * ctx.space.maxGroup } : undefined;
+  const synonymBudget = corpusScale ? { n: k * ctx.space.maxGroup } : undefined;
 
   for (let a = 0; a < cand.length && probes < k; a++) {
     if (consumed.has(cand[a])) continue;
@@ -2284,6 +2294,12 @@ async function crossRegionVotes(
       const rb = regions[cand[b]];
       if (!strong.has(cand[a]) && !strong.has(cand[b])) continue;
       if (ra.end >= rb.start) continue; // overlap or adjacent — nothing between
+      // In a cumulative conversation, an old↔old interaction cannot explain
+      // the user turn currently being answered; it was already available
+      // before that turn existed. Keep old↔current pairs (the current turn may
+      // refer to a prior answer), but do not repeatedly spend the junction
+      // budget recomposing two regions wholly before the current boundary.
+      if (ctx.currentTurnStart > 0 && rb.end <= ctx.currentTurnStart) continue;
       // Candidates strictly BETWEEN ra and rb (cand is sorted by start, so
       // that is exactly cand[a+1 .. b-1]) that already cast their OWN vote —
       // genuine, individually-corroborated evidence about what fills the gap
@@ -2364,7 +2380,7 @@ async function crossRegionVotes(
           cap,
           seedsOf(cand[a]),
           seedsOf(cand[b]),
-          undefined,
+          exactBudget,
           true,
         );
       if (probe) {
@@ -2384,6 +2400,7 @@ async function crossRegionVotes(
           maxInterior,
           true,
           sides,
+          synonymBudget,
         );
         if (probe) {
           const singleAttempted = sides.leftSiblings.length > 0 ||

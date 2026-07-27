@@ -176,6 +176,11 @@ export class Meter {
   /** Nodes popped by those ascents, against their √N·W budget — the counter
    *  that shows whether the walks are deciding early or burning the budget. */
   junctionPops = 0;
+  /** Arbitrary byte spans whose distributional company was VSA-bundled from
+   *  existing episode halos. */
+  spanHalos = 0;
+  /** Canonical W-windows examined while composing those span halos. */
+  spanHaloWindows = 0;
 
   /** `lightestDerivation` searches started. */
   searches = 0;
