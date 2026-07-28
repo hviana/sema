@@ -21,6 +21,7 @@ import {
   type GradedRun,
   project,
   reverseContext,
+  sharedFrameStrengthOf,
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
 import { restatesQuery } from "../reasoning.js";
@@ -616,12 +617,62 @@ export async function counterfactualTransfer(
   // content the query never asked about.  Computed once here; both the
   // hub fallback below and the comparison gate consume it.
   const rootTrusted = roots.some((r) => r.vote >= consensusFloor(corpusN(ctx)));
+  // The context that ESTABLISHES a filler — the same reverse context, under
+  // the same naming test, `seatOfNode` uses to VOICE an analog (a predecessor
+  // whose bytes CONTAIN the node's: it names or describes it, rather than
+  // merely having preceded it somewhere).  Memoised: the analogy loop below
+  // asks about the same dominant every time, and only ever asks at all when
+  // the cheap tiers already read zero.
+  const estMemo = new Map<number, Uint8Array | null>();
+  const establishing = (id: number): Uint8Array | null => {
+    const hit = estMemo.get(id);
+    if (hit !== undefined) return hit;
+    const own = read(ctx, id);
+    const rev = reverseContext(ctx, id, pre.guide);
+    const out = rev !== null && indexOf(rev, own, 0) >= 0 ? rev : null;
+    estMemo.set(id, out);
+    return out;
+  };
   for (const c of analogs) {
-    const { score: sim, halo } = await analogyStrength(
-      ctx,
-      dominant.anchor,
-      c.anchor,
-    );
+    const ev = await analogyStrength(ctx, dominant.anchor, c.anchor);
+    let sim = ev.score;
+    const halo = ev.halo;
+    // ROLE IS ESTABLISHED BY CONTEXT, NOT BY A NAME.  When neither halo tier
+    // fired and the two anchors' own bytes share no learnt frame either, the
+    // anchors are FILLERS — bare entity names — not the frame-bearing
+    // structures the tier is about.  Read the tier on what establishes each
+    // one instead: the aligned point's own context (or, for a hop-reached
+    // candidate, the point whose continuation edge reached it — the same
+    // context `cmpAccounted` already prices as that hop's query evidence).
+    // Both are ALREADY IN HAND, so this costs no extra read.
+    //
+    // Measured on test/29's corpus: "Michelangelo" vs "Homer" reads 0.000
+    // while "The David was sculpted by Michelangelo." vs "The Iliad was
+    // written by Homer." reads 0.452 — and a context in a different frame
+    // ("Water boils at one hundred degrees.") still reads 0.000.  The tier
+    // was never failing to discriminate; it was reading the fillers.
+    //
+    // Still the FRAME tier (`halo` stays false), so this evidence remains
+    // subject to the naming / trusted-root bar the comparison gate holds all
+    // frame evidence to — a wider READING of the same tier, not a new licence.
+    // Containment is excluded for the same reason the generator excludes it:
+    // a context that contains the other establishes nothing independent.
+    if (!halo && sim === 0) {
+      // For a hop-reached candidate the thing whose ROLE is in question is
+      // the point the query named, not the fact one edge past it: "Homer"
+      // was named and "The Iliad was written by Homer." establishes it,
+      // while the hop's own destination ("Homer was an ancient Greek poet")
+      // has no establishing predecessor at all.  The same reading
+      // `namedByQuery` and `cmpAccounted` already take of a hop.
+      const da = establishing(dominant.anchor);
+      const ca = establishing(c.point !== null ? c.anchor : c.src.anchor);
+      if (
+        da !== null && ca !== null &&
+        indexOf(da, ca, 0) < 0 && indexOf(ca, da, 0) < 0
+      ) {
+        sim = sharedFrameStrengthOf(ctx, da, ca);
+      }
+    }
     ctx.trace?.step(
       "tryAnalog",
       [

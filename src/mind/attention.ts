@@ -556,6 +556,18 @@ export async function computeAttention(
       // positional accident this work exists to remove.
       chunk: false,
       known: true, // a recognised site IS a stored form
+      // …and CARRY WHICH ONE.  `known: true` claimed exactness while the
+      // identity itself was dropped, leaving the climb to re-derive it from
+      // the gist through the ANN — so which stored node an exact site voted
+      // with turned on approximate rank.  Measured on test/34: the site
+      // "square" ([10,16), payload 40) resonated to "quare" (119) instead;
+      // the exact junction tier then found no container holding both "blue"
+      // and 119, fell through to the single-synonym tier, and "blue then
+      // square" attended to "red square" — a context NEITHER attribute
+      // attends to alone.  This is the same exact-first economy chunks
+      // already get from canonicalChunkId, and it REMOVES an ANN query
+      // rather than adding one.
+      id: s.payload,
     });
   }
 
@@ -732,7 +744,34 @@ export async function voteRegions(
     // `v`/`start`/`end` are rebindable: a long approximate segment may vote
     // with the sub-span that actually carries its evidence — see below.
     let { v, start, end } = regions[ri];
-    const { chunk, known } = regions[ri];
+    const { chunk } = regions[ri];
+    // BELOW ONE RIVER WINDOW, BYTE IDENTITY IS NOT EVIDENCE.  The same
+    // principle identityBar states and recognition's own `emit` already
+    // enforces on sites ("below one river window, byte overlap is chance"),
+    // applied to what the climb calls EXACT.  It was unnecessary while the
+    // fold grouped at fixed arity — every chunk was then exactly W bytes —
+    // but content-defined cuts run from W-1 up to the keyring's seat count,
+    // so sub-window segments now exist, and a 3-byte string is interned by
+    // triviality rather than by evidence.
+    //
+    // Such a region is NOT dropped: it still votes on its gist, through the
+    // contrastive-margin gate every approximate region pays.  Dropping them
+    // outright was measured and REFUTED — the suite fell 441 -> 406, because
+    // short regions do carry real evidence; what they must not carry is the
+    // EXACT tier's full mutual weight and its exemption from the margin.
+    //
+    // Measured on test/50's junk query: the 3-byte chunk "of " voted exact
+    // at mutual 1.00 with idf 4.22, and an unrelated haiku exemplar's pooled
+    // vote went 1.13 -> 5.94 — past consensusFloor (5.82), making a junk root
+    // TRUSTED and licensing CAST to compare content the query never named.
+    // consensusFloor did not drift; what fed it stopped being evidence.
+    //
+    // A region spanning the WHOLE query is exempt, exactly as the site rule
+    // exempts a whole-query span: it is then not a fragment of something
+    // longer, it is the question ("red" asked on its own — test/34).
+    const subWindow = end - start < W &&
+      !(start === 0 && end === query.length);
+    const known = regions[ri].known && !subWindow;
     // Trace-only bookkeeping for this region — allocated only under `td`
     // (i.e. only when ctx.trace is set); see ConsensusRegionTrace/
     // RegionOutcome (spec §4).  `examinedIds` tracks distinct ANN hits
@@ -776,9 +815,11 @@ export async function voteRegions(
     // the resonate() call for most exact regions — the single largest
     // remaining inference sink — with the anchor choice unchanged (the
     // canonical branch already ignored hits[0]).
-    let canonicalId = chunk
-      ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
-      : null;
+    let canonicalId = subWindow
+      ? null
+      : (chunk
+        ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
+        : (regions[ri].id ?? null));
     let canonicalUsable = canonicalId !== null &&
       (ctx.store.hasParents(canonicalId) ||
         ctx.store.hasContainers(canonicalId));
@@ -1140,6 +1181,10 @@ export function poolVotes(
   regionSupport: Map<number, number>;
   /** Per-anchor contributing region spans — see Attention.clusters. */
   regionSpans: Map<number, Array<[number, number]>>;
+  /** Per-anchor count of contributing region VOTES (pooled axioms), which is
+   *  not the length of `regionSpans`: a joint binding is one vote sitting in
+   *  several places. */
+  regionAxioms: Map<number, number>;
   steps: DerivationStep[];
 } {
   const eligible: number[] = [];
@@ -1197,7 +1242,44 @@ export function poolVotes(
       // the same convention chooseNext caps by).  Hoisted out of the
       // generator: `rules` is invoked once per popped item, and this used to
       // re-derive the bound on every one of them.
-      for (const r of rv.roots) {
+      // EVIDENCE BELONGS TO THE MOST SPECIFIC ROOT IT REACHED.  When one
+      // region reaches BOTH a node and something that CONTAINS it, the
+      // container was reached only THROUGH the contained one — it is the
+      // same evidence read a level up, not a second, independent reading of
+      // it.  This is the root-side counterpart of the rule crossRegionVotes
+      // already applies on the region side: "a span contained in another
+      // candidate is a fragment of that candidate's evidence, never
+      // independent of it."
+      //
+      // Without it a container always TIES the entity a query names exactly
+      // — every region inside the mention credits both — so whichever way
+      // some unrelated scrap falls decides between them.  Measured on
+      // test/29 C3, "How is Shakespeare like Leonardo da Vinci?":
+      //
+      //   sentence "The Mona Lisa was painted by Leonardo da Vinci."
+      //       2.549  spans [26,32] [32,36] [36,40] [40,42]
+      //   entity   "Leonardo da Vinci"
+      //       2.444  spans [26,32] [32,36] [36,40]
+      //
+      // The same three regions credit both; the sentence won on a 2-byte
+      // tail span. The bias is systematic, not a property of that fixture:
+      // it favours the larger container whenever a query names an entity
+      // exactly, which is precisely when the entity is the better anchor.
+      //
+      // Only ever SHRINKS a region's root set, so it can add no work
+      // downstream; the reads are bounded by the root count, which the hub
+      // bound already caps, and are paid only when a region reached more
+      // than one root at all.
+      let roots: readonly number[] = rv.roots;
+      if (roots.length > 1) {
+        const rb = roots.map((r) => read(ctx, r));
+        roots = roots.filter((_, i) =>
+          !rb.some((b, j) =>
+            j !== i && b.length < rb[i].length && indexOf(rb[i], b, 0) >= 0
+          )
+        );
+      }
+      for (const r of roots) {
         // CAPPED read: only the first hubBound targets are ever credited, so
         // only they are read — a common continuation's full reverse fan-in
         // is corpus-sized and is never materialised.
@@ -1232,6 +1314,15 @@ export function poolVotes(
   >();
   const regionSupport = new Map<number, number>();
   const regionSpans = new Map<number, Array<[number, number]>>();
+  // ONE POOLED AXIOM = ONE REGION VOTE.  Counted separately from the spans
+  // below because the two are different quantities: a JOINT binding is a
+  // single vote whose evidence sits in several separate places (RegionVote.
+  // parts), so its span count exceeds its axiom count.  Reading the axiom
+  // count off `regionSpans.length` conflated them and broke the accounting
+  // both ways — contributingEvidence (absorbed-weighted, one term per
+  // REGION) could read below it, and it could exceed the query's whole
+  // candidate-region count.
+  const regionAxioms = new Map<number, number>();
   const steps: DerivationStep[] = [];
   let order = 0;
   for (const pc of pool.values()) {
@@ -1256,7 +1347,22 @@ export function poolVotes(
         } else spans.push([rv.start, rv.end]);
       }
       regionSupport.set(pc.item.id, breadthSum);
-      regionSpans.set(pc.item.id, spans);
+      // A span is a PLACE, and the same place reached through two different
+      // votes (a standalone region and one part of a joint binding) is still
+      // one place — listing it twice reports evidence the query does not
+      // separately hold.  Measured on test/50's fixture: span [18,21)
+      // appeared twice among the top anchor's five.
+      const seenSpan = new Set<string>();
+      regionSpans.set(
+        pc.item.id,
+        spans.filter((sp) => {
+          const key = `${sp[0]}:${sp[1]}`;
+          if (seenSpan.has(key)) return false;
+          seenSpan.add(key);
+          return true;
+        }),
+      );
+      regionAxioms.set(pc.item.id, seenRi.size);
       steps.push({
         order: order++,
         move: "pool-vote",
@@ -1283,7 +1389,15 @@ export function poolVotes(
       }
     }
   }
-  return { votes, votesIdf, support, regionSupport, regionSpans, steps };
+  return {
+    votes,
+    votesIdf,
+    support,
+    regionSupport,
+    regionSpans,
+    regionAxioms,
+    steps,
+  };
 }
 
 /** The number of DISTINCT clusters a root's contributing regions form —
@@ -1322,6 +1436,7 @@ export function commitVotes(
     support: Map<number, { start: number; end: number; w: number }>;
     regionSupport: Map<number, number>;
     regionSpans: Map<number, Array<[number, number]>>;
+    regionAxioms: Map<number, number>;
     steps: DerivationStep[];
   },
   sat: SaturationInfo,
@@ -1331,8 +1446,15 @@ export function commitVotes(
   td?: TraceDraft,
   cfg?: ClimbConsensusCfg,
 ): AttentionRead {
-  const { votes, votesIdf, support, regionSupport, regionSpans, steps } =
-    pooled;
+  const {
+    votes,
+    votesIdf,
+    support,
+    regionSupport,
+    regionSpans,
+    regionAxioms,
+    steps,
+  } = pooled;
   if (votes.size === 0) {
     traceAttention(ctx, regions, regionVoter, [], steps, td, cfg);
     return { roots: [], ranked: [] };
@@ -1359,7 +1481,6 @@ export function commitVotes(
       };
     })
     .sort((a, b) => b.vote - a.vote);
-
   const overlaps = (a: Attention, b: Attention) =>
     a.start < b.end && b.start < a.end;
   const idfDesc = [...votesIdf.values()].sort((a, b) => b - a);
@@ -1393,7 +1514,7 @@ export function commitVotes(
       pooledVote: point.vote,
       idfVote: votesIdf.get(point.anchor) ?? 0,
       candidateBreadth: regions.length,
-      contributingVotes: regionSpans.get(point.anchor)?.length ?? 0,
+      contributingVotes: regionAxioms.get(point.anchor) ?? 0,
       contributingEvidence: regionSupport.get(point.anchor) ?? 0,
       breadth: point.breadth,
       contributingSpans: regionSpans.get(point.anchor) ?? [],

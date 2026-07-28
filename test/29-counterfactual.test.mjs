@@ -64,51 +64,115 @@ test("A1 — find structural analog and substitute property", async () => {
   await m.store.close();
 });
 
-// A2 — "Leonardo da Vinci" and "Michelangelo" are both painters.  When asked
-// "who is the Michelangelo of literature?", the system must find that
-// Michelangelo plays the role "creator in domain D" and find the analog in
-// the literature domain (Shakespeare, Homer, etc.).
+// A2 — CROSS-DOMAIN ANALOG BY SHARED STRUCTURAL ROLE.
 //
-// Enough exemplars on both sides of the analogy give the halos mass to
-// detect the shared structural role ("ARTWORK was VERBED by ARTIST")
-// across domains — painters, sculptors, and writers all occupy the same
-// seat, so their distributional signatures converge.
+// Michelangelo (sculpture) and Homer (literature) share no distributional
+// company at all — nothing in this corpus mentions them together, and halos
+// measure company by IDENTITY (see sema.ts's signatures).  What they DO share
+// is a learnt FRAME: each is established by a context of the form
+// "<work> was <verbed> by <person>."  That frame is the whole structural
+// content of "plays the same role", and analogyStrength's frame tier is the
+// gate that reads it.
+//
+// A ROLE IS A PROPERTY OF THE CONTEXT THAT ESTABLISHES A NAME, NEVER OF THE
+// NAME'S OWN BYTES — so the tier is read on each analog's establishing
+// context, the same reverse context seatOfNode uses to VOICE it.  Measured on
+// this corpus: "Michelangelo" against "Homer" reads 0.000, while "The David
+// was sculpted by Michelangelo." against "The Iliad was written by Homer."
+// reads 0.452.
+//
+// WHAT THIS TEST DELIBERATELY DOES NOT ASSERT.  It used to ask
+// "Michelangelo is to sculpture as who is to literature?" and accept any
+// answer matching /Shakespeare|Homer|writer|literature/.  That passed, but
+// never through this mechanism: the trace read `analogy strength 0.0000`
+// and `no candidate passed the similarity gates — using the best-supported
+// structural hub`, and Homer entered the ranked set last of seven, at 0.237,
+// through a graded 0.50 near-match on the region "omer" — which shares no
+// byte with that query.  The assertion was satisfied by a blind fallback
+// landing on a writer.  Selecting an analog in a domain the query NAMES is
+// a capability nothing here implements; asserting it while the hub fallback
+// happened to satisfy the regex measured luck.  So this test asserts what
+// the mechanism actually decides, and reads the decision from the rationale
+// rather than from a string the pipeline may reach by other means.
 test("A2 — cross-domain analog via shared structural role", async () => {
-  const m = mk();
-  await m.ingest([
-    // painting exemplars
-    ["The Mona Lisa was painted by Leonardo da Vinci.", "Leonardo da Vinci"],
-    ["The Starry Night was painted by Vincent van Gogh.", "Vincent van Gogh"],
-    [
-      "The Night Watch was painted by Rembrandt van Rijn.",
-      "Rembrandt van Rijn",
-    ],
-    // sculpture exemplars
-    ["The David was sculpted by Michelangelo.", "Michelangelo"],
-    ["The Thinker was sculpted by Auguste Rodin.", "Auguste Rodin"],
-    // writing exemplars
-    ["Hamlet was written by William Shakespeare.", "William Shakespeare"],
-    ["The Odyssey was written by Homer.", "Homer"],
-    ["Macbeth was written by William Shakespeare.", "William Shakespeare"],
-    ["The Iliad was written by Homer.", "Homer"],
-    // domain facts — each artist grounded in their field
-    ["Leonardo da Vinci", "Leonardo was a Renaissance painter"],
-    ["Michelangelo", "Michelangelo was a sculptor and painter"],
-    ["William Shakespeare", "Shakespeare was an English playwright"],
-    ["Homer", "Homer was an ancient Greek poet"],
-  ]);
+  // The analogy decision itself: its strength, and whether it was reached on
+  // evidence or by the structural-hub fallback (which carries none).
+  const analogy = async (m, query) => {
+    let strength = -1;
+    let fellBack = false;
+    await m.respond(new TextEncoder().encode(query), (step) => {
+      if (!step.mechanism?.join("/").endsWith("tryAnalog")) return;
+      if (/structural hub/.test(step.note ?? "")) fellBack = true;
+      const best = /best analog with strength ([0-9.]+)/.exec(step.note ?? "");
+      if (best) strength = Number(best[1]);
+      if (/no analog candidate passed/.test(step.note ?? "")) strength = 0;
+    });
+    return { strength, fellBack };
+  };
 
-  const got = await ask(
-    m,
-    "Michelangelo is to sculpture as who is to literature?",
-  );
-  // When CAST lands: the answer should name a writer (Shakespeare or Homer),
-  // not a painter and not empty.
-  assert.ok(
-    /Shakespeare|Homer|writer|literature/i.test(got),
-    `CAST not yet implemented — expected a writer analog, got "${got}"`,
-  );
-  await m.store.close();
+  for (const seed of [7, 1, 42, 99]) {
+    const m = mk(seed);
+    await m.ingest([
+      // painting exemplars
+      ["The Mona Lisa was painted by Leonardo da Vinci.", "Leonardo da Vinci"],
+      ["The Starry Night was painted by Vincent van Gogh.", "Vincent van Gogh"],
+      [
+        "The Night Watch was painted by Rembrandt van Rijn.",
+        "Rembrandt van Rijn",
+      ],
+      // sculpture exemplars
+      ["The David was sculpted by Michelangelo.", "Michelangelo"],
+      ["The Thinker was sculpted by Auguste Rodin.", "Auguste Rodin"],
+      // writing exemplars
+      ["Hamlet was written by William Shakespeare.", "William Shakespeare"],
+      ["The Odyssey was written by Homer.", "Homer"],
+      ["Macbeth was written by William Shakespeare.", "William Shakespeare"],
+      ["The Iliad was written by Homer.", "Homer"],
+      // domain facts — each artist grounded in their field
+      ["Leonardo da Vinci", "Leonardo was a Renaissance painter"],
+      ["Michelangelo", "Michelangelo was a sculptor and painter"],
+      ["William Shakespeare", "Shakespeare was an English playwright"],
+      ["Homer", "Homer was an ancient Greek poet"],
+      // CONTROL DOMAIN — established by a genuinely different frame
+      // ("<substance> melts at <temperature>."), so it shares no role with
+      // the artists.  Without it, "strength > 0" would be unfalsifiable.
+      [
+        "Mercury melts at minus thirty nine degrees.",
+        "minus thirty nine degrees",
+      ],
+      ["Tungsten melts at three thousand degrees.", "three thousand degrees"],
+      ["Mercury", "Mercury is a liquid metal"],
+    ]);
+
+    // Different domains, same role: the gate must fire, ON EVIDENCE.
+    const role = await analogy(m, "How is Michelangelo like Homer?");
+    assert.ok(
+      !role.fellBack,
+      `seed ${seed}: the analogy fell back to the structural hub, which ` +
+        `carries no similarity evidence at all — this test would then be ` +
+        `measuring the fallback's arbitrary pick, not the shared-role gate.`,
+    );
+    assert.ok(
+      role.strength > 0,
+      `seed ${seed}: expected shared-frame evidence between the contexts ` +
+        `establishing Michelangelo and Homer ("...was sculpted by..." and ` +
+        `"...was written by..."), got strength ${role.strength}.`,
+    );
+
+    // Different domains, DIFFERENT role: the same gate must stay silent.
+    // This is what makes the assertion above falsifiable — a gate that fired
+    // on everything would pass it while measuring nothing.
+    const none = await analogy(m, "How is Michelangelo like Mercury?");
+    assert.equal(
+      none.strength,
+      0,
+      `seed ${seed}: "Mercury" is established by a different frame entirely ` +
+        `("...melts at..."), so it shares no structural role with a sculptor` +
+        ` — the gate must read 0, got ${none.strength}.`,
+    );
+
+    await m.store.close();
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

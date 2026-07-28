@@ -47,6 +47,23 @@ let _foldBuf: Vec | null = null;
 export const bindSeat = (space: Space, v: Vec, seat: number): Vec =>
   permute(v, space.seats[seat].fwd);
 
+/** The positional coordinate of child `index` inside a node of `size` items.
+ *
+ * Positions are anchored at BOTH ends of the full keyring: the left half uses
+ * the lowest seats and the right half uses the highest seats.  Growing a node
+ * at one edge therefore preserves the coordinates anchored at the other edge,
+ * while every position remains injective as long as
+ * `0 <= index < size <= seatCount`.  The helper is shared by perception and by
+ * synthetic/canonical folds so there is exactly one structural algebra. */
+export function twoEndedSeat(
+  seatCount: number,
+  size: number,
+  index: number,
+): number {
+  const front = (size + 1) >> 1;
+  return index < front ? index : seatCount - size + index;
+}
+
 // ── Company signatures ──────────────────────────────────────────────────
 //
 // A halo is a superposition of EPISODE SIGNATURES: it answers "who does this
@@ -82,7 +99,8 @@ export function companySignature(space: Space, id: number): Vec {
 }
 
 /** fold — combine ordered children into one gist.
- *  Each child is turned with its seat's own key, superposed, normalized. */
+ *  Each child is turned in the same two-ended coordinate frame used by the
+ *  perception tree, then superposed and normalized. */
 export function fold(space: Space, kids: Vec[]): Vec {
   if (kids.length > space.seats.length) {
     throw new Error(
@@ -95,7 +113,8 @@ export function fold(space: Space, kids: Vec[]): Vec {
   }
   const buf = _foldBuf;
   for (let i = 0; i < kids.length; i++) {
-    permuteInto(buf, kids[i], space.seats[i].fwd);
+    const slot = twoEndedSeat(space.seats.length, kids.length, i);
+    permuteInto(buf, kids[i], space.seats[slot].fwd);
     addInto(out, buf);
   }
   return normalize(out);

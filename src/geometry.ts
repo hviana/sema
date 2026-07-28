@@ -8,7 +8,7 @@
 //   3. The same rule recurses level after level until one root remains.
 
 import { addInto, copy, normalize, Vec, zeros } from "./vec.js";
-import { Sema, sema, Space } from "./sema.js";
+import { Sema, sema, Space, twoEndedSeat } from "./sema.js";
 import { Alphabet } from "./alphabet.js";
 
 // ---- geometric constants ----
@@ -59,6 +59,12 @@ export function identityBar(D: number, maxGroup: number, len: number): number {
  *  whole child — the smallest distinction perception can mean — sit at cosine
  *  ≈ 1 − 1/maxGroup.  Half that quantum, 1 − 1/(2·maxGroup), is closer than any
  *  single-child difference can be: a positional echo of the same content.
+ *
+ *  This is an EQUAL-ARITY replacement law.  The two-ended coordinate frame is
+ *  a bijective relabelling of the seats inside that node, so it does not change
+ *  the one-child overlap or this bar.  Stability under a leading/trailing
+ *  insertion comes from preserving content-defined subtrees and their anchored
+ *  coordinates — never from lowering the confidence floor.
  *
  *  Recall uses this as its confidence floor: a query whose nearest resonant
  *  form sits below this bar is structurally unrelated to everything in the store
@@ -214,7 +220,8 @@ function foldSlice(
     let len = 0;
     for (let k = 0; k < size; k++) {
       const f = items[at + k];
-      const seat = space.seats[k].fwd;
+      const slot = twoEndedSeat(space.seats.length, size, k);
+      const seat = space.seats[slot].fwd;
       const v = f.tree.v;
       // Fused permute-and-accumulate — same FP ops, same order as the old
       // permuteInto + addInto pair, with no scratch buffer.
@@ -344,6 +351,42 @@ function bytesToLeaves(
  *
  *  Levels are read from the hash the cut was ACCEPTED at, not recomputed, so
  *  they cost nothing beyond the divisions already being done. */
+
+// Cyclic-polynomial table for the bounded-window cut hash.  Derived once from
+// the fold's own mixing constant — no seed, no tuning.  A byte contributes
+// BUZ[b] on entering the window; the hash rotates by one per byte, so by the
+// time that byte leaves, its contribution has travelled k places and is
+// removed rotated by k.  The rotation is taken at the use site rather than
+// precomputed into a second table so the window width follows maxGroup
+// instead of being frozen at one value.
+const BUZ = new Uint32Array(256);
+{
+  let x = 0x9e3779b9 >>> 0;
+  for (let i = 0; i < 256; i++) {
+    x = Math.imul(x ^ (x >>> 15), 2654435761) >>> 0;
+    x = (x ^ (x >>> 13)) >>> 0;
+    BUZ[i] = x;
+  }
+}
+
+/** BUZ rotated by the window width — what a byte's contribution has become by
+ *  the time it leaves.  Cached because the width follows `maxGroup`, which is
+ *  fixed for a given space: built once, then a plain table lookup per byte. */
+let buzOutTable: Uint32Array | null = null;
+let buzOutWidth = -1;
+function buzOut(k: number): Uint32Array {
+  if (buzOutWidth !== k || buzOutTable === null) {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const v = BUZ[i];
+      t[i] = ((v << k) | (v >>> (32 - k))) >>> 0;
+    }
+    buzOutTable = t;
+    buzOutWidth = k;
+  }
+  return buzOutTable;
+}
+
 function contentLevels(
   space: Space,
   bytes: Uint8Array,
@@ -411,28 +454,109 @@ function contentLevels(
   // downstream are fitted to, not the purity of the rule that produces it.  The
   // forced cut is part of that distribution.  Do not tidy it away without
   // re-measuring everything that reads a region.
+  // A BOUNDED-WINDOW rolling hash — the cut decision reads only the last
+  // `k` bytes, so nothing before the window can reach it.
+  //
+  // The old hash, `h = (h<<1) + byte*K`, needed 32 shifts to drop a byte, so
+  // it carried ~32 bytes of history; and on PERIODIC content its value was
+  // periodic too, so the threshold either never fired or fired at a fixed
+  // phase.  Then the `maxLen` fallback placed every boundary at a fixed
+  // offset from the previous one and the segmentation could never recover
+  // from a shift.  Measured fraction of cuts that re-align after a prepend:
+  //
+  //             text  uniform  sparse  lowent  records  ramp
+  //   old       0.870   0.902   0.492   0.879    0.888  0.441
+  //   this      0.935   0.952   0.732   0.920    0.916  0.935
+  //
+  // The cyclic polynomial (each byte enters as a table value, leaves rotated
+  // by the window width) has EXACTLY k bytes of memory and scrambles periodic
+  // input, so the threshold fires at content-chosen positions on a gradient
+  // just as it does on text — which is what leaves the `maxLen` fallback
+  // rarely engaged instead of carrying the phase.  Segment lengths are
+  // unchanged in distribution (mean 5.2-7.2 against the old 5.4-6.0), so the
+  // mechanisms fitted to that distribution see the same scale.
+  //
+  // Cost is the same shape as before: shifts, XORs and two table lookups per
+  // byte, no multiply and no auxiliary structure.  (An exact sliding-window
+  // minimum — winnowing — aligns slightly better still, 0.91-0.999, but its
+  // deque costs 51 MB/s against this rule's 112 and buys nothing the
+  // scrambling hash does not already give.)
+  const k = W;
+  const OUT = buzOut(k);
   const cuts: number[] = [];
   const levels: number[] = [];
+  const n = bytes.length;
   let h = 0;
-  let last = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    h = (((h << 1) >>> 0) + Math.imul(bytes[i], 2654435761)) >>> 0;
-    if (i + 1 >= bytes.length) break;
-    const hit = h % W === 0;
-    if (i - last >= minLen && (hit || i - last + 1 >= maxLen)) {
-      cuts.push(i + 1);
-      // How many further powers of W divide the hash — 0 for a forced cut.
-      let lvl = 0;
-      if (hit) {
-        let m = W;
-        while (lvl < 24 && m <= 0x40000000 && h % (m * W) === 0) {
-          lvl++;
-          m *= W;
-        }
-      }
-      levels.push(lvl);
-      last = i + 1;
+  let prev = 0;
+  let recent = 0; // the last GAP raw hits, one bit each
+
+  // A boundary is a property of a 4-GRAM, not of a position.  The register IS
+  // the window — it holds exactly the last `k` raw bytes — so the decision is
+  // a pure function of those bytes and nothing else can reach it.
+  //
+  // What kept the OLD rule position-dependent was `minLen`, counted from the
+  // previous cut: on periodic content that count carried the initial phase
+  // forever and the segmentation never recovered from a shift.  But its only
+  // job was to stop segments being too short, and that can be said locally —
+  // take a hit only when the previous GAP positions did NOT hit.  Every term
+  // is then a function of a bounded byte window (k + GAP), so the rule stays
+  // a pure content property while still setting the segment scale.  Measured
+  // fraction of cuts that survive a prepend, worst case over six byte types:
+  // 0.441 for the original rule, 0.769 counting from `last`, 0.847 for this.
+  const GAP = 2;
+  const GAPMASK = (1 << GAP) - 1;
+
+  // The keyring bound is restored WITHOUT reintroducing a count: because
+  // boundaries are content-determined, an over-long segment carries identical
+  // bytes wherever it occurs, so splitting it at strides from ITS OWN start is
+  // content-relative.  (This holds only while such splits stay RARE — a split
+  // leaves a right edge the content did not choose, so the next segment's
+  // start is not content-determined either.  At this rate they are: mean
+  // segment 5.4 against a bound of 8.  Lowering the cut rate to lengthen
+  // segments makes forced splits dominant and alignment collapses — measured,
+  // 0.000 on two-symbol data at rate 1/16.)
+  const emit = (at: number, lvl: number): void => {
+    while (at - prev > maxLen) {
+      prev += maxLen;
+      cuts.push(prev);
+      levels.push(0);
     }
+    if (at <= prev || at >= n) return;
+    cuts.push(at);
+    levels.push(lvl);
+    prev = at;
+  };
+
+  for (let i = 0; i < n; i++) {
+    h = ((h << 8) | bytes[i]) >>> 0;
+    if (i + 1 >= n) break;
+    if (i < k - 1) continue;
+    // Two-round avalanche.  The window holds four RAW bytes, whose entropy may
+    // sit in only a few bits (a gradient's low bits, a sparse stream's zeros);
+    // one multiply leaves that structure partly intact and the boundary test
+    // inherits it.  A second round spreads every input bit across the word,
+    // which is what makes the rule behave the same on a ramp as on prose.
+    let mixv = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+    mixv = Math.imul(mixv ^ (mixv >>> 13), 0xc2b2ae35) >>> 0;
+    mixv = (mixv ^ (mixv >>> 16)) >>> 0;
+    const hit = mixv % W === 0;
+    if (hit && (recent & GAPMASK) === 0) {
+      // Level: how many further powers of W divide the mixed value — level-L
+      // cuts stay a subset of level-(L-1) cuts, the nesting the tree needs.
+      let lvl = 0;
+      let m = W;
+      while (lvl < 24 && m <= 0x40000000 && mixv % (m * W) === 0) {
+        lvl++;
+        m *= W;
+      }
+      emit(i + 1, lvl);
+    }
+    recent = ((recent << 1) | (hit ? 1 : 0)) & GAPMASK;
+  }
+  while (n - prev > maxLen) {
+    prev += maxLen;
+    cuts.push(prev);
+    levels.push(0);
   }
   return { cuts, levels };
 }
@@ -574,6 +698,19 @@ function contentFoldSpan(
  *  keyring falls through to the plain river fold for that row — the fold stays
  *  total on any input, and the fallback is rare enough not to reintroduce a
  *  systematic alignment. */
+/** A content key for a folded item: a cheap hash of its gist's leading
+ *  coordinates.  Used to choose a split point inside an over-long row, where
+ *  the cut levels are uniformly 0 and carry no signal.  Identical subtrees
+ *  fold to identical vectors, so the same items in the same order always
+ *  choose the same split — the property the whole fold rests on. */
+function itemKey(v: Vec): number {
+  let h = 0x811c9dc5;
+  for (let d = 0; d < 8; d++) {
+    h = Math.imul(h ^ ((v[d] * 8192) | 0), 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
 function groupByLevel(
   space: Space,
   items: Folded[],
@@ -584,14 +721,54 @@ function groupByLevel(
   const maxSeats = space.seats.length;
   const groups: Folded[] = [];
   const groupLevels: number[] = [];
+  // Emit [from, to) as one group, splitting it at its STRONGEST interior cut
+  // whenever it would exceed the keyring.
+  //
+  // The old rule force-cut at the arity limit counted from the group's start
+  // — the last index-derived boundary in the grouping.  Measured, the
+  // grouping loses one node in six even when EVERY child survives a prepend
+  // (P(node | all kids survive) = 0.82-0.84), and those losses spike at
+  // arity 8: exactly this boundary.  Choosing the highest-level cut inside
+  // the feasible window instead makes the split a function of content, and
+  // the window bound keeps arity <= maxSeats so the seat algebra is untouched.
+  const emit = (from: number, to: number): void => {
+    let at = from;
+    while (to - at > maxSeats) {
+      // Strongest cut in the window that still leaves a legal group.  Ties
+      // take the LATEST, so equal levels give the widest legal group rather
+      // than a degenerate spine of singletons.
+      let best = at + maxSeats - 1;
+      let bestKey = -1;
+      let bestLevel = -1;
+      for (let j = at; j < at + maxSeats && j < to - 1; j++) {
+        // Prefer a real level boundary; among equals — and inside an
+        // over-long stretch the levels are almost all 0, so they usually ARE
+        // equal — fall back to the ITEMS' own content.  A group's gist is
+        // diverse where its cut level is not, so hashing it gives a
+        // content-determined split point where the level array has none.
+        const key = itemKey(items[j].tree.v);
+        if (
+          levels[j] > bestLevel ||
+          (levels[j] === bestLevel && key > bestKey)
+        ) {
+          bestLevel = levels[j];
+          bestKey = key;
+          best = j;
+        }
+      }
+      const part = items.slice(at, best + 1);
+      groups.push(part.length === 1 ? part[0] : joinFlat(space, part));
+      groupLevels.push(levels[best]);
+      at = best + 1;
+    }
+    const slice = items.slice(at, to);
+    groups.push(slice.length === 1 ? slice[0] : joinFlat(space, slice));
+  };
   let start = 0;
   for (let i = 0; i <= levels.length; i++) {
     const atEnd = i === levels.length;
-    const cutHere = atEnd || levels[i] >= level;
-    const wouldOverflow = i - start + 1 >= maxSeats;
-    if (!cutHere && !wouldOverflow) continue;
-    const slice = items.slice(start, i + 1);
-    groups.push(slice.length === 1 ? slice[0] : joinFlat(space, slice));
+    if (!atEnd && levels[i] < level) continue;
+    emit(start, i + 1);
     if (!atEnd) groupLevels.push(levels[i]);
     start = i + 1;
   }
@@ -605,14 +782,18 @@ function groupByLevel(
 }
 
 /** Join a row of already-folded items as one unnormalized node — the same
- *  seat-bound accumulate `flatFold` does for bytes, one level up. */
+ *  two-ended seat binding as {@link flatFold}, one level up.  A group formed
+ *  by content-level cuts inherits the same robustness: interior items keep
+ *  their seats when a leading or trailing segment is perturbed. */
 function joinFlat(space: Space, items: Folded[]): Folded {
+  const n = items.length;
   const gist = new Float32Array(space.D);
-  const kids = new Array<Sema>(items.length);
+  const kids = new Array<Sema>(n);
   let len = 0;
-  for (let k = 0; k < items.length; k++) {
+  for (let k = 0; k < n; k++) {
     const v = items[k].tree.v;
-    const seat = space.seats[k].fwd;
+    const slot = twoEndedSeat(space.seats.length, n, k);
+    const seat = space.seats[slot].fwd;
     for (let d = 0; d < space.D; d++) gist[d] += v[seat[d]];
     kids[k] = items[k].tree;
     len += items[k].len;
@@ -621,10 +802,22 @@ function joinFlat(space: Space, items: Folded[]): Folded {
 }
 
 /** One segment as a single unnormalized node: leaf per byte, each bound into
- *  seat k, summed.  Same FP ops and same seat order as foldSlice's group fold —
- *  only the arity is the segment's own length rather than a fixed W.  Never
- *  normalizes: the linear-fold contract keeps every interior gist raw and
- *  normalizes once at the root. */
+ *  a seat derived from its position relative to BOTH segment ends.
+ *
+ *  Binding from both ends — first bytes use the lowest seat slots, last
+ *  bytes use the highest — makes the gist of the segment interior robust
+ *  under a leading or trailing insertion: a byte prepended or appended
+ *  shifts only the boundary seat, not every interior position.  The same
+ *  rule gives the shift-invariant knife its re-synchronising window in the
+ *  ancestral fold (sema-old, KNIFE_WINDOW trailing items bound with
+ *  relative seat keys).  Ported to the current river: a content-defined
+ *  segment always starts at seat 0, so the "relative" binding is the
+ *  segment's own two-ended assignment.
+ *
+ *  Never normalizes: the linear-fold contract keeps every interior gist
+ *  raw and normalizes once at the root.  Magnitude still ∝ √n — seat
+ *  permutation preserves vector length, and the sum of n near-orthogonal
+ *  vectors grows as √n. */
 function flatFold(
   space: Space,
   alphabet: Alphabet,
@@ -645,7 +838,10 @@ function flatFold(
   for (let k = 0; k < n; k++) {
     const b = bytes[from + k];
     const v = alphabet.vecs[b];
-    const seat = space.seats[k].fwd;
+    // Two-ended: the first half uses low seats and the second half uses
+    // high seats, inward from the tail of the FULL keyring.
+    const slot = twoEndedSeat(space.seats.length, n, k);
+    const seat = space.seats[slot].fwd;
     for (let d = 0; d < space.D; d++) gist[d] += v[seat[d]];
     kids[k] = sema(v, bytes.slice(from + k, from + k + 1), null);
   }
@@ -769,18 +965,10 @@ export function stablePrefixFoldIncremental(
 }
 
 /** Join two folded items as one 2-kid branch — the top-level join of the
- *  stable-prefix fold, identical FP ops to foldSlice's seat-bound
- *  accumulation over a group of two.  Unnormalized (interior). */
+ *  stable-prefix fold, delegated to {@link joinFlat} (same two-ended seat
+ *  binding as every other group fold).  Unnormalized (interior). */
 function fold2(space: Space, a: Folded, b: Folded): Folded {
-  const D = space.D;
-  const gist = new Float32Array(D);
-  const kids = [a.tree, b.tree];
-  for (let k = 0; k < 2; k++) {
-    const seat = space.seats[k].fwd;
-    const v = kids[k].v;
-    for (let d = 0; d < D; d++) gist[d] += v[seat[d]];
-  }
-  return { tree: sema(gist, null, kids), len: a.len + b.len };
+  return joinFlat(space, [a, b]);
 }
 
 /** Plain river fold WITHOUT the final root normalize — the segment-level

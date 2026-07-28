@@ -158,6 +158,11 @@ export interface Region {
    *  resonance score is byte-overlap, evidence only in excess of its best
    *  rival conclusion. */
   known: boolean;
+  /** The stored node this region's bytes ARE, when the region came from a
+   *  recognised SITE — content-addressed and exact, so the climb has no
+   *  reason to re-derive it approximately.  A perceived sub-tree leaves this
+   *  undefined; chunks get the same thing from `canonicalChunkId`. */
+  id?: number;
 }
 
 /** Per-region vote data from the consensus climb's resonance pass. */

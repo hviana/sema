@@ -5,7 +5,7 @@
 import { rItem, rNode } from "./trace.js";
 
 import { bytesEqual, indexOf } from "../bytes.js";
-import type { MindContext } from "./types.js";
+import type { Attention, MindContext } from "./types.js";
 import { resolve } from "./primitives.js";
 import { corpusN, hubBound } from "./traverse.js";
 import { follow, haloSiblings, project } from "./match.js";
@@ -31,7 +31,9 @@ export function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
  *  Pivots on the longest unconsumed learnt context each answer contains,
  *  then follows the pivot's continuation to the next fact.  Repeats up
  *  to `cfg.recallQueryK` hops.  `preConsumed` carries node ids already
- *  spoken for by the grounding stage (cover/extract/CAST).  `pre` is the
+ *  spoken for by the grounding stage (cover/extract/CAST).  `voiced` carries
+ *  the BYTES of the anchors a mechanism declared it voiced (its `used` set),
+ *  when it declared one — see the pivot's own containment rule.  `pre` is the
  *  response's shared pre-computation — the post-grounding stages read the
  *  same container the mechanisms did. */
 export async function reason(
@@ -40,6 +42,7 @@ export async function reason(
   answer: Uint8Array,
   preConsumed: ReadonlySet<number>,
   pre: Precomputed,
+  voiced: readonly Uint8Array[] = [],
 ): Promise<Uint8Array> {
   // Echo guard: a query that is ITSELF a learnt continuation (some context's
   // answer) is being asked back at the system — hopping forward from it would
@@ -132,7 +135,7 @@ export async function reason(
 
     // Pivot: find the longest unconsumed learnt context the answer contains.
     consumeAll(curId);
-    const pivot = await pivotInto(ctx, cur, consumed);
+    const pivot = await pivotInto(ctx, cur, consumed, voiced);
     if (pivot === null) break;
 
     const fc = await follow(ctx, pivot, qv);
@@ -201,8 +204,32 @@ export async function fuseAttention(
   // here, since it is an absolute ln(N)-scaled quantity (a genuine root on
   // a large store can score BELOW its own floor while a coincidental echo
   // on a small one scores comfortably above its own, smaller, floor).
+  //
+  // Breadth alone is not enough when primary is a pure COMPUTATION.  The ALU
+  // answers "2+2 equals what?" with 4, and the store's own arithmetic table
+  // then supplies a lone root — an exemplar like "1+2" — whose breadth
+  // dominates because it is corroborated by the computation's OWN bytes.
+  // Fusing it projected that exemplar's continuation and the bridge voiced
+  // "4+3" (test/11 seed 99).  A second point of attention must stand on
+  // evidence that is structurally SEPARATE from primary's: at least one
+  // perceptual quantum of query between them, the same separation
+  // countClusters uses to tell independent evidence neighbourhoods apart.
+  // Not a score, and not a tuned bar — the fold's own quantum.
+  //
+  // With no primarySpans (the caller did not resolve them) every span
+  // vacuously qualifies, preserving the original behaviour exactly.
+  const quantum = ctx.space.maxGroup;
+  const independentOfPrimary = (root: Attention): boolean =>
+    primarySpans.every(([s, e]) => {
+      const gap = root.end <= s
+        ? s - root.end
+        : e <= root.start
+        ? root.start - e
+        : 0;
+      return gap >= quantum;
+    });
   const lonePromotes = unclimbed && forest.length === 1 &&
-    forest[0].breadth > 0.5;
+    forest[0].breadth > 0.5 && independentOfPrimary(forest[0]);
   if (forest.length === 0 || (forest.length <= 1 && !lonePromotes)) {
     return primary;
   }

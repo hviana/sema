@@ -1382,6 +1382,35 @@ export abstract class AbstractStore implements Store {
 
   // ── Core interning: dedup → near-dedup → mint ──────────────────────────
 
+  /** Re-index a node under a DIFFERENT gist for the same content.
+   *
+   *  Normally a node's gist is a pure function of its id, so indexGist skips
+   *  anything already indexed.  Step 1b of {@link intern} breaks that: it
+   *  reuses an id for the same BYTES folded a different way, and the two
+   *  foldings have different gists.  The index holds one vector per id, so
+   *  the node must carry the gist a direct query of those bytes will present
+   *  — otherwise it is unreachable from exactly the query that names it.
+   *
+   *  A no-op when the gists agree, so the ordinary path pays one comparison
+   *  and nothing else. */
+  private recaptureGist(id: NodeId, gist: Vec): void {
+    const v = normalize(copy(gist));
+    const current = this._pendingGist.get(id);
+    // Same direction — the ordinary case, where the bytes folded identically.
+    if (current !== undefined && dot(current, v) >= 1 - 1e-6) return;
+    if (
+      current === undefined && !this._indexedIds.has(id) &&
+      !this._vecContentHas(id)
+    ) {
+      this.captureIfUnindexed(id, gist);
+      return;
+    }
+    this._pendingGist.set(id, v);
+    this._indexedIds.set(id, true);
+    this._contentBuffer.push({ id, vector: v });
+    this._bufferedIds.add(id);
+  }
+
   private async intern(
     leaf: Uint8Array | null,
     kids: NodeId[] | null,
@@ -1413,7 +1442,18 @@ export abstract class AbstractStore implements Store {
       if (leafIds !== null) {
         const flatHit = this.findBranch(leafIds);
         if (flatHit !== null) {
-          this.captureIfUnindexed(flatHit, gist);
+          // The id is reused — same bytes, same node, as documented above.
+          // But the GIST is not a pure function of the id here, which is the
+          // assumption indexGist makes: these bytes fold one way standing
+          // alone and another way embedded, because any bounded-memory cut
+          // rule sees no context before a stream's first bytes.  Whichever
+          // folding arrived first owned the index entry, and a query naming
+          // exactly these bytes — which perceives the STANDALONE folding —
+          // could not reach the node at all (test/02: express returned
+          // nothing for a node whose bytes were right there).  Re-index with
+          // the incoming gist, which is the standalone perception and so the
+          // one a direct query will present.
+          this.recaptureGist(flatHit, gist);
           return flatHit;
         }
       }

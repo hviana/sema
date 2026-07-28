@@ -307,8 +307,24 @@ export function junctionContainersFrom(
     // abstains here in a handful of pops and falls through to the resonance
     // tier.  Below the page bound the read IS the full container list, so
     // the walk stays exact exactly where identity evidence discriminates.
-    const containers = cachedContainers(ctx, cache, x, bound);
-    if (containers.length < bound) {
+    // READ ONE PAST THE PAGE TO TELL "FULL" FROM "SATURATED".  The guard
+    // below means "this node's containers fill a whole page, so its
+    // containment ancestry is a non-discriminative slice of the corpus".
+    // But the read itself is CAPPED at the page size, so `length` can never
+    // exceed it and `length < bound` really asks "did the capped read come
+    // back full?" — which is the same answer for a genuine hub and for a
+    // node that has exactly `bound` containers and not one more.  Reading
+    // bound + 1 separates them: only a node with MORE than a page is a hub.
+    //
+    // Measured on test/34 (8 deposits, so the page is √N = 3): "blue" has
+    // exactly 3 containers and was suppressed, while "red" has 2 and was
+    // expanded — so "red then circle" composed and "blue then square" fell
+    // through to the synonym tier, which substituted "red" and answered
+    // "red square", a context NEITHER attribute attends to alone.  The two
+    // cross-cuts are structurally identical; only the container count
+    // differed, and only by one.
+    const containers = cachedContainers(ctx, cache, x, bound + 1);
+    if (containers.length <= bound) {
       for (const c of containers) {
         if (!seen.has(c)) {
           seen.add(c);

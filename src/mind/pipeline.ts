@@ -12,7 +12,7 @@
 import type { MindContext } from "./types.js";
 import { PASS, STEP } from "./graph-search.js";
 import type { ComputedSpan } from "../extension.js";
-import { gistOf, resolve } from "./primitives.js";
+import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { fuseAttention, reason } from "./reasoning.js";
 import { unexplainedSpans } from "./rationale.js";
@@ -367,12 +367,22 @@ export async function think(
   // already a trained form's own continuation, reached through an identity
   // claim about the query, so a multi-hop pivot could only chain past the
   // fact that produced it (see MechanismResult.complete).
+  // The bytes of what the mechanism DECLARED it voiced.  Only a mechanism
+  // carrying its own `used` set (cast/join) gets this: there `preConsumed` is
+  // a deliberate, short list of the anchors the answer speaks for, so reading
+  // them is bounded and the containment rule means what it says.  For every
+  // other provenance `preConsumed` is derived by re-recognising the answer —
+  // "everything in it", not "what it voiced" — and a containment rule over
+  // that would suppress every pivot the answer legitimately contains.
+  const voiced = (provenance === "cast" || provenance === "join")
+    ? [...castUsed].map((id) => read(ctx, id))
+    : [];
   const reasoned = decided.complete ? answer : meter
     ? await meter.time(
       "reason",
-      () => reason(ctx, query, answer, preConsumed, pre),
+      () => reason(ctx, query, answer, preConsumed, pre, voiced),
     )
-    : await reason(ctx, query, answer, preConsumed, pre);
+    : await reason(ctx, query, answer, preConsumed, pre, voiced);
 
   // Fuse only when the query has a genuine REMAINDER no mechanism's
   // structural evidence touched at all.  `decided.accounted` alone

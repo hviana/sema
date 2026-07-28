@@ -37,6 +37,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
+import { climbAttentionAll } from "../dist/src/mind/attention.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 
 const mk = () =>
@@ -169,6 +170,62 @@ test("3.2 — multi-piece extraction composes with a downstream hop", async () =
 const SYS =
   "You are a helpful and harmless assistant.\n\nYou are not allowed to use any tools.\n";
 
+/** A two-topic query that measures the MECHANISM, not a tiling coincidence.
+ *
+ *  Consensus counts one vote per REGION, and regions are the perceived tree's
+ *  interior nodes — so how many votes a topic raises depends on how many
+ *  pieces the content cuts happen to split its text into.  The previous query
+ *  ("...gender equality at work, and also the 1992 Dream Team.") referred to
+ *  each topic by a PARAPHRASE, and the two paraphrases tiled unequally: the
+ *  first raised 9 regions, the second 2, for evidence that is otherwise
+ *  comparable.  It committed two roots under one fold and one under another —
+ *  it was measuring segmentation luck, and passing by it.
+ *
+ *  This query names both topics with their TRAINED phrases, in the same
+ *  grammatical frame, so each contributes comparable evidence by
+ *  construction.  {@link assertComparableEvidence} then checks that premise
+ *  explicitly: if a future change unbalances the tiling, these tests say so
+ *  in as many words instead of failing as a mysterious root count. */
+const TWO_TOPIC_QUERY = SYS +
+  "Tell me about gender equality in the workplace and about the 1992 " +
+  "Dream Team basketball squad.";
+
+/** A single-topic control for the same fixture — one topic must dominate. */
+const ONE_TOPIC_QUERY = SYS +
+  "Describe the importance of gender equality in the workplace.";
+
+/** The premise the two-topic assertions rest on: BOTH topics must actually
+ *  raise comparable evidence.  Two points of attention are only expected when
+ *  the vote distribution has no dominant winner — that IS the mechanism under
+ *  test (naturalBreak reads the distribution), so the premise is asserted
+ *  rather than assumed.  The bar is the fold's own quantum: a topic that
+ *  out-votes the other by more than W is genuinely dominant, and one root
+ *  would then be the CORRECT answer. */
+async function assertComparableEvidence(m, query, W = 4) {
+  // Read the RANKED CANDIDATES, not the committed roots: how many roots get
+  // committed is the very thing under test, so checking the premise against
+  // them would be circular.  climbAttentionAll exposes the distribution the
+  // commit decision is made FROM.
+  const { ranked } = await climbAttentionAll(
+    m,
+    new TextEncoder().encode(query),
+    16,
+  );
+  assert.ok(
+    ranked.length >= 2,
+    "fixture premise: the query must raise at least two candidate anchors " +
+      "for a two-topic reading to be possible at all",
+  );
+  const ratio = ranked[0].vote / ranked[1].vote;
+  assert.ok(
+    ratio < W,
+    `fixture premise broken: the top topic out-votes the second by ` +
+      `${ratio.toFixed(2)}x (bar ${W}x), so ONE root is the correct read and ` +
+      `these tests are no longer measuring multi-topic attention.  Re-balance ` +
+      `the fixture rather than relaxing the assertion.`,
+  );
+}
+
 async function twoTopicMind() {
   const m = mk();
   await m.ingest([
@@ -194,11 +251,8 @@ async function twoTopicMind() {
 
 test("3.1 — a two-topic query fuses BOTH points of attention", async () => {
   const m = await twoTopicMind();
-  const got = await ask(
-    m,
-    SYS +
-      "Tell me about gender equality at work, and also the 1992 Dream Team.",
-  );
+  await assertComparableEvidence(m, TWO_TOPIC_QUERY);
+  const got = await ask(m, TWO_TOPIC_QUERY);
   await m.store.close();
 
   const hasEquality = /hired|promoted|equal chances/i.test(got);
@@ -213,11 +267,8 @@ test("3.1 — a two-topic query fuses BOTH points of attention", async () => {
 test("3.1 — the trace surfaces MORE THAN ONE ordered anchor for a two-topic query", async () => {
   const m = await twoTopicMind();
   const steps = [];
-  await m.respondText(
-    SYS +
-      "Tell me about gender equality at work, and also the 1992 Dream Team.",
-    (s) => steps.push(s),
-  );
+  await assertComparableEvidence(m, TWO_TOPIC_QUERY);
+  await m.respondText(TWO_TOPIC_QUERY, (s) => steps.push(s));
   await m.store.close();
 
   // The consensus climb must expose the attention forest — more than one ordered
@@ -301,10 +352,8 @@ test("3.1 — a single-topic query is not fragmented", async () => {
 // orderings over the same query — the capability, not one hard-wired weighting.
 test("3.1 — the consensus climb (climbAttention) leverages inverse, direct, AND combined document frequency", async () => {
   const m = await twoTopicMind();
-  const q = new TextEncoder().encode(
-    SYS +
-      "Tell me about gender equality at work, and also the 1992 Dream Team.",
-  );
+  await assertComparableEvidence(m, TWO_TOPIC_QUERY);
+  const q = new TextEncoder().encode(TWO_TOPIC_QUERY);
 
   // climbAttention is the multi-hierarchical core; each mode is a real read.
   const inv = await m.climbAttention(q, 16, "inverse");
@@ -342,19 +391,18 @@ test("3.1 — the consensus climb (climbAttention) leverages inverse, direct, AN
 test("3.1 — the number of roots is read from the vote distribution, not a constant", async () => {
   const m = await twoTopicMind();
   const climb = async (q) =>
-    (await m.climbAttention(new TextEncoder().encode(SYS + q), 16)).length;
+    (await m.climbAttention(new TextEncoder().encode(q), 16)).length;
+  await assertComparableEvidence(m, TWO_TOPIC_QUERY);
 
   // One distinctive topic → ONE root (natural break is right after the top vote).
   assert.equal(
-    await climb("the importance of gender equality in the workplace"),
+    await climb(ONE_TOPIC_QUERY),
     1,
     "a single-topic query must yield exactly one root (no fragmentation)",
   );
   // Two distinctive topics on disjoint spans → TWO roots.
   assert.equal(
-    await climb(
-      "Tell me about gender equality at work, and also the 1992 Dream Team.",
-    ),
+    await climb(TWO_TOPIC_QUERY),
     2,
     "a K-topic query must yield exactly K roots (K = 2 here)",
   );

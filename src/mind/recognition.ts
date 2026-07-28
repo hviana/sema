@@ -242,6 +242,37 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
             if (eRight !== null) emit(start, end - k, eRight);
           }
         }
+        // A trained form embedded at this span's left edge, past the
+        // chunk-scale bound above.  The loop above probes exactly this — trim
+        // k leading bytes, verify the remainder is a stored branch — but only
+        // for spans of at most W².  A turn prefixed with a connective is
+        // turn-scale, so it never qualified.
+        //
+        // Widening that loop's SIZE bound is what reopens test/46's
+        // root-scale false positive.  Widening only its LEFT trim, to a
+        // bounded W offsets, does not: every candidate is still verified by
+        // exact content addressing (the leaf-id run must BE a stored branch),
+        // and the result always ends where this span ends, so it can never
+        // introduce the smaller-subtree duplicate that regression was about.
+        //
+        // This replaces an assumption that no longer holds — that such a
+        // form's left edge must be a cut the fold itself drew.  It held while
+        // cuts had long memory and a turn boundary reliably produced one; a
+        // bounded-window rule re-synchronises a byte or two INTO the turn
+        // instead, so the edge itself is often not a cut ("And " ends at 65,
+        // and the fold's nearest cuts are 61 and 67).
+        // No leaf-id prefilter here, unlike the loop above: a leaf id is the
+        // LONGEST known leaf at a position, so the run itself is context
+        // sensitive — measured, the embedded copy of a trained form yields a
+        // different run from the standalone one and findBranch misses even
+        // though the bytes resolve exactly (span [65,94): findBranch null,
+        // resolve 91).  With only W candidates the exact fold is affordable,
+        // and it is the stronger evidence anyway: if it resolves, these exact
+        // bytes ARE a stored node.
+        for (let k = 1; k <= W && start + k < end - 1; k++) {
+          const eLeft = resolve(ctx, bytes.subarray(start + k, end));
+          if (eLeft !== null) emit(start + k, end, eLeft);
+        }
         // A REAL extra word at the left edge (a discourse connective like
         // "And " prepended to a follow-up turn — not boundary noise, actual
         // content the injected canonicalizer has no equivalence for) shows

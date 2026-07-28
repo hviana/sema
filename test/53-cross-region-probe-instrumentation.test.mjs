@@ -282,15 +282,30 @@ test("6. structural-resonance: eligible probes report variants, merged proposals
 // ═══════════════════════════════════════════════════════════════════════════
 
 test("7. resonance outcomes: ineligible reasons are named and a margin-rejected probe reports a sub-noise-floor margin", async () => {
+  // BOTH readings come from the SPREAD query.  An ineligible probe is only
+  // observable when resonance is REACHED and declines — which needs more
+  // than one pair in play.  On the tight "red then square" the query's own
+  // regions leave a single maximal pair, so the one probe attempted is
+  // accepted and there is nothing ineligible to inspect: the assertion below
+  // would then be reporting the fixture's pair count, not the classifier.
+  // The premise is asserted rather than assumed, so a fixture that stops
+  // exercising the mechanism fails loudly instead of vacuously passing.
   const mIneligible = mk(1);
   await mIneligible.ingest(NO_BRIDGE_CORPUS);
   const { steps: ineligibleSteps } = await trace(
     mIneligible,
-    "red then square",
+    "red and a very long interior gap before square",
   );
   await mIneligible.store.close();
 
   const ineligibleStep = climbStep(ineligibleSteps);
+  const attempted = ineligibleStep.data.crossRegion?.probesAttempted ?? 0;
+  assert.ok(
+    attempted > 1,
+    `fixture premise broken: only ${attempted} cross-region probe(s) were ` +
+      `attempted, so no probe can be observed DECLINING — widen the query ` +
+      `(more regions in play) rather than relaxing the assertion.`,
+  );
   const ineligible = (ineligibleStep.data.crossRegion?.probes ?? []).filter(
     (p) => p.resonance?.outcome === "ineligible",
   );

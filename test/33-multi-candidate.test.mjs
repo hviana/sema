@@ -197,15 +197,31 @@ test("4 — a thin winning candidate is flagged thinGrounding", async () => {
       "The Western Roman Empire fell from overreach and migration.",
     ],
   ]);
+  // FOUR topics, not two.  The flag fires on the winning candidate's
+  // COVERAGE DENSITY, so the fixture has to leave most of the query
+  // unaccounted for the assertion to mean anything: the two-topic query this
+  // used to ask is now explained densely enough to clear 1/W outright, and
+  // asserting `thin.length === 1` against it would have been asserting that
+  // the grounding stays BAD.  Naming four topics while one candidate can
+  // ground only one keeps the density genuinely low (0.015 across seeds
+  // 42/1/7/99, against a 0.250 bar).  4b below pins the other direction.
   const { r, steps } = await trace(
     m,
     SYS +
-      "Tell me about gender equality at work, and also the 1992 Dream Team.",
+      "Tell me about gender equality at work, and also the 1992 Dream Team, " +
+      "and photosynthesis, and the Western Roman Empire.",
   );
   assert.ok(r.v !== null, "the query must still ground an answer");
   const thin = stepsNamed(steps, "thinGrounding");
   assert.equal(thin.length, 1, "a low-density grounding must be flagged thin");
-  assert.ok(/density [\d.]+ is below 1\/W/.test(thin[0].note));
+  const density = Number(/density ([\d.]+) /.exec(thin[0].note)[1]);
+  const bar = Number(/is below 1\/W \(([\d.]+)\)/.exec(thin[0].note)[1]);
+  assert.ok(
+    density < bar,
+    `fixture premise broken: the winning grounding covers density ${density} ` +
+      `against a ${bar} bar, so it is not thin and this test no longer ` +
+      `exercises the flag — name more topics rather than relaxing it.`,
+  );
   await m.store.close();
 });
 

@@ -500,9 +500,25 @@ export function sharedFrameStrength(
   a: number,
   b: number,
 ): number {
+  return sharedFrameStrengthOf(ctx, read(ctx, a), read(ctx, b));
+}
+
+/** The same measure over BYTES, for callers holding a role-establishing
+ *  CONTEXT rather than the node whose role it establishes — CAST's comparison
+ *  reads the tier this way when two candidate analogs are fillers (bare entity
+ *  names) rather than frame-bearing structures themselves.  A role is a
+ *  property of the context that establishes a filler, never of the filler's
+ *  own bytes: measured on test/29's corpus, "Michelangelo" against "Homer"
+ *  reads 0.000 while their establishing contexts ("The David was sculpted
+ *  by…" against "The Iliad was written by…") read 0.452, and a context in a
+ *  genuinely different frame ("Water boils at…") still reads 0.000 — the tier
+ *  discriminates, it was simply being asked about the wrong bytes. */
+export function sharedFrameStrengthOf(
+  ctx: MindContext,
+  A: Uint8Array,
+  B: Uint8Array,
+): number {
   const W = ctx.space.maxGroup;
-  const A = read(ctx, a);
-  const B = read(ctx, b);
   if (A.length < W || B.length < W) return 0;
   // Mark every byte of the shorter side covered by a learnt W-window that
   // also occurs in the longer side.
