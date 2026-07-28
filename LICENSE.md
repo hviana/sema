@@ -3,7 +3,7 @@
 <https://polyformproject.org/licenses/noncommercial/1.0.0>
 
 > Required Notice: Copyright © Henrique Viana (author). Marcelo Oliveira dos
-> Reis and Rogerio Nascimento (supporters).
+> Reis (supporters).
 
 ## Acceptance
 

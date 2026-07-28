@@ -9,4 +9,3 @@ Unless otherwise stated, copyright belongs to Authors.
 # Supporters
 
 - Marcelo Oliveira dos Reis
-- Rogerio Nascimento

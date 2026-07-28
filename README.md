@@ -285,7 +285,7 @@ independent, weight-free AI research alive.
 
 **reis.marcelo@gmail.com**, **rogernact@gmail.com**
 
-**© Sema Supporters** — Marcelo Oliveira dos Reis · Rogerio Nascimento
+**© Sema Supporters** — Marcelo Oliveira dos Reis
 
 — ⬡ — ⬡ — ⬡ —
 
