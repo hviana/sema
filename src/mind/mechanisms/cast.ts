@@ -14,7 +14,13 @@
 import type { MindContext } from "../types.js";
 import type { Vec } from "../../vec.js";
 import { read } from "../primitives.js";
-import { argmaxBy, corpusN, hubBound } from "../traverse.js";
+import {
+  argmaxBy,
+  corpusN,
+  edgeAncestors,
+  hubBound,
+  sharedReachMemo,
+} from "../traverse.js";
 import {
   analogyStrength,
   follow,
@@ -35,6 +41,7 @@ import {
 } from "../rationale.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";
+import { leafIdRun } from "../canonical.js";
 
 // ── CAST gates ────────────────────────────────────────────────────────────
 //
@@ -1044,7 +1051,56 @@ export async function counterfactualTransfer(
   // FRAME-tier or fallback analog — whose "similarity" is an unbarred
   // coverage fraction or nothing — needs the query's naming or the climb's
   // trust.
-  const analogNamed = bestAnalog !== null && namedByQuery(bestAnalog);
+  // A NAMING MUST NAME SOMETHING.  `analogNamed` licences comparison on the
+  // claim that the query's own bytes evidence the analog — but that claim is
+  // only worth what those bytes discriminate.  `edgeAncestors` already has the
+  // system's verdict for content that discriminates nothing: SATURATION, the
+  // √N parent-fan-out abstention `explainedSpan` (bridge.ts) and the climb
+  // both respect.  A window in too many places to discriminate cannot be
+  // evidence that the query meant THIS analog rather than any other.
+  //
+  // So the naming must rest on at least ONE window that is not saturated —
+  // not every window, which would be far too strong: test/29 C1's naming is
+  // [" is "=SAT, "teel"=1, " is "=SAT], and the one discriminative run is
+  // exactly what makes it a naming.  Measured over the accounted runs of
+  // every `analogNamed` comparison in the suite (contextsReached per window):
+  //
+  //   C1  " cold"=1  "teel "=1                    N=4    → names
+  //   C2  "Leonardo da Vinci"=4  " Shakespeare"=5 N=22   → names
+  //   C3  " Leonardo da Vinci"=3 " Shakespeare"=4 N=13   → names
+  //       "what i"=2 " the capital of France"=2 "Lyon"=1 → names
+  //       " is "=SAT "teel"=1 " is "=SAT                 → names
+  //       "The "=3 " painted by "=3 "Michelangelo"=2     → names
+  //   50  " name"=SAT " the "=SAT "ing "=SAT
+  //       " the "=SAT "he b"=SAT  "ing "=SAT      N=205  → names NOTHING
+  //
+  // test/50's junk comparison is the only one in the suite whose naming is
+  // saturated end to end: it "names" its analog with " the " and "ing ".  The
+  // ignored-known principle cannot reach that case — the planet probe's gaps
+  // ("planet", "biggest", "sun") are genuinely untrained, so
+  // `dismissedKnownContent` correctly returns false and there is no ignored
+  // known content to find.  This is a different question: not "did the
+  // comparison ignore what the store knows" but "did the query name this
+  // analog at all".  Derived, never tuned — the saturation limit is
+  // `edgeAncestors`' own √N, computed nowhere new.
+  const namingDiscriminates = (): boolean => {
+    const N = corpusN(ctx);
+    const W = ctx.space.maxGroup;
+    const memo = sharedReachMemo(ctx);
+    for (const [from, to] of cmpAccounted) {
+      for (let o = from; o + W <= to; o++) {
+        const ids = leafIdRun(ctx, query, o, o + W);
+        if (ids === null) continue;
+        const wid = ctx.store.findBranch(ids);
+        if (wid === null) continue;
+        const r = edgeAncestors(ctx, wid, N, memo);
+        if (!r.saturated && r.roots.length > 0) return true;
+      }
+    }
+    return false;
+  };
+  const analogNamed = bestAnalog !== null && namedByQuery(bestAnalog) &&
+    namingDiscriminates();
   // NOTE — two further gates were tried here and empirically REFUTED,
   // recorded so they are not re-tried:
   //   • dominant self-coverage (dominant's aligned runs must dominate its
