@@ -249,7 +249,37 @@ export class RaBitQuantizer {
     const lut = q.qlut;
     let dot = 0;
     let popcount = 0;
-    for (let p = 0; p < nb; p++) {
+    // THE INNERMOST LOOP OF SEARCH.  Profiled on the trained store: 170 ANN
+    // queries scan 8,702,005 slots, and this estimate — inlined by V8 into
+    // IvfIndex.scanClusters, which is why it does not appear separately — was
+    // 21% of all inference CPU.
+    //
+    // The `dot` half is an irreducible data-dependent LUT probe per byte.  The
+    // `popcount` half is not: it is the same sign-bit count `codeDistanceBytes`
+    // below already folds into 32-bit words ("~4x fewer loop iterations"), and
+    // that reasoning applies verbatim here.  Four bytes are packed into one
+    // word and popcounted with the standard SWAR reduction, while the four LUT
+    // probes are issued together so their loads overlap instead of serialising
+    // behind the popcount.
+    //
+    // BIT-IDENTICAL, not an approximation: popcount over four bytes equals the
+    // sum of their individual popcounts, and the LUT terms are added in the
+    // same order at the same indices.  Verified by direct comparison, and the
+    // 445 suite plus the battery's answers are unchanged.
+    let p = 0;
+    for (const n4 = nb & ~3; p < n4; p += 4) {
+      const o = byteOffset + p;
+      const b0 = codeBytes[o], b1 = codeBytes[o + 1];
+      const b2 = codeBytes[o + 2], b3 = codeBytes[o + 3];
+      dot += lut[(p << 8) + b0] + lut[((p + 1) << 8) + b1] +
+        lut[((p + 2) << 8) + b2] + lut[((p + 3) << 8) + b3];
+      let x = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+      x -= (x >>> 1) & 0x55555555;
+      x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+      x = (x + (x >>> 4)) & 0x0f0f0f0f;
+      popcount += Math.imul(x, 0x01010101) >>> 24;
+    }
+    for (; p < nb; p++) {
       const b = codeBytes[byteOffset + p];
       dot += lut[(p << 8) + b];
       popcount += POPCOUNT8[b];
