@@ -182,6 +182,19 @@ export interface Region {
    *  reason to re-derive it approximately.  A perceived sub-tree leaves this
    *  undefined; chunks get the same thing from `canonicalChunkId`. */
   id?: number;
+  /** EVIDENCE, NOT A POINT OF ATTENTION.  True for a region the query's own
+   *  fold never produced — a stored form that a content-defined cut SPLIT,
+   *  recovered by sliding-window lookup in collectRegions.  The store
+   *  guarantees such a form is addressable (canonicalWindows interns both
+   *  lengths), so it may corroborate an anchor's vote; but the query did not
+   *  weave it as an independent structure, so it must not make the query look
+   *  like it holds one more point of attention than it does — it is kept out
+   *  of the root-cut distribution and out of the breadth ratio (see
+   *  poolVotes/commitVotes).  Absent/false for every region from the fold.
+   *  (Flagging these `chunk: true` instead is REFUTED — a chunk is a
+   *  smallest unit the FOLD produced, and claiming first-class unit status
+   *  for an assembled span cost 5 tests.) */
+  corroborating?: boolean;
 }
 
 /** Per-region vote data from the consensus climb's resonance pass. */
@@ -213,6 +226,11 @@ export interface RegionVote {
    *  a MULTI-topic query structurally cannot.  Absent for an ordinary
    *  per-region vote, where the merged span already is the truth. */
   parts?: readonly (readonly [number, number])[];
+  /** Carried through from {@link Region.corroborating}: this vote's evidence
+   *  is a stored form the query's fold SPLIT, not a structure the query wove.
+   *  Votes are what the pool sees (regions are not), so the flag has to
+   *  travel with the vote for the root election to honour it. */
+  corroborating?: boolean;
 }
 
 /** The structural gate that first decided an {@link edgeAncestors} climb was

@@ -723,6 +723,76 @@ export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
     // left the sentences CAST needs with no free run at all (C2, C3).  A
     // region must come from the fold, not from a stride over it.
   });
+
+  // ─── FORMS THE QUERY'S OWN CUT SPLIT ────────────────────────────────────
+  // The walk above enumerates FOLD NODES ONLY, so a stored form the query's
+  // content-defined cut happens to split is not addressable at all — however
+  // discriminative it is.  Measured: `request_id=1042` against a 200-record
+  // log, the query's best match, cut as `...uest_id=|10|42 and r`; "1042"
+  // reaches exactly ONE context of 205 (maximal IDF) and cast no vote, while
+  // the scaffolding "=10" — which matches every record 1000–1099 — did.  The
+  // climb was voting on the only evidence it could address, and that was the
+  // non-discriminative kind.
+  //
+  // The WRITE path already made these reachable: canonicalWindows interns a
+  // form at both lengths precisely so one straddling a cut resolves from
+  // either side.  The read path simply never used the guarantee.  So this is
+  // recovered here by lookup — the fold, its invariants and the write path
+  // are untouched.
+  //
+  // Admitting every resolvable window is REFUTED (it is the ascent-sites
+  // failure): on a 5-context corpus a 26-byte query yielded 17 "unique"
+  // windows that were all fragments of ONE word (" pai" "pain" "aint" …).
+  // No per-window threshold separates that from the log case — the two need
+  // the same windows ADMITTED and COLLAPSED at identical per-window IDF.  It
+  // is a REDUNDANCY problem, so overlapping admitted windows are COALESCED
+  // into maximal spans: the log query then yields the two disjoint records it
+  // names, and the 17 fragments yield the one span " painted the Mona Lisa".
+  const W = ctx.space.maxGroup;
+  if (query.length > W) {
+    const N = corpusN(ctx);
+    const reachMemo = sharedReachMemo(ctx);
+    // Coalesce while sweeping left to right: a window overlapping (or just
+    // touching) the span under construction extends it.  Merging cannot
+    // inflate what the climb pays for this evidence — the merged span votes
+    // as ITSELF, and a longer span is at least as discriminative as its most
+    // discriminative part, i.e. its reach is bounded by the MIN over the
+    // windows that built it.
+    const spans: Array<{ start: number; end: number }> = [];
+    for (let o = 0; o + W <= query.length; o++) {
+      // A window some fold region wholly contains offers no address the walk
+      // above did not already offer.
+      if (regions.some((r) => r.start <= o && r.end >= o + W)) continue;
+      const ids = leafIdRun(ctx, query, o, o + W);
+      if (ids === null) continue;
+      const wid = ctx.store.findBranch(ids);
+      if (wid === null) continue;
+      const reach = edgeAncestors(ctx, wid, N, reachMemo);
+      // Saturated = the climb ABSTAINED; no roots = it reached nothing that
+      // could corroborate anything.  Neither is evidence.
+      if (reach.saturated || reach.roots.length === 0) continue;
+      const last = spans[spans.length - 1];
+      if (last && o <= last.end) last.end = o + W;
+      else spans.push({ start: o, end: o + W });
+    }
+    for (const { start, end } of spans) {
+      // The same wrapper filter the fold regions pass through.
+      if (dominates(end - start, query.length) && regions.length > 0) continue;
+      regions.push({
+        v: gistOf(ctx, query.subarray(start, end)),
+        start,
+        end,
+        // NOT a chunk: `chunk` means "a smallest grouped unit the FOLD
+        // produced", and this span was assembled here.  Setting it is
+        // REFUTED — it cost 5 tests (honest silence, fusion direction, both
+        // test/50 probes) where chunk:false costs none.
+        chunk: false,
+        known: true,
+        // EVIDENCE, NOT A POINT OF ATTENTION — see Region.corroborating.
+        corroborating: true,
+      });
+    }
+  }
   return regions;
 }
 
@@ -1187,6 +1257,8 @@ export async function voteRegions(
       roots: reach.roots,
       w,
       wFocus,
+      // The pool sees VOTES, not regions — carry the region's standing with it.
+      ...(regions[ri].corroborating ? { corroborating: true } : {}),
     });
     if (ctx.trace) {
       regionVoter[ri] = { id: voterId, score, w: wf };
@@ -1248,6 +1320,8 @@ export function poolVotes(
   regionAxioms: Map<number, number>;
   /** Per-anchor LARGEST single-region contribution — see Attention.peak. */
   regionPeak: Map<number, number>;
+  /** Anchors with support from at least one NON-corroborating region. */
+  anchored: Set<number>;
   steps: DerivationStep[];
 } {
   const eligible: number[] = [];
@@ -1349,6 +1423,22 @@ export function poolVotes(
   // REGION) could read below it, and it could exceed the query's whole
   // candidate-region count.
   const regionAxioms = new Map<number, number>();
+  // ANCHORS THE QUERY ITSELF POINTED AT.  votesIdf is keyed by anchor node,
+  // but root election has to know something about the REGIONS underneath it:
+  // whether at least one of them is a structure the query wove, rather than a
+  // form its cut split and collectRegions recovered (Region.corroborating).
+  // An anchor standing on corroborating evidence ALONE is a real, well-priced
+  // vote — it just is not a point of attention the query made, so it must not
+  // enter the distribution the root cut is read from, nor the breadth ratio.
+  //
+  // REFUTED: barring such anchors from ROOT CANDIDACY outright.  It defeats
+  // the purpose — in the log case the CORRECT record (request_id=1042, one
+  // context of 205) is addressable ONLY through the form the cut split, so
+  // rejecting it handed the answer back to the near-miss 1050 (vote 5.60 ->
+  // 3.81).  Grounding follows where the evidence points; what a corroborating
+  // region must not do is make the query look like it wove one more topic
+  // than it did.
+  const anchored = new Set<number>();
   // The LARGEST single region's contribution to this anchor's pooled vote.
   // The pool is a SUM (deliberately — see the pooling note above), so it says
   // how much evidence there is in total, never whether any ONE place in the
@@ -1373,7 +1463,16 @@ export function poolVotes(
         if (p0.kind !== "region" || seenRi.has(p0.ri)) continue;
         seenRi.add(p0.ri);
         const rv = regionVotes[p0.ri];
-        breadthSum += rv.absorbed ?? 1;
+        // Breadth is a ratio over the query's OWN candidate points of
+        // attention (see below), and a corroborating region is not one of
+        // those — it enters neither side of that ratio, so breadth reads
+        // exactly as it did before such regions existed.  Its evidence still
+        // counts everywhere else: it is a premise, and it is a separate
+        // PLACE for cluster counting — corroborating is what it is for.
+        if (!rv.corroborating) {
+          breadthSum += rv.absorbed ?? 1;
+          anchored.add(pc.item.id);
+        }
         premises.push({ kind: "form", span: [rv.start, rv.end] });
         // A vote knows where its own evidence sits: `parts` when it stands on
         // several separate places (a joint binding), the merged span
@@ -1442,6 +1541,7 @@ export function poolVotes(
     regionSpans,
     regionAxioms,
     regionPeak,
+    anchored,
     steps,
   };
 }
@@ -1484,6 +1584,7 @@ export function commitVotes(
     regionSpans: Map<number, Array<[number, number]>>;
     regionAxioms: Map<number, number>;
     regionPeak: Map<number, number>;
+    anchored: Set<number>;
     steps: DerivationStep[];
   },
   sat: SaturationInfo,
@@ -1501,6 +1602,7 @@ export function commitVotes(
     regionSpans,
     regionAxioms,
     regionPeak,
+    anchored,
     steps,
   } = pooled;
   if (votes.size === 0) {
@@ -1512,7 +1614,16 @@ export function commitVotes(
   // is the query's OWN full candidate count (most never vote at all), the
   // same denominator the "N of M sub-regions voted" rationale text already
   // reports; regionSupport is that same accounting read PER ANCHOR.
-  const totalRegions = Math.max(1, regions.length);
+  // Corroborating regions are excluded from the denominator for the same
+  // reason they are excluded from the numerator (see poolVotes): they are
+  // not candidate points of attention the query wove, so counting them would
+  // silently shrink every anchor's breadth — measured: test/36's genuine
+  // second topic fell 6/11 -> 6/12 and fusion's dispersion gate dropped it,
+  // with nothing else about the climb changed.
+  const totalRegions = Math.max(
+    1,
+    regions.filter((r) => !r.corroborating).length,
+  );
   const ranked = [...votes.entries()]
     .map(([anchor, vote]) => {
       const s = support.get(anchor)!;
@@ -1532,7 +1643,18 @@ export function commitVotes(
     .sort((a, b) => b.vote - a.vote);
   const overlaps = (a: Attention, b: Attention) =>
     a.start < b.end && b.start < a.end;
-  const idfDesc = [...votesIdf.values()].sort((a, b) => b - a);
+  // Read the root cut from the anchors the QUERY pointed at.  A vote standing
+  // only on corroborating evidence (a form the query's cut split, recovered
+  // by lookup — Region.corroborating) is evidence for someone else's anchor,
+  // never a point of attention of its own: the query never wove it as an
+  // independent structure, the fold did that.  Letting such votes into
+  // idfDesc shifts naturalBreak — they are exact, hence high-IDF, hence they
+  // land at the top of the distribution — and a 2-topic query then elects 3
+  // roots (test/24:404, and the answered-continuation exclusion probe).
+  const idfDesc = [...votesIdf.entries()]
+    .filter(([anchor]) => anchored.has(anchor))
+    .map(([, v]) => v)
+    .sort((a, b) => b - a);
   const rootCut = naturalBreak(idfDesc);
   // A FURTHER point of attention (beyond the dominant one, which always
   // grounds) must clear the same absolute significance floor

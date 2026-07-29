@@ -283,7 +283,7 @@ independent, weight-free AI research alive.
 
 ## Commercial licensing:
 
-**reis.marcelo@gmail.com**, **rogernact@gmail.com**
+**reis.marcelo@gmail.com**
 
 **© Sema Supporters** — Marcelo Oliveira dos Reis
 
