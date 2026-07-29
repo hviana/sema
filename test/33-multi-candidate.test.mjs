@@ -101,19 +101,47 @@ test("1b — different CAST schemas are weighed by their OWN explanatory power, 
   assert.ok(got.includes("Cubist"), `expected the Picasso fact, got "${got}"`);
 
   const decide = steps.find((s) => s.mechanism.at(-1) === "decideGrounding");
-  const castWeights = decide.inputs
-    .filter((i) => i.role.startsWith("cast"))
-    .map((i) => Number(i.role.match(/weight ([\d.]+)/)[1]));
+  const label = (i) => i.role.match(/unexplained: "([^"]*)"/)?.[1] ?? null;
+  const cast = decide.inputs.filter((i) => i.role.startsWith("cast"));
+  assert.ok(cast.length >= 1, "CAST must contribute a candidate at all");
+
+  // THE PROPERTY, MEASURED WHERE IT IS STILL OBSERVABLE.  This test asserted
+  // TWO CAST candidates whose weights diverge, and it can no longer: on this
+  // fixture the comparison schema now honestly DECLINES (its analog is
+  // frame-tier and dismisses stored query content, which is precisely what
+  // test/50 pins), leaving redirection as the only schema that fires.  Three
+  // replacement queries were measured hoping to reach a halo-tier comparison
+  // here — "The Sistine Chapel ceiling was painted by Michelangelo.", "The
+  // Pieta was sculpted by Michelangelo.", "How is Michelangelo like Il
+  // Divino?" — and none produces a second CAST candidate either.  The junk
+  // comparison that USED to supply it is the defect, not the coverage.
+  //
+  // What the shared-span bug would still show, with one schema, is this: a
+  // CAST candidate carrying the whole WEAVE's alignment would account the same
+  // query bytes as the mechanisms that read the whole query, and report the
+  // same unexplained label.  Schema-specific accounting means it accounts what
+  // ITS OWN two points cover — here redirection explains "The " that cover and
+  // recall both leave unexplained, so its label is strictly SHORTER than
+  // theirs and different in content.  That is the same property the weight
+  // spread was evidence for, read directly off the accounting instead of
+  // through two candidates.
+  const castLabel = label(cast[0]);
+  const others = decide.inputs
+    .filter((i) => !i.role.startsWith("cast"))
+    .map(label)
+    .filter((x) => x !== null);
+  assert.ok(castLabel !== null, "the CAST candidate must carry a label");
   assert.ok(
-    castWeights.length >= 2,
-    `expected at least two CAST candidates, got ${castWeights.length}`,
+    others.length > 0 && others.every((o) => o !== castLabel),
+    `CAST's accounted spans must be its OWN, not the weave's: its unexplained ` +
+      `label "${castLabel}" must differ from every other mechanism's ` +
+      `(${JSON.stringify(others)})`,
   );
-  const spread = Math.max(...castWeights) - Math.min(...castWeights);
   assert.ok(
-    spread > 100,
-    `CAST candidates' weights must diverge by more than a fixed move-cost ` +
-      `offset (≤ ~12) when their accounted spans genuinely differ — got ` +
-      `weights ${castWeights} (spread ${spread})`,
+    others.some((o) => o.length > castLabel.length),
+    `redirection accounts query bytes the whole-query mechanisms do not, so ` +
+      `its unexplained label must be shorter than theirs — got ` +
+      `"${castLabel}" against ${JSON.stringify(others)}`,
   );
   await m.store.close();
 });
