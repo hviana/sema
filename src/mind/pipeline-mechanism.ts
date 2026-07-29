@@ -199,6 +199,10 @@ export interface WeaveInfo {
     vote: number;
     ctx: Uint8Array;
     runs: GradedRun[];
+    /** The query span the CLIMB elected this anchor from — its evidence,
+     *  independent of any literal run alignment (see Attention.start/end). */
+    start: number;
+    end: number;
   }>;
   /** Weighted depth at each query byte — sum of alignment weights.
    *  `depth[i]` is the total evidence that byte i is shared among the
@@ -235,27 +239,31 @@ function computeWeave(
   const askerBytes = query.length -
     ctx.answeredSpans.reduce((n, [start, end]) => n + end - start, 0);
   const capBytes = askerBytes * quantum;
-  // EXCLUSIVITY IS ARBITRATED BY THE CLIMB'S VOTE ORDER, DELIBERATELY.  A query
-  // byte can only be independent evidence for ONE point, so points are built in
-  // ranked order and each new point's runs are trimmed against every point
-  // already accepted; a point left with no run of a full quantum drops out of
-  // the weave.
+  // RUNS ARE NOT TRIMMED AGAINST EACH OTHER.  A point keeps every byte it
+  // aligned; exclusivity is a property of STRUCTURES (see "one place, one
+  // structure" below), not of individual query bytes.
   //
-  // That reads like first-come-wins — a point that merely ranked higher taking
-  // a span from the point that actually explains it — and arbitrating by LOCAL
-  // evidence instead (ownership of each byte to the longest covering run, then
-  // the heavier weight, then rank) was implemented and MEASURED: test/29 went
-  // 9/2 to 7/4, and the new failures name the reason. CAST requires the weave
-  // to touch a COMMITTED point of attention ("2 aligned structure(s), but none
-  // is one of the climb's 1 committed root(s)"), and it was precisely the vote
-  // order that kept the committed root's own point alive in the weave. Local
-  // run length knows nothing about what the climb settled on, so it evicted the
-  // root's evidence and left CAST refusing on its own consistency check.
+  // This weave used to build points in the climb's vote order and cut each new
+  // point's runs against every point already accepted.  It is worth recording
+  // what that cost, because the cut was invisible: it did not just resolve
+  // ties, it silently DECIDED downstream schemas.  A point's `runs[0]` — the
+  // run three CAST branches read as "the filler", "the seat", "the name" — was
+  // whichever run happened to survive the cut, so those schemas were reading an
+  // elimination order as though it were evidence, and the query's own bytes
+  // were truncated on the way ("Shakespeare" surviving as "Shakes").  Each
+  // consumer now derives its own reading from the runs (cast.ts: `fillerRun`
+  // clips at the seat, redirection scans for the naming run, entry counts own
+  // bytes and the climb's dispersion), and with those in place removing the cut
+  // costs nothing — measured, the same 442 tests pass either way.
   //
-  // So the vote order here is not an accident of construction — it is what
-  // holds the weave and the climb to the same conclusion. Weave-local
-  // measures decide what is FRAME inside the weave (see the frame gates in
-  // cast.ts); which structures are in the weave at all stays the climb's call.
+  // What the vote order was RIGHT about is kept: which structures belong in the
+  // weave is the climb's call, not a local run measure. Arbitrating byte
+  // ownership by local evidence instead (longest covering run, then weight,
+  // then rank) was implemented and MEASURED, and it evicted the committed
+  // root's own evidence — CAST then refused on its own consistency check ("2
+  // aligned structure(s), but none is one of the climb's 1 committed root(s)"),
+  // test/29 going 9/2 to 7/4. Weave-local measures decide what is FRAME inside
+  // the weave (see the frame gates in cast.ts); membership stays the climb's.
   //
   // TWO PASSES.  `depth` — how much of the weave agrees on each query byte, and
   // therefore what counts as FRAME — must be the whole weave's, not "whatever
@@ -352,30 +360,38 @@ function computeWeave(
       },
     );
     if (raw.length === 0) continue;
+    // DEPTH COUNTS STRUCTURES, NOT WEIGHT.  The frame test is
+    // `dominates(depth[i], aligned)` — "more than half the weave shares this
+    // byte" — and `aligned` is a COUNT of points.  Accumulating graded
+    // alignment WEIGHT here compared weight-mass against a cardinality: two
+    // different dimensions, meaningful only while truncation happened to keep
+    // points.length small and weights near 1.
+    //
+    // Measured (test/29 C2, only truncation toggled): 9 candidates collapse to
+    // 2 points and 29/42 bytes read FRAME; without truncation 9 points survive
+    // and only 6/42 do. The elimination was SETTING the frame threshold, so
+    // every attempt to change run ownership inverted the frame reading and
+    // lost the same 10 tests (442 -> 432, twice, for opposite designs).
+    //
+    // Counting distinct covering candidates restores the documented meaning
+    // exactly and makes the comparison like-for-like, which decouples the
+    // frame gate from however many points survive.
+    const covered = new Uint8Array(query.length);
     for (const r of raw) {
-      for (let i = r.qs; i < r.qe; i++) depth[i] += r.weight;
+      for (let i = r.qs; i < r.qe; i++) {
+        if (!covered[i]) {
+          covered[i] = 1;
+          depth[i] += 1;
+        }
+      }
     }
     cands.push({ cand, ctxBytes, raw });
   }
   for (const { cand, ctxBytes, raw } of cands) {
     const free: GradedRun[] = [];
     for (const r of raw) {
-      let { qs, qe, cs, weight } = r;
-      for (const p of points) {
-        for (const o of p.runs) {
-          if (qs >= qe) break;
-          if (o.qe <= qs || o.qs >= qe) continue;
-          const left = Math.max(0, o.qs - qs);
-          const right = Math.max(0, qe - o.qe);
-          if (left >= right) qe = qs + left;
-          else {
-            cs += qe - right - qs;
-            qs = qe - right;
-          }
-        }
-      }
-      if (qe - qs >= Math.min(quantum, ctxBytes.length)) {
-        free.push({ qs, qe, cs, weight });
+      if (r.qe - r.qs >= Math.min(quantum, ctxBytes.length)) {
+        free.push({ ...r });
       }
     }
     if (free.length > 0) {
@@ -384,6 +400,8 @@ function computeWeave(
         vote: cand.vote,
         ctx: ctxBytes,
         runs: free,
+        start: cand.start,
+        end: cand.end,
       };
       byAnchor.set(cand.anchor, pt);
       points.push(pt);
@@ -486,6 +504,8 @@ function computeWeave(
               vote: cand.vote,
               ctx: ctxBytes,
               runs: [run],
+              start: cand.start,
+              end: cand.end,
             };
             byAnchor.set(cand.anchor, made);
             points.push(made);
@@ -497,6 +517,46 @@ function computeWeave(
       }
     }
   }
+  // ONE PLACE, ONE STRUCTURE.  A stored sentence and the entity it names are
+  // not two independent structures when the query's evidence for them is the
+  // same bytes — they are one place read at two grains, and admitting both
+  // lets a nest of containing sentences outvote the entity the query actually
+  // named.  Measured on test/29 C2 ("How is Shakespeare like Leonardo da
+  // Vinci?"): the five sentences that merely CONTAIN the two names align the
+  // same q6-18 / q23-41 the names do, and comparison ended up seated on a
+  // 49-byte sentence instead of the 17-byte entity.
+  //
+  // A point earns its own place in the weave the same way a second point earns
+  // CAST's entry: at least one perception quantum of query bytes no
+  // better-voted point already explains.  Points arrive in the climb's vote
+  // order, which is the arbiter this file already trusts for what belongs in
+  // the weave; unlike run trimming, nothing is CUT here — a point keeps every
+  // byte it aligned or it is not a separate structure at all.
+  const coveredOf = (p: WeaveInfo["points"][number]): Set<number> => {
+    const set = new Set<number>();
+    for (const r of p.runs) for (let i = r.qs; i < r.qe; i++) set.add(i);
+    return set;
+  };
+  const kept: WeaveInfo["points"] = [];
+  const keptCover: Array<Set<number>> = [];
+  for (const p of points) {
+    const cov = coveredOf(p);
+    let redundant = false;
+    for (const other of keptCover) {
+      let own = 0;
+      for (const i of cov) if (!other.has(i)) own++;
+      if (own < quantum) {
+        redundant = true;
+        break;
+      }
+    }
+    if (!redundant) {
+      kept.push(p);
+      keptCover.push(cov);
+    }
+  }
+  points.length = 0;
+  points.push(...kept);
   return { points, depth };
 }
 

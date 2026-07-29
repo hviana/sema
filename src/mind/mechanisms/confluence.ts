@@ -237,8 +237,23 @@ export async function confluenceJoin(
             reach = Math.min(reach, reachOf(ctx, wid, N, reachMemo));
           }
         }
-        if (!isFinite(reach) || dominates(reach, N)) continue;
+        // ONE WINDOW IS NOT AN ENTITY.  The reach above is read at the
+        // finest grain the fold can address, where content-defined window
+        // identity is at its most phase-sensitive: a scaffolding phrase
+        // whose cut happens to land in a rare phase reads as rare content.
+        // Measured on test/29 C3, a 13-context store: the meet of `The Mona
+        // Lisa was painted by Leonardo da Vinci.` and `Hamlet was written by
+        // William Shakespeare.` came out as ` by ` at reach 3 — pure frame,
+        // priced as the corpus's third-rarest content, and voiced as the
+        // entity where the two evidence streams meet.  A single quantum
+        // agrees with half the corpus by accident (the same argument
+        // pipeline-mechanism.ts's proposed-run gate makes about a 4-byte
+        // span), so a meet must clear the two-quantum floor this file's own
+        // entry gate uses — the smallest span that carries a perceivable
+        // unit BEYOND the one being matched.
         const len = e - s;
+        if (len < 2 * W) continue;
+        if (!isFinite(reach) || dominates(reach, N)) continue;
         if (
           met === null || reach < met.reach ||
           (reach === met.reach && len > met.len)

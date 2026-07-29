@@ -34,7 +34,14 @@ import {
   estimatorNoise,
   type StructuralPart,
 } from "../geometry.js";
-import { foldTree, gistOf, latin1Key, perceive, read } from "./primitives.js";
+import {
+  foldTree,
+  gistOf,
+  latin1Key,
+  perceive,
+  read,
+  resolve,
+} from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { leafIdRun } from "./canonical.js";
 import {
@@ -771,7 +778,60 @@ export async function voteRegions(
     // longer, it is the question ("red" asked on its own — test/34).
     const subWindow = end - start < W &&
       !(start === 0 && end === query.length);
-    const known = regions[ri].known && !subWindow;
+    // EXACTNESS IS A PROPERTY OF THE CONTENT, NOT OF THIS QUERY'S GROUPING.
+    // `known` used to mean "these bytes resolve to ONE stored node", which
+    // conflates two different things: whether the store has seen the content,
+    // and whether this query's cut happened to group it the same way the
+    // deposit did.  Under fixed-arity folding those coincided; under
+    // content-defined cuts they routinely do not.
+    //
+    // Measured over 42 voting regions (attributes / capitals / artists),
+    // against a graded reading — what fraction of the region's river windows
+    // are content-addressed:
+    //
+    //   known=true   cov=1.0  90%   cov=0   0%   0<cov<1  10%
+    //   known=false  cov=1.0   5%   cov=0  52%   0<cov<1  43%
+    //
+    // The 5% are regions where EVERY window resolves — the content is
+    // entirely in the store — yet the region was called unknown purely
+    // because this cut grouped it differently, so it paid the contrastive
+    // margin as though it were an approximate gist. That is grouping churn
+    // taxed as uncertainty.
+    //
+    // Only the fully-addressed case is promoted here: every window resolving
+    // is exact evidence about the content by the same content-addressing the
+    // whole-region test uses, just read at the window scale identityBar
+    // already calls the floor below which overlap is chance. The partial band
+    // (43%) is deliberately NOT promoted — it is genuinely mixed evidence and
+    // the margin is the right price for it.  Paid only when the cheap whole-
+    // region test already failed, and bounded by the region's own length.
+    // HOW MUCH OF THIS REGION IS CONTENT-ADDRESSED — a fraction, not a bit.
+    // Measured over 42 voting regions, `known` as a boolean loses a wide band:
+    // 43% of "unknown" regions are PARTIALLY addressed and 5% are fully
+    // addressed while failing the whole-region test (grouping churn). Promoting
+    // the partial band wholesale was measured too and is over-crediting — it
+    // buys test/00 with a region attested 1 window in 5, granting a 20%-attested
+    // region the same full exemption a fully-attested one gets.
+    //
+    // So the coverage SCALES the bar instead of switching it: a region pays the
+    // estimator's noise floor in proportion to how much of it is NOT
+    // content-addressed. cov=1 pays nothing (identical to the old exemption),
+    // cov=0 pays the full floor (identical to the old gate), cov=0.2 pays 0.8
+    // of it. No new constant — estimatorNoise is unchanged and the coverage is
+    // read off the store by the same content addressing `known` already used.
+    const windowCoverage = (): number => {
+      if (end - start < W) return 0;
+      let tot = 0, hit = 0;
+      for (let o = start; o + W <= end; o++) {
+        tot++;
+        if (resolve(ctx, query.subarray(o, o + W)) !== null) hit++;
+      }
+      return tot === 0 ? 0 : hit / tot;
+    };
+    // A sub-window region pays in full: below one river window its byte
+    // identity is chance, so it has no coverage to claim.
+    const cov = subWindow ? 0 : (regions[ri].known ? 1 : windowCoverage());
+    const known = cov >= 1 && !subWindow;
     // Trace-only bookkeeping for this region — allocated only under `td`
     // (i.e. only when ctx.trace is set); see ConsensusRegionTrace/
     // RegionOutcome (spec §4).  `examinedIds` tracks distinct ANN hits
@@ -1078,7 +1138,8 @@ export async function voteRegions(
         break;
       }
       contrastiveMargin = margin;
-      const noiseFloor = estimatorNoise(ctx.store.D);
+      // Scaled by what this region does NOT address — see `cov` above.
+      const noiseFloor = estimatorNoise(ctx.store.D) * (1 - cov);
       if (margin <= noiseFloor) {
         recordRegion("contrastive-margin-rejection", {
           selected,
@@ -1242,44 +1303,7 @@ export function poolVotes(
       // the same convention chooseNext caps by).  Hoisted out of the
       // generator: `rules` is invoked once per popped item, and this used to
       // re-derive the bound on every one of them.
-      // EVIDENCE BELONGS TO THE MOST SPECIFIC ROOT IT REACHED.  When one
-      // region reaches BOTH a node and something that CONTAINS it, the
-      // container was reached only THROUGH the contained one — it is the
-      // same evidence read a level up, not a second, independent reading of
-      // it.  This is the root-side counterpart of the rule crossRegionVotes
-      // already applies on the region side: "a span contained in another
-      // candidate is a fragment of that candidate's evidence, never
-      // independent of it."
-      //
-      // Without it a container always TIES the entity a query names exactly
-      // — every region inside the mention credits both — so whichever way
-      // some unrelated scrap falls decides between them.  Measured on
-      // test/29 C3, "How is Shakespeare like Leonardo da Vinci?":
-      //
-      //   sentence "The Mona Lisa was painted by Leonardo da Vinci."
-      //       2.549  spans [26,32] [32,36] [36,40] [40,42]
-      //   entity   "Leonardo da Vinci"
-      //       2.444  spans [26,32] [32,36] [36,40]
-      //
-      // The same three regions credit both; the sentence won on a 2-byte
-      // tail span. The bias is systematic, not a property of that fixture:
-      // it favours the larger container whenever a query names an entity
-      // exactly, which is precisely when the entity is the better anchor.
-      //
-      // Only ever SHRINKS a region's root set, so it can add no work
-      // downstream; the reads are bounded by the root count, which the hub
-      // bound already caps, and are paid only when a region reached more
-      // than one root at all.
-      let roots: readonly number[] = rv.roots;
-      if (roots.length > 1) {
-        const rb = roots.map((r) => read(ctx, r));
-        roots = roots.filter((_, i) =>
-          !rb.some((b, j) =>
-            j !== i && b.length < rb[i].length && indexOf(rb[i], b, 0) >= 0
-          )
-        );
-      }
-      for (const r of roots) {
+      for (const r of rv.roots) {
         // CAPPED read: only the first hubBound targets are ever credited, so
         // only they are read — a common continuation's full reverse fan-in
         // is corpus-sized and is never materialised.

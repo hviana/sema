@@ -273,6 +273,25 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
           const eLeft = resolve(ctx, bytes.subarray(start + k, end));
           if (eLeft !== null) emit(start + k, end, eLeft);
         }
+        // THE SAME SEARCH ON THE OTHER EDGE.  Everything above trims from the
+        // LEFT and keeps this span's END fixed, so a stored form was findable
+        // only when it ENDED where a fold node ends.  Measured on a 12-context
+        // store, probing for a trained 47-byte sentence wrapped in filler:
+        // 1-4 bytes of LEFT padding kept it recognisable, while ONE byte of
+        // right padding lost it.  That asymmetry was never argued for — the
+        // reasoning above is about a form's left edge landing on a cut, and it
+        // says nothing about which side the noise is on.
+        //
+        // The stated hazard for widening this search is test/46's root-scale
+        // false positive, and it is a hazard of the SIZE bound, not of the
+        // direction: like its mirror this loop is bounded to W offsets and
+        // every candidate is verified by exact content addressing, so it can
+        // only ever emit spans that ARE stored nodes.  Measured: neutral on
+        // the suite, and the right-padded cases above become recognisable.
+        for (let k = 1; k <= W && start < end - k - 1; k++) {
+          const eRight = resolve(ctx, bytes.subarray(start, end - k));
+          if (eRight !== null) emit(start, end - k, eRight);
+        }
         // A REAL extra word at the left edge (a discourse connective like
         // "And " prepended to a follow-up turn — not boundary noise, actual
         // content the injected canonicalizer has no equivalence for) shows
@@ -415,12 +434,14 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   }
 
   const chunkEnd = new Uint32Array(bytes.length);
+  const chunkSpan = new Uint32Array(bytes.length);
   const sorted = [...starts].sort((a, b) => a - b);
   for (let si = 0; si < sorted.length; si++) {
     const chunkStart = sorted[si];
     const chunkLimit = si + 1 < sorted.length ? sorted[si + 1] : bytes.length;
     for (let p = chunkStart; p < chunkLimit; p++) {
       chunkEnd[p] = chunkLimit;
+      chunkSpan[p] = chunkLimit - chunkStart;
     }
   }
 
@@ -474,8 +495,19 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     if (starts.has(p)) {
       tryChain(p, chainReach(W), true); // boundary start — full reach
     } else {
-      const limit = chunkEnd[p] + W;
-      tryChain(p, Math.min(limit - p, chainReach(W)), false);
+      // THE INTERIOR BUDGET IS "ONE CHUNK PLUS A QUANTUM", MEASURED FROM THE
+      // CHAIN'S OWN START.  It used to be `chunkEnd[p] + W - p`, which counts
+      // from the chunk's END, so the reach an interior chain gets depended on
+      // WHERE INSIDE its chunk it happened to begin: measured on a composed
+      // answer, a chunk spanning [0,6) gave offset 1 nine ids and offset 4
+      // only six — and the 9-id trained form `Mona Lisa` starting at 4 died
+      // three ids short of itself.  The same form one byte earlier would have
+      // been found.  That is the position artifact this module has been
+      // removing everywhere else, not a budget.
+      //
+      // Stated from `p` the trust is unchanged — a chain may span its own
+      // chunk and one quantum beyond it — and it no longer varies with phase.
+      tryChain(p, Math.min(chunkSpan[p] + W, chainReach(W)), false);
     }
   }
 

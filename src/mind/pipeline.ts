@@ -17,6 +17,7 @@ import { recognise } from "./recognition.js";
 import { fuseAttention, reason } from "./reasoning.js";
 import { unexplainedSpans } from "./rationale.js";
 import { rItem } from "./trace.js";
+import { hubBound } from "./traverse.js";
 import { type PipelineMechanism, Precomputed } from "./pipeline-mechanism.js";
 import { coverMechanism } from "./mechanisms/cover.js";
 import { castMechanism } from "./mechanisms/cast.js";
@@ -367,15 +368,34 @@ export async function think(
   // already a trained form's own continuation, reached through an identity
   // claim about the query, so a multi-hop pivot could only chain past the
   // fact that produced it (see MechanismResult.complete).
-  // The bytes of what the mechanism DECLARED it voiced.  Only a mechanism
-  // carrying its own `used` set (cast/join) gets this: there `preConsumed` is
-  // a deliberate, short list of the anchors the answer speaks for, so reading
-  // them is bounded and the containment rule means what it says.  For every
-  // other provenance `preConsumed` is derived by re-recognising the answer —
-  // "everything in it", not "what it voiced" — and a containment rule over
-  // that would suppress every pivot the answer legitimately contains.
+  // WHAT THE MECHANISM WITHHELD, NOT WHAT IT VOICED.  A pivot must not
+  // re-open content a grounding deliberately kept out: comparison cites two
+  // analogs and refuses their own downstream facts, so pivoting into one is
+  // the mechanism's own refusal undone one step later (test/29 C2 pivoted
+  // through `speare` — a stored fragment of the analog `William Shakespeare`
+  // — into the biography CAST had declined).
+  //
+  // Reading the used anchors' OWN bytes here says something stronger and
+  // wrong: that nothing INSIDE what was voiced may be pivoted through.  A
+  // comparison's seat sentence legitimately contains further terms with
+  // their own unrelated facts, and C3 pins exactly that — `Mona Lisa`, inside
+  // the voiced seat `The Mona Lisa was painted by Leonardo da Vinci.`, leads
+  // on to `Mona Lisa hangs in the Louvre`, which is about neither analog.
+  // The withheld content is the used anchors' CONTINUATIONS, so that is what
+  // the containment rule reads: `speare` is contained in `Shakespeare wrote
+  // 39 plays` and stays refused, while `Mona Lisa` appears in no withheld
+  // continuation and the genuine further hop fires.
+  //
+  // Only a mechanism carrying its own `used` set (cast/join) gets this: there
+  // `preConsumed` is a deliberate, short list of the anchors the answer
+  // speaks for, so the fan-out is bounded.  For every other provenance
+  // `preConsumed` is derived by re-recognising the answer — "everything in
+  // it", not "what it voiced" — and a containment rule over that would
+  // suppress every pivot the answer legitimately contains.
   const voiced = (provenance === "cast" || provenance === "join")
-    ? [...castUsed].map((id) => read(ctx, id))
+    ? [...castUsed].flatMap((id) =>
+      ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n))
+    )
     : [];
   const reasoned = decided.complete ? answer : meter
     ? await meter.time(

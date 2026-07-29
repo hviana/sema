@@ -219,7 +219,94 @@ export async function counterfactualTransfer(
   const weave = await pre.weave();
   const points = weave.points;
   const depth = weave.depth;
-  const aligned = points.length;
+  // CAST'S OWN SINGLE-VS-MULTI TEST, MEASURED FROM THE QUERY.
+  //
+  // `points.length >= 2` reads as "two structures to transfer between", but
+  // measured, it functions as "the query is about more than one thing" — and
+  // it only discriminates because the weave's exclusivity eliminates hard
+  // enough that a single-topic query cannot reach two points.  The condition
+  // is carried by the elimination, not by anything CAST measures.  Traced on
+  // test/24 3.1 ("the importance of gender equality in the workplace"): the
+  // climb is byte-identical either way (16 of 31 sub-regions, one context),
+  // and relaxing the weave alone makes CAST fire and answer about the 1992
+  // Dream Team.
+  //
+  // What actually separates 3.1 from a genuine comparison (test/29 C2, "How is
+  // Shakespeare like Leonardo da Vinci?") is CONTENT: C2's two points are
+  // evidenced by DIFFERENT query spans, while 3.1's extra points align to the
+  // same shared frame the first one already explains.  So require two points
+  // that explain genuinely different parts of the query — a second point must
+  // contribute at least one perception quantum of query bytes the
+  // best-covered point does not.  Derived from the runs themselves, order-free,
+  // and independent of how many points survived.
+  const coveredBy = (p: typeof points[0]): Set<number> => {
+    const set = new Set<number>();
+    for (const r of p.runs) for (let i = r.qs; i < r.qe; i++) set.add(i);
+    return set;
+  };
+  let widest = points[0];
+  let widestN = -1;
+  for (const p of points) {
+    const n = coveredBy(p).size;
+    if (n > widestN) {
+      widestN = n;
+      widest = p;
+    }
+  }
+  const widestSet = widest === undefined
+    ? new Set<number>()
+    : coveredBy(widest);
+  let distinct = points.length === 0 ? 0 : 1;
+  for (const p of points) {
+    if (p === widest) continue;
+    let own = 0;
+    for (const i of coveredBy(p)) if (!widestSet.has(i)) own++;
+    if (own >= quantum) {
+      distinct = 2;
+      break;
+    }
+  }
+  // THE CLIMB ANSWERS THE SAME QUESTION, AND IT ANSWERS IT ORDER-FREE.  Runs
+  // are literal W-gram agreement, so two structures the query names in its own
+  // words can share no run at all: on `How is ice like steel?` the query's
+  // `ice` and the stored `Ice is cold` agree on nothing but the ` is `
+  // scaffolding `Steel is hard` also matches, and the run test above reads one
+  // topic.  The climb had already read two — it elected `Ice is cold` from
+  // q4-9 and `Steel is hard` from q16-20, two disjoint places — and DISPERSION
+  // (Attention.clusters) is exactly that reading: not how much evidence, but
+  // how many separate places in the query corroborate it.  Measured against
+  // the case this gate exists to refuse, test/24 3.1: a genuinely single-topic
+  // query reads clusters 1, while C1's single committed root reads 2.
+  //
+  // Either source is sufficient — bytes the other point does not explain, or
+  // places the climb found the query's evidence in — and neither is a count of
+  // weave survivors.
+  // Dispersion alone is a property of the QUERY, not of the pair being woven,
+  // so it is read together with the pair's own elected spans: two points count
+  // as two topics when the climb found the query dispersed AND it elected them
+  // from places at least a quantum apart.  (Dispersion alone was measured and
+  // is too weak — it let CAST into test/33's near-tie and test/24's list
+  // skill, whose points the climb elects from the same place.)
+  const dispersed = roots.length >= MIN_WEAVE ||
+    roots.some((r) => r.clusters >= MIN_WEAVE);
+  const apart = points.some((a) =>
+    points.some((b) =>
+      a !== b &&
+      (b.start - a.end >= quantum || a.start - b.end >= quantum)
+    )
+  );
+  // …and only where there is something left to transfer.  When ONE point
+  // already explains the query down to the last quantum there is no analogy to
+  // draw — the query is that structure, restated or truncated — and the
+  // dispersion the climb reports is the SAME topic corroborated twice, not two
+  // topics.  Measured on test/33's `steel is hard so steel is`, a prefix of one
+  // stored fact: its root disperses into 2 clusters purely because the fact
+  // repeats `steel is`, while that one point's runs cover all 25 query bytes.
+  const unexplained = query.length - widestN;
+  const aligned =
+    distinct >= 2 || (dispersed && apart && unexplained >= quantum)
+      ? points.length
+      : 1;
   if (aligned < 2) {
     return fail(
       `only ${aligned} structure(s) aligned across the query — CAST needs ` +
@@ -358,11 +445,30 @@ export async function counterfactualTransfer(
   const qv = pre.guide;
 
   // ── SUBSTITUTION ──────────────────────────────────────────────────
-  const fillerOf = (s: Point): Uint8Array => {
-    const r = s.runs[0];
-    return r.cs < quantum
+  const fillerOf = (s: Point, r: GradedRun = s.runs[0]): Uint8Array =>
+    r.cs < quantum
       ? s.ctx.subarray(0, r.cs + (r.qe - r.qs))
       : query.subarray(r.qs, r.qe);
+  // THE FILLER IS WHAT THE SUBJECT CONTRIBUTES BEFORE THE SEAT — CLIPPED HERE,
+  // NOT ARBITRATED BY RANK.  A subject whose alignment runs INTO the seat span
+  // agrees with the displaced structure there; those shared bytes are frame,
+  // and only the part before the seat is the subject's own contribution.
+  // Reading `runs[0]` whole made this schema depend on the weave having
+  // already cut that overlap away for it: on `steel is frigid` the weave's
+  // exclusivity handed `steel is hard so steel is strong` the run q0-5
+  // (`steel`) only because the seat's point ranked higher and took q5-15
+  // first.  Read without that cut the same run is q0-9 (`steel is `), it ends
+  // PAST the seat at q5, and substitution found no subject at all — a schema
+  // silently reading a global elimination order as if it were local evidence.
+  // Clipping at the seat derives the same span from the two points actually
+  // involved, so the reading no longer moves when the weave's order does.
+  const fillerRun = (s: Point, at: number): GradedRun | null => {
+    const r0 = s.runs[0];
+    if (r0.qs >= at) return null;
+    const qe = Math.min(r0.qe, at);
+    return qe - r0.qs >= Math.min(quantum, s.ctx.length)
+      ? (qe === r0.qe ? r0 : { ...r0, qe })
+      : null;
   };
   // The subject is the closest structure whose FILLER RUN precedes the seat.
   // The gate is on `runs[0]` — the run `fillerOf` actually reads — not on the
@@ -377,14 +483,19 @@ export async function counterfactualTransfer(
   // analogy — pushed lastRun past the seat and no substitution fired at all.
   // The ordering key follows the gate to the same run, so "closest preceding"
   // still means closest by the evidence actually used.
-  const beforeOf = (p: Point, r: GradedRun): Point | undefined =>
+  const beforeOf = (
+    p: Point,
+    r: GradedRun,
+  ): { point: Point; run: GradedRun } | undefined =>
     argmaxBy(
-      points.filter((s) =>
-        s !== p && s.runs[0].qe <= r.qs &&
-        s.runs[0].cs < quantum &&
-        usable(s.runs[0].qs, s.runs[0].qe)
-      ),
-      (s) => s.runs[0].qs,
+      points.flatMap((s) => {
+        if (s === p) return [];
+        const f = fillerRun(s, r.qs);
+        return f !== null && f.cs < quantum && usable(f.qs, f.qe)
+          ? [{ point: s, run: f }]
+          : [];
+      }),
+      (s) => s.run.qs,
       -Infinity,
       true,
     )?.item;
@@ -396,7 +507,9 @@ export async function counterfactualTransfer(
       }
       const before = beforeOf(p, r);
       if (before === undefined) return null;
-      if (r.cs > fillerOf(before).length + quantum) return null;
+      if (r.cs > fillerOf(before.point, before.run).length + quantum) {
+        return null;
+      }
       // SUBSTITUTION MUST ACTUALLY DISPLACE.  The schema's premise is that the
       // displaced structure's seat is held by something ELSE, which the
       // subject then replaces.  When the subject's filler already occurs in
@@ -408,7 +521,9 @@ export async function counterfactualTransfer(
       // produced `Michelangelo sculpted by Michelangelo.` — then outbid every
       // honest candidate with it (test/29 A2).  Byte containment, the same
       // primitive the self-evidence and contradiction guards use.
-      if (indexOf(p.ctx, fillerOf(before), 0) >= 0) return null;
+      if (indexOf(p.ctx, fillerOf(before.point, before.run), 0) >= 0) {
+        return null;
+      }
       return { p, before, depth: p.ctx.length - r.cs };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
@@ -417,7 +532,7 @@ export async function counterfactualTransfer(
   const subj = picked?.item.before ?? null;
   if (proj !== null && subj !== null) {
     const seat = proj.runs[0];
-    const filler = fillerOf(subj);
+    const filler = fillerOf(subj.point, subj.run);
     const tail = proj.ctx.subarray(seat.cs);
     let answer = await joinWithBridge(ctx, filler, tail);
     const fwd = await follow(ctx, proj.anchor, qv);
@@ -430,7 +545,7 @@ export async function counterfactualTransfer(
     ctx.trace?.step(
       "projectCounterfactual",
       [
-        rItem(filler, "filler", subj.anchor),
+        rItem(filler, "filler", subj.point.anchor),
         rNode(ctx, proj.anchor, "displaced-structure"),
       ],
       [rItem(answer, "projection")],
@@ -439,7 +554,7 @@ export async function counterfactualTransfer(
     record(
       answer,
       "counterfactual substitution — the subject fills the analog's seat",
-      new Set([subj.anchor, proj.anchor]),
+      new Set([subj.point.anchor, proj.anchor]),
       // The acts performed: one seat INSERT projection + one edge FOLLOW.
       STEP + STEP,
       // What substitution actually READ: the two points it transfers
@@ -447,12 +562,41 @@ export async function counterfactualTransfer(
       // structure whose seat it fills — not every OTHER point the weave
       // happened to align (a third, unrelated point in the same weave
       // contributes nothing to what substitution itself explains).
-      [...runSpans(subj), ...runSpans(proj)],
+      [...runSpans(subj.point), ...runSpans(proj)],
     );
   }
 
   // ── REDIRECTION ────────────────────────────────────────────────────
-  const last = points.reduce((a, b) => lastRun(b).qs > lastRun(a).qs ? b : a);
+  // REDIRECTION IS ABOUT THE SUBSTITUTE THE QUERY NAMES, SO IT LOOKS FOR THE
+  // RUN THAT NAMES ONE.  A structure is named when the query quotes it from
+  // its own opening bytes (`cs === 0`) — `…were Lyon?` against `Lyon is a city
+  // in France`.  Reading that off `runs[0]` assumed the weave had already
+  // eliminated everything the point shares with the dominant, which is the
+  // elimination deciding the schema again: relaxed, the same point also aligns
+  // the query's trailing ` France` (cs 17, frame it shares with `what is the
+  // capital of France?`), that run sorts FIRST, and redirection stopped seeing
+  // a named substitute at all.  Scanning the point's runs for the naming one
+  // is the same reading, taken from the runs rather than from their order, and
+  // "latest named" then means latest by the run actually relied on.
+  const named = points.flatMap((p) => {
+    const r = p.runs.find((r) => r.cs === 0 && usable(r.qs, r.qe));
+    return r !== undefined ? [{ point: p, run: r }] : [];
+  });
+  // …and it must be named AFTER what it displaces.  Redirection replaces the
+  // ANSWER, so the substitute is the newest thing the query says — `…of France
+  // were Lyon?` names Lyon past everything the displaced structure aligned.
+  // The old `latest last run` reduce encoded this implicitly and only held
+  // while trimming kept the dominant's runs latest; stated on the naming run
+  // it is the same reading without that dependency.  Measured on test/29 D1
+  // (`steel is frigid`), where the point with a naming run is the SUBJECT at
+  // q0-9, ahead of the dominant's q5-15: redirection must not fire, and
+  // substitution — which is what that shape is — keeps the case.
+  const last = argmaxBy(
+    named.filter((n) => n.run.qs > lastRun(dominant).qs),
+    (n) => n.run.qs,
+    -Infinity,
+    true,
+  )?.item;
   // Displacement test, capped at the hub bound: a hub anchor can carry a
   // corpus-sized fan-out, and each continuation costs a full byte
   // reconstruction plus an O(|query|·|bytes|) scan.  The first √N edges (the
@@ -461,18 +605,14 @@ export async function counterfactualTransfer(
   const domNext = ctx.store.nextFirst(dominant.anchor, hubBound(ctx));
   const displaced = domNext
     .every((n) => indexOf(query, read(ctx, n), 0) < 0);
-  if (
-    last !== dominant &&
-    last.runs[0].cs === 0 && displaced &&
-    usable(last.runs[0].qs, last.runs[0].qe)
-  ) {
-    const g = await project(ctx, last.anchor, qv);
+  if (last !== undefined && last.point !== dominant && displaced) {
+    const g = await project(ctx, last.point.anchor, qv);
     if (g !== null) {
       ctx.trace?.step(
         "projectCounterfactual",
         [
           rNode(ctx, dominant.anchor, "displaced-structure"),
-          rNode(ctx, last.anchor, "substitute"),
+          rNode(ctx, last.point.anchor, "substitute"),
         ],
         [rItem(g, "projection")],
         "the substitute's own fact replaces the displaced structure's answer",
@@ -480,7 +620,7 @@ export async function counterfactualTransfer(
       record(
         g,
         "counterfactual redirection — the named substitute's fact is followed",
-        new Set([dominant.anchor, last.anchor]),
+        new Set([dominant.anchor, last.point.anchor]),
         // One forward projection across the substitute's own fact.
         STEP,
         // What redirection READ: the displaced structure's own recognized
@@ -488,7 +628,7 @@ export async function counterfactualTransfer(
         // being overridden, it just doesn't answer from it) plus the named
         // substitute's own aligned run — not every OTHER point the weave
         // happened to align.
-        [...runSpans(dominant), ...runSpans(last)],
+        [...runSpans(dominant), ...runSpans(last.point)],
       );
     }
   }
@@ -530,7 +670,20 @@ export async function counterfactualTransfer(
   // distinction perception can make — the same quantum countClusters separates
   // neighbourhoods by — so a context within one quantum of the query's length
   // carries no independently perceivable unit beyond it and is the same scale.
-  const queryScale = (n: number): boolean => n - query.length < quantum;
+  //
+  // ONE QUANTUM OF EXCESS IS AN ABSOLUTE UNIT, AND SCALE IS NOT ABSOLUTE.
+  // `n - query.length < quantum` calls a 504-byte context the same scale as a
+  // 500-byte query while refusing a 47-byte context on a 42-byte one — the
+  // same 5 bytes, opposite verdicts, because the bar never looks at what it is
+  // measuring against.  Measured on test/29 C3, whose query is C2's verbatim:
+  // the climb elects the exemplar SENTENCE (47) rather than the entity, five
+  // bytes past a 42-byte query, and comparison refused a pair it accepts at
+  // C2's grain.  Read the excess against the query with `dominates` — the same
+  // half-dominance predicate this file uses for frame, and the one scale-free
+  // reading of "the seat sentence must not dominate the comparison" available
+  // without inventing a ratio.
+  const queryScale = (n: number): boolean =>
+    !dominates(n - query.length, query.length);
   const analogs: AnalogCandidate[] = [];
   for (const p of points) {
     if (p === dominant) continue;
@@ -623,16 +776,40 @@ export async function counterfactualTransfer(
   // merely having preceded it somewhere).  Memoised: the analogy loop below
   // asks about the same dominant every time, and only ever asks at all when
   // the cheap tiers already read zero.
-  const estMemo = new Map<number, Uint8Array | null>();
-  const establishing = (id: number): Uint8Array | null => {
+  // A NODE NOTHING ESTABLISHES IS ITS OWN ESTABLISHING CONTEXT — the same
+  // reading `seatOfNode` takes one gate up: a bare filler was learnt as some
+  // context's answer and has a predecessor that NAMES it, so no establishing
+  // predecessor means the node already IS a learnt context.  Returning null
+  // there made the tier depend on both sides being elected at the same GRAIN:
+  // test/29 C2's climb elects the entity `Leonardo da Vinci` (established by
+  // `The Mona Lisa was painted by…`) and reads 0.371, while C3's identical
+  // query elects that sentence ITSELF for the same side, whose own
+  // predecessor establishes nothing — the tier read 0.000 and comparison
+  // never fired, on a pair that is strictly MORE explicit about its frame.
+  const estMemo = new Map<number, Uint8Array>();
+  const establishing = (id: number): Uint8Array => {
     const hit = estMemo.get(id);
     if (hit !== undefined) return hit;
     const own = read(ctx, id);
     const rev = reverseContext(ctx, id, pre.guide);
-    const out = rev !== null && indexOf(rev, own, 0) >= 0 ? rev : null;
+    const out = rev !== null && indexOf(rev, own, 0) >= 0 ? rev : own;
     estMemo.set(id, out);
     return out;
   };
+  // COMPARISON VOICES WHAT IT COMPARED.  When the frame tier decided the
+  // analogy, the two establishing contexts it read ARE the roles being
+  // compared, so the schema below voices those same bytes instead of
+  // re-deriving a seat that can land somewhere else entirely.  Measured on
+  // test/29 C3: the dominant is the exemplar sentence `The Mona Lisa was
+  // painted by Leonardo da Vinci.`, nothing establishes it, so `seatOf`
+  // took its FORWARD continuation and voiced `Leonardo was a Renaissance
+  // polymath` — the analog's own biography, exactly what C2 pins comparison
+  // must never leak, from the branch whose own doc says forward completion
+  // is right for a DOMINANT (true when the dominant is a bare name whose
+  // continuation establishes it; false when it already IS the establishing
+  // context).  Only frame-tier pairs are affected: a halo-tier analogy was
+  // never measured on these bytes and keeps the seat it always had.
+  const frameSeats = new Map<AnalogCandidate, [Uint8Array, Uint8Array]>();
   for (const c of analogs) {
     const ev = await analogyStrength(ctx, dominant.anchor, c.anchor);
     let sim = ev.score;
@@ -666,11 +843,9 @@ export async function counterfactualTransfer(
       // `namedByQuery` and `cmpAccounted` already take of a hop.
       const da = establishing(dominant.anchor);
       const ca = establishing(c.point !== null ? c.anchor : c.src.anchor);
-      if (
-        da !== null && ca !== null &&
-        indexOf(da, ca, 0) < 0 && indexOf(ca, da, 0) < 0
-      ) {
+      if (indexOf(da, ca, 0) < 0 && indexOf(ca, da, 0) < 0) {
         sim = sharedFrameStrengthOf(ctx, da, ca);
+        frameSeats.set(c, [da, ca]);
       }
     }
     ctx.trace?.step(
@@ -889,7 +1064,8 @@ export async function counterfactualTransfer(
       [],
       "the two structures keep distributional company beyond chance — genuine analogs",
     );
-    const a = await seatOf(dominant);
+    const seats = frameSeats.get(bestAnalog);
+    const a = seats !== undefined ? seats[0] : await seatOf(dominant);
     // The analog is only being CITED for comparison — the query never asked
     // about it — so its seat never chases a FORWARD continuation (see
     // seatOfNode's `allowForward`): only reverse (if a predecessor genuinely
@@ -902,7 +1078,9 @@ export async function counterfactualTransfer(
     // [...] context will be the seat") — its own bytes ARE that seat
     // directly, with no predecessor to even check (it was found by a
     // forward edge, not matched in the query).
-    const b = bestAnalog.point !== null
+    const b = seats !== undefined
+      ? seats[1]
+      : bestAnalog.point !== null
       ? await seatOf(bestAnalog.point, false)
       : read(ctx, bestAnalog.anchor);
     const answer = await joinWithBridge(ctx, a, b);
