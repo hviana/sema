@@ -101,10 +101,21 @@ export interface Attention {
   anchor: number;
   /** IDF-weighted consensus vote — the strength that orders points. */
   vote: number;
-  /** The union of the query byte-spans whose evidence supports this point. */
+  /** The query span of the point's STRONGEST contributing region — the argmax
+   *  over `wFocus` (see `peak`, which is that same region's weight), NOT a
+   *  union or hull over every region that voted.  Measured on test/24 3.2: the
+   *  winning anchor's span here was 2 bytes while its contributing regions
+   *  together covered most of the query.  It is the minimal honest statement
+   *  of what a grounding on this anchor rests on, and recall accounts exactly
+   *  it for that reason — widening it to every contributing region made recall
+   *  out-bid mechanisms that had genuinely explained more (a GENERATED list
+   *  degraded to a RETRIEVED one, test/24 3.2 and test/04 1). */
   start: number;
   end: number;
-  /** The largest SINGLE region's contribution to this point's pooled vote.
+  /** The largest SINGLE region's contribution to this point's pooled vote —
+   *  the weight of the very region `start`..`end` delimits (both are the
+   *  argmax over `wFocus`), so the two fields describe one region: its
+   *  strength and its place.
    *  `vote` is a sum over every region that agreed, so it grows with how many
    *  places corroborated; `peak` is what the strongest one of them said on its
    *  own.  A consumer holding this point to consensusFloor(N) — a bar that
