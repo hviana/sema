@@ -125,29 +125,83 @@ export class BoundedMap<K, V> {
   // "smallest" mode: oldest-entry candidates carried between evictions, fed
   // from the cursor, so the LRU window never rescans from the front.
   private _candidates: K[] = [];
+  // SECOND-CHANCE (CLOCK) RECENCY BITS — see `get`.  Populated only under
+  // `recency: "clock"`; the default policy leaves this empty and unread.
+  private _used = new Set<K>();
   constructor(
     readonly maxBytes: number,
     private readonly sizeOf: (v: V) => number = () => 1,
     private readonly evict: Evict = "lru",
+    /** How a HIT records recency.
+     *
+     *  `"reorder"` (default) promotes the entry to most-recent by
+     *  `m.delete(k); m.set(k, v)` — exact LRU, and the only policy that is
+     *  safe for a cache whose CONTENTS are load-bearing rather than merely
+     *  warm.  `_depositTrees` (8 entries, feeds stablePrefixFoldIncremental)
+     *  is exactly that: which of its entries survives changes how the next
+     *  turn FOLDS, so test/13 D1 flips answer when the victim changes.
+     *
+     *  `"clock"` records recency as a BIT instead of as position, spent by
+     *  the eviction sweep (see `nextOldest`).  Correct only for a TRANSPARENT
+     *  cache — one where evicting the wrong entry costs a re-read and nothing
+     *  else.  Opt in deliberately, per cache. */
+    private readonly recency: "reorder" | "clock" = "reorder",
   ) {}
   /** Next key in insertion (≈ LRU) order, resuming where the last call left
    *  off; wraps to the front when exhausted. Undefined only when empty. */
   private nextOldest(): K | undefined {
+    // SECOND CHANCE (clock recency only): a key whose bit is set is not a
+    // victim — the bit is CLEARED and the sweep moves on, so it survives this
+    // pass but not the next unless `get` touches it again.  Each skip spends
+    // one bit and bits are only set by hits, so a sweep skips at most `size`
+    // times before finding a victim: amortised O(1), as before.
+    let skips = this.m.size;
     for (let wrapped = false;;) {
       if (this._cursor === null) this._cursor = this.m.keys();
       const n = this._cursor.next();
-      if (!n.done) return n.value;
+      if (!n.done) {
+        if (this._used.size > 0 && this._used.has(n.value) && skips-- > 0) {
+          this._used.delete(n.value);
+          continue;
+        }
+        return n.value;
+      }
       this._cursor = null;
       if (this.m.size === 0 || wrapped) return undefined;
       wrapped = true;
     }
   }
+  /** RECENCY WITHOUT MUTATING THE MAP (clock policy only).
+   *
+   *  The default `"reorder"` policy below is the textbook JS LRU
+   *  (`m.delete(k); m.set(k, v)`), and on the read path that idiom was
+   *  measured as the single largest CPU consumer in inference: 55% of
+   *  profiled self time, 14.6s of a 26.4s battery, over 6.4M gets — 5.3M of
+   *  them on `_bytesCache` alone at an 83% hit rate.  Every hit deletes and
+   *  reinserts a live key, and each delete leaves a hole in V8's ordered
+   *  backing store that is compacted only on rehash — the same O(size) cliff
+   *  the eviction cursor above already documents, paid here on the path taken
+   *  orders of magnitude more often.
+   *
+   *  Under `"clock"`, a hit sets a BIT that the eviction sweep spends.
+   *  `Set.add` of a key already present neither inserts nor rehashes, so hot
+   *  keys — the 83% — cost one hash probe and nothing else.  Measured on the
+   *  two transparent store caches, with every counter byte-identical
+   *  (nodeRecords 488,468 / byteReads 62,959 in both arms — the SAME entries
+   *  stayed cached): multi-turn think 11,399ms -> 2,022ms, its crossRegion
+   *  8,833ms -> 771ms; single-turn think 12,977ms -> 6,779ms.
+   *
+   *  It is NOT the default, because it is only sound where eviction costs a
+   *  re-read.  See the `recency` parameter. */
   get(k: K): V | undefined {
     const v = this.m.get(k);
-    if (v !== undefined) {
-      this.m.delete(k);
-      this.m.set(k, v);
+    if (v === undefined) return v;
+    if (this.recency === "clock") {
+      this._used.add(k);
+      return v;
     }
+    this.m.delete(k);
+    this.m.set(k, v);
     return v;
   }
   /** Membership without touching LRU order — a pure peek, for callers that only
@@ -191,6 +245,7 @@ export class BoundedMap<K, V> {
         this._candidates.splice(bestI, 1);
         this._bytes -= bestSz;
         this.m.delete(bestK);
+        this._used.delete(bestK);
       } else {
         const lru = this.nextOldest();
         if (lru === undefined) break;
@@ -198,6 +253,7 @@ export class BoundedMap<K, V> {
         if (lruv === undefined) continue;
         this._bytes -= this.sizeOf(lruv);
         this.m.delete(lru);
+        this._used.delete(lru);
       }
     }
   }
@@ -213,6 +269,7 @@ export class BoundedMap<K, V> {
     if (v === undefined) return;
     this._bytes -= this.sizeOf(v);
     this.m.delete(k);
+    this._used.delete(k);
   }
   /** Drop every entry (bulk invalidation) — O(1) amortised via fresh maps. */
   clear(): void {
@@ -221,6 +278,7 @@ export class BoundedMap<K, V> {
     this._bytes = 0;
     this._cursor = null;
     this._candidates = [];
+    if (this._used.size > 0) this._used = new Set();
   }
 }
 
@@ -953,11 +1011,14 @@ export abstract class AbstractStore implements Store {
       config.bytesCacheMax,
       (v) => v.byteLength,
       "smallest",
+      "clock",
     );
     this._lenCache = new BoundedMap(config.bytesCacheMax, () => 16);
     this._recCache = new BoundedMap(
       config.recCacheBytes,
       (r) => (r.leaf?.byteLength ?? 0) + (r.kids?.length ?? 0) * 4 + 12,
+      "lru",
+      "clock",
     );
     this._pendingGist = new BoundedMap<NodeId, Vec>(
       config.pendingGistBytes,
