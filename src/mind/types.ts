@@ -104,6 +104,14 @@ export interface Attention {
   /** The union of the query byte-spans whose evidence supports this point. */
   start: number;
   end: number;
+  /** The largest SINGLE region's contribution to this point's pooled vote.
+   *  `vote` is a sum over every region that agreed, so it grows with how many
+   *  places corroborated; `peak` is what the strongest one of them said on its
+   *  own.  A consumer holding this point to consensusFloor(N) — a bar that
+   *  prices ONE region's maximally-discriminative evidence — must read `peak`,
+   *  not `vote`: six scaffolding regions summing past the floor is not the
+   *  same claim as one region clearing it. */
+  peak: number;
   /** SCALE-INVARIANT confidence: the fraction of the query's OWN regions
    *  whose evidence this point accounts for (Σ RegionVote.absorbed among
    *  its contributors, over the query's total region count) — read PER-

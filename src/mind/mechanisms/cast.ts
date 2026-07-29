@@ -378,11 +378,39 @@ export async function counterfactualTransfer(
     return [];
   }
 
-  const woven = points.some((p) =>
-    p.runs.some((r) =>
-      !pre.rec.sites.some((s) => r.qs >= s.start && r.qe <= s.end)
-    )
-  );
+  // WOVEN — is anything actually brought TOGETHER?  A run restating a site
+  // the query already contains is not, by itself, evidence of that; but TWO
+  // points restating DIFFERENT sites is exactly a comparison ("How is
+  // Michelangelo like Homer?" names both entities, recognition finds both,
+  // and the weave aligns each to its own stored structure).  The escape
+  // clause alone called that unwoven — a reading that held only while
+  // recognition UNDER-reported sites, and test/29 A2 started failing the
+  // moment recognition's interior chains stopped dying mid-form.
+  //
+  // Both points must be evidenced in what the asker JUST SAID.  A multi-turn
+  // query is the whole transcript, so the earlier turns' own questions are
+  // aligned points too — traced on test/48, the weave for `And what is the
+  // capital of Spain?` holds `What is the capital of France?` (runs q0-61,
+  // entirely inside the previous turn and its answer) beside the new question
+  // (q65-94).  Two points, two named sites, and nothing woven at all: one of
+  // them is conversation history.  The current turn is the bytes past the last
+  // answered span — the same `askerBytes` notion computeWeave prices its read
+  // budget with — so requiring both points to have evidence THERE separates a
+  // genuine two-place weave from a follow-up.  Single-turn queries have no
+  // answered spans, so the current turn is the whole query and nothing changes.
+  const turnStart = ctx.answeredSpans.reduce((n, [, e]) => Math.max(n, e), 0);
+  const inTurn = points.filter((p) => p.runs.some((r) => r.qe > turnStart));
+  const siteAt = (r: GradedRun): number =>
+    pre.rec.sites.findIndex((s) => r.qs >= s.start && r.qe <= s.end);
+  const namedSites = new Set<number>();
+  for (const p of inTurn) {
+    for (const r of p.runs) {
+      const i = siteAt(r);
+      if (i >= 0) namedSites.add(i);
+    }
+  }
+  const woven = points.some((p) => p.runs.some((r) => siteAt(r) < 0)) ||
+    (inTurn.length >= MIN_WEAVE && namedSites.size >= MIN_WEAVE);
   if (!woven) {
     return fail(
       `every aligned run restates a recognised query site — nothing was ` +
@@ -1044,7 +1072,27 @@ export async function counterfactualTransfer(
   // while a scrap-matched junk pair leaves the query's own trained content
   // ("…songs…times…", "…planet…sun.") dismissed as gaps.  Halo-tier and
   // trusted-root comparisons are exempt — their evidence already stands.
-  const cmpDismisses = !(bestHalo || rootTrusted) &&
+  // A TRUSTED ROOT IS NOT A LICENCE TO IGNORE WHAT THE STORE KNOWS.  This
+  // exemption used to read `!(bestHalo || rootTrusted)`, so a root clearing
+  // consensusFloor discarded the ignored-known verdict entirely — and that
+  // verdict is the one piece of evidence in this gate that actually sees the
+  // failure: measured on test/50's probes, `dismissedKnownContent` returns
+  // TRUE for both ("songs"/"times"/"planet"-class trained content left in the
+  // comparison's gaps) while `rootTrusted` is also true, so the gate read
+  // false and comparison fired on a junk analog.
+  //
+  // The root's trust says the CLIMB settled on something; it says nothing
+  // about whether THIS comparison's own evidence covers the query's known
+  // content, which is a different question about a different quantity.  Halo
+  // stays exempt — halo-tier company is independent evidence in its own right
+  // (test/33 1b's nickname-corroborated analog), which is exactly what a
+  // pooled consensus vote is not.
+  //
+  // Measured cost, and it is a candidate COUNT, not an answer: test/33 1b
+  // ("expected at least two CAST candidates") loses one of its two, because
+  // the comparison schema now honestly declines. The junk analogs it used to
+  // supply were never the ones that test is about.
+  const cmpDismisses = !bestHalo &&
     dismissedKnownContent(ctx, query, cmpAccounted);
   if (
     bestAnalog !== null &&

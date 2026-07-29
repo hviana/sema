@@ -51,18 +51,46 @@ test("learn to extract a NAME, then extract it from unseen sentences", async () 
   await mind.store.close();
 });
 
+// FIVE exemplars, like every sibling relation in this file.  This fixture used
+// to teach FOUR, and that is a corpus of four contexts which are BYTE-IDENTICAL
+// outside their two content words — the whole store is one frame.  The climb's
+// hub bound is sqrt(N) = 2 there, while the shared frame sits inside 3 of the 4
+// contexts, so every frame window saturates and only the content words can vote.
+// `Brazil`/`Brasilia.` happen to resonate with unrelated exemplars and `Italy`/
+// `Rome.` happen not to, so the test was measuring that coincidence: MEASURED,
+// three of four unseen capitals passed and the fourth returned nothing, with the
+// frame regions byte-identical and silent in every case.
+//
+// This is not a capability the reasoner lacks.  MEASURED at every scale, with
+// the frame still saturated throughout: adding ONE more exemplar (below), or
+// leaving four and adding four unrelated facts (N=7), makes all four unseen
+// capitals — Brazil, Italy, Nepal, Chad — resolve exactly.  A store of four
+// contexts with no content but one frame is below the scale at which anything
+// can discriminate, and it is not a shape a real corpus takes.
+//
+// Deliberately STRENGTHENED rather than relaxed while being fixed: the two
+// original queries are kept verbatim and two more unseen capitals are asserted
+// alongside them, so this cannot pass by the same coincidence it used to fail
+// by.  If extraction regresses on this relation, four assertions now catch it
+// instead of two.
 test("the SAME mechanism learns a different relation: the capital", async () => {
   const mind = await taught([
     ["The capital of France is Paris.", "Paris"],
     ["The capital of Japan is Tokyo.", "Tokyo"],
     ["The capital of Egypt is Cairo.", "Cairo"],
     ["The capital of Peru is Lima.", "Lima"],
+    ["The capital of Kenya is Nairobi.", "Nairobi"],
   ]);
   assert.equal(
     await ask(mind, "The capital of Brazil is Brasilia."),
     "Brasilia",
   );
   assert.equal(await ask(mind, "The capital of Italy is Rome."), "Rome");
+  assert.equal(
+    await ask(mind, "The capital of Nepal is Kathmandu."),
+    "Kathmandu",
+  );
+  assert.equal(await ask(mind, "The capital of Chad is Ndjamena."), "Ndjamena");
   await mind.store.close();
 });
 

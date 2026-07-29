@@ -1246,6 +1246,8 @@ export function poolVotes(
    *  not the length of `regionSpans`: a joint binding is one vote sitting in
    *  several places. */
   regionAxioms: Map<number, number>;
+  /** Per-anchor LARGEST single-region contribution — see Attention.peak. */
+  regionPeak: Map<number, number>;
   steps: DerivationStep[];
 } {
   const eligible: number[] = [];
@@ -1347,6 +1349,16 @@ export function poolVotes(
   // REGION) could read below it, and it could exceed the query's whole
   // candidate-region count.
   const regionAxioms = new Map<number, number>();
+  // The LARGEST single region's contribution to this anchor's pooled vote.
+  // The pool is a SUM (deliberately — see the pooling note above), so it says
+  // how much evidence there is in total, never whether any ONE place in the
+  // query carries evidence on its own.  Consumers that hold an anchor to
+  // consensusFloor(N) = ln(N) + 1/2 need the latter: that bar prices ONE
+  // region's maximally-discriminative evidence (ln N is the IDF of content
+  // reaching a single context), so comparing a six-region sum against it is a
+  // dimensional error.  Recorded here, beside the count, because this is the
+  // only place the per-region contributions are still separable.
+  const regionPeak = new Map<number, number>();
   const steps: DerivationStep[] = [];
   let order = 0;
   for (const pc of pool.values()) {
@@ -1387,6 +1399,15 @@ export function poolVotes(
         }),
       );
       regionAxioms.set(pc.item.id, seenRi.size);
+      let peak = 0;
+      for (const c of pc.contributions) {
+        const p0 = c.premises[0].item;
+        if (p0.kind !== "region") continue;
+        const rv = regionVotes[p0.ri];
+        const own = rv.wFocus ?? rv.w;
+        if (own > peak) peak = own;
+      }
+      regionPeak.set(pc.item.id, peak);
       steps.push({
         order: order++,
         move: "pool-vote",
@@ -1420,6 +1441,7 @@ export function poolVotes(
     regionSupport,
     regionSpans,
     regionAxioms,
+    regionPeak,
     steps,
   };
 }
@@ -1461,6 +1483,7 @@ export function commitVotes(
     regionSupport: Map<number, number>;
     regionSpans: Map<number, Array<[number, number]>>;
     regionAxioms: Map<number, number>;
+    regionPeak: Map<number, number>;
     steps: DerivationStep[];
   },
   sat: SaturationInfo,
@@ -1477,6 +1500,7 @@ export function commitVotes(
     regionSupport,
     regionSpans,
     regionAxioms,
+    regionPeak,
     steps,
   } = pooled;
   if (votes.size === 0) {
@@ -1495,6 +1519,7 @@ export function commitVotes(
       return {
         anchor,
         vote,
+        peak: regionPeak.get(anchor) ?? 0,
         start: s.start,
         end: s.end,
         breadth: (regionSupport.get(anchor) ?? 0) / totalRegions,
