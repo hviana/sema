@@ -6,6 +6,7 @@
 
 import { cosine } from "../../vec.js";
 import {
+  conceptThreshold,
   consensusFloor,
   identityBar,
   reachThreshold,
@@ -328,8 +329,22 @@ export async function recallByResonance(
       // bridge's structural channels (junction walks, anchor climbs) are the
       // correct proposal source for a query whose gist has no clean match;
       // the ANN cannot propose what the gist cannot rank.
-      const marketScale = k * ctx.space.maxGroup;
-      if (corpusN(ctx) <= marketScale ** 3) {
+      // The condition above is the SCORE of the top hit, not the size of the
+      // corpus.  It used to be spelled `corpusN(ctx) <= (k · W)³`, which asks
+      // a different question and answers it wrongly at exactly the scale the
+      // note was written from: on the trained store N = 325,608 with k = 24
+      // and W = 4 puts the cube at 884,736, so that store took the exhaustive
+      // branch — the very branch measured here as 38K–40K annVectorReads.
+      // Measured cost of the mismatch: substitutionBridge 8,544ms of a
+      // 19,548ms think (44%), against 1,248ms and 14,218ms without it, with
+      // every answer in the battery byte-identical and the suite unchanged
+      // at 445/445.  Corpus size was never the discriminator; whether the
+      // gist ranks ANYTHING at concept level is.
+      //
+      // Reading it as the note states also removes a duplicated (k · W)³ —
+      // the same cube gates crossRegionVotes' walk budget, where it likewise
+      // never engages at real scale (see attention.ts).
+      if (whole.length > 0 && whole[0].score >= conceptThreshold(ctx.store.D)) {
         const exhaustive = await ctx.store.resonate(
           queryGist,
           hubBound(ctx),

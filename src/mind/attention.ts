@@ -759,10 +759,32 @@ export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
     // discriminative part, i.e. its reach is bounded by the MIN over the
     // windows that built it.
     const spans: Array<{ start: number; end: number }> = [];
+    // COVERAGE BY PREFIX MAXIMUM, NOT BY RESCANNING THE REGIONS.
+    // The containment test below is the loop's hot path — it rejects 97% of
+    // windows — and asking it as `regions.some(...)` re-walked every region
+    // at every offset: O(|query| · |regions|).  That is quadratic in the
+    // input, and the region count grows with it — measured 1,510 regions on
+    // an 8,195-byte query, i.e. ~12.4M predicate evaluations in ONE call,
+    // against the constant-KB/s law test/14 asserts.
+    //
+    // A region contains the window [o, o+W) exactly when it starts at or
+    // before `o` and ends at or after `o+W`.  So the only thing the test
+    // needs from the regions is, per offset, the FARTHEST end among those
+    // starting at or before it — a prefix maximum, built in one pass and
+    // read in O(1).  Identical verdict by construction, no behaviour change.
+    const maxEndFrom = new Int32Array(query.length + 1);
+    for (const r of regions) {
+      if (r.start <= query.length && r.end > maxEndFrom[r.start]) {
+        maxEndFrom[r.start] = r.end;
+      }
+    }
+    for (let i = 1; i <= query.length; i++) {
+      if (maxEndFrom[i - 1] > maxEndFrom[i]) maxEndFrom[i] = maxEndFrom[i - 1];
+    }
     for (let o = 0; o + W <= query.length; o++) {
       // A window some fold region wholly contains offers no address the walk
       // above did not already offer.
-      if (regions.some((r) => r.start <= o && r.end >= o + W)) continue;
+      if (maxEndFrom[o] >= o + W) continue;
       const ids = leafIdRun(ctx, query, o, o + W);
       if (ids === null) continue;
       const wid = ctx.store.findBranch(ids);
@@ -2573,6 +2595,18 @@ async function crossRegionVotes(
   // cumulative dialogue multiplies bounded work into tens of seconds. Small
   // corpora retain exhaustive exact traversal: below this same scale the
   // budget would be smaller than the structures the tests deliberately build.
+  //
+  // MEASURED 2026-07-29, NOT YET RESOLVED.  This gate never engages at real
+  // scale: on the trained store N = 325,608 with k = 24 and W = 4, so the
+  // threshold is 96³ = 884,736 and a third of a million contexts still runs
+  // unbudgeted at hubBound·W = 2,280 pops PER PAIR — 160,210 junction pops,
+  // 5.9s, 31% of think.  Sharing one hubBound·W allowance across all pairs
+  // instead cuts that to 22,418 pops and 2.6s (think −19%), but is measurably
+  // too tight below ~10³ contexts: test/36 (N = 8, budget 8) loses the
+  // `red circle` binding root and test/14 (N = 120, budget 40) recalls 39/40.
+  // The sharing is the right shape; hubBound·W is the wrong size for it, and
+  // fitting a size to those two points would repeat the mistake the cube
+  // already makes — pricing the gate on the synthetic corpora.
   const marketScale = k * ctx.space.maxGroup;
   const corpusScale = N > marketScale ** 3;
   const exactBudget = corpusScale ? { n: k * ctx.space.maxGroup } : undefined;
@@ -3042,6 +3076,30 @@ async function crossRegionVotes(
         }
       }
 
+      // COMPOSING TWO SPLIT FORMS DOES NOT WEAVE A POINT OF ATTENTION.
+      // Region.corroborating marks a form the query's own cut SPLIT and
+      // collectRegions recovered by lookup; poolVotes and commitVotes keep
+      // such evidence out of the breadth ratio and out of the root cut's
+      // distribution.  This path bypassed both: a junction vote is minted
+      // fresh here and carried nothing, so evidence the query never wove
+      // re-entered the root election as a first-class anchor.
+      //
+      // Measured over the suite: 130 accepted junctions, 44 standing on at
+      // least one corroborating region and 12 standing on NOTHING ELSE (both
+      // endpoints corroborating, all structural-resonance tier).  Those 12
+      // are precisely the leak — the query wove neither endpoint.
+      //
+      // The flag is inherited only when EVERY part is corroborating.  One
+      // genuine fold region among the parts means the query did point here,
+      // and the junction anchors on it; that also preserves the case
+      // Region.corroborating's doc calls out as REFUTED to bar (the correct
+      // log record reachable only through a split form still grounds, because
+      // it grounds as evidence for an anchor, not as a topic of its own).
+      // Safe against the explaining-away accounting because that is EXACT
+      // tier only (spec §15) and an all-corroborating junction has no exact
+      // ordinary vote to absorb.
+      const jointCorroborating = [cand[a], cand[b], ...bestExtras]
+        .every((ri) => regions[ri].corroborating === true);
       out.push({
         start: spanStart,
         end: spanEnd,
@@ -3050,6 +3108,7 @@ async function crossRegionVotes(
         w,
         wFocus: w,
         absorbed: 1 + explainedAway,
+        ...(jointCorroborating ? { corroborating: true } : {}),
         // The places this junction actually stands on — its two endpoints and
         // any N-ary extras, NOT the merged span [spanStart, spanEnd], which
         // swallows the gap and reads as one neighbourhood.  See
