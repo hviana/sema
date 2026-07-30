@@ -23,19 +23,20 @@ import {
 import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
 import { type MindConfig, resolveConfig } from "../config.js";
-import { type Canon, canonHash, textCanon } from "../canon.js";
+import {
+  type Canon,
+  canonHash,
+  type Segmenter,
+  textCanon,
+  textEdgeTrim,
+  textSegmenter,
+} from "../canon.js";
 import {
   type CandidateSpan,
   coverSequence,
   lightestDerivation,
 } from "../derive/src/index.js";
-import {
-  bytesEqual,
-  concat2,
-  concatBytes,
-  indexOf,
-  trimEdgeSeparators,
-} from "../bytes.js";
+import { bytesEqual, concat2, concatBytes, indexOf } from "../bytes.js";
 import {
   type ComputedResult,
   type DerivationItem,
@@ -234,6 +235,11 @@ export class Mind implements MindContext {
    *  {@link MindContext.canon}.  Injected per response by the modality entry
    *  point; null when the response carries no equivalence. */
   canon: Canon | null = null;
+
+  /** The modality's unit segmenter for the response in flight — see
+   *  {@link MindContext.segmenter}.  Injected per response by the modality
+   *  entry point, on the SAME test that chooses the canonicalizer. */
+  segmenter: Segmenter | null = null;
 
   /** Per-response canonical-resolution memo — see {@link MindContext.canonMemo}. */
   canonMemo: Map<string, number | null> | null = null;
@@ -479,6 +485,7 @@ export class Mind implements MindContext {
     inspectRationale?: InspectRationale,
     canon?: Canon | null,
     conv?: ConversationData,
+    segmenter?: Segmenter | null,
   ): void {
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
     this.climbMemo = conv ? conv.climbMemo : new Map();
@@ -501,6 +508,7 @@ export class Mind implements MindContext {
       : 0;
     this.canon = canon ?? null;
     this.canonMemo = canon ? new Map() : null;
+    this.segmenter = segmenter ?? null;
     this._beginMeter();
   }
 
@@ -563,8 +571,9 @@ export class Mind implements MindContext {
     inspectRationale?: InspectRationale,
     traceLabel = "respond",
     canon: Canon | null = null,
+    segmenter: Segmenter | null = null,
   ): Promise<Response> {
-    this.beginResponse(inspectRationale, canon);
+    this.beginResponse(inspectRationale, canon, undefined, segmenter);
     try {
       return await this._groundAndVoice(queryBytes, traceLabel);
     } finally {
@@ -619,9 +628,13 @@ export class Mind implements MindContext {
     // through the generic entry point.  Raw bytes / grids carry only the
     // Mind-level canon option, if any.
     const canon = this._canonFor(typeof input === "string" ? textCanon : null);
+    // The unit segmenter rides the SAME modality test as the canonicalizer
+    // above: for raw bytes and grids there is no such thing as spacing, so
+    // mechanisms that would need units stay silent instead of inventing them.
+    const segmenter = typeof input === "string" ? textSegmenter : null;
     // EDGE WHITESPACE IS NOT PART OF THE QUESTION — trim it once, here, so
     // every mechanism downstream sees the same question regardless of how the
-    // caller spaced it.  See trimEdgeSeparators for why the outer edges of a
+    // caller spaced it.  See canon.ts's textEdgeTrim for why the outer edges of a
     // whole input are exactly where canon.ts's no-trimming hazard cannot arise.
     // Gated on the SAME modality test as the canonicalizer above: for bytes and
     // grids 0x20 is content, and nothing is trimmed.
@@ -650,11 +663,18 @@ export class Mind implements MindContext {
       inspectRationale,
       "respond",
       canon,
+      segmenter,
     );
     if (first.bytes.length > 0 || typeof input !== "string") return first;
-    const trimmed = trimEdgeSeparators(bytes);
+    const trimmed = textEdgeTrim(bytes);
     if (trimmed.length === bytes.length || trimmed.length === 0) return first;
-    return this._respondImpl(trimmed, inspectRationale, "respond", canon);
+    return this._respondImpl(
+      trimmed,
+      inspectRationale,
+      "respond",
+      canon,
+      segmenter,
+    );
   }
 
   /** Text view of {@link respond}.  NUL bytes (0x00) are stripped before
@@ -826,6 +846,7 @@ export class Mind implements MindContext {
       inspectRationale,
       this._canonFor(typeof turn === "string" ? textCanon : null),
       data,
+      typeof turn === "string" ? textSegmenter : null,
     );
 
     try {

@@ -26,6 +26,11 @@
 // Unlike test/69, a POSITIVE fixture IS constructible here: the mechanism keys
 // on literal byte containment, not on corpus rarity, and rarity is the signal
 // that collapses at fixture scale.
+//
+// The mechanism has NO notion of text: no separator, no character class, no
+// "word".  Its only structural quantity is W, the river's grouping window.  So
+// these fixtures are readable prose only for the reader's benefit -- every
+// assertion below is about bytes and geometry.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -60,7 +65,7 @@ test("1. the sole form opening with the query is completed by its remainder", as
   const m = await fixture(FACTS);
   const hit = await tier(m, "The capital of France is");
   assert.notEqual(hit, null, "the trained form opens with the query");
-  assert.equal(dec.decode(hit.completion), "Paris.");
+  assert.equal(dec.decode(hit.form), "The capital of France is Paris.");
   await m.store.close();
 });
 
@@ -85,15 +90,16 @@ test("3. the same completion via two forms is ONE answer, not an ambiguity", asy
   ]);
   const hit = await tier(m, "The capital of France is");
   assert.notEqual(hit, null);
-  assert.equal(dec.decode(hit.completion), "Paris.");
+  assert.equal(dec.decode(hit.form), "The capital of France is Paris.");
   await m.store.close();
 });
 
-test("4. a DEGENERATE remainder is refused", async () => {
-  // Observed on the trained store: `What is the capital of France?`
-  // prefix-matches a trained `What is the capital of France??`, whose remainder
-  // is the single byte `?`.  Voicing it would be the 1-3 byte degenerate reply
-  // that is a known failure smell (the battery's section M).
+test("4. a SUB-QUANTUM continuation is refused", async () => {
+  // Observed on the trained store: `What is the capital of France?` opens a
+  // trained `What is the capital of France??`, which continues by ONE byte.
+  // Below W the continuation is sub-quantum -- the fold groups nothing from it
+  // -- and voicing it is the degenerate reply of the battery's section M.
+  // The bar is the grouping window, not a punctuation class.
   const m = await fixture(["What is the capital of France??"]);
   assert.equal(await tier(m, "What is the capital of France?"), null);
   await m.store.close();
@@ -127,7 +133,7 @@ test("7. the tier is deterministic and side-effect free", async () => {
   const before = m.store.nodeCount();
   const a = await tier(m, q);
   const b = await tier(m, q);
-  assert.equal(dec.decode(a.completion), dec.decode(b.completion));
+  assert.equal(dec.decode(a.form), dec.decode(b.form));
   assert.equal(a.id, b.id);
   assert.equal(
     m.store.nodeCount(),
@@ -137,11 +143,12 @@ test("7. the tier is deterministic and side-effect free", async () => {
   await m.store.close();
 });
 
-test("9. a form longer than the read cap is refused, not truncated", async () => {
-  // Reads are bounded (query.length * W), because a stored span can run to
-  // hundreds of kilobytes.  A read that SATURATES its cap may have been cut
-  // mid-form, so its "remainder" would be a FRAGMENT of a longer sentence
-  // presented as a complete answer.  Only an unsaturated read has seen the end.
+test("9. a form that continues past the read bound vetoes", async () => {
+  // Reads are bounded (query.length * W).  A candidate that opens with the
+  // query but SATURATES the read continues out of sight, so it is a standing
+  // disagreement -- NOT something to skip.  Skipping it is what manufactures a
+  // fragment: it removes the only evidence contradicting an interior fold node
+  // that happens to fit under the cap.
   const q = "The capital of France is";
   const long = q + " Paris, and the country's largest city by a wide margin, " +
     "a global centre for art, fashion, gastronomy and culture.";

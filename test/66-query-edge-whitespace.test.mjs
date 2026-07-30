@@ -36,13 +36,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import { trimEdgeSeparators } from "../dist/src/bytes.js";
+import { textEdgeTrim } from "../dist/src/canon.js";
 
 const enc = (s) => new TextEncoder().encode(s);
 const dec = new TextDecoder();
-const trim = (s) => dec.decode(trimEdgeSeparators(enc(s)));
+const trim = (s) => dec.decode(textEdgeTrim(enc(s)));
 
-test("1. trimEdgeSeparators drops only the outer separator run", () => {
+test("1. textEdgeTrim drops only the outer spacing run", () => {
   assert.equal(trim("  ice  "), "ice");
   assert.equal(trim("\tice\n"), "ice");
   assert.equal(trim("ice"), "ice");
@@ -53,7 +53,7 @@ test("1. trimEdgeSeparators drops only the outer separator run", () => {
   assert.equal(trim(""), "");
   // The untouched case must return the SAME object (no copy on the hot path).
   const b = enc("ice");
-  assert.equal(trimEdgeSeparators(b), b);
+  assert.equal(textEdgeTrim(b), b);
 });
 
 test("2. a form trained WITH edge whitespace still answers when asked exactly", async () => {

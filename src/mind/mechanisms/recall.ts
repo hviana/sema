@@ -516,9 +516,9 @@ export async function recallByResonance(
       const completed = prefixCompletion(ctx, query, await wideIds());
       if (completed !== null) {
         return ground(
-          completed.completion,
-          "prefix completion — the query IS the opening of one trained " +
-            "form, and this is that form's remainder",
+          completed.form,
+          "prefix completion — the query IS the opening of exactly one " +
+            "trained form, which this grounds whole",
           // Every query byte is literally matched against the form.  The
           // completion is the form's own continuation, not a substitution, so
           // there is nothing to be humble about in the accounting — the same

@@ -33,13 +33,13 @@
 // FOUR GUARDS, each falsified into existence on the 15.7M-node store.  Dropping
 // any one of them reintroduces a wrong answer or outright fabrication:
 //
-//   1. The evidence hit must literally contain the description's RAREST word.
+//   1. The evidence hit must literally contain the description's RAREST unit.
 //      Pooling fillers from every ranked hit gives the twohop query 9 resolving
 //      keys, dominated by `What is the capital of India?` → "New Delhi.".  And
-//      qualifying on any SHARED word rather than the rarest gives
+//      qualifying on any SHARED unit rather than the rarest gives
 //      `Can you write a short poem?` exactly one key,
 //      `Can you write hello world in C?` — a confident wrong answer earned on
-//      the scaffolding word "write".
+//      the scaffolding unit "write".
 //   2. The frame must be NON-EMPTY: the description is a proper sub-span.
 //      Otherwise two of the twohop keys replace the WHOLE query (`Immanuel
 //      Kant`, `Africa`), which is not substitution at all.
@@ -66,7 +66,7 @@
 // load-bearing, not optimisations:
 //
 //   • fillers are MAXIMAL absent runs, not every sub-span of a hit (8,020 probes
-//     → 452).  The twohop win survives because a sub-quantum word (< W)
+//     → 452).  The twohop win survives because a sub-quantum unit (< W)
 //     terminates a run: in `The most well-known landmark in France is the Eiffel
 //     Tower.`, `in` breaks the run, so `France` IS itself a maximal run.
 //   • rarity is memoised per response.  On the 125-byte query 3,882 rarity reads
@@ -77,6 +77,14 @@
 // truncating the search would leave uniqueness (guard 4) unestablished, and an
 // unestablished uniqueness claim is exactly the ambiguity the guard exists to
 // catch.
+
+// NO CHARACTER CLASS LIVES HERE.  This mechanism substitutes one CONSTITUENT
+// for another, so it must know where a modality's units begin and end — but it
+// never decides that itself.  It asks the injected segmenter (src/canon.ts),
+// the same discipline resolution follows for the canonicalizer and the ALU's
+// parser follows for spacing: "no separator spelling is privileged", because
+// the mechanism never sees one.  A modality that supplies no segmenter gets
+// silence from this tier rather than an invented tokenization.
 
 import type { MindContext } from "./types.js";
 import { indexOf } from "../bytes.js";
@@ -96,45 +104,6 @@ export interface FrameFillerHit {
   filler: Uint8Array;
 }
 
-/** Separator bytes: whitespace plus the punctuation that delimits a written
- *  form.  Byte-level on purpose — a multi-byte UTF-8 sequence contains no
- *  separator byte, so its characters group into one word without decoding. */
-function isSeparator(b: number): boolean {
-  return b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d ||
-    b === 0x3f || b === 0x2e || b === 0x2c || b === 0x21 ||
-    b === 0x22 || b === 0x27;
-}
-
-/** Offsets at which a word-bounded span may begin or end. */
-function boundaries(bytes: Uint8Array): number[] {
-  const set = new Set<number>([0, bytes.length]);
-  for (let i = 0; i < bytes.length; i++) {
-    if (isSeparator(bytes[i])) {
-      set.add(i);
-      set.add(i + 1);
-    }
-  }
-  return [...set].sort((a, b) => a - b);
-}
-
-/** `[start, end)` of every maximal run of non-separator bytes. */
-function wordSpans(
-  bytes: Uint8Array,
-  from: number,
-  to: number,
-): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  let start = -1;
-  for (let i = from; i < to; i++) {
-    if (isSeparator(bytes[i])) {
-      if (start >= 0) out.push([start, i]);
-      start = -1;
-    } else if (start < 0) start = i;
-  }
-  if (start >= 0) out.push([start, to]);
-  return out;
-}
-
 /** A stable memo key for a byte span — latin1, so no UTF-8 validation and no
  *  allocation beyond the string itself. */
 function spanKey(bytes: Uint8Array, from: number, to: number): string {
@@ -143,7 +112,7 @@ function spanKey(bytes: Uint8Array, from: number, to: number): string {
   return s;
 }
 
-/** Find the query's own most discriminative word and the trained contexts that
+/** Find the query's own most discriminative unit and the trained contexts that
  *  hold it, then try the store for the query with a candidate filler in the
  *  described span's place.  Returns the sole surviving stored form, or null. */
 export function frameFillerSubstitution(
@@ -154,6 +123,13 @@ export function frameFillerSubstitution(
   const W = ctx.space.maxGroup;
   const _t0 = Date.now();
   const t = ctx.trace?.enter("frameFiller", [rItem(query, "query")]);
+  // The modality must be able to say where its units are; substituting inside
+  // one would build a key no corpus could hold.
+  const seg = ctx.segmenter;
+  if (seg === null) {
+    t?.done([], "modality supplies no unit segmenter — nothing to substitute");
+    return null;
+  }
   const done = (
     hit: FrameFillerHit | null,
     note: string,
@@ -167,9 +143,9 @@ export function frameFillerSubstitution(
     return hit;
   };
 
-  // Corpus rarity of a word, by how many trained forms contain its first
+  // Corpus rarity of a unit, by how many trained forms contain its first
   // window — the same container-count reading the bridge's anchor picking uses.
-  // Memoised per call: the same words recur across every candidate description.
+  // Memoised per call: the same units recur across every candidate description.
   const rarityMemo = new Map<string, number>();
   let rarityReads = 0;
   const rarityOf = (from: number, to: number): number => {
@@ -187,22 +163,22 @@ export function frameFillerSubstitution(
     rarityMemo.set(key, value);
     return value;
   };
-  /** The most discriminative word of `[from, to)`, as its span, or null when it
-   *  has none.  Rarest first; at EQUAL rarity the LONGER word wins, because the
+  /** The most discriminative unit of `[from, to)`, as its span, or null when it
+   *  has none.  Rarest first; at EQUAL rarity the LONGER unit wins, because the
    *  longer form carries more content at the same corpus frequency.  The
-   *  tie-break is load-bearing on a small corpus, where every word's container
-   *  count collapses to 1 and first-wins would pick the query's opening word
+   *  tie-break is load-bearing on a small corpus, where every unit's container
+   *  count collapses to 1 and first-wins would pick the query's opening unit
    *  ("What") over its subject ("Eiffel") — the subject is what a description
    *  must be about.  On a large corpus the counts separate on their own (54 vs
    *  1,586 for exactly that pair) and the tie-break never engages. */
-  const rarestWord = (
+  const rarestUnit = (
     from: number,
     to: number,
   ): [number, number] | null => {
     let best: [number, number] | null = null;
     let bestRarity = Infinity;
     let bestLen = 0;
-    for (const [s, e] of wordSpans(query, from, to)) {
+    for (const [s, e] of seg.units(query, from, to)) {
       const r = rarityOf(s, e);
       if (r === Infinity) continue;
       if (r < bestRarity || (r === bestRarity && e - s > bestLen)) {
@@ -216,11 +192,11 @@ export function frameFillerSubstitution(
 
   // The query's own discriminative content — every candidate description must
   // contain it, or the substitution is not about what the query is asking.
-  const queryRare = rarestWord(0, query.length);
+  const queryRare = rarestUnit(0, query.length);
   if (queryRare === null) {
     return done(
       null,
-      "no corpus-attested word in the query — nothing to describe",
+      "no corpus-attested unit in the query — nothing to describe",
     );
   }
 
@@ -238,7 +214,7 @@ export function frameFillerSubstitution(
   };
   // resolved form id -> the description span and filler that reached it
   const found = new Map<number, FrameFillerHit>();
-  const bs = boundaries(query);
+  const bs = seg.bounds(query);
 
   for (let i = 0; i < bs.length; i++) {
     for (let j = i + 1; j < bs.length; j++) {
@@ -249,9 +225,9 @@ export function frameFillerSubstitution(
       if (dEnd - dStart < W) continue;
       // The description must carry the query's discriminative content.
       if (dStart > queryRare[0] || dEnd < queryRare[1]) continue;
-      const dRare = rarestWord(dStart, dEnd);
+      const dRare = rarestUnit(dStart, dEnd);
       if (dRare === null) continue;
-      const rareWord = query.subarray(dRare[0], dRare[1]);
+      const rareUnit = query.subarray(dRare[0], dRare[1]);
 
       for (const sid of ranked) {
         // PHRASE SCALE — the same bound the bridge puts on a candidate's bytes
@@ -262,12 +238,12 @@ export function frameFillerSubstitution(
         // of kilobytes.
         const hit = hitBytes(sid);
         if (hit === null) continue;
-        // GUARD 1 — this hit must literally hold the description's rarest word.
-        if (indexOf(hit, rareWord, 0) < 0) continue;
+        // GUARD 1 — this hit must literally hold the description's rarest unit.
+        if (indexOf(hit, rareUnit, 0) < 0) continue;
 
-        // Fillers: maximal runs of consecutive hit words the query does not
-        // already contain.  A run is broken by any word the query holds and by
-        // any word below the fold quantum.
+        // Fillers: maximal runs of consecutive hit units the query does not
+        // already contain.  A run is broken by any unit the query holds and by
+        // any unit below the fold quantum.
         let runStart = -1;
         let runEnd = -1;
         const runs: Array<[number, number]> = [];
@@ -275,9 +251,9 @@ export function frameFillerSubstitution(
           if (runStart >= 0) runs.push([runStart, runEnd]);
           runStart = -1;
         };
-        for (const [ws, we] of wordSpans(hit, 0, hit.length)) {
-          const word = hit.subarray(ws, we);
-          if (we - ws >= W && indexOf(query, word, 0) < 0) {
+        for (const [ws, we] of seg.units(hit, 0, hit.length)) {
+          const unit = hit.subarray(ws, we);
+          if (we - ws >= W && indexOf(query, unit, 0) < 0) {
             if (runStart < 0) runStart = ws;
             runEnd = we;
           } else closeRun();
