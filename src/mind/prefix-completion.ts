@@ -266,6 +266,35 @@ export function prefixCompletion(
       data,
     );
   }
+  // Guard 2b: A SUB-QUANTUM CONTINUATION IS STILL A DISAGREEMENT.  Guard 2
+  // refuses to VOICE a below-window continuation, and rightly — there is no
+  // structure there to speak.  But dropping such a candidate from the
+  // uniqueness tally silently converts "the corpus offers many continuations,
+  // most of them unvoiceable" into "the corpus offers exactly one", and
+  // guard 3 then passes VACUOUSLY on the sole survivor.  That is precisely
+  // the failure guard 1 documents for unreadable continuations — suppressing
+  // the disagreement is what manufactures the answer — so it is answered the
+  // same way, and for the same reason.
+  //
+  // Measured on a 4,300-fact fixture of "what is the value of <i>?": the
+  // query "what is the value of" drew candidates continuing " 0?", " 4?",
+  // " 8?" (3 bytes, sub-quantum at W=4) and " 10?" (4 bytes).  The first
+  // three were dropped, leaving one survivor, and the mechanism reported
+  // "exactly one trained form" and voiced "the value of 10 is 20" — an
+  // arbitrary pick from thousands of equally-good readings, with the
+  // evidence of ambiguity discarded on the way.
+  //
+  // Note this can only ever cause SILENCE, never a different answer: it
+  // withholds a completion the corpus does not uniquely license.
+  if (subQuantum > 0 && found.length > 0) {
+    return done(
+      null,
+      "other trained forms open with this query but continue below one " +
+        "grouping window — the corpus offers competing readings, so no " +
+        "single completion is licensed",
+      data,
+    );
+  }
   // Guard 3: the corpus must agree on ONE continuation.
   if (found.length !== 1) {
     return done(

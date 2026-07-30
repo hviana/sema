@@ -463,8 +463,33 @@ export async function recallByResonance(
         bridged.subs.some((s) =>
           indexOf(cBytes.subarray(s.cs, s.ce), g!, 0) >= 0
         );
+      // THE PREFIX TRAP IS NOT THIS TIER'S TO SPRING.  With no substitutions
+      // the claim is "a trained context IS this query, up to filler".  When
+      // the query is a STRICT BYTE PREFIX of that context, the claim is false
+      // in the one way that matters: the candidate's extra tail is precisely
+      // the DISCRIMINATING part, and dismissing it as filler asserts a
+      // specification the asker never made.  Measured on a 4,300-fact fixture
+      // of "what is the value of <i>?": the query "what is the value of"
+      // bridged with subs [] to "what is the value of 0?" and answered "the
+      // value of 0 is 0" — one arbitrary pick from 4,300 equally-matching
+      // contexts, every one of which fits the query exactly as well.
+      //
+      // The engine ALREADY has the right machinery for this shape:
+      // prefixCompletion runs a few lines below and carries the three guards
+      // this tier lacks — unreadable-continuation veto, sub-quantum
+      // continuation, and UNIQUENESS (distinct continuations ⇒ refuse), which
+      // is exactly what 4,300 competing values must trip.  So this is not a
+      // new rule and not a new threshold: it is deferring a prefix decision to
+      // the tier that owns it (§2.5, one factored machinery).  Byte-strict on
+      // purpose — a candidate differing by case or punctuation ("what is the
+      // capital of france" → "What is the capital of France?") is NOT a byte
+      // prefix, keeps grounding here, and is unaffected.
+      const strictPrefix = g !== null &&
+        cBytes.length > query.length &&
+        indexOf(cBytes, query, 0) === 0;
       if (
         g !== null && g.length > 0 && !restates(g) && !manufactured &&
+        !(bridged.subs.length === 0 && strictPrefix) &&
         !(g.length < query.length && indexOf(query, g, 0) >= 0)
       ) {
         return ground(
