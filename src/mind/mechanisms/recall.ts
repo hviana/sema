@@ -24,7 +24,7 @@ import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 import { substitutionBridge } from "../bridge.js";
 import { frameFillerSubstitution } from "../frame-filler.js";
-import { prefixCompletion } from "../prefix-completion.js";
+import { prefixCandidates, prefixCompletion } from "../prefix-completion.js";
 
 /** A recall result. */
 export interface RecallResult {
@@ -515,7 +515,14 @@ export async function recallByResonance(
     // richer relation when it can; a prefix match that the bridge also
     // explains is the same trained form either way.
     {
-      const completed = prefixCompletion(ctx, query, await wideIds());
+      // The resonance list first; only when it supplies nothing does the
+      // write side's leaf-id window index propose (prefixCandidates).  That
+      // ordering is the whole cost story: a query the ranked list can already
+      // explain pays not one extra read, and the fallback's bounded walk is
+      // spent only where the alternative is an empty answer.  It is a second
+      // SUPPLY, not a second mechanism — the same three guards decide.
+      const completed = prefixCompletion(ctx, query, await wideIds()) ??
+        prefixCompletion(ctx, query, prefixCandidates(ctx, query));
       if (completed !== null) {
         return ground(
           completed.form,

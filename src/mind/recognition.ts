@@ -17,6 +17,7 @@ import {
 } from "./primitives.js";
 import { atomIsHub, corpusN, leadsSomewhere } from "./traverse.js";
 import { chainReach, leafIdAt, leafIdRun } from "./canonical.js";
+import { canonHash } from "../canon.js";
 import { isChunk, type Sema } from "../sema.js";
 import type { Leaf, Site } from "./graph-search.js";
 
@@ -421,10 +422,30 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         ) endpoints.add(p);
       }
       const ordered = [...endpoints].sort((a, b) => a - b);
+      // The leaf-id run is BYTE-EXACT, while `resolveSpan` behind it resolves
+      // exactly OR canonically — so this gate was strictly narrower than its
+      // own resolver, and every embedded form differing from its deposit only
+      // by the response's equivalence (case, width) was dropped before the
+      // resolver ever saw it.  Rebuilding the run over canonicalized bytes
+      // does NOT fix that: a differently-cased deposit's branch kid-ids are
+      // not the query's leaf-id run under ANY canonicalization of the query,
+      // so the second admission route has to be the canon INDEX itself — the
+      // same candidate proposal `canonResolve` makes, and the same
+      // cheap-probe-before-a-fold discipline the exact route already follows
+      // (a hash and an indexed lookup; no fold, no vector, no scan).  Both
+      // routes only PROPOSE; `resolveSpan` still decides, so a hash-bucket
+      // collision costs one fold and can never emit a wrong site (test/71).
+      const canonAdmits = (start: number, end: number): boolean => {
+        const canon = ctx.canon;
+        if (canon === null || !store.canonFind) return false;
+        const key = canon(bytes.subarray(start, end));
+        if (key.length === 0) return false;
+        return store.canonFind(canonHash(key)).length > 0;
+      };
       const probe = (start: number, end: number): void => {
         if (end - start < W || end - start <= chainReach(W)) return;
         const ids = allLeafIds.slice(start, end);
-        if (store.findBranch(ids) === null) return;
+        if (store.findBranch(ids) === null && !canonAdmits(start, end)) return;
         const id = resolveSpan(start, end);
         if (id !== null) emit(start, end, id);
       };

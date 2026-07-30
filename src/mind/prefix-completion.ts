@@ -78,6 +78,93 @@
 import type { MindContext } from "./types.js";
 import { bytesEqual } from "../bytes.js";
 import { rItem } from "./trace.js";
+import { canonicalWindows, leafIdPrefix } from "./canonical.js";
+import { hubBound } from "./traverse.js";
+
+/** Trained forms the query may OPEN, proposed from the write side's own
+ *  leaf-id window index — the supply of last resort for {@link
+ *  prefixCompletion}.
+ *
+ *  WHY A SECOND SUPPLY EXISTS.  The ranked list this mechanism normally reads
+ *  is a resonance list, and resonance cannot rank a proper prefix: measured on
+ *  the trained store, cos(prefix, form) falls from 0.9629 at a one-byte
+ *  truncation to 0.6206 at three bytes, against a reachThreshold of 0.8750.
+ *  Three bytes of truncation put the answer out of reach on GEOMETRY, not on a
+ *  bug, so no k and no re-ranking recovers it.
+ *
+ *  WHY THIS ROUTE WORKS WHERE THE FOLD DOES NOT.  A query's own fold is
+ *  useless here: content addressing is not phrase-position-invariant, so a
+ *  standalone prefix folds to a DIFFERENT node than the same bytes sitting
+ *  inside a longer deposit, and neither the prefix's own node nor its
+ *  ancestors lead to the deposit (measured: the 22-byte prefix of the
+ *  photosynthesis form resolves, is shared by 6 contexts, and does not have
+ *  the form among its ancestors).  Leaf ids ARE position-invariant — they are
+ *  content-addressed on single bytes — and `indexSubSpans` already interns a
+ *  flat branch over every canonical WINDOW of a deposit's leaf-id stream, with
+ *  containment edges to the chunks that window spans.  A query that is a
+ *  prefix therefore shares those window nodes exactly, and reaches the deposit
+ *  by climbing containment then parents.  Nothing is added to the write side;
+ *  this reads an index training already built.
+ *
+ *  BOUNDED (§2.8), AND WITH NO NEW THRESHOLD.  The window whose containment is
+ *  SMALLEST carries the most evidence, and one saturated at `hubBound` carries
+ *  none — that is the same √N reading of "hub" the rest of the mind uses, not
+ *  a tuned knob.  The upward walk spends a budget of `hubBound` nodes and
+ *  fans out by W, so a hub query enumerates nothing and the caller stays
+ *  silent rather than guessing (§2.13).  Measured on the trained store: the
+ *  photosynthesis form at a one-byte truncation picks a window with 52
+ *  containers, visits 446 nodes, and yields exactly ONE candidate that
+ *  survives the caller's byte compare — the form itself.
+ *
+ *  These are PROPOSALS only.  Every candidate still faces the byte-exact
+ *  prefix compare and all three guards below, so a wrong proposal costs one
+ *  bounded read and can never be voiced (§2.3). */
+export function prefixCandidates(
+  ctx: MindContext,
+  query: Uint8Array,
+): number[] {
+  const store = ctx.store;
+  const W = ctx.space.maxGroup;
+  const run = leafIdPrefix(ctx, query);
+  // The widest canonical window is the most discriminative one the write side
+  // ever interned; a query too short to spell one carries no window evidence.
+  const len = canonicalWindows(W)[1];
+  if (run.length < len) return [];
+  const bound = hubBound(ctx);
+
+  let best: number | null = null;
+  let bestN = 0;
+  for (let off = 0; off + len <= run.length; off++) {
+    const wid = store.findBranch(run.slice(off, off + len));
+    if (wid === null) continue;
+    const n = store.containersSlice(wid, 0, bound).length;
+    // Empty says the window spans no chunk; saturated says it is a hub, whose
+    // containment discriminates nothing.  Neither is evidence.
+    if (n === 0 || n >= bound) continue;
+    if (best === null || n < bestN) {
+      best = wid;
+      bestN = n;
+    }
+  }
+  if (best === null) return [];
+
+  let frontier = store.containersSlice(best, 0, bound);
+  const seen = new Set<number>(frontier);
+  let budget = bound;
+  while (frontier.length > 0 && budget > 0) {
+    const next: number[] = [];
+    for (const f of frontier) {
+      if (budget-- <= 0) break;
+      for (const p of store.parentsFirst(f, W)) {
+        if (seen.has(p)) continue;
+        seen.add(p);
+        next.push(p);
+      }
+    }
+    frontier = next;
+  }
+  return [...seen];
+}
 
 /** A trained form the query opens, and the bytes by which it continues. */
 export interface PrefixCompletion {
