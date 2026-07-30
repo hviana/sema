@@ -16,7 +16,7 @@ import {
 import type { MindContext } from "../types.js";
 import { gistOf, read, resolve } from "../primitives.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
-import { corpusN, hubBound } from "../traverse.js";
+import { allWindowsAreScaffolding, corpusN, hubBound } from "../traverse.js";
 import { follow, project, reverseContext } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
@@ -323,9 +323,27 @@ export async function recallByResonance(
     // everywhere, expressed in the IDF's own units rather than as a new bar.
     // `peak` is that per-region contribution, and reading it here is what
     // Attention.peak's contract asks of a consumer gating on this evidence.
+    //
+    // AND THE QUERY MUST SAY SOMETHING.  Both readings above price the
+    // ANCHOR's evidence; neither asks whether the QUERY discriminates
+    // anything.  A query that is entirely corpus-global scaffolding gives the
+    // corpus nothing to be held to, and this tier — which exists to serve
+    // scaffolding-DOMINATED queries — is exactly where that runs out.
+    // Measured on the trained store: "What is the capital " answered "Colombo
+    // is the commercial capital of Sri Lanka…" on breadth 0.667 / clusters 1,
+    // and every window it spells is a hub ("What":572).  See
+    // allWindowsAreScaffolding for the full separation, including the probes
+    // this tier serves CORRECTLY, which all retain a discriminating window
+    // ("what is the capital of france" → "f fr":248).
+    //
+    // DISPERSION WAS TRIED HERE FIRST AND FALSIFIED — do not retry it: the
+    // fabrication and the no-punctuation robustness probe have the IDENTICAL
+    // profile (breadth 0.667, clusters 1), so requiring clusters >= 2 silenced
+    // "what is the capital of france" too and cost the battery a probe.
     const minVote = consensusFloor(corpusN(ctx));
     if (
       forest.length > 0 &&
+      !allWindowsAreScaffolding(ctx, query) &&
       (forest[0].vote >= minVote ||
         (dominates(forest[0].breadth, 1) && forest[0].peak > Math.LN2))
     ) {

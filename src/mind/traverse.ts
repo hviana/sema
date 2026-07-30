@@ -9,6 +9,7 @@
 import { cosine, Vec } from "../vec.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { gistOf, read } from "./primitives.js";
+import { leafIdRun } from "./canonical.js";
 
 // ── Session structural memo ─────────────────────────────────────────────
 //
@@ -768,4 +769,55 @@ function rItemShort(
     role,
     score,
   };
+}
+
+/** True when NO window of `query` discriminates anything — every stored
+ *  W-window it spells is contained by more places than the hub bound allows,
+ *  i.e. the whole query is corpus-global scaffolding.
+ *
+ *  WHAT IT IS FOR.  Several mechanisms ground a query through the literal
+ *  spans it did NOT explain, and those spans are the whole of their evidence.
+ *  When every one of them is a hub, the query says nothing the corpus can be
+ *  held to, and grounding it means picking one of thousands of continuations
+ *  it gives no evidence for — a fabrication whatever the answer happens to be.
+ *  Answering with silence there is the honest degradation contract (§2.13).
+ *
+ *  MEASURED SEPARATION (trained store, hubBound 571) — this is categorical,
+ *  not marginal, and it is why the predicate lives here rather than being
+ *  spelled twice:
+ *    "What is the capital of"  ALL saturated ("What":572)  → fabricated
+ *    "What is the capital "    ALL saturated ("What":572)  → fabricated
+ *    "what is the capital of france"  min "f fr":248       → correct
+ *    "What is the capitol of France?" min "f Fr":114       → correct
+ *    "WHAT IS THE CAPITAL OF FRANCE?" min "HE C":1         → correct
+ *    "What  is   the capital  of France?" min "t  i":4     → correct
+ *    "Who wrote Romeo and Juliet?"    min "iet?":26        → correct
+ *    "What is the capital of Zamunda?" min "Zamu":3        → silent anyway
+ *  Note the last: the honest-silence probes are already refused on other
+ *  evidence and sit on the SAME side as the correct ones, so this predicate
+ *  is not what makes them silent and cannot be credited for them.
+ *
+ *  NO NEW THRESHOLD (§2.2): `hubBound` is the √N reading of "hub" used
+ *  everywhere, and the containment read is clamped to it exactly as every
+ *  other fan-out read is (§2.8).  A query with no stored window at all is NOT
+ *  scaffolding-only — it has no evidence either way, and its callers already
+ *  refuse it on their own terms. */
+export function allWindowsAreScaffolding(
+  ctx: MindContext,
+  query: Uint8Array,
+): boolean {
+  const W = ctx.space.maxGroup;
+  const bound = hubBound(ctx);
+  let sawOne = false;
+  for (let o = 0; o + W <= query.length; o++) {
+    const ids = leafIdRun(ctx, query, o, o + W);
+    if (ids === null) continue;
+    const id = ctx.store.findBranch(ids);
+    if (id === null) continue;
+    const rarity = ctx.store.containersSlice(id, 0, bound + 1).length;
+    if (rarity === 0) continue;
+    if (rarity <= bound) return false;
+    sawOne = true;
+  }
+  return sawOne;
 }

@@ -97,6 +97,7 @@ import type { MindContext } from "./types.js";
 import { foldTree, perceive, read } from "./primitives.js";
 import { chainReach, leafIdRun } from "./canonical.js";
 import {
+  allWindowsAreScaffolding,
   corpusN,
   edgeAncestors,
   hubBound,
@@ -378,6 +379,39 @@ async function bridgeImpl(
       [rItem(query, "query")],
       [],
       "no stored query window can anchor a corroborated substitution",
+      undefined,
+      diagnostics!,
+    );
+    return null;
+  }
+  // NO DISCRIMINATING LITERAL EVIDENCE — abstain (§2.13).  A bridge grounds
+  // through the literal spans it did NOT substitute; those anchors are the
+  // whole of its evidence.  When every one of them is SATURATED — containment
+  // clamped at the √N hub bound, i.e. the window is corpus-global scaffolding
+  // — the query's unsubstituted part discriminates nothing, and the single
+  // substituted span is carrying the entire semantic load.  That is not a
+  // corroborated bridge; it is a template match, and it FABRICATES.
+  //
+  // Measured on the trained store (hubBound 571).  "What is the capital of"
+  // has 19 anchors, ALL saturated ("What":572, "hat ":572, "at i":572 …), and
+  // bridged to an unrelated trained context about an integral, voiced
+  // confidently.  Every query the bridge answers CORRECTLY has at least one
+  // unsaturated anchor, by a wide margin and with no near miss:
+  // "Who is the author of Hamlet?" → "let?":12, "How do you say 'thank you'
+  // in French?" → "y 't":3, "…largest planet…" → "tem?":31, "What is the
+  // capital of France?" → "f Fr":114.  The honest-silence probes sit on the
+  // same side as the correct ones ("Zamu":3), so this gate is not what makes
+  // them silent and cannot be credited for them.
+  //
+  // This introduces NO new threshold: `bound` is the same √N reading of "hub"
+  // the anchor scan already clamps its own containment read to (§2.2, §2.7).
+  if (allWindowsAreScaffolding(ctx, query)) {
+    ctx.trace?.step(
+      "substitutionBridge",
+      [rItem(query, "query")],
+      [],
+      "every query window that could anchor is corpus-global scaffolding — " +
+        "no literal evidence to corroborate a substitution",
       undefined,
       diagnostics!,
     );
