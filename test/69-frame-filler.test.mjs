@@ -31,7 +31,6 @@ import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { frameFillerSubstitution } from "../dist/src/mind/frame-filler.js";
-import { textSegmenter } from "../dist/src/canon.js";
 
 const enc = (s) => new TextEncoder().encode(s);
 const FRAME = [
@@ -60,10 +59,6 @@ async function fixture(train) {
 }
 /** Call the tier the way recall does: the query plus recall's ranked hit ids. */
 async function tier(mind, q) {
-  // The tier asks the MODALITY where units are; respond() injects that on the
-  // text path.  Calling the tier directly must inject it too, or the mechanism
-  // correctly declines and these assertions would pass vacuously.
-  mind.segmenter = textSegmenter;
   const hits = await mind.store.resonate(mind.perceive(q).v, 24);
   return frameFillerSubstitution(mind, enc(q), hits.map((h) => h.id));
 }

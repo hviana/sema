@@ -7,7 +7,6 @@ import type { Vec } from "../vec.js";
 import type { Sema } from "../sema.js";
 import type { BoundedMap, Store } from "../store.js";
 import type { Space } from "../sema.js";
-import type { Segmenter } from "../canon.js";
 import type { Alphabet } from "../alphabet.js";
 import type { MindConfig } from "../config.js";
 import type { Meter } from "../meter.js";
@@ -314,12 +313,6 @@ export interface MindContext extends GraphSearchHost {
    *  probed against the store's canon index (see src/canon.ts).  The core
    *  never inspects what the equivalence IS. */
   canon: ((bytes: Uint8Array) => Uint8Array) | null;
-  /** The modality's unit segmenter for THIS response, or null — injected by
-   *  the same entry point, on the same modality test, as {@link canon}.  A
-   *  mechanism that needs to know where a modality's atomic content runs begin
-   *  must ask this and stay silent when it is null; the core defines no
-   *  character class of its own.  See src/canon.ts's Segmenter. */
-  segmenter: Segmenter | null;
   /** Per-response memo of canonical-fallback resolutions, keyed by the
    *  span's latin1 content key.  Null outside respond(). */
   canonMemo: Map<string, number | null> | null;
