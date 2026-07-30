@@ -224,19 +224,30 @@ export function frameFillerSubstitution(
 
   // THE FRAME COHORT.  A frame is only established among exemplars that are
   // instances of the SAME frame — "more than half the aligned structures share
-  // it" says nothing when the structures share nothing to begin with.  The
-  // resonance candidates are not that set: they are merely near in gist, and
-  // read as one cohort a majority never forms, so every byte reads as content
-  // and any span at all becomes a filler.  Measured, and it does not merely
-  // fail to answer — it FABRICATES ("Tell me the name of the biggest planet
-  // orbiting our sun." grounded a list of animals).
+  // it" says nothing when the structures share nothing to begin with.  Two
+  // readings were measured and BOTH fail:
   //
-  // The cohort is the candidates that hold the query's own discriminative
-  // content: exemplars talking about the same thing, whose agreement is
-  // therefore about the frame rather than about coincidence.  Bootstrapped in
-  // two passes, because naming that content needs constituents and constituents
-  // need a cohort: pass 1 reads the query against everything to name its rarest
-  // content, pass 2 keeps only the candidates holding it and re-reads.
+  //   • ALL resonance candidates.  They are merely near in gist, so a majority
+  //     never forms, every byte reads as content, any span becomes a filler —
+  //     and it does not merely fail to answer, it FABRICATES ("Tell me the name
+  //     of the biggest planet orbiting our sun." grounded a list of animals).
+  //   • candidates holding the query's discriminative content.  These are
+  //     exemplars about the same THING, not instances of the same FRAME: the
+  //     seven holding "Eiffel" share `" the Eiffel Tower"` and nothing else, so
+  //     a whole clause reads as content and no constituent is isolated.
+  //
+  // A THIRD reading is measured and WORKS on the hard case, but is not yet
+  // safe: the cohort of a subject as its STRUCTURAL NEIGHBOURS (candidates
+  // whose alignment covers the most of it), since instances of one frame are
+  // exactly the forms sharing that frame's bytes.  On the two-hop probe that
+  // isolates the constituent this tier needs — content runs come out as
+  // `"The most well-" | "landmark" | "France" | "Eiffel Tower."`, with the last
+  // already excluded for being in the query.  What is missing is the CUT:
+  // `naturalBreak` over the coverage profile admits enough coincidental
+  // neighbours that `What is photosynthesis?` fabricated ("photo-sharing app"),
+  // because a content RUN can be W bytes long and a W-byte fragment is too weak
+  // to be a description's discriminative unit.  Both must be solved together —
+  // the cut, and a floor on what may serve as that unit.
   let cohort = contexts;
   let queryContent = contentRuns(query, cohort);
 

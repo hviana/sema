@@ -367,6 +367,49 @@ export async function recallByResonance(
     }
   }
   // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts).
+  // MEMOISED ACROSS EVERY REMAINING TIER, and that is load-bearing rather than
+  // tidy: the bridge, prefix completion and the frame filler all read the SAME
+  // candidate list, so the exhaustive branch runs at most once per response.
+  // Without the memo each tier re-issues it — measured at 490 ms median against
+  // 13 ms non-exhaustive (36x).
+  const wideIdsOnce = async (): Promise<ReadonlyArray<number>> => {
+    // When the top resonance hit is below the concept threshold, the query
+    // gist has no concept-level match to any stored form — an exhaustive √N
+    // ANN would only score more vectors below the bar (profiled at 38K–40K
+    // annVectorReads per refusing query on a 325K-context store).  The
+    // bridge's structural channels (junction walks, anchor climbs) are the
+    // correct proposal source for a query whose gist has no clean match;
+    // the ANN cannot propose what the gist cannot rank.
+    // The condition above is the SCORE of the top hit, not the size of the
+    // corpus.  It used to be spelled `corpusN(ctx) <= (k · W)³`, which asks
+    // a different question and answers it wrongly at exactly the scale the
+    // note was written from: on the trained store N = 325,608 with k = 24
+    // and W = 4 puts the cube at 884,736, so that store took the exhaustive
+    // branch — the very branch measured here as 38K–40K annVectorReads.
+    // Measured cost of the mismatch: substitutionBridge 8,544ms of a
+    // 19,548ms think (44%), against 1,248ms and 14,218ms without it, with
+    // every answer in the battery byte-identical and the suite unchanged
+    // at 445/445.  Corpus size was never the discriminator; whether the
+    // gist ranks ANYTHING at concept level is.
+    //
+    // Reading it as the note states also removes a duplicated (k · W)³ —
+    // the same cube gates crossRegionVotes' walk budget, where it likewise
+    // never engages at real scale (see attention.ts).
+    if (whole.length > 0 && whole[0].score >= conceptThreshold(ctx.store.D)) {
+      const exhaustive = await ctx.store.resonate(
+        queryGist,
+        hubBound(ctx),
+        true,
+      );
+      return exhaustive.map((h) => h.id);
+    }
+    return whole.map((h) => h.id);
+  };
+  let wide: Promise<ReadonlyArray<number>> | null = null;
+  const wideIds = (): Promise<
+    ReadonlyArray<number>
+  > => (wide ??= wideIdsOnce());
+
   // Every gist-based tier has failed; before refusing, align the query
   // byte-for-byte against the trained contexts its own stored windows
   // anchor, accepting mismatches only as corpus-attested, concept-bar
@@ -387,47 +430,6 @@ export async function recallByResonance(
     // exact co-occurrence and bounded anchor ascent are the bridge's structural
     // proposal channels, while an exhaustive ANN call made every honest
     // refusal cost hundreds of milliseconds regardless of k.
-    // MEMOISED, and that is load-bearing rather than tidy: the prefix tier
-    // below consumes the SAME list the bridge proposed from, so the exhaustive
-    // branch runs at most once per response.  Without the memo that tier would
-    // re-issue it — measured at 490 ms median against 13 ms non-exhaustive.
-    let wide: Promise<ReadonlyArray<number>> | null = null;
-    const wideIds = (): Promise<
-      ReadonlyArray<number>
-    > => (wide ??= wideIdsOnce());
-    const wideIdsOnce = async (): Promise<ReadonlyArray<number>> => {
-      // When the top resonance hit is below the concept threshold, the query
-      // gist has no concept-level match to any stored form — an exhaustive √N
-      // ANN would only score more vectors below the bar (profiled at 38K–40K
-      // annVectorReads per refusing query on a 325K-context store).  The
-      // bridge's structural channels (junction walks, anchor climbs) are the
-      // correct proposal source for a query whose gist has no clean match;
-      // the ANN cannot propose what the gist cannot rank.
-      // The condition above is the SCORE of the top hit, not the size of the
-      // corpus.  It used to be spelled `corpusN(ctx) <= (k · W)³`, which asks
-      // a different question and answers it wrongly at exactly the scale the
-      // note was written from: on the trained store N = 325,608 with k = 24
-      // and W = 4 puts the cube at 884,736, so that store took the exhaustive
-      // branch — the very branch measured here as 38K–40K annVectorReads.
-      // Measured cost of the mismatch: substitutionBridge 8,544ms of a
-      // 19,548ms think (44%), against 1,248ms and 14,218ms without it, with
-      // every answer in the battery byte-identical and the suite unchanged
-      // at 445/445.  Corpus size was never the discriminator; whether the
-      // gist ranks ANYTHING at concept level is.
-      //
-      // Reading it as the note states also removes a duplicated (k · W)³ —
-      // the same cube gates crossRegionVotes' walk budget, where it likewise
-      // never engages at real scale (see attention.ts).
-      if (whole.length > 0 && whole[0].score >= conceptThreshold(ctx.store.D)) {
-        const exhaustive = await ctx.store.resonate(
-          queryGist,
-          hubBound(ctx),
-          true,
-        );
-        return exhaustive.map((h) => h.id);
-      }
-      return whole.map((h) => h.id);
-    };
     const bridged = await substitutionBridge(ctx, query, wideIds);
     if (bridged !== null) {
       const g = await project(ctx, bridged.id, queryGist);
@@ -544,7 +546,15 @@ export async function recallByResonance(
   // description's place, byte-exactly.  A key the store does not hold is
   // discarded, so the answer is always a trained continuation.
   {
-    const filled = frameFillerSubstitution(ctx, query, whole.map((h) => h.id));
+    // THE COHORT NEEDS EVIDENCE, AND THE REFUSAL PATH HAS ALREADY BOUGHT IT.
+    // This tier reads constituency from what a cohort of exemplars does NOT
+    // share, so its resolution is bounded by how many instances of the frame it
+    // can see.  The top-k resonance hits are too few — on the two-hop probe the
+    // exemplars holding the query's discriminative content number TWO, and two
+    // structures agree on so little that a whole clause reads as content.  The
+    // exhaustive list the bridge fetched is the same evidence at ~570 wide, and
+    // it is already paid for (memoised above, so this costs no ANN call).
+    const filled = frameFillerSubstitution(ctx, query, await wideIds());
     if (filled !== null) {
       const g = await project(ctx, filled.id, queryGist);
       // The same restated-fragment and manufactured-answer guards every tier
