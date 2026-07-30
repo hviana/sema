@@ -24,6 +24,7 @@ import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 import { substitutionBridge } from "../bridge.js";
 import { frameFillerSubstitution } from "../frame-filler.js";
+import { prefixCompletion } from "../prefix-completion.js";
 
 /** A recall result. */
 export interface RecallResult {
@@ -386,7 +387,15 @@ export async function recallByResonance(
     // exact co-occurrence and bounded anchor ascent are the bridge's structural
     // proposal channels, while an exhaustive ANN call made every honest
     // refusal cost hundreds of milliseconds regardless of k.
-    const wideIds = async (): Promise<ReadonlyArray<number>> => {
+    // MEMOISED, and that is load-bearing rather than tidy: the prefix tier
+    // below consumes the SAME list the bridge proposed from, so the exhaustive
+    // branch runs at most once per response.  Without the memo that tier would
+    // re-issue it — measured at 490 ms median against 13 ms non-exhaustive.
+    let wide: Promise<ReadonlyArray<number>> | null = null;
+    const wideIds = (): Promise<
+      ReadonlyArray<number>
+    > => (wide ??= wideIdsOnce());
+    const wideIdsOnce = async (): Promise<ReadonlyArray<number>> => {
       // When the top resonance hit is below the concept threshold, the query
       // gist has no concept-level match to any stored form — an exhaustive √N
       // ANN would only score more vectors below the bar (profiled at 38K–40K
@@ -490,6 +499,36 @@ export async function recallByResonance(
           // read-out.  A SUBSTITUTED bridge makes no such claim (it stood a
           // different word in the query's place), so it stays extendable.
           bridged.subs.length === 0,
+        );
+      }
+    }
+
+    // 3b′. PREFIX COMPLETION — refusal-path only (prefix-completion.ts).
+    // Inside the bridge's block, and deliberately: it consumes `wideIds`, the
+    // list the bridge has already fetched, so it costs a bounded byte compare
+    // per candidate and not one resonance.  The claim it makes is the
+    // strongest in the ladder — every query byte is a LITERAL match from
+    // offset zero of a trained form — so it needs no projection and no reach
+    // gate.  It runs after the bridge only because the bridge answers the
+    // richer relation when it can; a prefix match that the bridge also
+    // explains is the same trained form either way.
+    {
+      const completed = prefixCompletion(ctx, query, await wideIds());
+      if (completed !== null) {
+        return ground(
+          completed.completion,
+          "prefix completion — the query IS the opening of one trained " +
+            "form, and this is that form's remainder",
+          // Every query byte is literally matched against the form.  The
+          // completion is the form's own continuation, not a substitution, so
+          // there is nothing to be humble about in the accounting — the same
+          // reading the IDENTITY bridge above takes.
+          whole_,
+          STEP,
+          false,
+          // NOT complete: the query is a proper PREFIX, so the form may carry
+          // more past the remainder this tier voiced.
+          false,
         );
       }
     }
