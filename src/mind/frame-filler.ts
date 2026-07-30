@@ -236,20 +236,92 @@ export function frameFillerSubstitution(
   //     seven holding "Eiffel" share `" the Eiffel Tower"` and nothing else, so
   //     a whole clause reads as content and no constituent is isolated.
   //
-  // A THIRD reading is measured and WORKS on the hard case, but is not yet
-  // safe: the cohort of a subject as its STRUCTURAL NEIGHBOURS (candidates
-  // whose alignment covers the most of it), since instances of one frame are
-  // exactly the forms sharing that frame's bytes.  On the two-hop probe that
-  // isolates the constituent this tier needs — content runs come out as
-  // `"The most well-" | "landmark" | "France" | "Eiffel Tower."`, with the last
-  // already excluded for being in the query.  What is missing is the CUT:
-  // `naturalBreak` over the coverage profile admits enough coincidental
-  // neighbours that `What is photosynthesis?` fabricated ("photo-sharing app"),
-  // because a content RUN can be W bytes long and a W-byte fragment is too weak
-  // to be a description's discriminative unit.  Both must be solved together —
-  // the cut, and a floor on what may serve as that unit.
-  let cohort = contexts;
-  let queryContent = contentRuns(query, cohort);
+  // The cohort of a subject is its STRUCTURAL NEIGHBOURS — the candidates whose
+  // alignment covers the most of it — because instances of one frame are
+  // exactly the forms that share that frame's bytes.  Two weaker readings were
+  // measured and both fail: ALL candidates share nothing, so a majority never
+  // forms, every byte reads as content and the tier FABRICATES; candidates
+  // holding the query's rarest content are exemplars about the same THING, not
+  // the same FRAME (the seven holding "Eiffel" share `" the Eiffel Tower"` and
+  // nothing else), so no constituent is isolated.
+  //
+  // THE CUT is half-dominance against the BEST neighbour, not against the
+  // subject's length.  Coverage is bounded by how much frame two forms can
+  // share at all — measured, the best neighbour covered 23 of 59 bytes — so
+  // `dominates(n, subject.length)` can never fire and the cohort is always
+  // empty.  Read against the best coverage the profile actually offers, the
+  // same convention becomes scale-free and needs no constant: a form sharing
+  // more than half of what the closest instance shares is another instance.
+  const coverageOf = (
+    subject: Uint8Array,
+    other: Uint8Array,
+    keepEdges: Set<number> | null = null,
+  ): number => {
+    const seen = new Uint8Array(subject.length);
+    for (const r of alignRuns(ctx, subject, other)) {
+      if (keepEdges !== null) {
+        keepEdges.add(r.qs);
+        keepEdges.add(r.qe);
+      }
+      for (let i = r.qs; i < r.qe && i < seen.length; i++) seen[i] = 1;
+    }
+    let n = 0;
+    for (const x of seen) n += x;
+    return n;
+  };
+  // WHERE ANY EXEMPLAR'S SHARED MATERIAL STARTS OR STOPS.  Collected over EVERY
+  // candidate, not just the cohort: the cut decides whose AGREEMENT establishes
+  // the frame, which is a different question from where a boundary EXISTS.  One
+  // exemplar ending a run at an offset is already evidence of an edge there,
+  // however unrelated it is otherwise — measured, drawing edges from the cohort
+  // alone loses the boundary between `"is"` and `"?"` (2 candidates of 563
+  // attest it, 0 of 131 in the cohort), and without it the two-hop description
+  // cannot be expressed at all.
+  const edgesMemo = new Map<Uint8Array, Set<number>>();
+  const cohortMemo = new Map<Uint8Array, Uint8Array[]>();
+  const cohortOf = (subject: Uint8Array): Uint8Array[] => {
+    const seen = cohortMemo.get(subject);
+    if (seen !== undefined) return seen;
+    const eset = new Set<number>([0, subject.length]);
+    edgesMemo.set(subject, eset);
+    let best = 0;
+    const scored: Array<{ c: Uint8Array; n: number }> = [];
+    for (const c of contexts) {
+      if (c === subject) continue;
+      const n = coverageOf(subject, c, eset);
+      if (n < W) continue;
+      if (n > best) best = n;
+      scored.push({ c, n });
+    }
+    const out = scored.filter((x) => dominates(x.n, best)).map((x) => x.c);
+    cohortMemo.set(subject, out);
+    return out;
+  };
+  /** Split each run at the boundaries other exemplars attest for `subject` — a
+   *  run is a stretch the cohort does not share, not itself a constituent, so
+   *  taking it whole asks the evidence for a span no exemplar holds. */
+  const cutAtEdges = (
+    subject: Uint8Array,
+    runs: Array<[number, number]>,
+  ): Array<[number, number]> => {
+    const eset = edgesMemo.get(subject);
+    if (eset === undefined) return runs;
+    const inner = [...eset].sort((a, b) => a - b);
+    const out: Array<[number, number]> = [];
+    for (const [rs, re] of runs) {
+      let prev = rs;
+      for (const o of inner) {
+        if (o <= rs || o >= re) continue;
+        if (o - prev >= W) out.push([prev, o]);
+        prev = o;
+      }
+      if (re - prev >= W) out.push([prev, re]);
+      out.push([rs, re]);
+    }
+    return out;
+  };
+
+  const queryContent = contentRuns(query, cohortOf(query));
 
   // Corpus rarity of a unit, by how many trained forms contain its first
   // window — the same container-count reading the bridge's anchor picking uses.
@@ -285,15 +357,76 @@ export function frameFillerSubstitution(
   ): [number, number] | null => {
     let best: [number, number] | null = null;
     let bestRarity = Infinity;
+    let bestAttested = 0;
     let bestLen = 0;
+    // A content run is a stretch the cohort does not share; it is not itself a
+    // constituent, and taking it whole asks the evidence for a span no exemplar
+    // holds (measured: `" Eiffel Tower is?"` qualified NO candidate, so the tier
+    // never probed).  Cut each run at the boundaries other exemplars attest —
+    // the same edge set the descriptions are enumerated over — so the unit is a
+    // span the corpus has actually seen begin and end.
+    //
+    // A unit may span ANY two attested edges, not just adjacent ones.  Slicing
+    // only between consecutive edges makes the unit set depend on how DENSE the
+    // evidence is rather than on what it says: measured, at k = 24 the query
+    // carries 17 edges and `"Eiffel Tower"` is one slice (elected, attested),
+    // while at k = 571 it carries 55 and every consecutive slice is 1-3 bytes —
+    // all under the constituent bar — leaving only the whole unattested run and
+    // electing nothing at all.  More evidence made the tier blinder.  Taking
+    // every edge-bounded sub-span removes that dependence: the corpus decides
+    // which spans exist, never how finely it happened to mark them.
+    const pieces: Array<[number, number]> = [];
     for (const [cs0, ce0] of queryContent) {
+      const inner = bs.filter((o) => o > cs0 && o < ce0);
+      let prev = cs0;
+      for (const o of [...inner, ce0]) {
+        pieces.push([prev, o]);
+        prev = o;
+      }
+      pieces.push([cs0, ce0]);
+    }
+    for (const [cs0, ce0] of pieces) {
       const s = Math.max(cs0, from);
       const e = Math.min(ce0, to);
-      if (e - s < W) continue;
+      // ATTESTED, or it is not evidence.  Rarity is read over the span's FIRST
+      // window, so every longer span sharing that window scores identically —
+      // and the longer-wins tie-break below then elects the longest of them,
+      // which is a claim about bytes the measurement never looked at.  Measured
+      // live: the elected unit was `"Eiffel Tower is?"`, held by 0 of the 24
+      // candidates, so guard 1 rejected every one and the tier never probed
+      // (`descs=14, qualified=0, probes=0`).  Requiring the unit to occur in the
+      // evidence is not an extra gate — guard 1 demands exactly this — it just
+      // has to hold at ELECTION time, or election spends itself on a span no
+      // candidate can qualify.
+      let attested = 0;
+      for (const c of contexts) {
+        if (indexOf(c, query.subarray(s, e), 0) >= 0) attested++;
+      }
+      if (attested === 0) continue;
+      // THE CONSTITUENT BAR — two quanta, the same reading argument binding
+      // holds its constituents to.  Content runs are not units of a modality's
+      // making, so a run may be as short as one window, and a single window is
+      // too weak to say what a description is ABOUT: measured, the W-byte
+      // fragment `phot` qualified `What is photosynthesis?` against an
+      // unrelated "photo-sharing app" and fabricated an answer.
+      if (e - s < 2 * W) continue;
       const r = rarityOf(s, e);
       if (r === Infinity) continue;
-      if (r < bestRarity || (r === bestRarity && e - s > bestLen)) {
+      // Rarity is read over the FIRST window, so spans sharing it are
+      // indistinguishable to the measurement; among them the only measured
+      // difference is how much evidence actually holds the span.  Preferring the
+      // LONGER one asserts bytes never looked at — measured, it elected
+      // `"Eiffel Tower "` (trailing space, 1 context) over `"Eiffel Tower"`
+      // (2 contexts), so the one candidate that could complete the description
+      // never qualified.  Length breaks only a genuine tie in both.
+      if (
+        r < bestRarity ||
+        (r === bestRarity &&
+          (attested > bestAttested ||
+            (attested === bestAttested && e - s > bestLen)))
+      ) {
         bestRarity = r;
+        bestAttested = attested;
         bestLen = e - s;
         best = [s, e];
       }
@@ -301,37 +434,38 @@ export function frameFillerSubstitution(
     return best;
   };
 
+  const qEdges = edgesMemo.get(query) ?? new Set<number>([0, query.length]);
+  for (const [cs0, ce0] of queryContent) {
+    qEdges.add(cs0);
+    qEdges.add(ce0);
+  }
+  const bs = [...qEdges].sort((a, b) => a - b);
+
   // The query's own discriminative content — every candidate description must
   // contain it, or the substitution is not about what the query is asking.
   const queryRare = rarestUnit(0, query.length);
-  if (queryRare !== null) {
-    const mark = query.subarray(queryRare[0], queryRare[1]);
-    const narrowed = contexts.filter((c) => indexOf(c, mark, 0) >= 0);
-    if (narrowed.length >= 2) {
-      cohort = narrowed;
-      queryContent = contentRuns(query, cohort);
-    }
-  }
   if (queryRare === null) {
     return done(
       null,
       "no corpus-attested unit in the query — nothing to describe",
+      {
+        contexts: contexts.length,
+        qc: queryContent.length,
+        edges: bs.length,
+        runs: queryContent.map(([a, b]) => spanKey(query, a, b)),
+      },
     );
   }
 
   let probes = 0;
+  let descs = 0, qualified = 0, fillers = 0;
+  const chosen = new Map<string, number>();
+  const fillerSeen = new Set<string>();
   const budget = hubBound(ctx);
   // resolved form id -> the description span and filler that reached it
   const found = new Map<number, FrameFillerHit>();
-  // Candidate description edges: where the query's content begins and ends.
-  // Frame bytes are shared scaffolding, so a description that starts or stops
-  // inside one is not a constituent boundary the corpus attests.
-  const bset = new Set<number>([0, query.length]);
-  for (const [cs0, ce0] of queryContent) {
-    bset.add(cs0);
-    bset.add(ce0);
-  }
-  const bs = [...bset].sort((a, b) => a - b);
+  // Candidate description edges: every offset some exemplar's shared material
+  // begins or ends at, plus the query's own extremes.
 
   for (let i = 0; i < bs.length; i++) {
     for (let j = i + 1; j < bs.length; j++) {
@@ -344,6 +478,11 @@ export function frameFillerSubstitution(
       if (dStart > queryRare[0] || dEnd < queryRare[1]) continue;
       const dRare = rarestUnit(dStart, dEnd);
       if (dRare === null) continue;
+      descs++;
+      {
+        const u = spanKey(query, dRare[0], dRare[1]);
+        chosen.set(u, (chosen.get(u) ?? 0) + 1);
+      }
       const rareUnit = query.subarray(dRare[0], dRare[1]);
 
       for (const sid of ranked) {
@@ -357,15 +496,18 @@ export function frameFillerSubstitution(
         if (hit === null) continue;
         // GUARD 1 — this hit must literally hold the description's rarest unit.
         if (indexOf(hit, rareUnit, 0) < 0) continue;
+        qualified++;
 
         // Fillers: this hit's CONTENT — the spans its fellow candidates do not
         // share.  What the exemplars have in common is the frame they are all
         // instances of; what is left distinguishes THIS one, and that is the
         // constituent standing where the query's description stands.
-        const runs = contentRuns(hit, cohort);
+        const runs = cutAtEdges(hit, contentRuns(hit, cohortOf(hit)));
 
         for (const [fs, fe] of runs) {
           if (fe - fs < W) continue;
+          fillers++;
+          if (fillerSeen.size < 40) fillerSeen.add(spanKey(hit, fs, fe));
           const filler = hit.subarray(fs, fe);
           if (indexOf(query, filler, 0) >= 0) continue;
           if (probes >= budget) {
@@ -375,7 +517,18 @@ export function frameFillerSubstitution(
             return done(
               null,
               `probe budget (${budget}) exhausted — uniqueness unestablished`,
-              { version: 1, probes, rarityReads, resolved: found.size },
+              {
+                version: 1,
+                probes,
+                rarityReads,
+                resolved: found.size,
+                contexts: contexts.length,
+                edges: bs.length,
+                qc: queryContent.length,
+                descs,
+                qualified,
+                fillers,
+              },
             );
           }
           probes++;
@@ -415,6 +568,19 @@ export function frameFillerSubstitution(
     rarityReads,
     resolved: found.size,
     budget,
+    contexts: contexts.length,
+    edges: bs.length,
+    qc: queryContent.length,
+    descs,
+    qualified,
+    fillers,
+    fillerSeen: [...fillerSeen],
+    chosen: [...chosen.entries()].map(([u, n]) => {
+      const b = new Uint8Array(u.length);
+      for (let i = 0; i < u.length; i++) b[i] = u.charCodeAt(i);
+      const inAny = contexts.filter((c) => indexOf(c, b, 0) >= 0).length;
+      return `${JSON.stringify(u)} x${n} inContexts=${inAny}`;
+    }),
     ms: Date.now() - _t0,
   };
   // GUARD 4 — exactly one trained form, or the query is ambiguous about its own
