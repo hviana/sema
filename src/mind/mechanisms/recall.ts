@@ -8,6 +8,7 @@ import { cosine } from "../../vec.js";
 import {
   conceptThreshold,
   consensusFloor,
+  dominates,
   identityBar,
   reachThreshold,
   significanceBar,
@@ -22,6 +23,7 @@ import { unexplainedLabel } from "../rationale.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 import { substitutionBridge } from "../bridge.js";
+import { frameFillerSubstitution } from "../frame-filler.js";
 
 /** A recall result. */
 export interface RecallResult {
@@ -256,13 +258,76 @@ export async function recallByResonance(
 
   // 2. Scaffolding-dominated.
   if (top.score >= sig) {
-    const N = corpusN(ctx);
-    const minVote = consensusFloor(N);
     // The committed points of attention ARE the shared climb's roots (same
     // query, same k, same DF mode) — read them from Precomputed instead of
     // re-climbing, so even a traced response pays for the climb once.
     const forest = (await pre.attention()).roots;
-    if (forest.length > 0 && forest[0].vote >= minVote) {
+    // TRUST THE ANCHOR ON ITS BREADTH, NOT ON ITS ABSOLUTE VOTE.
+    //
+    // This gate read `forest[0].vote >= consensusFloor(N)`.  Attention.breadth's
+    // own contract (types.ts) says why that is the wrong quantity: the IDF vote
+    // is "an absolute, ln(N)-scaled quantity that means 'strong' on a small
+    // store and 'weak' on a large one for the SAME degree of genuine
+    // consensus", while breadth is the SCALE-INVARIANT reading — "a point whose
+    // breadth clears `dominates` (> half the query's regions corroborate it) is
+    // real consensus; one that does not is a coincidental single-region echo".
+    // Attention.peak's contract makes the same point from the other side:
+    // comparing a POOLED SUM against a floor that prices ONE region's evidence
+    // is a dimensional error.
+    //
+    // Measured on the 15.7M-node store (N=325,615, so the old floor was 13.19).
+    // The absolute vote cannot separate right from wrong at this scale, and the
+    // proof is a probe that must stay SILENT:
+    //
+    //   anchor picked by the climb          vote   breadth  correct?
+    //   "What is the chemical formula …"   10.60    0.556   RIGHT
+    //   "Qual é a capital de França?"       8.19    0.667   RIGHT
+    //   "Who wrote the play Romeo …?"       8.25    0.833   RIGHT
+    //   "How do you say "good morning" …"  10.77    0.800   RIGHT
+    //   "What is the commercial capital …" 12.69    0.333   Zamunda — MUST be silent
+    //   "Menene sunan ginin mafi tsayi …"  12.79    0.214   wrong (Hausa)
+    //   "Today is the 5th of March …"      10.36    0.000   wrong
+    //
+    // Zamunda's junk attractor outvotes every correct anchor, so no vote
+    // threshold admits the right ones without admitting fabrication — while
+    // breadth > ½ admits exactly the four correct anchors and nothing else.
+    // The old floor was simply never cleared on a corpus this large: the tier
+    // was dead code here, which is why 12 probes fell through to silence.
+    //
+    // `dominates(breadth, 1)` is the SAME half-dominance predicate used
+    // throughout, applied to the fraction — no new constant, and the bar the
+    // breadth contract names.  COST: none; breadth is already computed and
+    // carried on every Attention the climb returns.
+    //
+    // The two readings are ALTERNATIVES, never a substitution.  REPLACING the
+    // vote test with the breadth test was tried and broke 7 tests: on a small
+    // store ln(N) is low, so the vote bar is the one that legitimately fires
+    // there, and — as Attention.clusters' own contract warns — "breadth starves
+    // a genuine, evenly-split multi-topic query, since no root in a real N-way
+    // split can exceed half the vote" (the two 3.1 two-topic fusion tests are
+    // exactly that shape).  Each reading is sufficient on its own evidence: a
+    // vote that clears the absolute floor is strong enough wherever the corpus
+    // is small enough for that to mean something, and a breadth past ½ is real
+    // consensus at any scale.  ORing them keeps every admission the floor
+    // already made and adds only the scale-invariant ones it could never see.
+    //
+    // BREADTH ALSO NEEDS DISCRIMINATIVENESS.  Breadth asks how much of the
+    // query corroborates the anchor, never whether the anchor SAYS anything: on
+    // a one-context store every region trivially corroborates the only anchor
+    // there is, so breadth is 1 while the anchor's IDF is 0 — and test/31 A2
+    // ("explain quantum chromodynamics" against a lone cat fact) answered the
+    // cat, which is fabrication.  A region's IDF contribution for an anchor
+    // reached through c of N contexts is ln(N/c), so requiring it to exceed
+    // ln 2 is requiring c·2 < N — the SAME half-dominance reading used
+    // everywhere, expressed in the IDF's own units rather than as a new bar.
+    // `peak` is that per-region contribution, and reading it here is what
+    // Attention.peak's contract asks of a consumer gating on this evidence.
+    const minVote = consensusFloor(corpusN(ctx));
+    if (
+      forest.length > 0 &&
+      (forest[0].vote >= minVote ||
+        (dominates(forest[0].breadth, 1) && forest[0].peak > Math.LN2))
+    ) {
       const g = await project(ctx, forest[0].anchor, queryGist);
       // The anchor cleared the consensus floor, but the floor prices the
       // ANCHOR's evidence, not the projection's: a junk attractor can clear
@@ -425,6 +490,41 @@ export async function recallByResonance(
           // read-out.  A SUBSTITUTED bridge makes no such claim (it stood a
           // different word in the query's place), so it stays extendable.
           bridged.subs.length === 0,
+        );
+      }
+    }
+  }
+
+  // 3c. FRAME-FILLER SUBSTITUTION — refusal-path only (frame-filler.ts).
+  // The bridge has failed, and for the shape this tier answers it MUST fail:
+  // a definite description standing where a proper noun stands is not a
+  // similarity relation the bridge can price (raw balance refuses
+  // `dominates(6, 37)`, and correctly — that is the France/Spain trap).  This
+  // tier makes a different claim: not that the two spans resemble each other,
+  // but that the store ALREADY HOLDS this query with the filler in the
+  // description's place, byte-exactly.  A key the store does not hold is
+  // discarded, so the answer is always a trained continuation.
+  {
+    const filled = frameFillerSubstitution(ctx, query, whole.map((h) => h.id));
+    if (filled !== null) {
+      const g = await project(ctx, filled.id, queryGist);
+      // The same restated-fragment and manufactured-answer guards every tier
+      // above applies: a projection contained in the FILLER is the
+      // substitution restated as if it were knowledge, not knowledge.
+      if (
+        g !== null && g.length > 0 && !restates(g) &&
+        indexOf(filled.filler, g, 0) < 0 &&
+        !(g.length < query.length && indexOf(query, g, 0) >= 0)
+      ) {
+        return ground(
+          g,
+          "frame-filler substitution — a trained form IS this query with a " +
+            "corroborated filler in the described span's place",
+          // The frame is literally matched against the resolved form and the
+          // described span is explained by the substitution — the same
+          // matched-plus-substituted accounting the bridge reports.
+          [[0, query.length]],
+          CONCEPT + STEP,
         );
       }
     }

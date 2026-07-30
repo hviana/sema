@@ -60,3 +60,28 @@ export function indexOf(
   }
   return -1;
 }
+
+/** The span of `bytes` between its first and last non-separator byte — the
+ *  QUESTION, with any leading/trailing whitespace dropped.  Returns a subarray
+ *  (no copy) and the original when there is nothing to trim.
+ *
+ *  canon.ts's contract states the reading: "a span's leading or trailing
+ *  separator belongs BETWEEN forms, not to the form".  canon itself preserves
+ *  edge whitespace, and must, because the hazard it cites is a recognised
+ *  SUB-span swallowing the boundary byte separating it from its neighbour
+ *  ("ice " matching the stored "ice").  At the outer edges of a WHOLE input
+ *  there is no neighbour — nothing precedes byte 0, nothing follows the last
+ *  byte — so that hazard cannot arise and the trim is safe exactly there.
+ *
+ *  TEXT ONLY.  For a binary or grid modality 0x20 is content, not presentation,
+ *  so callers must gate this on the same `typeof input === "string"` test that
+ *  decides whether to inject the text canonicalizer. */
+export function trimEdgeSeparators(bytes: Uint8Array): Uint8Array {
+  const sep = (b: number) =>
+    b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d;
+  let from = 0;
+  let to = bytes.length;
+  while (from < to && sep(bytes[from])) from++;
+  while (to > from && sep(bytes[to - 1])) to--;
+  return from === 0 && to === bytes.length ? bytes : bytes.subarray(from, to);
+}

@@ -29,7 +29,13 @@ import {
   coverSequence,
   lightestDerivation,
 } from "../derive/src/index.js";
-import { bytesEqual, concat2, concatBytes, indexOf } from "../bytes.js";
+import {
+  bytesEqual,
+  concat2,
+  concatBytes,
+  indexOf,
+  trimEdgeSeparators,
+} from "../bytes.js";
 import {
   type ComputedResult,
   type DerivationItem,
@@ -613,12 +619,42 @@ export class Mind implements MindContext {
     // through the generic entry point.  Raw bytes / grids carry only the
     // Mind-level canon option, if any.
     const canon = this._canonFor(typeof input === "string" ? textCanon : null);
-    return this._respondImpl(
-      inputBytes(this, input),
+    // EDGE WHITESPACE IS NOT PART OF THE QUESTION — trim it once, here, so
+    // every mechanism downstream sees the same question regardless of how the
+    // caller spaced it.  See trimEdgeSeparators for why the outer edges of a
+    // whole input are exactly where canon.ts's no-trimming hazard cannot arise.
+    // Gated on the SAME modality test as the canonicalizer above: for bytes and
+    // grids 0x20 is content, and nothing is trimmed.
+    //
+    // Measured on the 15.7M-node store: without this, one leading space took
+    // `Who wrote Romeo and Juliet?` and `What is the chemical symbol for
+    // water?` from answered to silent, because a shift re-seats every fold
+    // boundary — the whole of analyze_training.ts's K2 phase-robustness gap.
+    // The caller's EXACT bytes are tried first and the trim is a RETRY, not a
+    // pre-filter.  Trimming up front is asymmetric — it normalises the query but
+    // not the stored forms — so it breaks byte-exact identity for a form trained
+    // WITH edge whitespace: test/04 deposits ["  ice  ", "cold"] and asks
+    // "  ice  ", which must keep answering.  Retrying preserves that (the raw
+    // query resolves on the first pass) while still reaching the padded case
+    // (the raw query grounds nothing, the trimmed one does).
+    //
+    // COST: nothing on any answering path.  The retry needs BOTH silence AND
+    // edge whitespace on the query, the same "only on the already-failed path"
+    // discipline test/44 and the bridge's own trim retry use.  The conversation
+    // entry point (respondTurn) is deliberately NOT trimmed — it tracks
+    // turn-boundary offsets into its accumulated context, and shifting the bytes
+    // under those offsets would desync them.
+    const bytes = inputBytes(this, input);
+    const first = await this._respondImpl(
+      bytes,
       inspectRationale,
       "respond",
       canon,
     );
+    if (first.bytes.length > 0 || typeof input !== "string") return first;
+    const trimmed = trimEdgeSeparators(bytes);
+    if (trimmed.length === bytes.length || trimmed.length === 0) return first;
+    return this._respondImpl(trimmed, inspectRationale, "respond", canon);
   }
 
   /** Text view of {@link respond}.  NUL bytes (0x00) are stripped before

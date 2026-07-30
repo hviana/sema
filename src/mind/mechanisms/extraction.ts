@@ -113,6 +113,33 @@ export async function extractBySkill(
       subQuantum++;
       continue;
     }
+    // AN UNANCHORED READ IS NOT AN EXTRACTION.  This function's contract (see
+    // the doc above) is that `accounted` carries "the located frames AND any
+    // read span BOUNDED by located frames on both sides", while an open-ended
+    // read "remains a guess about where the span stops — it stays unaccounted".
+    // EMPTY accounted is the degenerate case of that: NO frame of the exemplar
+    // was located in the query at all, so nothing ties the bytes just read to
+    // this question — the skill applied its exemplar's geometry to a query it
+    // never matched.
+    //
+    // The live case (analyze_training.ts F, the battery's ONLY wrong non-silent
+    // answer): "Which city is France's seat of government?" answered "Which ci"
+    // — a fragment of the query itself — from the exemplar "What is dll", with
+    // accounted=[] and pieces=1.  isSpanShaped is deliberately permissive (a
+    // sparse-subsequence check), so it accepts exemplars whose relation to the
+    // query is coincidental gap-matching; requiring at least one LOCATED frame
+    // is the structural evidence that permissiveness leaves out.
+    //
+    // Scoped to extraction ON PURPOSE.  The same test at the pipeline's
+    // post-grounding density check was tried and REVERTED: `accounted` is passed
+    // empty BY CONVENTION on recall's own tiers (recall.ts's ground(…, [], …)),
+    // so a density veto there refused six legitimate reverse-recall groundings.
+    // Here the field is this mechanism's own output and carries its documented
+    // meaning, so the test is sound exactly where the convention does not reach.
+    if (built.accounted.length === 0) {
+      subQuantum++;
+      continue;
+    }
     if (shapeMisses > 0 || subQuantum > 0) {
       ctx.trace?.step(
         "trySkillAnchors",
