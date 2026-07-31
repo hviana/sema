@@ -1182,11 +1182,56 @@ export async function counterfactualTransfer(
     // [...] context will be the seat") — its own bytes ARE that seat
     // directly, with no predecessor to even check (it was found by a
     // forward edge, not matched in the query).
-    const b = seats !== undefined
+    let b = seats !== undefined
       ? seats[1]
       : bestAnalog.point !== null
       ? await seatOf(bestAnalog.point, false)
       : read(ctx, bestAnalog.anchor);
+    // AN ECHO IS NOT A VOICE.  `allowForward: false` above leaves seatOfNode
+    // with one last resort — the point's OWN BYTES — and when the aligned
+    // anchor is a QUESTION node those bytes are the question itself.  The
+    // comparison then hands the asker their own words back: "What is the
+    // capital of France? And what is the largest planet?" answered "The
+    // capital of France is Paris.What is the largest planet?", one topic
+    // answered and the other merely repeated.  (The same corpus answered BOTH
+    // when asked in the opposite order — the echo was never about the topic,
+    // only about whether the climb happened to land on the question node or
+    // the answer node.)
+    //
+    // The fix is NOT to allow the forward edge for every directly aligned
+    // analog.  "Directly aligned" does not mean "the query named it": a point
+    // can be aligned by HALO similarity with no literal overlap at all, and
+    // test/43 pins exactly that case — an analog whose own bytes are already a
+    // complete Q+A unit, cited structurally, whose forward edge is an
+    // unrelated next quiz question.  There, stopping at its own bytes is
+    // right, because those bytes are an answer and nothing was echoed.
+    //
+    // What separates the two is the RESTATEMENT, which is directly testable:
+    // a seat whose bytes already occur in the query says nothing the asker did
+    // not just say, so it cannot be this analog's contribution — and only then
+    // is the continuation the query literally asked for worth following.  Same
+    // `restatesQuery` primitive the substitution schema above already gates
+    // its own forward step on; no new constant and no new notion of "named".
+    // Read the restatement UNDER THE RESPONSE'S OWN EQUIVALENCE.  Byte-exact
+    // containment misses the case that actually occurs: the trained node is
+    // "What is the largest planet?" while the query asks "And what is the
+    // largest planet?" — the same words, one capital letter apart, so
+    // `indexOf` finds nothing and the echo sails through.  `ctx.canon` is the
+    // response's injected notion of "the same text" (case, width, whitespace);
+    // consulting it here is the same fallback `resolve` already makes when an
+    // exact content lookup misses, and it keeps this mechanism from carrying
+    // any idea of its own about what a character is.
+    const echoesQuery = (x: Uint8Array): boolean => {
+      if (restatesQuery(query, x)) return true;
+      const canon = ctx.canon;
+      if (canon === null) return false;
+      const cq = canon(query), cx = canon(x);
+      return cx.length < cq.length && indexOf(cq, cx, 0) >= 0;
+    };
+    if (echoesQuery(b)) {
+      const fwd = await follow(ctx, bestAnalog.anchor, qv);
+      if (fwd !== null && fwd.length > 0 && !echoesQuery(fwd)) b = fwd;
+    }
     // VOICED IN THE ORDER THE QUERY POSED THEM.  `a` is the DOMINANT point
     // and `b` the analog, which is a ranking by consensus strength — not by
     // where either was asked about.  Reading the pair out in that ranking
