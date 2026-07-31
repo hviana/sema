@@ -587,6 +587,13 @@ export interface MechanismResult {
   unexplained: string;
   /** Explicit weight override.  When absent, weight = moves + PASS·unaccounted. */
   weight?: number;
+  /** Bytes of `bytes` that came from spans nothing recognised — the asker's
+   *  own words carried through verbatim rather than derived (see
+   *  {@link liftedScaffolding}).  Reported, not priced: the ladder prices what
+   *  a candidate leaves UNACCOUNTED, and this orders candidates that tie on
+   *  exactly that.  Omit when a mechanism composes its answer entirely from
+   *  recognised material, which is the usual case. */
+  scaffolding?: number;
   /** Override the mechanism's default provenance for this result.
    *  When absent, the pipeline uses `mech.provenance`. */
   provenance?: string;

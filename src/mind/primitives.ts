@@ -7,16 +7,17 @@ import { Vec } from "../vec.js";
 import { Sema } from "../sema.js";
 import {
   bytesToTree,
+  contentFoldIncremental,
   Grid,
   gridToTree,
   hilbertBytes,
-  stablePrefixFoldIncremental,
   stackGrids,
 } from "../geometry.js";
 import { canonHash } from "../canon.js";
 import { bytesEqual } from "../bytes.js";
 import { ALL } from "./types.js";
-import type { DepositCacheEntry, Input, MindContext } from "./types.js";
+import type { Input, MindContext } from "./types.js";
+import type { ContentFold } from "../geometry.js";
 
 // ── Address: bytes → node ──────────────────────────────────────────────
 
@@ -33,6 +34,26 @@ export function latin1Key(bytes: Uint8Array): string {
     s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 4096, n)));
   }
   return s;
+}
+
+/** The {@link perceive} memo key: the span's content PLUS the boundary set it
+ *  was folded under.  The tree is a function of BOTH — the same bytes fold
+ *  plainly with no boundaries and into a left-nested stable-prefix shape with
+ *  them — so a content-only key returns whichever shape was computed first.
+ *  That is exactly what happened: a conversation seeded its cumulative context
+ *  under the content key, and every later plain `perceive` of those bytes was
+ *  served the boundary tree instead (measured: respondTurn answered where
+ *  respond() on byte-identical input did not).  NUL separates the two parts —
+ *  the boundary rendering is digits and commas, so no content byte can forge
+ *  the split. */
+export function perceiveKey(
+  bytes: Uint8Array,
+  boundaries?: readonly number[],
+): string {
+  const k = latin1Key(bytes);
+  return boundaries === undefined || boundaries.length === 0
+    ? k
+    : k + "\u0000" + boundaries.join(",");
 }
 
 /** Perceive input into a content-defined tree (the river fold).
@@ -61,7 +82,7 @@ export function perceive(
       // The tree is shared by reference; Sema nodes are never mutated.
       const memo = ctx.perceiveMemo;
       if (memo) {
-        const key = latin1Key(bytes);
+        const key = perceiveKey(bytes, boundaries);
         const hit = memo.get(key);
         if (hit !== undefined) {
           if (ctx.meter) ctx.meter.perceiveHits++;
@@ -104,78 +125,46 @@ export function perceive(
 }
 
 /** The DEPOSIT-shaped perceive.  Folds over the stream's own content cuts —
- *  bit-identical to what inference computes for the same bytes, and that
- *  train/inference agreement is load-bearing for exact recall.  An input that
- *  EXTENDS a previously deposited one is a conversation context grown by one
- *  turn; the cached prefix length IS the turn boundary (derived from the deposit
- *  sequence itself, never from a content convention) and joins the cut set, so
- *  the trained context node and the query's context subtree are the SAME node.
- *  Segment folds reuse across deposits ({@link stablePrefixFoldIncremental}) —
- *  O(turn) instead of O(context) per turn.  All of it is purely a cache: an
- *  evicted chain loses only the turn boundaries, and since the content cuts do
- *  not depend on the cache, the segments themselves are unchanged. */
+ *  bit-identical to what inference computes for the same bytes.  That
+ *  train/inference agreement is the whole contract: the trained context node
+ *  and the node `resolve(query)` reaches must be the SAME node, and the only
+ *  way to guarantee it is to give this function nothing extra to say.  It
+ *  imposes no boundaries, knows nothing about turns, and reads no convention
+ *  out of the bytes.
+ *
+ *  An input that EXTENDS a previously deposited one — a conversation context
+ *  grown by a turn, or a resumed replay — reuses that deposit's already-folded
+ *  content segments ({@link contentFoldIncremental}), so it costs O(new bytes)
+ *  instead of O(context).  The reuse is TRANSPARENT by construction: a segment
+ *  is a pure function of its own bytes, so a reused one is bit-identical to a
+ *  refolded one.  Nothing has to prove that the extending deposit is "really"
+ *  a next turn — a coincidental byte prefix reuses the same segments and gets
+ *  the same tree it would have got anyway.  (It used to matter: while this
+ *  path imposed turn BOUNDARIES, a wrong guess changed the tree, so the cache
+ *  needed a continuation-bytes proof to gate it.  Nothing is imposed now, so
+ *  there is nothing to gate.) */
 export function perceiveDeposit(
   ctx: MindContext,
   bytes: Uint8Array,
   conversational = false,
 ): Sema {
-  let prev: DepositCacheEntry | undefined;
-  let prefixLen = 0;
-  // Cache consult (both boundary lookup and stable-prefix reuse) is scoped
-  // to conversational deposits only — a bare, unrelated fact whose bytes
-  // happen to extend an earlier deposit is NOT a conversation turn, and
-  // must keep the plain fold so it shares structure with ITS OWN prior
-  // deposits, not fragment against a coincidental byte-prefix.
-  if (conversational) {
-    // Longest cached PROPER prefix first.
-    const lens = [...ctx._depositLens]
-      .filter((L) => L >= 2 && L < bytes.length)
-      .sort((a, b) => b - a);
-    for (const L of lens) {
-      const hit = ctx._depositTrees.get(latin1Key(bytes.subarray(0, L)));
-      // The suffix must bytes-equal the hit's OWN recorded continuation —
-      // proof this deposit is that turn's actual next turn, not a fact
-      // that coincidentally shares its byte prefix.
-      if (
-        hit !== undefined && hit.nextBytes !== undefined &&
-        bytesEqual(hit.nextBytes, bytes.subarray(L))
-      ) {
-        prev = hit;
-        prefixLen = L;
-        break;
-      }
+  // Longest cached PROPER prefix first — the most segments to reuse.
+  let prev: ContentFold | undefined;
+  const lens = [...ctx._depositLens]
+    .filter((L) => L >= 2 && L < bytes.length)
+    .sort((a, b) => b - a);
+  for (const L of lens) {
+    const hit = ctx._depositTrees.get(latin1Key(bytes.subarray(0, L)));
+    if (hit !== undefined) {
+      prev = hit.content;
+      break;
     }
   }
-  // ONLY turn boundaries belong here.  The stream's own content cuts are NOT
-  // passed in: `bytesToTree` and `stablePrefixFoldIncremental` both derive them
-  // per span, at every level, and handing the level-0 cuts in as stable-prefix
-  // boundaries instead produces a LEFT-NESTED join of flat segments — a
-  // different tree from the one inference builds for the same bytes.  When that
-  // happened, a deposit's context root and `resolve(question)` were different
-  // nodes, so the trained edge hung off a node inference never reached and
-  // recall went silent (test/44 caught it as a site that could not be emitted
-  // because the resolved node led nowhere).  Train and infer must fold
-  // identically; the way to guarantee that is to give this function nothing
-  // extra to say.
-  const cuts = new Set<number>();
-  if (prev !== undefined) {
-    for (const b of prev.boundaries) cuts.add(b);
-    cuts.add(prefixLen);
-  }
-  const boundaries = [...cuts].sort((a, b) => a - b);
-  const folded = stablePrefixFoldIncremental(
-    ctx.space,
-    ctx.alphabet,
-    bytes,
-    boundaries,
-    prev?.stable,
-  );
-  const tree = folded.tree;
-  const entry: DepositCacheEntry = { boundaries, stable: folded.fold };
-  // Only a conversational deposit writes the cache too — otherwise a bare
-  // fact's plain fold could later be misread as a conversation's turn-zero
-  // boundary by an unrelated conversational deposit that happens to extend
-  // its bytes.
+  const folded = contentFoldIncremental(ctx.space, ctx.alphabet, bytes, prev);
+  // Only a CONVERSATIONAL deposit writes the cache: reuse is sound for any
+  // deposit, but the budget is 8 entries and a corpus of unrelated facts would
+  // evict the live chains for nothing.  Purely a cost decision now, not a
+  // correctness one.
   if (conversational && bytes.length >= 2) {
     // The lengths set drifts as the map evicts; past the probe budget the
     // drift itself becomes the cost (each stale length is an O(len) key
@@ -184,10 +173,10 @@ export function perceiveDeposit(
       ctx._depositLens.clear();
       ctx._depositTrees.clear();
     }
-    ctx._depositTrees.set(latin1Key(bytes), entry);
+    ctx._depositTrees.set(latin1Key(bytes), { content: folded.fold });
     ctx._depositLens.add(bytes.length);
   }
-  return tree;
+  return folded.tree;
 }
 
 /** The raw bytes of an input — modality-neutral conversion. */

@@ -709,7 +709,18 @@ const isEpisode = (it: TrainingItem): it is Episode => typeof it !== "string";
 /** Build the accumulated-context episodes of a turn sequence: each successive
  *  turn is the continuation of ALL the turns before it joined together. This is
  *  the same cumulative-context shape a multi-turn conversation deposits, so the
- *  store learns to continue a growing context. */
+ *  store learns to continue a growing context.
+ *
+ *  The "\n" below is a CORPUS choice, not a protocol.  oasst2 turns are
+ *  paragraphs, and reading them back with the newlines kept is how this corpus
+ *  reads naturally; a different corpus may join with nothing, and
+ *  test/13-conversation.test.mjs does exactly that.  Neither has to match the
+ *  other, because Sema never scans content for turn boundaries — those are
+ *  offsets the Conversation API carries beside the bytes (see Mind.addTurn's
+ *  "ON SEPARATORS" note).  The newline here is simply part of the text this
+ *  store learnt, so anything replaying this corpus feeds it back as part of
+ *  the turn: `addTurn(conv, "\n" + turnText)`.  It is not a convention the
+ *  engine, the API, or the tests have to agree on. */
 function accumulate(turns: string[]): Episode[] {
   const out: Episode[] = [];
   for (let i = 1; i < turns.length; i++) {
@@ -894,9 +905,15 @@ export function bestOasstPath(root: OasstNode): OasstTurn[] {
  *  turn experiences and local adjacent-pair facts are NOT emitted (they are
  *  subsumed by it and would merely replicate the content).
  *
- *  The walk is byte-for-byte the pattern proven in test/13-conversation.test.mjs
- *  ("teachConversation"): each turn is the continuation of all prior turns joined
- *  by "\n", with BARE turn text — NO "User:/Assistant:" labels. Roles already
+ *  The walk is the pattern proven in test/13-conversation.test.mjs
+ *  ("teachConversation"): each turn is the continuation of all prior turns,
+ *  with BARE turn text — NO "User:/Assistant:" labels.  The SHAPE is identical
+ *  (cumulative context → next turn); the join string is not, and does not need
+ *  to be — that file joins with nothing and this corpus joins with "\n" (see
+ *  `accumulate`).  Saying "byte-for-byte", as this comment used to, invites the
+ *  reading that the two must agree on a separator.  They must not agree,
+ *  because there is nothing to agree about: turn boundaries are offsets, and
+ *  the join string is just corpus text. Roles already
  *  alternate by position in an oasst2 best-path (the root is a prompter), so a
  *  label adds nothing the position does not, while a clean continuation matches
  *  the test's recall (predictNext queries bare prior turns) and lets a turn share

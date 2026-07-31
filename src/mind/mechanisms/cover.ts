@@ -15,7 +15,7 @@ import { read, resolve } from "../primitives.js";
 import { guidedFirst, hubBound } from "../traverse.js";
 import { conceptHop } from "../match.js";
 import { bridge } from "../resonance.js";
-import { liftAnswer, segRestatesQuery } from "../types.js";
+import { liftAnswer, liftedScaffolding, segRestatesQuery } from "../types.js";
 import { decodeText, unexplainedLabel } from "../rationale.js";
 import { indexOf } from "../../bytes.js";
 import type { RationaleItem } from "../rationale.js";
@@ -308,6 +308,11 @@ export const coverMechanism: PipelineMechanism = {
       moves: 0,
       weight: solved!.cost, // A*LD derivation's g-value IS the weight
       unexplained: unexplainedLabel(query, accounted),
+      // How much of the composed answer is the asker's own unexplained words
+      // (the spans the liftAnswer trace above labels "scaffolding").  Cover is
+      // the mechanism that can carry them, because a PASS span still lands in
+      // the cover it returns.
+      scaffolding: liftedScaffolding(segs, query.length, query, W),
     }];
   },
 };

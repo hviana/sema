@@ -1187,7 +1187,30 @@ export async function counterfactualTransfer(
       : bestAnalog.point !== null
       ? await seatOf(bestAnalog.point, false)
       : read(ctx, bestAnalog.anchor);
-    const answer = await joinWithBridge(ctx, a, b);
+    // VOICED IN THE ORDER THE QUERY POSED THEM.  `a` is the DOMINANT point
+    // and `b` the analog, which is a ranking by consensus strength — not by
+    // where either was asked about.  Reading the pair out in that ranking
+    // makes a two-topic answer's order depend on which topic resonated
+    // harder, so the same two questions asked in the opposite order produce
+    // the same sentence: measured on test/57, "What is the largest planet?
+    // And what is the capital of France?" answered "The capital of France is
+    // Paris.The largest planet is Jupiter." — both halves right, the order
+    // backwards, because France was the dominant point (accounted [[33,62],
+    // [0,27]] — the runs are literally in reverse query order).
+    //
+    // This is the SAME rule fuseAttention already applies one layer up ("a
+    // multi-topic answer should read in the order the question posed its
+    // topics"), applied to the pair a single comparison voices itself.  Each
+    // point's position is the earliest query byte its own aligned runs stand
+    // on — the same runs `cmpAccounted` prices the schema by, so order and
+    // cost read one source.
+    const earliest = (p: Point): number =>
+      runSpans(p).reduce((m, [s]) => Math.min(m, s), Infinity);
+    const analogPoint = bestAnalog.point ?? bestAnalog.src;
+    const swap = earliest(analogPoint) < earliest(dominant);
+    const answer = swap
+      ? await joinWithBridge(ctx, b, a)
+      : await joinWithBridge(ctx, a, b);
     record(
       answer,
       "analogical comparison — each analog voiced by the context that establishes its role",

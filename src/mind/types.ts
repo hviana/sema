@@ -20,23 +20,18 @@ import type {
   Site,
 } from "./graph-search.js";
 import type { Rationale } from "./rationale.js";
-import type { Grid, StableFold } from "../geometry.js";
+import type { ContentFold, Grid } from "../geometry.js";
 
-/** One {@link MindContext._depositTrees} entry — see that field's doc. */
+/** One {@link MindContext._depositTrees} entry — see that field's doc.
+ *
+ *  A PURE WORK CACHE.  It carries the already-folded content segments of a
+ *  deposited stream so a longer stream sharing its byte prefix can skip
+ *  refolding them.  It holds no turn boundaries and no continuation proof
+ *  because the deposit fold imposes nothing: reuse is bit-identical to a cold
+ *  fold, so a hit can only save time, never change a tree. */
 export interface DepositCacheEntry {
-  /** Turn boundaries accumulated over this content's deposit chain —
-   *  strictly increasing proper offsets, each a previously-deposited
-   *  whole-context length.  Empty for a first-seen (single-turn) input. */
-  boundaries: number[];
-  /** Stable-prefix segment folds (grown-context inputs only). */
-  stable?: StableFold;
-  /** The continuation bytes this ctxInput was paired with in ingestPair, if
-   *  any — the ONLY thing that makes a later, longer ctxInput a genuine next
-   *  TURN of the same conversation rather than an unrelated fact that
-   *  happens to share this one's byte prefix (e.g. "2+2" vs. "2+2=5").  A
-   *  later deposit only takes this entry as its stable-prefix `prev` when
-   *  its own suffix bytes-equal this exactly. */
-  nextBytes?: Uint8Array;
+  /** The plain content fold's reusable segment state. */
+  content: ContentFold;
 }
 import { bytesEqual, concatBytes, indexOf } from "../bytes.js";
 import { dominates } from "../geometry.js";
@@ -338,7 +333,17 @@ export interface MindContext extends GraphSearchHost {
    *  walking children.  When a conversation's pyramid reuses prefix
    *  subtrees, this cache lets {@link recognise} skip them entirely —
    *  O(suffix) instead of O(context).  Mind-lifetime (WeakMap keys are
-   *  the Sema objects the pyramid keeps alive). */
+   *  the Sema objects the pyramid keeps alive).
+   *
+   *  THAT REUSE IS A PRECONDITION, NOT A GIVEN: the keys are node IDENTITIES,
+   *  so it hits only while the conversation's fold hands back the SAME Sema
+   *  objects for the unchanged prefix.  `_growContext` rebuilt the whole tree
+   *  with `bytesToTree` on every turn, so every key was fresh and this cache
+   *  could not hit even once — the O(suffix) claim above described an
+   *  intention rather than the code.  It now grows the context through
+   *  {@link stablePrefixFoldIncremental}, which reuses each already-folded
+   *  segment: measured over four turns, turn 4 shared 69 of its 95 nodes with
+   *  turn 3 (26 new ≈ the new turn's own size). */
   _resolvedSubtrees: WeakMap<Sema, { id: number; len: number }> | null;
   /** Completed assistant-turn byte spans in the current cumulative query.
    *  Empty for ordinary respond(); response-scoped structural context for
@@ -436,49 +441,100 @@ export function segRestatesQuery(
  *  (lo/hi) decision and the final concatenation: it is stale, not a second
  *  answer, but the OTHER spans a derivation chose are independent evidence
  *  and must not be discarded along with it. */
+/** The spans {@link liftAnswer} actually concatenates, in order — the answer
+ *  before it is joined.  Exposed so a caller can ask what the lifted answer is
+ *  MADE OF without re-deriving the selection: in particular how much of it is
+ *  SCAFFOLDING (a `rec: false` span — query bytes carried through verbatim
+ *  because nothing explained them, the same spans the liftAnswer trace labels
+ *  "scaffolding" rather than "chosen").
+ *
+ *  That quantity is load-bearing for the grounding decision.  Two candidates
+ *  can leave the SAME number of query bytes unaccounted and therefore grade
+ *  identically, while one of them pads its answer with those bytes and the
+ *  other does not — measured on test/22's two-fact chain, cover and recall
+ *  both graded 11001 with 11 bytes unexplained, and cover won the tie only on
+ *  consideration order, answering "The capital of France is Paris famous for"
+ *  where recall had crossed the hop.  Carrying an unexplained span into the
+ *  answer is strictly weaker than not explaining it: it manufactures fluency
+ *  out of the asker's own words.  See the tie-break in pipeline.ts. */
+export function liftAnswerParts(
+  segs: Seg[],
+  queryLen: number,
+  query: Uint8Array,
+  W: number,
+): Seg[] {
+  const restated = segs.map((s) => segRestatesQuery(s, query, queryLen, W));
+  const recognised: number[] = [];
+  for (let k = 0; k < segs.length; k++) {
+    if (segs[k].rec && !restated[k]) recognised.push(k);
+  }
+  if (recognised.length === 0) return [];
+
+  if (recognised.length === 1) {
+    const s = segs[recognised[0]];
+    if (s.computed && s.i > 0) return [s];
+    if (dominates(s.j - s.i, queryLen)) {
+      return segs.filter((_, k) => !restated[k]);
+    }
+    return [s];
+  }
+  const lo = recognised[0];
+  const hi = recognised[recognised.length - 1];
+  return segs.slice(lo, hi + 1).filter((_, k) => !restated[lo + k]);
+}
+
+/** The SCAFFOLDING byte count of a lifted answer: how many of its bytes come
+ *  from spans nothing recognised (see {@link liftAnswerParts}).
+ *
+ *  ONLY RUNS OF AT LEAST ONE RIVER WINDOW COUNT.  Not all carried-through
+ *  bytes are a failure to explain: a period, a question mark, the space
+ *  between two fused topics are GLUE — they belong to the answer's surface,
+ *  and dropping them to look better-derived would be a worse answer, not a
+ *  more honest one.  A substantive phrase the derivation never explained
+ *  ("famous for") is a different claim entirely.
+ *
+ *  W is the line between them, and it is the same line the rest of the mind
+ *  already draws: below one river window byte overlap is chance, not evidence
+ *  (see identityBar, the bridge's attestedQ, and recognition's site floor).
+ *  Counting every scaffolding byte instead — which is what this did first —
+ *  made punctuation preservation lose a tie it should win, and test/00's
+ *  "period preserved" / "question mark preserved" caught it immediately. */
+export function liftedScaffolding(
+  segs: Seg[],
+  queryLen: number,
+  query: Uint8Array,
+  W: number,
+): number {
+  // MEASURED PER CONTIGUOUS RUN, not per span.  A PASS span is one BYTE — the
+  // cover charges unrecognised bytes individually — so asking whether a single
+  // span reaches W would find no run ever, whatever the query.  " famous for"
+  // arrives as eleven one-byte spans in a row and is one eleven-byte run.
+  let n = 0;
+  let run = 0;
+  const close = () => {
+    if (run >= W) n += run;
+    run = 0;
+  };
+  for (const s of liftAnswerParts(segs, queryLen, query, W)) {
+    if (s.rec) close();
+    else run += s.bytes.length;
+  }
+  close();
+  return n;
+}
+
 export function liftAnswer(
   segs: Seg[],
   queryLen: number,
   query: Uint8Array,
   W: number,
 ): Uint8Array | null {
-  const restated = segs.map((s) => segRestatesQuery(s, query, queryLen, W));
-  const recognised: number[] = [];
-  for (let k = 0; k < segs.length; k++) {
-    if (segs[k].rec && !restated[k]) recognised.push(k);
-  }
-  if (recognised.length === 0) return null;
-
-  if (recognised.length === 1) {
-    const s = segs[recognised[0]];
-    // A COMPUTED span's query-side width is operand digit-count, not
-    // evidence of how much of the query's meaning it accounts for — the
-    // half-dominance check below (built for a genuinely RECOGNISED learned
-    // form) is not a valid framing signal for it (see the `computed` field
-    // doc on Seg/GItem): "1000 - 421" outweighs "what is …?" by width only
-    // because the operands are big, not because the framing matters less.
-    // A LITERAL PREFIX before a computed span is unambiguous framing
-    // regardless of width — an arithmetic expression is never itself
-    // preceded by more literal computed content, so anything literal before
-    // it is question wording ("what is ", "compute ") to lift clear of.
-    // With no prefix (s.i === 0) the span is judged by the ordinary
-    // half-dominance rule below, which already correctly keeps a short
-    // trailing glue byte ("2+2." → "4.", the span dominates a 4-byte query).
-    if (s.computed && s.i > 0) return s.bytes;
-    if (dominates(s.j - s.i, queryLen)) {
-      return concatBytes(
-        segs.filter((_, k) => !restated[k]).map((x) => x.bytes),
-      );
-    }
-    return s.bytes;
-  }
-  const lo = recognised[0];
-  const hi = recognised[recognised.length - 1];
-  return concatBytes(
-    segs.slice(lo, hi + 1).filter((_, k) => !restated[lo + k]).map((x) =>
-      x.bytes
-    ),
-  );
+  // ONE selection rule, in {@link liftAnswerParts} — this is its join.  The
+  // two used to be separate copies of the same lo/hi/restated reasoning, which
+  // is exactly how an answer and the accounting OF that answer drift apart.
+  const parts = liftAnswerParts(segs, queryLen, query, W);
+  if (parts.length === 0) return null;
+  return concatBytes(parts.map((x) => x.bytes));
 }
 
 /** The CHANGED NODES of a freshly-perceived `tree` against the node ids a previous

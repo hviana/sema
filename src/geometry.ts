@@ -688,6 +688,97 @@ function contentFoldSpan(
   return segs[0];
 }
 
+/** A plain content fold's reusable state: the level-0 cut edges over the whole
+ *  stream and each segment's independently-folded root.  See
+ *  {@link contentFoldIncremental}. */
+export interface ContentFold {
+  edges: number[];
+  segs: Folded[];
+}
+
+/** {@link contentFoldSpan} over a WHOLE stream, reusing the segments a previous
+ *  fold of a byte-identical prefix already produced.
+ *
+ *  WHY THIS IS SOUND, AND WHY IT NEEDS NO BOUNDARIES.  A level-0 segment is a
+ *  pure function of its own bytes ({@link flatFold} reads nothing else), so
+ *  reusing one whose [start,end) is unchanged is bit-identical to refolding it
+ *  — the cache can never change the tree, only skip work.  And the cuts
+ *  themselves are stable under APPEND: {@link contentLevels} decides each cut
+ *  from a rolling hash over a local window, so bytes added at the right edge
+ *  cannot move a cut to their left (measured over a growing 12-turn context:
+ *  100% of prior cuts survive every append, zero tail churn).  Together those
+ *  two facts are the whole optimisation — a grown stream refolds only the
+ *  segments at its right edge.
+ *
+ *  This is the reuse the conversation path wants, and it costs NOTHING in
+ *  structure: the tree is exactly the tree {@link bytesToTree} builds for the
+ *  same bytes with no boundary set at all.  Turn boundaries buy prefix-ROOT
+ *  identity, which is a different property from incremental reuse; conflating
+ *  the two is what put an imposed boundary set on the inference path and left
+ *  it folding differently from the deposits it was querying.
+ *
+ *  `groupByLevel` above the segments is re-run whole.  It operates on segment
+ *  ROOTS (a few dozen items for a several-hundred-byte context), not on bytes,
+ *  and only its right edge actually changes shape — measured at ~40 rebuilt
+ *  nodes per turn, flat as the context grows sevenfold.
+ *
+ *  PRECONDITION — `prev` MUST have been folded over a BYTE-IDENTICAL PREFIX of
+ *  `bytes`.  Reuse is keyed on a segment's [start,end) OFFSETS, which is what
+ *  makes it O(1) per segment; offsets alone cannot witness that the underlying
+ *  bytes agree.  Hand it a fold of DIFFERENT bytes whose cuts happen to land
+ *  in the same places and it will splice those foreign segments in — measured,
+ *  a deliberately mismatched `prev` produced a wrong tree on 336 of 400 random
+ *  streams.  Verifying the bytes here would cost O(prefix) and defeat the
+ *  whole point, so the obligation sits with the caller, and every caller
+ *  discharges it structurally rather than by care: `perceiveDeposit` looks the
+ *  entry up under `latin1Key(bytes.subarray(0, L))` — the prefix's own bytes
+ *  ARE the cache key — and a conversation's fold state advances only by
+ *  append.  A new caller that cannot make the same structural argument must
+ *  pass no `prev` at all; the cold path is always correct.
+ *  ({@link stablePrefixFoldIncremental} carries the identical precondition for
+ *  the identical reason.) */
+export function contentFoldIncremental(
+  space: Space,
+  alphabet: Alphabet,
+  bytes: Uint8Array,
+  prev?: ContentFold,
+): { tree: Sema; fold: ContentFold } {
+  if (bytes.length === 0) {
+    return {
+      tree: sema(alphabet.vecs[0], new Uint8Array(0), null),
+      fold: { edges: [0], segs: [] },
+    };
+  }
+  const { cuts, levels } = contentLevels(space, bytes);
+  const edges = [0, ...cuts, bytes.length];
+  const segs: Folded[] = [];
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const hit = prev !== undefined && prev.edges[i] === edges[i] &&
+        prev.edges[i + 1] === edges[i + 1]
+      ? prev.segs[i]
+      : undefined;
+    segs.push(hit ?? flatFold(space, alphabet, bytes, edges[i], edges[i + 1]));
+  }
+  const folded = segs.length > 1
+    ? groupByLevel(space, segs, levels, 1)
+    : segs[0];
+  // THE ROOT IS NORMALIZED IN PLACE, A CACHED SEGMENT NEVER IS.  With one
+  // segment — or with a grouping that passes a lone item through — `folded`
+  // IS a cached seg, and a later turn will reuse it as an interior node whose
+  // magnitude must stay byte-proportional.  Copy before normalizing, exactly
+  // as the stable-prefix twin does.  A single LEAF is copied too: its vector
+  // is the shared alphabet entry and must never be written.
+  const aliased = segs.some((s) => s.tree === folded.tree);
+  let tree = folded.tree;
+  if (aliased) {
+    tree = tree.kids === null
+      ? sema(tree.v, tree.leaf, null)
+      : sema(Float32Array.from(tree.v), null, tree.kids);
+  }
+  if (tree.kids !== null) normalize(tree.v);
+  return { tree, fold: { edges, segs } };
+}
+
 /** Group a row of items by the level of the cut BETWEEN them: items separated
  *  by a cut of level < L belong to the same parent, and a cut of level ≥ L ends
  *  it.  Recurses upward until one root remains, so the shape at every level is
@@ -923,9 +1014,17 @@ export function stablePrefixFoldIncremental(
   boundaries: readonly number[],
   prev?: StableFold,
 ): { tree: Sema; fold: StableFold } {
+  // SORTED, like {@link bytesToTree} does before calling the non-incremental
+  // twin.  The filter below is sequential (`b > prevB`), so an out-of-order
+  // entry is silently DROPPED rather than rejected — and these two functions
+  // are documented as producing the same cuts, so a caller that hands the
+  // same set to each and gets different trees has hit a trap, not a contract.
+  // Sorting here makes the twins genuinely interchangeable; the set is one
+  // entry per conversation turn, so the cost is nil.
+  const sorted = [...boundaries].sort((a, b) => a - b);
   const cuts: number[] = [];
   let prevB = 0;
-  for (const b of boundaries) {
+  for (const b of sorted) {
     if (b > prevB && b < bytes.length) {
       cuts.push(b);
       prevB = b;

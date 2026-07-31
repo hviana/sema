@@ -189,6 +189,10 @@ export async function think(
     accounted: ReadonlyArray<[number, number]>;
     unexplained: string;
     complete?: boolean;
+    /** Bytes of this candidate's ANSWER that came from spans nothing
+     *  recognised — query words carried through verbatim (see
+     *  {@link liftedScaffolding}).  Absent means none/unreported. */
+    scaffolding?: number;
   }
   const grade = (w: number) => Math.floor(w / STEP);
   const unaccounted = (spans: ReadonlyArray<[number, number]>): number =>
@@ -205,7 +209,34 @@ export async function think(
     if (c.bytes.length === 0) return;
     if (ctx.meter) ctx.meter.candidates++;
     candidates.push(c);
-    if (best === null || grade(c.weight) < grade(best.weight)) best = c;
+    if (best === null) {
+      best = c;
+      return;
+    }
+    const g = grade(c.weight), gb = grade(best.weight);
+    if (g < gb) {
+      best = c;
+      return;
+    }
+    // TIE-BREAK: AT EQUAL GRADE, PREFER THE ANSWER THAT INVENTS LESS.
+    //
+    // The ladder prices what a candidate leaves UNACCOUNTED, which is the
+    // right primary question but cannot separate two candidates that leave
+    // the same bytes unaccounted — and then the winner is whichever mechanism
+    // happened to be considered first, which is not a reason.
+    //
+    // What still separates them is what they DID with those bytes.  A
+    // candidate that carries an unexplained span into its answer is passing
+    // the asker's own words back as if they were derived; one that leaves
+    // them out has made a smaller, honest claim.  Measured on test/22's
+    // two-fact chain: cover and recall both graded 11001 over 11 unexplained
+    // bytes, cover answering "The capital of France is Paris famous for" (11
+    // bytes of scaffolding) against recall's crossing of the hop (0).  Order
+    // alone decided it, and the shallower reading won.
+    //
+    // This never overrides the ladder — it only orders within one grade, so
+    // coverage and moves still dominate exactly as before.
+    if (g === gb && (c.scaffolding ?? 0) < (best.scaffolding ?? 0)) best = c;
   };
   const worthRunning = (floor: number) =>
     best === null || grade(floor) < grade(best.weight);
@@ -260,6 +291,7 @@ export async function think(
         accounted: r.accounted,
         unexplained: r.unexplained,
         complete: r.complete,
+        scaffolding: r.scaffolding,
       });
     }
   }

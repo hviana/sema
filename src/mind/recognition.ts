@@ -409,7 +409,21 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // before resolveSpan pays for a fold; approximate evidence never enters.
   // This tier is needed only where atom chains are suppressed. Small stores
   // retain their existing decomposition unchanged.
-  if (atomsAreHubs) {
+  // ALWAYS ON, AND LINEAR.  This used to be gated on `atomsAreHubs` — small
+  // stores were said to "retain their existing decomposition unchanged", which
+  // was true only while the query's fold was told where the turns were: every
+  // turn was then a NODE, so the structural walk found it and this tier had
+  // nothing to add.  The fold no longer imposes turn boundaries (a turn start
+  // is an ordinary interior offset now), so a trained form embedded in a
+  // longer query is reachable ONLY here — the chain caps at chainReach(W)=W²
+  // bytes and cannot span one.  Measured: with the fold imposing boundaries
+  // every turn is a node; without it, none is.
+  //
+  // Ungating it alone made inference QUADRATIC (test/14's constant-KB/s guard
+  // went to 41.8s): every offset near a cut is an endpoint, and each probe
+  // costs O(span) to slice the leaf-id run and hash it.  The budget below is
+  // what makes it affordable — see `spend`.
+  {
     const allLeafIds = singleLeaf.map((x) => x?.id ?? null);
     if (allLeafIds.every((x): x is number => x !== null)) {
       const radius = ctx.space.seats.length;
@@ -442,15 +456,91 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         if (key.length === 0) return false;
         return store.canonFind(canonHash(key)).length > 0;
       };
-      const probe = (start: number, end: number): void => {
+      // The byte-exact route probes the SPAN ITSELF (see
+      // Store.findFlatBranch): for a run of single-byte leaves the flat-kid
+      // encoding is the identity, so the span's bytes ARE the branch key.
+      // `subarray` is a view — this allocates nothing per probe, and the
+      // bloom filter answers the misses without touching the database.
+      const flatProbe = (start: number, end: number): number | null =>
+        store.findFlatBranch
+          ? store.findFlatBranch(bytes.subarray(start, end))
+          : store.findBranch(allLeafIds.slice(start, end));
+      // THE TWO ROUTES COST DIFFERENT THINGS, SO THEY ARE PRICED SEPARATELY.
+      //
+      // The exact route is a bloom-gated hash over a subarray VIEW: no
+      // allocation, and a miss never reaches the database.  It is cheap enough
+      // to run on every endpoint, and that is what makes this tier able to
+      // find a trained form embedded anywhere in the query.
+      //
+      // The canon route is not: it runs the canonicalizer over the span
+      // (NFKC, case-fold, whitespace) and allocates a fresh key for every
+      // probe.  That is the O(span) cost with the heavy constant, and it is
+      // the one worth a budget.  Sharing ONE budget between them made the
+      // cheap route starve on the expensive one's behalf — measured, test/71's
+      // embedded differently-cased form needed 64x the budget to be found,
+      // while the exact route it was competing with needed none of it.
+      const probe = (
+        start: number,
+        end: number,
+        canonBudget: boolean,
+      ): void => {
         if (end - start < W || end - start <= chainReach(W)) return;
-        const ids = allLeafIds.slice(start, end);
-        if (store.findBranch(ids) === null && !canonAdmits(start, end)) return;
+        if (flatProbe(start, end) === null) {
+          if (!canonBudget) return;
+          if (!canonAdmits(start, end)) return;
+        }
         const id = resolveSpan(start, end);
         if (id !== null) emit(start, end, id);
       };
-      for (const end of ordered) probe(0, end);
-      for (const start of ordered) probe(start, bytes.length);
+      // A CUMULATIVE BYTE BUDGET, SPENT SHORTEST-SPAN-FIRST.
+      //
+      // Each probe costs O(span), and there are O(n) endpoints, so probing
+      // them all is O(n²) — the quadratic this tier was gated to avoid.  The
+      // budget caps TOTAL probe bytes at a multiple of the query's own length,
+      // which is what keeps whole-query inference linear.
+      //
+      // Spending it shortest-first is what makes the cap a scale bound rather
+      // than a position bound: the tier recovers embedded forms up to roughly
+      // √(2·budget) bytes ANYWHERE in the endpoint set, instead of walking the
+      // endpoints in order and running out partway along the query.  A form
+      // longer than that is out of this tier's reach — but so is a form the
+      // chain cannot span, and that is exactly the trade the budget prices.
+      // The factor is chainReach(W), the same W² scale the chain already
+      // trusts; no new constant.
+      // The factor is chainReach(W) — the same W² scale the chain itself
+      // trusts — so the cap is derived from the fold's geometry, never tuned.
+      // (It was briefly an environment variable while the cost was being
+      // measured; an env-read here would make inference non-reproducible,
+      // which the determinism contract forbids outright.)
+      // The factor is chainReach(W) — the same W² scale the chain itself
+      // trusts — so the cap is derived from the fold's geometry, never tuned.
+      // (It was briefly an environment variable while the cost was being
+      // measured; an env-read here would make inference non-reproducible,
+      // which the determinism contract forbids outright.)
+      //
+      // It now prices ONLY the canonicalizing route; the exact route runs on
+      // every endpoint regardless, so exhausting this budget narrows which
+      // equivalence-class forms are proposed, never which byte-exact ones.
+      let budget = bytes.length * chainReach(W) * chainReach(W);
+      const spend = (start: number, end: number): boolean => {
+        const span = end - start;
+        const afford = span <= budget;
+        if (afford) budget -= span;
+        probe(start, end, afford);
+        // Always keep walking: the exact route is unbudgeted, so running out
+        // of canon budget must not stop the scan.
+        return true;
+      };
+      const prefixes = ordered.filter((e) => e > 0).sort((a, b) => a - b);
+      const suffixes = ordered
+        .filter((s2) => s2 < bytes.length)
+        .sort((a, b) => b - a);
+      for (let i = 0; i < Math.max(prefixes.length, suffixes.length); i++) {
+        // Interleaved so neither edge starves the other when the budget runs
+        // out — a query can carry a trained form at either end.
+        if (i < prefixes.length && !spend(0, prefixes[i])) break;
+        if (i < suffixes.length && !spend(suffixes[i], bytes.length)) break;
+      }
     }
   }
 

@@ -245,15 +245,11 @@ export async function ingestPair(
   const cont_ = await deposit(ctx, cont, false);
   const ctxId = c.rootId, contId = cont_.rootId;
 
-  // Stamp this turn's continuation onto its own cache entry — the proof a
-  // FUTURE, longer ctxInput needs (see perceiveDeposit) to recognise itself
-  // as this conversation's genuine next turn rather than an unrelated fact
-  // that happens to share this ctxInput's byte prefix.
-  {
-    const ctxBytes = inputBytes(ctx, ctxInput);
-    const entry = ctx._depositTrees.get(latin1Key(ctxBytes));
-    if (entry !== undefined) entry.nextBytes = inputBytes(ctx, cont);
-  }
+  // NO CONTINUATION STAMP.  A longer ctxInput reusing this one's folded
+  // segments needs no proof that it is "really" the next turn: the deposit
+  // fold imposes no boundaries, so reuse is bit-identical to refolding and a
+  // coincidental byte prefix gets the tree it would have got anyway.  The
+  // stamp existed only to gate a boundary guess that no longer happens.
 
   await ctx.store.link(ctxId, contId);
   await propagateSuffixes(ctx, ctxId, contId);

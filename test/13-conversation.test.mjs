@@ -18,6 +18,19 @@
 // accumulated bytes at inference.  The Conversation API tracks turn-boundary
 // offsets explicitly so no separator character is needed — the geometry never
 // inspects content to find turn boundaries.
+//
+// "NO SEPARATOR IS NEEDED" ≠ "A SEPARATOR IS A PROBLEM".  This file joins its
+// turns with nothing; example/train_base.ts joins its oasst2 turns with "\n".
+// Both are correct, and neither is a convention the other has to match: a
+// separator is CORPUS CONTENT, folded like any other byte, while a turn
+// boundary is an OFFSET the API carries beside the bytes.  A harness replaying
+// a "\n"-joined corpus simply passes `"\n" + turnText` to addTurn and gets the
+// trained byte stream back exactly.  See Mind.addTurn's "ON SEPARATORS" note
+// for the full statement — it exists because a review read the mismatch
+// between this file's join and the trainer's as an architectural
+// incompatibility, and it is not one.  If you are comparing this harness to a
+// corpus and getting poor recall, check that you are feeding the bytes that
+// were actually trained before concluding anything about the engine.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { test } from "node:test";

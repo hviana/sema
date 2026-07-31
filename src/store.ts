@@ -325,6 +325,10 @@ export interface Store {
   contentLen(id: NodeId, cap?: number): number;
   findLeaf(bytes: Uint8Array): NodeId | null;
   findBranch(kids: NodeId[]): NodeId | null;
+  /** {@link findBranch} for a run of single-byte leaves, addressed by the raw
+   *  bytes — the allocation-free probe span scanners use.  Optional: a store
+   *  without it is simply probed through `findBranch`. */
+  findFlatBranch?(bytes: Uint8Array): NodeId | null;
   /** The branch nodes that list `id` among their children — the reverse of
    *  `get(id).kids`. Lets the structural DAG be climbed upward, from a
    *  recognised fragment to the larger learned forms that contain it. */
@@ -1267,6 +1271,27 @@ export abstract class AbstractStore implements Store {
     const id = this._dbFindLeaf(hashOf(bytes), bytes);
     if (id !== null) this._leafKey.set(key, id);
     return id;
+  }
+
+  /** {@link findBranch} for a run of SINGLE-BYTE leaves, addressed by the
+   *  bytes themselves — no kid array, no key string, no copy.
+   *
+   *  A flat branch stores its children as {@link flatKidsBytes}, and that
+   *  encoding is the identity on single-byte leaves: kid id −(b+1) IS byte b.
+   *  So for such a run the kid array and the byte span are the same object in
+   *  two spellings, and `findBranch(leafIds.slice(i, j))` and this call are
+   *  the same lookup — except that the array path allocates the slice, then
+   *  `kids.join(",")`, then the flat bytes, all O(span), for a probe whose
+   *  answer is usually "no".  The bloom filter behind `_dbFindBranchByLeaf`
+   *  answers most of those with no I/O at all, so the allocations dominated.
+   *
+   *  Pass a subarray: it is a view, so a caller scanning spans of a query
+   *  allocates nothing per probe.  Deliberately NOT memoized — its callers
+   *  probe many spans that miss, and a key string per probe is the cost this
+   *  exists to remove. */
+  findFlatBranch(bytes: Uint8Array): NodeId | null {
+    if (this.meter) this.meter.branchLookups++;
+    return this._dbFindBranchByLeaf(hashOf(bytes), bytes);
   }
 
   findBranch(kids: NodeId[]): NodeId | null {

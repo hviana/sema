@@ -14,12 +14,14 @@ import { bindSeat, fold, Sema, Space } from "../sema.js";
 import { Alphabet } from "../alphabet.js";
 import {
   bytesToTree,
+  contentFoldIncremental,
   Grid,
   gridToTree,
   hilbertBytes,
   reachThreshold,
   stackGrids,
 } from "../geometry.js";
+import type { ContentFold } from "../geometry.js";
 import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
 import { type MindConfig, resolveConfig } from "../config.js";
@@ -114,6 +116,18 @@ interface ConversationData {
   tree: Sema;
   bytes: Uint8Array;
   boundaries: number[];
+  /** The plain fold's reusable segment state (see {@link ContentFold}).  A
+   *  grown context reuses every content segment it already folded and folds
+   *  only the new turn — O(turn) instead of O(context) — and, because the
+   *  reused segments are the SAME Sema objects, `resolvedSubtrees` (keyed by
+   *  node identity) hits across turns, which is what makes recognition
+   *  O(suffix).  Undefined until the first grow.
+   *
+   *  No turn boundaries are involved: reuse comes from content cuts being
+   *  stable under append, and imposing boundaries would only change the tree
+   *  away from what the deposit path folded.  `boundaries` beside this field
+   *  is API metadata, not an input to the fold. */
+  content?: ContentFold;
   answeredSpans: Array<[number, number]>;
   perceiveMemo: Map<string, Sema>;
   recogniseMemo: Map<string, Recognition>;
@@ -130,6 +144,7 @@ import {
   inputBytes,
   latin1Key,
   perceive as perceiveImpl,
+  perceiveKey,
   read,
   resolve as resolveImpl,
 } from "./primitives.js";
@@ -605,6 +620,20 @@ export class Mind implements MindContext {
     };
   }
 
+  /** Answer ONE self-contained input.
+   *
+   *  A MULTI-TURN context is not that, and this is the wrong entry point for
+   *  it.  `respond` folds the bytes it is handed with no boundary set, because
+   *  nothing in a flat byte string says where one turn ended — only the caller
+   *  who assembled it knows, which is the whole reason `boundaries` is a
+   *  parameter of {@link perceiveImpl} and never inferred from content.  A
+   *  conversation deposited through {@link ingest} folds its contexts over
+   *  those turn boundaries, so a hand-concatenated transcript passed here
+   *  folds differently from the way it was learnt and reaches the trained
+   *  context node only by luck (measured on a 7-turn conversation: 5/7 here
+   *  against 7/7 through {@link respondTurn}, same bytes).  Use
+   *  {@link beginConversation} + {@link respondTurn}, or {@link addTurn} to
+   *  replay turns the Mind should hear but not answer. */
   async respond(
     input: Input,
     inspectRationale?: InspectRationale,
@@ -686,7 +715,22 @@ export class Mind implements MindContext {
   beginConversation(state?: ConversationState): Conversation {
     const id = this._nextConvId++;
     const initBytes = state?.context ?? new Uint8Array(0);
-    const initBoundaries = state?.boundaries ? [...state.boundaries] : [];
+    // NORMALISE CALLER-SUPPLIED BOUNDARIES.  `boundaries` is documented
+    // strictly increasing and every boundary this class produces is (they are
+    // appended as the context grows), but a restored {@link ConversationState}
+    // comes from OUTSIDE — hand-built, migrated, or round-tripped through a
+    // store that did not preserve order.  The folds consume boundaries with a
+    // sequential `b > prev` filter, so an out-of-order entry is silently
+    // DROPPED rather than rejected, and the conversation would then fold over
+    // a different cut set than the one the caller believes it restored.
+    // `bytesToTree` used to sort on the way in and absorbed this; the
+    // incremental fold this now calls does not, so the normalisation belongs
+    // here, at the one public door untrusted boundaries come through.
+    const initBoundaries = state?.boundaries
+      ? [...new Set(state.boundaries)]
+        .filter((b) => b > 0 && b < initBytes.length)
+        .sort((a, b) => a - b)
+      : [];
     const initAnswered = state?.answeredSpans
       ? state.answeredSpans.map(([start, end]) =>
         [start, end] as [number, number]
@@ -696,16 +740,18 @@ export class Mind implements MindContext {
           ? [[start, cuts[i + 1]] as [number, number]]
           : []
       );
-    const tree = bytesToTree(
+    // The same incremental fold `_growContext` uses, so a RESTORED
+    // conversation starts with segment state its next turn can reuse — a
+    // resumed conversation is otherwise identical to a live one and must not
+    // pay a full re-fold on every turn for the rest of its life.
+    const restored = contentFoldIncremental(
       this.space,
       this.alphabet,
       initBytes,
-      undefined,
-      undefined,
-      initBoundaries.length > 0 ? initBoundaries : undefined,
     );
     this._conversations.set(id, {
-      tree,
+      tree: restored.tree,
+      content: restored.fold,
       bytes: initBytes,
       boundaries: initBoundaries,
       answeredSpans: initAnswered,
@@ -742,7 +788,41 @@ export class Mind implements MindContext {
    *  This is the primitive for turns the Mind should hear but not answer:
    *  replaying a transcript, feeding the OTHER speaker's line in a
    *  prediction harness, or restoring context piecewise.  {@link
-   *  respondTurn} = addTurn + think + its own reply appended the same way. */
+   *  respondTurn} = addTurn + think + its own reply appended the same way.
+   *
+   *  ── ON SEPARATORS: THERE IS NO SEPARATOR QUESTION ────────────────────
+   *
+   *  "Never a separator" above says what this method DOES — it appends the
+   *  bytes you give it and records an OFFSET — not that separator bytes are
+   *  forbidden, unsupported, or something the engine must be taught about.
+   *  Sema is agnostic to them, and reviewers keep mistaking that agnosticism
+   *  for a constraint.  To be explicit, because the mistake is easy:
+   *
+   *  1. A turn boundary is an OFFSET, held here, in `boundaries`.  It is
+   *     never a character the geometry scans for.  Nothing downstream asks
+   *     "what byte separates two turns?" because nothing downstream finds
+   *     boundaries by looking at content at all.
+   *  2. A separator in a CORPUS is ordinary content.  If a trainer joins
+   *     turns with "\n" (example/train_base.ts does), those newlines are
+   *     simply bytes inside the stream, folded like every other byte.  They
+   *     are a property of that corpus, not of this API and not of the fold.
+   *  3. This API can therefore reproduce ANY corpus exactly, with no
+   *     convention to agree on: replaying a "\n"-joined corpus means passing
+   *     `"\n" + turnText` as the turn.  The separator rides along IN the
+   *     turn bytes, where it belongs.  There is nothing to configure and no
+   *     mode to select.
+   *  4. Inference is not exact-match anyway.  Recognition works over
+   *     sub-spans, canonical equivalence and resonance, so a query that
+   *     differs from the trained bytes by punctuation or whitespace still
+   *     reaches the trained forms; it degrades, it does not fail closed.
+   *
+   *  What follows from 1–4: differing separator bytes between a corpus and a
+   *  query is an ordinary CONTENT difference — the same kind as any other
+   *  wording difference — and it is measured the same way.  It is NOT an
+   *  incompatibility between the trainer and this API, and it does NOT
+   *  require choosing a project-wide separator convention.  A review that
+   *  concludes otherwise (this one did, before being corrected) has mistaken
+   *  its own harness feeding untrained bytes for an architectural defect. */
   addTurn(conv: Conversation, turn: Input): ConversationState {
     const data = this._conversations.get(conv.id);
     if (!data) throw new Error(`Conversation ${conv.id} not found`);
@@ -765,17 +845,42 @@ export class Mind implements MindContext {
     if (!grow) return data.tree;
     const grown = prevLen > 0 ? concat2(data.bytes, turnBytes) : turnBytes;
     if (prevLen > 0) data.boundaries.push(prevLen);
-    const tree = bytesToTree(
+    // THE PLAIN FOLD, INCREMENTALLY.  No boundary set is imposed here: the
+    // tree is exactly the tree `perceive(grown)` builds for these bytes, which
+    // is exactly the tree the DEPOSIT path folded when it learnt them.  That
+    // agreement is the whole point — it is what lets a cumulative context
+    // resolve to its trained node, and when it was absent the alignment family
+    // went quadratic (measured: 5.2M cells on a 476-byte context, against 0
+    // when the two sides agree).
+    //
+    // The optimisation is unaffected by dropping the boundaries, because it
+    // never came from them: content cuts are stable under append, so the
+    // incremental fold reuses every segment left of the new turn as the SAME
+    // object (see contentFoldIncremental).  That object identity is what
+    // `resolvedSubtrees` — a WeakMap keyed by node identity — needs in order
+    // to hit at all.  Measured against the stable-prefix fold it replaces:
+    // ~40 rebuilt nodes per turn either way, flat as the context grows
+    // sevenfold, and ~92% of nodes reused by identity in both.
+    //
+    // `data.boundaries` is still tracked, and is still exact — it is API
+    // metadata (ConversationState, answeredSpans, currentTurnStart), not a
+    // fold instruction.
+    const folded = contentFoldIncremental(
       this.space,
       this.alphabet,
       grown,
-      undefined,
-      undefined,
-      data.boundaries.length > 0 ? data.boundaries : undefined,
+      data.content,
     );
+    const tree = folded.tree;
+    data.content = folded.fold;
     data.tree = tree;
     data.bytes = grown;
-    data.perceiveMemo.set(latin1Key(grown), tree);
+    // Seeded under the PLAIN content key, and that is now the only key there
+    // is: with no boundary set imposed, this tree IS what `perceive(grown)`
+    // computes, so the memo entry is an ordinary cache hit rather than the
+    // deliberate alias it had to be while the two folds differed.  The entry
+    // saves the pipeline re-folding the context it was just handed.
+    data.perceiveMemo.set(perceiveKey(grown), tree);
     return tree;
   }
 
