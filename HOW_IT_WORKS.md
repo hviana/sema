@@ -41,6 +41,7 @@ or machine — can follow it from first principles.
   - [22. Reasoning: the multi-hop chain](#22-reasoning-the-multi-hop-chain)
   - [23. Fusion: multi-topic answers](#23-fusion-multi-topic-answers)
   - [24. Articulation: answering in the asker's words](#24-articulation-answering-in-the-askers-words)
+  - [24.5 Conversations: the accumulated context](#245-conversations-the-accumulated-context)
   - [25. Disambiguation: choosing among alternatives](#25-disambiguation-choosing-among-alternatives)
   - [26. Auditability: provenance and the rationale](#26-auditability-provenance-and-the-rationale)
 - **Part V — The whole algorithm in pseudocode**
@@ -204,7 +205,7 @@ This has three consequences that Sema uses constantly:
 - **Robustness.** Corrupting a few coordinates of a high-dimensional vector
   barely moves it; every comparison degrades gracefully rather than breaking.
 
-### 2.3 Permutation binding and why order becomes visible
+### 2.3 Seat binding and why order becomes visible
 
 A permutation π rearranges a vector's coordinates: the value at position π(i)
 moves to position i. Two properties make permutations excellent binding
@@ -217,12 +218,12 @@ operators:
   permutation "hides" the vector's identity behind the role.
 
 Sema keeps a fixed **keyring** of independent random permutations π₀, π₁, π₂, …
-— one per _seat_ (ordinal position in a group). To encode an ordered group of
-children (c₀, c₁, …, cₖ), each child's vector is bound to its seat and the
-results are superposed:
+— one per _seat_ (a positional coordinate inside a group). To encode an ordered
+group of children (c₀, c₁, …, cₖ), each child's vector is bound to its seat and
+the results are superposed:
 
 ```
-encode(c₀, c₁, …, cₖ)  =  π₀·v(c₀) + π₁·v(c₁) + … + πₖ·v(cₖ)
+encode(c₀, c₁, …, cₖ)  =  π_{s(0)}·v(c₀) + π_{s(1)}·v(c₁) + … + π_{s(k)}·v(cₖ)
 ```
 
 Because the seats are _different_ permutations, "A in seat 0, B in seat 1" and
@@ -230,9 +231,34 @@ Because the seats are _different_ permutations, "A in seat 0, B in seat 1" and
 of the representation**. And because independent permutations do not commute,
 nesting the operation encodes _paths_: "the x that sits in seat 2 of the thing
 in seat 1" has a distinct signature from "the x in seat 1 of the thing in seat
-2". A whole tree can thus be folded, level by level, into one fixed-width vector
-whose geometry reflects the tree's entire shape and content. Sema calls the
-result of this fold the tree's **gist**.
+2". A whole tree can thus be folded into one fixed-width vector whose geometry
+reflects the tree's entire shape and content. Sema calls the result of this fold
+the tree's **gist**.
+
+#### The two-ended coordinate frame
+
+The seat assignment `s(k)` is not simply `k`. A group of `size` children is
+anchored at **both ends of the keyring**: the front half of the children take
+the lowest seats (0, 1, …), and the back half take the highest seats, counted
+inward from the keyring's last slot. Formally, with `S` seats on the ring,
+
+```
+s(k)  =  k                     for k < ⌈size/2⌉      (anchored at the left end)
+s(k)  =  S − size + k          otherwise             (anchored at the right end)
+```
+
+The assignment stays injective for any `size ≤ S`, so the algebra is unchanged;
+what changes is _robustness_. Under a plain `s(k) = k` frame, prepending one
+byte to a group re-seats every subsequent child and the group's gist rotates
+into a nearly orthogonal direction. Under the two-ended frame, a byte inserted
+at one edge moves only the coordinates anchored at _that_ edge; everything
+anchored at the far end keeps its seat, and the interior of the group keeps its
+geometry. This is the vector-side counterpart of the content-defined boundaries
+of §10.2: one makes _identity_ insensitive to absolute offset, the other makes
+_geometry_ insensitive to edge perturbation.
+
+The keyring is sized `max(8, W)` seats, which is also the largest group the fold
+is allowed to build (§10.2).
 
 Note that this encoding step is **not** followed by a normalize: unlike the
 classical VSA recipe (which renormalizes after every superposition), Sema's fold
@@ -309,7 +335,7 @@ alone. Two examples used constantly in Part IV:
   span is long — the magnitude correction keeps "near-identical" meaning the
   same absolute thing at every scale.
 - **Recall's last-resort tier** (§21) and the **consensus climb's** per-region
-  vote (§17.3) both convert a raw resonance score into a _query-relative
+  vote (§17.4) both convert a raw resonance score into a _query-relative
   fraction_ — how much of the smaller side the larger side's content actually
   accounts for — using exactly this norm-as-byte-count reading, rather than
   trusting the raw cosine, which conflates "small thing fully inside a big
@@ -404,6 +430,54 @@ threshold_, Section 8), Sema considers treating them as the same node — but
 geometric closeness alone is scale-blind, so the decision is made by the bytes:
 the two contents must be identical except for **one local span no wider than the
 perception window**. Geometric evidence proposes; bytes dispose.
+
+### 3.4 Equivalence classes: canonical resolution
+
+Content addressing on raw bytes is exact, and exactness cuts both ways: "What",
+"WHAT" and "ｗｈａｔ" are three different hashes, so a query that differs from
+the trained form only in _surface_ resolves to nothing even though the content
+is the same. Sema closes this gap without weakening content addressing, by a
+second, explicitly labelled index.
+
+A **canonicalizer** is an injected pure function mapping a byte span to the
+canonical representative of its equivalence class. It is **modality-specific and
+always supplied by the caller** — nothing in the store or the mind's core knows
+what "case" or "whitespace" is. The text canonicalizer (the one the text entry
+points inject) applies Unicode NFKC compatibility normalization, case folding,
+and collapses interior whitespace runs to one space, while leaving _edge_
+whitespace, punctuation, digits and word order untouched. A grid or audio
+modality supplies its own, or none.
+
+The store keeps a small **canon index** — a map from the 32-bit hash of a
+canonical key to candidate node ids — built (and incrementally refreshed) by a
+batch pass over the store's content-bearing nodes, exactly like index repair.
+Only nodes whose canonical key _differs_ from their raw bytes are indexed; an
+already-canonical form is found by the ordinary exact lookup.
+
+Resolution therefore has two tiers, in the system's standing order of exact
+before approximate:
+
+1. the exact content-addressed fold-and-lookup (§3.1);
+2. failing that, canonical resolution: canonicalize the span, try the exact
+   lookup of the _canonical bytes_, then probe the canon index by key hash.
+
+Crucially, canonical keys are equivalence-class **labels, never content**. Every
+candidate the hash proposes is verified by re-canonicalizing its stored bytes
+and comparing, so a hash collision costs one read and never a wrong id — the
+same hash-then-verify discipline the node table's own content hash uses. Among
+verified candidates, one that leads somewhere (bears a continuation edge) is
+preferred, ties breaking to the lowest id — a property of the corpus, not of the
+seed. A verified candidate is then re-folded to the deposit-shaped node that
+actually carries the edges and halos, so canonical resolution lands on the same
+node the exact path would have reached had the query been spelled canonically.
+
+Two adjacent conveniences belong to the same modality boundary. The text entry
+point **retries a whole query with its outer edge whitespace trimmed** when the
+first, byte-exact attempt grounds nothing: at the outer edges of a whole input
+there is no neighbouring form for a trimmed span to swallow, so the hazard that
+makes the canonicalizer preserve edge whitespace cannot arise there. The retry
+is on the already-failed path only, so a form deliberately trained _with_ edge
+padding still answers exactly.
 
 ---
 
@@ -650,9 +724,10 @@ them are explicit:
                                         │  Hilbert linearization (§6.3)
                                         ▼
 PERCEPTION            ┌─────────────────────────────────────────┐
-(VSA, §2)             │  the river fold: bytes → leaves → tree  │
-                      │  every node gets a GIST (permutation-    │
-                      │  bind + superpose + normalize)           │
+(VSA, §2)             │  the fold: content-defined cuts → flat   │
+                      │  segments → level grouping → tree        │
+                      │  every node gets a GIST (seat-bind +     │
+                      │  superpose; only the ROOT normalizes)    │
                       └──────────────────┬──────────────────────┘
                                          │ identical bytes ⇒ identical tree
                                          ▼
@@ -846,6 +921,44 @@ fan-out-limited decision in the pipeline uses this one bound, so the trade is
 made once, consistently, and the cost of inference stays bounded by √N rather
 than growing with the corpus.
 
+The bound has two derived companions, both readings of "too common to
+discriminate" that a single node's parent count cannot express:
+
+- **The lateral-cone bound — the cumulative dual.** Within one deposit, an
+  upward climb is a _chain_ (each node's first parent); every parent _beyond_ a
+  node's first is an entry into another containing structure (hash-consing: a
+  shared subtree's extra parents are other deposits' chunks). A climb whose
+  _accumulated_ lateral entries exceed √N has spread across just as many
+  distinct containing structures as a single hub node would have — the same
+  commonness, distributed along the cone instead of concentrated at one node —
+  and is decided saturated. A deep chain inside _one_ structure accrues no
+  laterals, so legitimate deep scaffolding still climbs to its root at any
+  depth; what dies is cross-structure drift (profiled on a 17.7M-node store:
+  ~20K distinct nodes visited per climb family, over 95% of them unique — not
+  memoisable — while the context account never decided).
+
+- **The byte-atom commonality floor: N·W/256.** A single-byte leaf has no
+  structural parents _by construction_ (atoms are never linked into the kid or
+  containment tables), so a climb cannot observe its containment at all. Left
+  alone, the walk would see only the atom's own edges and report one context —
+  turning the most common content in the store into its most discriminative
+  voter (observed on a 325K-context store: every recognised single-letter site
+  voted a full ln N, and their pooled sum out-voted every genuine anchor). An
+  _unmeasurable_ commonality must not default to "maximally rare": it is bounded
+  below by the uniform expectation over the alphabet — N contexts, each holding
+  at least one segment of up to W of the 256 possible byte values, so an atom is
+  contained in ≥ N·W/256 contexts on average. When that floor exceeds √N, the
+  atom is a hub at this corpus scale and abstains from voting. Its own edges
+  remain fully traversable (exact recall, continuation picks, projections); only
+  its say as a consensus voter is withdrawn. Derived from N, W and the alphabet
+  size; never tuned.
+
+A third device bounds work without bounding evidence: a **transparent chain** —
+a run of nodes each with exactly one structural parent and no edges in or out —
+contributes no root, no context and no lateral entry, so the whole run to its
+first non-transparent ancestor is skipped in one bounded store read instead of
+three probes per node.
+
 ### 8.9 The cost ladder: the one currency of every decision
 
 The deduction system's rule costs form the **single cost currency of the whole
@@ -909,7 +1022,7 @@ discriminates — it is an entity, a filler, a name. Content reaching a corpus
 nothing anywhere. This is the half-dominance convention of §8.7, applied to the
 entire store.
 
-The climb's IDF weighting (§17.3), confluence's filler/scaffolding gate (§18.5),
+The climb's IDF weighting (§17.4), confluence's filler/scaffolding gate (§18.5),
 and every decision of the form "is this node a hub?" use corpus-global
 commonality. The halo index (§4, §12.2) is also corpus-global: a node's
 distributional signature is the superposition of ALL episodes it took part in,
@@ -1005,20 +1118,34 @@ the vocabulary the rest of the document (and the codebase) speaks.
 
 - **Gist** — the VSA fold of a span's content; content similarity in one dot
   product (§2.3).
-- **Seat / keyring** — the fixed random permutations that bind ordinal position
-  into a fold (§2.3).
+- **Seat / keyring** — the fixed random permutations that bind positional
+  coordinate into a fold; assigned in the **two-ended coordinate frame** (front
+  children anchored at the ring's low seats, back children at its high seats) so
+  an edge insertion re-seats only that edge (§2.3).
 - **Alphabet** — the 256 deterministic byte vectors with graded similarity
   (§2.4).
-- **River fold** — the level-by-level grouping of leaves into a tree, W at a
-  time (§10). **Linear**: only the fold's root is normalized, so every interior
-  gist keeps a byte-proportional magnitude — the basis of angle-and-magnitude
-  semantics (§2.6).
+- **Content boundary / cut level** — where a stream segments, chosen by a
+  bounded-window rolling hash over the bytes rather than by absolute offset; the
+  same hash's divisibility gives each cut a LEVEL, and level-L cuts nest inside
+  level-(L−1) cuts, which is what makes every node at every scale
+  content-delimited (§10.2, §10.3).
+- **Segment** — the phrase-scale flat unit between two level-0 cuts; folds as
+  ONE node with two-ended seats (§10.3).
+- **The fold** — segments folded flat, then grouped upward by cut level until
+  one root remains (§10.3). **Linear**: only the fold's root is normalized, so
+  every interior gist keeps a byte-proportional magnitude — the basis of
+  angle-and-magnitude semantics (§2.6).
+- **Incremental fold** — a stream extending an already-folded one reuses every
+  segment left of the new bytes (cuts are stable under append; a segment is a
+  pure function of its own bytes), so growth costs O(new bytes) (§10.4).
 - **Magnitude / contentLen** — the byte-proportional length an unnormalized
   interior gist carries (norm ≈ √len); read back from the store as a span's
   content length and used to convert a raw cosine into a query-relative or
-  scale-aware fraction (§2.6, §8.1, §17.3, §21).
-- **Stable prefix** — the already-known head of a stream, folded independently
-  so its structure is reproducible (§10.3).
+  scale-aware fraction (§2.6, §8.1, §17.4, §21).
+- **Stable prefix** — a caller-imposed (or store-detected) boundary set at which
+  the fold splits and joins left-nested, so every cumulative prefix reappears as
+  the same node inside the grown stream. Distinct from incremental reuse, which
+  imposes nothing (§10.4).
 
 **Memory**
 
@@ -1031,6 +1158,15 @@ the vocabulary the rest of the document (and the codebase) speaks.
   share one node (§11).
 - **Near-dedup** — merging a fresh root onto a geometrically identical,
   byte-verified stored root (§11.2).
+- **Canonicalizer / canon index** — an injected, modality-specific map from a
+  span to its equivalence class's representative, plus the store's hash index
+  from canonical keys to node ids. The read-path fallback when exact
+  content-addressed resolution misses; every candidate is verified by
+  re-canonicalizing its bytes, so a collision costs a read, never a wrong id
+  (§3.4).
+- **Suffix propagation** — every established right-edge suffix of a learned
+  context inherits that context's continuation edge, so a fact stays reachable
+  when it arrives with a different amount of history in front of it (§12.1).
 - **Containment edge** — a durable "this window of bytes occurs inside that
   chunk" record for sub-spans that are not structural children (§11.3).
 - **Transparent chain (chainRun)** — a run of nodes each with exactly one
@@ -1057,7 +1193,7 @@ the vocabulary the rest of the document (and the codebase) speaks.
   accepted (grid fragments of one whole legitimately overlap inside it), with a
   strict-super-form requirement (holding both must be more than restating either
   side). The bridge's Tier 1 connector search (§19.5) and cross-region
-  attention's joint-context recovery (§17.6) ascend by the same shared, bounded,
+  attention's joint-context recovery (§17.8) ascend by the same shared, bounded,
   cached walk. A per-response walk cache memoises every identity read across all
   walks of one response, and junction seeds are computed once per candidate and
   reused across all its pairs. Synonym junctions extend the ascent to halo
@@ -1079,7 +1215,10 @@ the vocabulary the rest of the document (and the codebase) speaks.
   `hubBound` (≥ 2, the numerical cap passed to the store's LIMITed reads) and
   `hubCap` (the list-side reading). Every fan-out walk and disambiguation uses
   one of them; the store enforces the cap at read time so no per-query cost
-  grows with the corpus.
+  grows with the corpus. Its two derived companions are the **lateral-cone
+  bound** (the same √N applied to a climb's accumulated cross-structure entries)
+  and the **byte-atom commonality floor** N·W/256 (the honest stand-in for a
+  containment an atom's structure cannot express) (§8.8).
 - **Estimator noise floor** — 1/√D, one standard deviation of chance cosine
   between random vectors. The smallest difference distinguishable from RaBitQ
   quantisation error (§8.4). The consensus climb gates a region's vote on its
@@ -1101,13 +1240,15 @@ the vocabulary the rest of the document (and the codebase) speaks.
   Defined once; every consumer of the corpus scale reads it. (§8.8, §17)
 - **Expand-until-decided** — the climb's work is bounded by stopping the moment
   the answer (saturated vs. voted) is known, through LIMITed store reads only
-  (§17.4). The walk is exact below √N distinct contexts and stops at the first
-  proof of saturation past it.
+  (§17.5). The walk is exact below √N distinct contexts and stops at the first
+  proof of saturation past it. Five such proofs exist, each recorded by name in
+  the trace: predecessor fan-in, distinct-context limit, parent fan-out, the
+  lateral-cone limit, and byte-atom commonality (§8.8, §17.5).
 - **Canonical contract** — the write/read convention for the store's
   segmentation: the write side interns W−1 and W sliding windows and a
   whole-stream flat branch; the read side chains leaf ids up to W² positions and
   probes every prefix as a flat branch. Defined in one module; a drift between
-  the sides silently breaks recognition. (§10.3, §11.3, §15.2)
+  the sides silently breaks recognition. (§10.4, §11.3, §15.2)
 - **Window IDs** — the canonical content-addressed identity of every W-sized
   slice of a byte stream, offset → node id. Under this mapping, any content two
   deposits share IS the same node (hash-consing paid the comparison at write
@@ -1119,10 +1260,23 @@ the vocabulary the rest of the document (and the codebase) speaks.
   corpus minority of contexts discriminates (an entity, a filler); content
   reaching a majority is frame scaffolding. (§18.3, §18.5)
 - **Recognition** — decomposing a query into every stored form it contains, by
-  structural and canonical readings (§15).
-- **Site** — one recognised form: a query span plus the node it names (§15).
+  structural and canonical readings plus a query-edge pass (§15). Memoised by
+  content and ALWAYS consulted, even under trace: the subtree-resolution cache
+  makes a repeat call find FEWER sites, so the memo is a correctness contract,
+  not an accelerator (§15.4).
+- **Site** — one recognised form: a query span plus the node it names. Admitted
+  only if it leads somewhere, spans at least one perception window, and (for a
+  byte atom) atoms still discriminate at this corpus scale (§15.3).
+- **Split / starts** — a form boundary falling inside a perceived leaf (the
+  cover may cut there), and the offsets the query's own fold cut at (§15).
 - **Cover** — the lightest-derivation goal: the query covered left to right by
   recognised completions and carried literals (§19).
+- **Stop-here** — the cover's option to abandon an edge chain mid-way and emit
+  the node as it stands, priced at CONCEPT above the chain's cost, so a shorter
+  premature stop beats a longer one and a genuine fixpoint beats both (§19.3).
+- **Atom-chain gate** — a pure leaf-leaf FUSE is admitted only below the
+  atom-hub scale; the fold-boundary exemption it replaced carried zero content
+  information and once grounded a greeting as a fact (§19.3).
 - **Fuse / recompose** — the search's discovery that adjacent fragments spell a
   deeper learned form (§19.4).
 - **Connector (bridge)** — learned material that belongs _between_ two spans,
@@ -1131,7 +1285,7 @@ the vocabulary the rest of the document (and the codebase) speaks.
   carrying the glue), then Tier 2.5 synonym junctions (the same ascent over halo
   siblings), then resonance as last resort; disambiguated by the response guide,
   with the shortest interior preferred. The junction ascent is shared with
-  cross-region attention (§19.5, §17.6).
+  cross-region attention (§19.5, §17.8).
 - **Concept hop** — borrowing a distributional sibling's continuation via
   `haloSiblings` (the unified halo-sibling enumeration) and `guidedFirst` (the
   guided-or-first convention for edge picks) (§19.3).
@@ -1142,13 +1296,23 @@ the vocabulary the rest of the document (and the codebase) speaks.
   machinery, recursively, to let composites resolve deeper (§19.6).
 - **Consensus climb / point of attention** — regions of the query vote, through
   the DAG's parents, for the learned contexts they belong to. Regions come from
-  TWO sources: perceived subtrees (the river fold's positional chunks) and
-  recognised sites (content-addressed nodes — exact anchors that skip the ANN
-  resonance step). Sites capture whole words that cross W-boundaries, which
-  perceived chunks alone miss. Pooled votes select the query's independent
-  topics (§17).
+  THREE sources: fold nodes, recognised sites (content-addressed nodes carrying
+  their own identity — exact anchors that skip the ANN step), and coalesced
+  resolvable windows recovering forms the query's own content cut split (marked
+  _corroborating_: evidence for someone else's anchor, never a topic of their
+  own). Pooled votes select the query's independent topics (§17).
 - **Saturation** — a region whose upward climb hits hub fan-out abstains rather
-  than voting noise (§17.4).
+  than voting noise (§17.5).
+- **Peak / breadth / clusters** — the three read-outs beside an anchor's pooled
+  vote: what its strongest single region said alone (the bar a consensus-floor
+  consumer must read), the scale-invariant fraction of the query's own regions
+  that corroborated it, and how many separate PLACES in the query did — the
+  dispersion test that separates a genuine further topic from a strong
+  coincidental echo (§17.6).
+- **Window coverage** — the fraction of a region's W-windows that are
+  content-addressed; it SCALES the contrastive-margin bar rather than switching
+  it, so grouping churn is not taxed as uncertainty and a 20%-attested region
+  does not get a fully-attested one's exemption (§17.3).
 - **Cross-region attention** — direct region-to-region interaction: two regions
   that independently voted (at least one strongly) pair to recover their joint
   context — the learnt whole containing both — by the same order-free junction
@@ -1167,14 +1331,31 @@ the vocabulary the rest of the document (and the codebase) speaks.
   whose joined occurrence is itself a substring of the query is rejected —
   binding is only evidence when the query mentions the forms apart. Consumed
   candidates never re-pair. A joint container is exact evidence, voting at full
-  strength. Additive pooling alone cannot surface a context zero regions
-  individually voted for; cross-region evidence fills that gap (§17.6).
+  strength. The ladder has FIVE tiers — exact containers, single synonym, double
+  synonym, then structural resonance (a synthetic gist composed from the two
+  sides' own vectors, the one tier with no byte containment behind it, gated on
+  both sides being exact AND individually discriminative, plus a self-evidence
+  and a contrastive-margin check). Two asymmetries follow: only EXACT evidence
+  may explain ordinary votes away, and only container-backed evidence may
+  consume its endpoints. Additive pooling alone cannot surface a context zero
+  regions individually voted for; cross-region evidence fills that gap (§17.8).
 - **CAST (counterfactual transfer)** — substitution / redirection / comparison
   between independently learned structures the query weaves together. Alignment
-  is **graded** (literal W-grams → halo-matched sites); frame gates are
-  **derived** (`MIN_WEAVE` from the weave minimum, `dominates` from
-  half-dominance) and **weave-local** (majority of _aligned_ structures, not
-  corpus-global IDF). (§18)
+  is **graded** (literal W-grams → halo-matched sites → the climb's own
+  proposal, gated on literal dominance and non-frame); the weave is capped at
+  query scale, aligned over the ASKER's stream only, and deduplicated by "one
+  place, one structure". Frame gates are **derived** (`MIN_WEAVE` from the weave
+  minimum, `dominates` from half-dominance) and **weave-local** (majority of
+  _aligned_ structures, not corpus-global IDF). (§18)
+- **Two-topic gate** — CAST's own single-vs-multi test, measured from the query
+  rather than from how many points survived elimination: a second point must
+  contribute a quantum of query bytes the widest point does not, OR the climb
+  must report the query dispersed with the points elected a quantum apart and a
+  quantum still unexplained (§18.3).
+- **Ignored-known principle** — a mechanism standing on its weakest licence must
+  account for every STORED window of the query; leaving the query's own trained
+  content in its gaps is the byte-structural signature of a scrap match. Guards
+  CAST's frame-tier comparison and the bridge (§18.4, §19.5).
 - **Confluence join** — the meet of independent constraint streams by
   content-addressed identity: window IDs present in both anchors and absent from
   the query name the entity satisfying all constraints at once. Answers
@@ -1182,11 +1363,26 @@ the vocabulary the rest of the document (and the codebase) speaks.
   resolve. (§18.5)
 - **Skill / exemplar** — a learned fact shaped "answer-is-a-span-of-context",
   reusable as an extraction template on unseen text (§20).
-- **Recall tiers** — the graded fallback for whole-query resonance, from exact
-  self-match to honest echo. Each tier reports _what it matched_ (`accounted`),
-  its _moves_, and `unexplained` — a human-readable label for the query bytes it
-  left on the table — so the grounding decider can compare it against every
-  other mechanism in the same currency with full diagnostic visibility. (§21)
+- **Recall tiers** — the graded fallback for whole-query resonance: exact
+  self-match, argument binding, clean resonance, scaffolding-dominated
+  consensus, the nearest grounded hit, then the three REFUSAL-PATH tiers
+  (substitution bridge, prefix completion, frame-filler substitution), then echo
+  or silence. Each reports _what it matched_ (`accounted`), its _moves_, and
+  `unexplained`, so the decider compares it against every other mechanism in the
+  same currency. (§21)
+- **Substitution bridge** — refusal-path grounding through corroborated
+  substitutions: align the query byte-for-byte against a trained context and
+  accept a mismatch only under corroboration, graded identity, and RAW BALANCE
+  (the pre-expansion mismatch must be length-balanced). Its zero-substitution
+  reading is the IDENTITY bridge, which is `complete` (§21.5).
+- **Prefix completion** — the query is a proper byte PREFIX of exactly one
+  trained form, which is then voiced whole. Guarded by unreadable-continuation
+  veto, a sub-quantum floor, and uniqueness on the continuation BYTES. Repairs a
+  retrievability gap no k can close (§21.5).
+- **Frame-filler substitution** — INVENT A LOOKUP KEY, NEVER AN ANSWER: put a
+  candidate filler where a definite description stands and require the store to
+  already hold that key byte-exactly. Constituency is read relationally, from
+  what a cohort of exemplars does NOT share (§21.5).
 - **Accounted spans** — the query byte ranges a mechanism's own structural
   evidence explains (aligned runs, located frames, voted regions, constraint
   content). Query bytes outside them are priced at PASS each — the same rate the
@@ -1211,7 +1407,7 @@ the vocabulary the rest of the document (and the codebase) speaks.
   (majority of contexts, across the store). The two quantities are formally
   independent — a phrase common to 2 of 3 aligned exemplars but rare in the
   corpus IS frame for CAST's purposes; substituting global IDF misfires on
-  reordered single-fact queries. (§18.2)
+  reordered single-fact queries. (§18.3)
 - **Free-will architecture** — the grounding decider as a market: mechanisms are
   decoupled (zero cross-imports), self-gating (binary structural preconditions),
   budget-capped (√N, k, LIMITed reads), and evidence-carrying (`accounted`,
@@ -1224,11 +1420,22 @@ the vocabulary the rest of the document (and the codebase) speaks.
   self-gating mechanism yields a candidate answer weighed in the one cost
   ladder, and the lightest grounding derivation wins. Moves (STEP per
   projection, CONCEPT per halo-mediated act) discriminate residually; PASS per
-  unexplained byte dominates. Ties keep the mechanism list's order (cover, CAST,
-  confluence, extract, recall). The decider uses admissible-floor pruning (a
-  mechanism whose best-case floor cannot beat the incumbent is never run) — and
-  a mechanism whose floor itself needs expensive precomputation to refine checks
-  the SAME incumbent before paying for it (§14.1, §14.2).
+  unexplained byte dominates. Grade ties prefer the candidate carrying fewer
+  scaffolding bytes into its answer, then the mechanism list's order (cover,
+  CAST, confluence, extract, recall). The decider uses admissible-floor pruning
+  (a mechanism whose best-case floor cannot beat the incumbent is never run) —
+  and a mechanism whose floor itself needs expensive precomputation to refine
+  checks the SAME incumbent before paying for it (§14.1, §14.2).
+- **Scaffolding count** — answer bytes a candidate lifted from spans nothing
+  recognised: the asker's own words carried through rather than derived.
+  Reported, never priced — the ladder prices what is left _unaccounted_, and
+  this orders candidates that tie on exactly that (§14.1).
+- **Complete** — a mechanism's declaration that its result is a stored form's
+  own continuation reached through an identity claim about the query, so
+  post-grounding must not extend it (§14.1, §22).
+- **Remainder** — the query bytes touched by neither the winning candidate's
+  accounted spans nor any computed span; fusion fires only on a remainder of at
+  least one perception quantum W (§14.1, §23).
 - **Pivot** — the longest unconsumed learned context contained in the current
   answer; the stepping stone of multi-hop reasoning (§22).
 - **Fusion** — grounding each independent point of attention and joining the
@@ -1236,11 +1443,19 @@ the vocabulary the rest of the document (and the codebase) speaks.
 - **Articulation** — re-voicing the answer in the asker's own words via halo
   siblings (§24).
 - **Echo** — the last-resort output that returns a stored form verbatim,
-  explicitly flagged as not grounded (§21.4, §26).
+  explicitly flagged as not grounded (§21.6, §26).
 - **Provenance** — which grounding mechanism produced the answer; part of every
   response (§26).
 - **Rationale** — the replayable trace of every rule application behind an
   answer (§26).
+- **Meter / cost report** — the optional per-response accounting of the WORK an
+  inference call performed, by layer and by nested phase. The profiling
+  counterpart of the rationale: deterministic counters (diffable between runs),
+  non-deterministic times, never read by inference (§26).
+- **Conversation** — an accumulated context (the full exchange as one byte
+  stream) plus turn-boundary offsets and answered spans. Turns append raw bytes;
+  the fold advances incrementally; the weave aligns only the asker's stream
+  (§24.5).
 
 **Computation**
 
@@ -1251,11 +1466,13 @@ the vocabulary the rest of the document (and the codebase) speaks.
   pipeline never special-cases any mechanism by name or kind (§14.1, §16).
 - **Precomputed** — the shared, response-scoped container every mechanism's
   `floor`/`run` (and the post-grounding stages) receive: eager fields
-  (recognition, computed spans, guide) plus lazily-cached methods for the
-  expensive structural analyses (the consensus climb `attention()`, the weave,
-  span-shape classification, the identity-window reads), each computed at most
-  once, reused across every consumer, and never computed at all when no
-  mechanism asks (§14.1, §14.2).
+  (recognition, computed spans, guide, the evidence-breadth constant k) plus
+  lazily-cached methods for the expensive structural analyses (the consensus
+  climb `attention()`, the weave, span-shape classification, the identity-window
+  reads and the shared reach memo), each computed at most once — async ones
+  cached by promise, so concurrent askers await the same computation — reused
+  across every consumer, billed to their own profiling phase, and never computed
+  at all when no mechanism asks (§14.1, §14.2).
 - **Extension** — a user- or built-in-supplied `PipelineMechanism` whose `parse`
   recognises computations (arithmetic, logic, …) the mind should not have to
   learn fact-by-fact; joins via `mechanismFactories` (§16).
@@ -1288,9 +1505,10 @@ order always produce a structurally identical store.
         ▼
   leaves  [l₀][l₁][l₂] … [lₙ]
         │
-        │ 3. RIVER FOLD: group ≤ W siblings per level, seat-bind + superpose
-        │    (splitting at the stable-prefix boundary when the head of the
-        │     stream is already known)
+        │ 3. THE FOLD: content-defined cuts segment the stream; each segment
+        │    folds FLAT (two-ended seat binding), and the segment roots group
+        │    upward by cut LEVEL — every node at every scale delimited by
+        │    content, never by absolute offset
         ▼
   perceived tree  (every node: bytes-or-kids  +  gist vector)
         │
@@ -1323,83 +1541,178 @@ volume, or a stack of video frames is linearized along a Hilbert curve (§6.3) s
 that spatial locality becomes stream locality. Nothing downstream knows or cares
 which modality produced the stream — _geometry is only a reading order_.
 
-### 10.2 The river fold
+### 10.2 Content-defined boundaries: why identity must not depend on offset
 
-The fold builds the tree level by level, like a river merging tributaries:
+The naive fold groups a fixed number of items at a time, counting from byte 0.
+That is fatal for a content-addressed store, and the reason is worth stating
+precisely, because it is the single most consequential change in the perception
+layer.
+
+Under a fixed-arity grid, a byte's contribution is a function of its **absolute
+offset**: the same run of bytes lands in different seats at a different
+position, so it folds into a _different subtree_ and interns as a _different
+node_. Insert one byte at the front of a stream and every downstream grouping
+shifts; the shared material with the previous deposit stops being shared. The
+size of the grouping quantum has nothing to do with it — any fixed modulus does
+this, and identity must not depend on the fold's arity at all.
+
+Sema therefore lets the **bytes choose where the stream segments**. A rolling
+hash runs over a bounded window of the recent bytes; a cut is offered where that
+hash vanishes modulo W. Because the decision reads only a bounded window, a
+change upstream can move only the cut it falls inside — every downstream
+boundary, and therefore every downstream segment, is unchanged. Since each
+segment folds from its own seat 0, byte-identical content produces
+byte-identical subtrees wherever it occurs, and hash-consing then makes it the
+very same node id.
+
+The rule is entirely mechanical, and every constant in it is derived:
+
+- **The window** is W bytes wide, implemented as a cyclic polynomial (each byte
+  enters as a table value and leaves rotated by the window width), so the
+  register holds _exactly_ the last W raw bytes and nothing before them can
+  reach the decision. The raw window is put through a two-round avalanche mix
+  before the test, which is what makes the rule behave the same on a gradient or
+  a sparse binary stream as it does on prose.
+- **The cut rate** is one offer per W bytes (`mix % W === 0`).
+- **The minimum segment length** is expressed _locally_, not as a count from the
+  previous cut (a count carries the stream's initial phase forever, which is
+  exactly the offset dependence being removed): a hit is taken only if the
+  previous two positions did not hit.
+- **The maximum segment length** is the keyring's seat count, because a segment
+  folds as one flat node and the fold has exactly that many seats to bind
+  children into. An over-long stretch is split at strides from its own start —
+  content-relative, and rare enough (mean segment ≈ 5–7 bytes against a bound of
+  8) not to reintroduce a systematic phase.
+
+The expected segment is therefore `minLen + W − 1` bytes — deliberately coarser
+than the fold's own arity. A segment is the flat **phrase-scale unit** the W-ary
+groups are built _from_, not a group of W children; the mechanisms downstream
+are fitted to that scale, and forcing the two to coincide was measured and
+refuted.
+
+This reads **bytes, never text**. Measured over 400 real deposits under 1–7 byte
+shifts, downstream cuts survive 99.6–99.9% of the time and segments stay
+byte-identical 98.3–99.2% of the time — and the three rows that matter (deposit
+prose, non-Latin scripts, random binary) agree with each other. The arithmetic
+grid, on the same corpus, preserves 14.3%: only the shifts that happen to be
+multiples of the quantum. A boundary rule justified by where words or sentences
+fall would be importing an assumption the architecture rejects; random binary
+must, and does, behave exactly like prose.
+
+### 10.3 The fold: segments, levels, and the tree above them
+
+One rolling hash serves every scale. A cut is **level 0** when its mixed hash
+vanishes mod W, **level 1** when mod W², and so on — so level-L cuts are by
+construction a subset of level-(L−1) cuts, which is exactly the nesting a tree
+needs. Levels are read off the hash the cut was accepted at, so they cost
+nothing beyond the divisions already being done.
 
 ```
-riverFold(leaves):
-    level ← leaves
-    while |level| > 1:
-        next ← []
-        for each complete group g of W consecutive items in level:
-            next.append( foldGroup(g) )        # one parent node
-        append the trailing incomplete items (fewer than W) unchanged
-        level ← next                            # recurse upward
-    normalize( level[0].gist )                  # ONLY the finished root
-    return level[0]
+perceive(bytes):
+    cuts, levels ← contentLevels(bytes)         # §10.2, one pass
+    segments ← the byte spans between consecutive cuts
+    row ← [ flatFold(s) for each segment s ]    # each segment = ONE flat node
+    tree ← groupByLevel(row, levels, level = 1) # recurse upward
+    normalize(tree.gist)                        # ONLY the finished root
+    return tree
 
-foldGroup(children c₀ … cₖ):                    # k < W
-    gist ← Σᵢ  πᵢ · gist(cᵢ)                     # seat-bind + superpose (§2.3)
-                                                 # — NOT normalized here
-    return branch node with kids (c₀ … cₖ) and that gist
+flatFold(segment):                              # 1 … maxSeats bytes
+    gist ← Σₖ π_{s(k)} · alphabet[byteₖ]        # two-ended seats (§2.3)
+    return a node whose kids are the segment's byte leaves
+
+groupByLevel(items, levels, L):
+    group runs of items separated by cuts of level < L; a cut of level ≥ L
+    ends the group.  A group that would exceed the keyring is split at its
+    STRONGEST interior cut (ties → the items' own content hash, so the split
+    point is content-determined even where the levels are flat).
+    if this level split nothing: climb to L+1 rather than spin.
+    recurse on the groups until one root remains.
 ```
 
 Properties worth noting:
 
-- **Determinism.** Grouping is purely positional; the same stream always yields
-  the same tree shape and, therefore (given the fixed alphabet and keyring), the
-  same gists everywhere.
-- **Logarithmic depth.** Each level shrinks by roughly a factor of W, so a
-  stream of n bytes folds in ⌈log_W n⌉ levels.
-- **Every level is meaningful.** Intermediate nodes are not scaffolding to be
-  discarded; each one is a content-addressable span with a gist — perception
-  manufactures the _addressable sub-structure_ that recognition and attention
-  later depend on.
+- **A segment is one flat node.** Not a W-ary sub-tree: the cuts already claim
+  the segment is a unit, and folding it flat is both lighter (one node instead
+  of a group-plus-remainder pair) and the natural reading. Measured, splitting
+  segments into `[W][rest]` cost 3,590 partial-arity nodes where the flat form
+  costs 504, and inflated the distinct-node count by ~20%.
+- **The shape above the segments is content's too.** Grouping segment roots
+  W-at-a-time from index 0 would reintroduce, one level up, the very bug content
+  cuts exist to remove: a form spanning segments 12…17 would straddle two groups
+  and be no node at all. Level-based grouping makes every node at every scale
+  delimited by content, so identity is offset-free at _all_ scales.
+- **The tree is not a spine.** Joining segments left-nested would cost a node
+  per segment on a single spine (a 3 KB deposit becoming a 450-deep chain of
+  fresh D-vectors). Level grouping keeps the depth logarithmic in the number of
+  segments.
 - **Linear, not renormalized per level.** Only the completed root is normalized
   to unit length; every interior gist is left at its raw superposed length. This
   is a deliberate choice of similarity semantics, not a shortcut: an interior
   node's magnitude grows with the amount of content folded into it (§2.6), so
   the fold gives every span both an angle (what it resembles) and a magnitude
-  (how much of it there is) for free, in the same vector.
-- **W is the resolution quantum.** W bounds how much material one fold step
-  mixes; it reappears throughout the system as the "one perceptual step" unit
-  (the reach threshold, the near-dedup window, the fusible span ceiling,
-  alignment seed size).
+  (how much of it there is) for free, in the same vector. A single-leaf input is
+  exempt — its "root" _is_ the shared alphabet vector, and normalizing in place
+  would mutate the alphabet itself.
+- **Every level is meaningful.** Intermediate nodes are not scaffolding to be
+  discarded; each one is a content-addressable span with a gist — perception
+  manufactures the _addressable sub-structure_ that recognition and attention
+  later depend on.
+- **W is the resolution quantum.** W sets the cut rate and the window width, and
+  reappears throughout the system as the "one perceptual step" unit (the reach
+  threshold, the near-dedup window, the canonical window lengths, alignment seed
+  size).
+- **Total on any input.** A level that fails to split, or a row that would
+  exceed the keyring, falls through to a plain fixed-arity fold for that row —
+  rare enough not to reintroduce a systematic alignment.
 
-### 10.3 The stable prefix
+### 10.4 Growing streams: incremental folding and the stable prefix
 
-One refinement protects structure across growing inputs. Consider training on a
-dialogue where each turn's context is the previous context plus one more
-exchange. Folded naively, adding bytes at the end can shift every group
-boundary, so the shared prefix folds _differently_ in each deposit — the store
-would never notice that the prefix is the same knowledge.
+Because a cut is decided from a bounded window, **cuts are stable under
+append**: bytes added at the right edge cannot move a cut to their left
+(measured over a growing 12-turn context: 100% of prior cuts survive every
+append, zero tail churn). And because a level-0 segment is a pure function of
+its own bytes, a segment whose byte span is unchanged can be _reused_ rather
+than refolded — bit-identically, since reuse cannot change the tree, only skip
+work.
 
-Perception therefore checks, before folding, whether some head of the stream is
-_already a known form_ (a store-recognised sequence of leaves — an exact,
-content-addressed check, not a similarity guess). If a known **proper** prefix
-of length p exists, the fold is split at p: the prefix folds exactly as it did
-when it was learned, the suffix folds independently, and the two join only at
-the top. Identical prefixes thus produce identical subtrees — and hash-consing
-then collapses them to the very same nodes — regardless of what follows them.
+Both the deposit path and the conversation path exploit this. A stream that
+extends a previously folded one reuses every segment left of the new material
+and refolds only the right edge, costing O(new bytes) instead of O(context); the
+grouping above the segments is re-run whole, but it operates on segment roots (a
+few dozen items for a several-hundred-byte context) and only its right edge
+actually changes shape — measured at ~40 rebuilt nodes per turn, flat as the
+context grows sevenfold.
 
-(The prefix must be _proper_ — shorter than the whole input — because a
-full-length match would mean the entire input is already stored, and splitting
-there would hide the true internal structure.)
+The reuse carries one precondition, discharged structurally by every caller
+rather than by care: the previous fold must be over a **byte-identical prefix**.
+Reuse is keyed on a segment's offsets, which is what makes it O(1) per segment,
+and offsets alone cannot witness that the underlying bytes agree — so the
+deposit cache is keyed by the prefix's own bytes, and a conversation's fold
+state advances only by append. A caller that cannot make that argument passes no
+previous fold at all; the cold path is always correct.
 
-### 10.4 Perception pseudocode, complete
+Nothing about this imposes structure. The deposit path folds over the stream's
+own content cuts and nothing else — it imposes no boundaries, knows nothing
+about turns, and reads no convention out of the bytes. That train/inference
+agreement is the whole contract: the node a context was trained as and the node
+`resolve(query)` reaches must be the _same_ node, and the only way to guarantee
+it is to give the deposit fold nothing extra to say.
 
-```
-perceive(input):
-    bytes ← flatten(input)                      # UTF-8 / identity / Hilbert
-    if bytes is empty: return the empty tree
-    leaves ← [ leaf(bᵢ, alphabet[bᵢ]) for each byte bᵢ ]
-    p ← longest proper prefix of `bytes` whose leaf-sequence is a known form
-    return riverFold(leaves, splitAt = p if p > 0 else none)
+**The stable prefix** is the one place a caller may impose boundaries, and it is
+a different property from incremental reuse. Given a sorted set of proper byte
+offsets, the fold splits there: each span between consecutive boundaries folds
+independently and the segment roots join **left-nested**, so every cumulative
+prefix reappears as an identical subtree — and, by hash-consing, the very same
+node — inside the grown stream. That buys prefix-_root_ identity, which a
+conversation's state machinery may want; conflating it with incremental reuse
+once put an imposed boundary set on the inference path and left it folding
+differently from the deposits it was querying.
 
-# riverFold with a split: at every level, items are partitioned at the
-# boundary containing byte-offset p; each side folds as if standalone.
-```
+Perception can also detect a stable prefix itself, when handed the store's
+lookup capabilities: the longest **proper** prefix of the stream whose
+leaf-sequence is already a known flat branch becomes a boundary. The prefix must
+be proper — a full-length match would mean the entire input is already stored,
+and splitting there would hide the input's own internal structure.
 
 ---
 
@@ -1432,6 +1745,12 @@ internLeaf / internBranch(content, gist):
     3. MINT            otherwise create a new node; record, for each child,
                        the reverse (child → parent) structural edge
 ```
+
+Interning is memoised by tree-node identity. Because a grown stream shares its
+prefix's subtree _objects_ with the previous deposit (§10.4), a node already
+interned needs nothing again — its id is permanent and its intern-time side
+effects fired at first mint — so a memo hit skips the whole shared subtree and
+the intern walk costs O(new nodes) per deposit rather than O(context).
 
 Points of principle:
 
@@ -1466,19 +1785,24 @@ behind three capabilities:
 
 ### 11.3 Sub-span windows and containment
 
-Perception's grouping is positional, so a meaningful unit (say, a name) may
-straddle a group boundary and never be a node of any tree. Deposition therefore
-additionally interns **sliding windows** of W and W−1 leaves across the stream,
-as flat branches. A window that does not coincide with a structural child of any
-chunk is linked to the chunk(s) it overlaps by a durable **containment edge** —
-a second, weaker parent relation meaning "these bytes occur inside that chunk".
-When a later climb starts from such a window (which has no structural parents of
-its own), it climbs through its containment parents instead. This closes the
-recognition seams that pure positional chunking would leave.
+Content-defined cuts make a segment's identity offset-free, but they still cut
+_somewhere_: a meaningful unit (say, a name) may straddle a boundary and never
+be a node of any tree. Deposition therefore additionally interns **sliding
+windows** of W and W−1 leaves across the stream, as flat branches — the two
+lengths being the quantum and its off-by-one neighbour, so a form straddling a
+seam is reachable from either cut. (Widening this to the reader's full segment
+scale was measured and refuted: it tripled the store and slowed ingest 80%
+without fixing a single test.) A window that does not coincide with a structural
+child of any chunk is linked to the chunk(s) it overlaps by a durable
+**containment edge** — a second, weaker parent relation meaning "these bytes
+occur inside that chunk". When a later climb starts from such a window (which
+has no structural parents of its own), it climbs through its containment parents
+instead. This closes the recognition seams that any chunking, however chosen,
+leaves behind.
 
 Deposition also interns the **whole stream as one flat branch** (the sequence of
 its byte-leaves). This gives every deposit a canonical byte-level identity
-independent of tree shape — the form the stable-prefix check of §10.3 looks up,
+independent of tree shape — the form the stable-prefix check of §10.4 looks up,
 and a second content-addressed route to the same experience.
 
 ---
@@ -1504,6 +1828,22 @@ context's root node to the continuation's root node. Edges are:
 A _single_ input (no pair) still learns sequence: the parts of its root are
 chained by edges at stride W, so a long document is traversable as a sequence of
 its chunks.
+
+**Suffix propagation.** One edge per pair would make a learned fact reachable
+only from the _whole_ context that carried it — a problem for cumulative
+contexts, where the same question arrives with a different amount of history in
+front of it. So when a pair is deposited, every right-edge **suffix** of the
+context is checked, and a suffix that is itself an established form inherits the
+same continuation edge. Two disciplines keep this cheap and honest:
+
+- The scan is gated by an existence probe, not by perception. Every deposit
+  interns its whole byte stream as a flat branch of per-byte leaf ids (§11.3),
+  so a suffix is a stored form exactly when that flat twin exists — one
+  content-hash probe per offset, and only a hit pays for the deposit-shaped
+  fold. The scan is skipped entirely for contexts shorter than 2W.
+- The inheriting suffix must already be **established**: reused across deposits
+  (at least two structural parents), or bearing a halo _and_ already an edge
+  source. A suffix that is merely someone's answer does not qualify.
 
 ### 12.2 Halo pours: distributional bookkeeping
 
@@ -1578,15 +1918,20 @@ ingest(input, second = none):
   else:                ingestOne(input)
 
 
-deposit(input, tracked):
+deposit(input, tracked, conversational):
     bytes ← flatten(input)
-    tree  ← perceive(bytes)                          # §10
-    ids   ← intern every node of tree, bottom-up     # §11.1
+    tree  ← perceive(bytes, reusing the segments of any cached fold over a
+                     byte-identical prefix)          # §10.3, §10.4
+    ids   ← intern every node of tree, bottom-up     # §11.1 (memoised by
+                                                     #  tree-node identity)
     intern sliding W / W−1 windows; record containment edges     # §11.3
+        (windows wholly inside chunks the previous deposit already
+         interned are skipped)
     intern the whole stream as a flat branch                     # §11.3
     changed ← if tracked and a previous deposit exists:
                   the maximal new subtree vs. the previous deposit  # §12.2
               else: [ tree ]
+    if conversational: cache this fold's segments under the stream's bytes
     return (tree, rootId, ids, changed)
 
 
@@ -1596,15 +1941,20 @@ ingestOne(input):                                    # a bare experience
     parts ← the root's immediate children
     if |parts| > W:
         link parts[i] ──▶ parts[i+W]  for each stride-W step   # §12.1
+        link the last strided part ──▶ the final part, when the stride
+            does not land on it exactly (no tail is left unreachable)
     else:
         mark each part as a resonance target
 
 
 ingestPair(context, continuation):                   # a fact
-    (ctxTree, ctxRoot, ctxIds, changed) ← deposit(context,      tracked = true)
+    (ctxTree, ctxRoot, ctxIds, changed) ← deposit(context,      tracked = true,
+                                                  conversational = true)
     (conTree, conRoot, _,       _     ) ← deposit(continuation, tracked = false)
 
     link  ctxRoot ──▶ conRoot                        # the fact itself
+    propagateSuffixes(ctxRoot, conRoot)              # §12.1: established
+                                                     # suffixes inherit the edge
     for each part in changed:                        # distributional evidence
         pour halo(part)    += π₁ · companySignature(conRoot)
         pour halo(conRoot) += π₀ · companySignature(part)
@@ -1612,11 +1962,12 @@ ingestPair(context, continuation):                   # a fact
     # index (lazily), per §12.3
 ```
 
-Costs, in broad strokes: perception is linear in the input length; interning is
-one content-addressed lookup per tree node (the tree has O(n/W · logᵂ n) nodes
-but is dominated by its O(n) leaves); relation learning is O(1) edges plus
-O(changed parts) halo pours. Nothing in the deposit path scans the corpus.
-**Training a fact takes one pass over the fact.**
+Costs, in broad strokes: perception is linear in the input length (and, for a
+stream extending an already-folded one, linear in the _new_ bytes); interning is
+one content-addressed lookup per tree node, dominated by the O(n) leaves;
+relation learning is O(1) edges plus O(changed parts) halo pours, plus one
+content-hash probe per suffix offset. Nothing in the deposit path scans the
+corpus. **Training a fact takes one pass over the fact.**
 
 ### 13.1 Why storage stays viable: the economics of the store
 
@@ -1739,6 +2090,16 @@ Post-training, a batch pass can additionally remove index entries for
 structurally isolated nodes (single-parent, no edges, no halo — they bridge
 nothing), and a converse repair pass re-indexes bridges that were missed.
 Failures of these best-effort passes are counted visibly, never silent.
+
+**10. The canon index is batch-built, never maintained on the write path
+(equivalence viability).** The canonical-form index (§3.4) is built by a scan
+over content-bearing nodes, run after training and refreshed incrementally
+afterwards — the last indexed id is remembered in store metadata, so a refresh
+after further training visits only new rows. Keeping it current per deposit
+would put a canonicalization (a Unicode normalization, in the text case) on the
+hot write path for a capability that is a _fallback_ on the read path. The
+trade: a store that has never built the index simply has no canonical fallback —
+exact resolution is unaffected.
 
 ### 13.2 The store's cost machinery, in pseudocode
 
@@ -1889,7 +2250,9 @@ Every ask travels one road:
   │     literal connective, so the primary axis is "which mechanism    │
   │     explains more of the query", and move costs (STEP per          │
   │     projection, CONCEPT per halo-mediated act) discriminate        │
-  │     residually.  Ties keep the mechanism list's own order.         │
+  │     residually.  Grade ties prefer the candidate that carries    │
+  │     fewer unrecognised query bytes into its answer, then the      │
+  │     mechanism list's own order.                                   │
   │                                                                    │
   │   Admissible-floor pruning, uniformly:  `floor` is called for      │
   │   EVERY mechanism, every time; `run` only for one whose floor      │
@@ -1921,31 +2284,86 @@ Every ask travels one road:
                                  ▼
   ┌───────────────────────────────────────────────────────────────────┐
   │ REASON (§22)   extend the grounded answer across facts, hop by hop │
+  │                — skipped when the winner declared itself COMPLETE  │
   │ FUSE   (§23)   ground the query's OTHER points of attention and    │
-  │                join them with learned connectors                   │
+  │                join them with learned connectors — only when a     │
+  │                genuine REMAINDER of ≥ W query bytes was touched by │
+  │                neither the winner's evidence nor any computed span │
   │ ARTICULATE(§24) re-voice the result in the asker's own vocabulary  │
   └──────────────────────────────┬────────────────────────────────────┘
                                  ▼
   answer bytes  +  provenance  +  (optionally) the full rationale
 ```
 
-The decider also emits three diagnostic signals — purely observational, never
+#### The tie-break: at equal grade, prefer the answer that invents less
+
+Weights are compared at STEP resolution (`grade = ⌊weight/STEP⌋`), so sub-STEP
+bookkeeping never decides a cross-mechanism choice. The ladder prices what a
+candidate leaves _unaccounted_, which is the right primary question but cannot
+separate two candidates that leave the same bytes unaccounted. What still
+separates them is what they _did_ with those bytes: a candidate that carries an
+unexplained span into its answer is passing the asker's own words back as if
+they were derived; one that leaves them out has made a smaller, honest claim. So
+at equal grade the candidate reporting fewer **scaffolding** bytes (answer bytes
+lifted from spans nothing recognised) wins. Measured on a two-fact chain: cover
+and recall both graded 11001 over 11 unexplained bytes, cover answering "The
+capital of France is Paris famous for" — 11 bytes of scaffolding — against
+recall's 0, and only the list order decided it, in favour of the shallower
+reading. This never overrides the ladder; it orders _within_ one grade. Only
+when scaffolding also ties does the mechanism list's own order stand (cover,
+cast, confluence, extract, recall).
+
+#### Completeness
+
+A mechanism may declare its own result **complete** — a stored form's own
+continuation, reached through an identity claim about the query. Post-grounding
+then leaves it alone: a further multi-hop pivot could only chain _past_ the fact
+that produced the answer. This is the same reasoning the multi-hop stage's echo
+guard applies to a query that resolves exactly (§22), carried by the mechanisms
+that establish the identity by another route. Observed without it: a correct
+"What is the process of photosynthesis?" grounding was pivoted forward four
+times, out of the fact that answered it and into an unrelated conversational
+turn. The decider honours the property and never asks which mechanism set it —
+the market stays uniform.
+
+#### Diagnostics
+
+The decider also emits diagnostic signals — purely observational, never
 affecting the decision itself:
 
 - **Unexplained label** — every candidate carries `unexplained`, a
   human-readable label for the query bytes its evidence left on the table.
   Appears in the rationale trace; does not affect the weight (the PASS-per-byte
   pricing already accounts for it arithmetically).
-- **Narrow decision** — when the winner beats the runner-up by ≤ 1 grade unit
-  (⌊w/STEP⌋), the rationale records a `narrowDecision` step. A margin of 0 means
-  the tie-break (the mechanism list's own order: cover, cast, confluence,
-  extract, recall) decided — the answer could change with one more training
-  fact.
+- **Grounding decision data** — the `decideGrounding` step carries a structured
+  payload: every candidate's provenance, exact weight, discrete grade,
+  unexplained byte count, and which one was decided, plus the runner-up's grade
+  margin. The same numbers the human-readable labels carry, exposed as data so a
+  downstream tool need not parse free text.
+- **Narrow decision** — when the winner beats the runner-up by ≤ 1 grade unit,
+  the rationale records a `narrowDecision` step. A margin of 0 means the
+  tie-break above decided — the answer could change with one more training fact.
 - **Thin grounding** — when the winning candidate's density (fraction of query
   bytes actually accounted for by learnt structure) falls below `1/W` (the
   smallest fraction the store's perceptual window can discriminate), the
   rationale records a `thinGrounding` step. The answer stands; the label is a
   signal for downstream consumers that the grounding is sparse.
+
+#### Why fusion is gated on a remainder, not on provenance
+
+`accounted` is a **cost-ladder** quantity, not a coverage one: the cover
+deliberately leaves its masked computed spans out of `accounted` so that
+PASS-bridged bytes are still charged. A query fully explained by one computed
+span plus bridged connectors can therefore report `accounted: []` while nothing
+is actually left unexplained. The genuine remainder is what _neither_ the
+winner's accounted spans _nor_ any mechanism's computed span ever touched — and
+a remainder under one perception quantum W is bridging punctuation or
+whitespace, never a second topic. (Observed: a single space between two fully
+computed arithmetic spans registered as unaccounted, pulled in an unrelated
+corpus fact, and corrupted "4 6" into "4 63".) The same distinction is read a
+second time for _position_: fusion places the primary answer by its accounted
+spans when it has any, and by its computed spans when the grounding is a pure
+computation with no anchor of its own.
 
 ### 14.2 Design invariants of the pipeline
 
@@ -2047,16 +2465,22 @@ the modules of the implementation; see AGENTS.md, "Where things live".)
                         ├───────────────────────────────────┤ └─────────┘
                         │ resonance (§19.5, §21, §22):     │
                         │ bridge (→ junction) ·             │
-                        │ recallByResonance ·               │
                         │ pivotInto · meaningOf             │
+                        ├───────────────────────────────────┤
+                        │ recall's refusal-path tiers      │
+                        │ (§21.5): substitutionBridge ·     │
+                        │ prefixCompletion · frameFiller    │
                         └──┬──────────────┬────────────────┘
                            │              │
  L2  DECOMPOSITION      ┌──▼──────────┐ ┌─▼────────────────────────────┐
      & TRAVERSAL        │ recognition │ │ traverse: edgeAncestors ·    │
                         │ (§15):      │ │ nextOf/prevOf · contains ·   │
                         │ sites/      │ │ chooseNext / chooseAmong     │
-                        │ leaves/     │ │ (§25) · hubCap (§8.8)        │
-                        │ splits      │ │                              │
+                        │ leaves/     │ │ (§25) · hubCap (§8.8) ·      │
+                        │ splits/     │ │ atomReach · reachOf ·        │
+                        │ starts      │ │ leadsSomewhere               │
+                        │ + canonical │ │                              │
+                        │   contract  │ │                              │
                         └──┬──────────┘ └─┬────────────────────────────┘
                            │              │
  L1  PRIMITIVES         ┌──▼──────────────▼────────────────────────────┐
@@ -2174,7 +2598,7 @@ configuration table:
 | :---------------------- | :-------------------------------- | :----------------------- | :---------------------------- |
 | cover follow-edge (§19) | exact                             | forward                  | — (cost ladder)               |
 | concept hop (§19.3)     | halo sibling                      | forward                  | concept threshold             |
-| recall tiers 0–1 (§21)  | identity / whole-query gist       | both                     | merge threshold               |
+| recall tiers 0–1 (§21)  | identity / whole-query gist       | both                     | scale-aware identity bar      |
 | skill extraction (§20)  | locate (on the exemplar's frames) | read-out                 | per-step ladder gates         |
 | CAST substitution (§18) | graded (literal → halo)           | insert                   | frame (MIN_WEAVE + dominates) |
 | CAST redirection (§18)  | graded (literal → halo)           | both (on the substitute) | frame (MIN_WEAVE + dominates) |
@@ -2210,11 +2634,12 @@ Two boundaries of the unification are deliberate, not omissions:
   grounding decider (§14.1) weighs every mechanism's candidate in the one cost
   ladder, so a mechanism-level choice and a byte-level choice are the same kind
   of decision. Ties (at STEP resolution — sub-STEP costs like MICRO are
-  non-ordering bookkeeping and must not decide a cross-mechanism choice) keep
-  the mechanism list's own order (cover, cast, confluence, extract, recall) —
-  cover runs first not because it is prioritised over the others by fiat, but
-  because a computed span (§16) masks in at near-zero cost, which then prunes
-  the rest through the SAME admissible-floor mechanism every mechanism is
+  non-ordering bookkeeping and must not decide a cross-mechanism choice) go to
+  the candidate that carries fewer unrecognised query bytes into its answer, and
+  only then to the mechanism list's own order (cover, cast, confluence, extract,
+  recall) — cover runs first not because it is prioritised over the others by
+  fiat, but because a computed span (§16) masks in at near-zero cost, which then
+  prunes the rest through the SAME admissible-floor mechanism every mechanism is
   subject to (§14.2), not a special rule.
 
 ### 14.5 The free-will architecture
@@ -2277,10 +2702,13 @@ internal.
 
 Recognition answers: _which stored forms does this byte string contain, and
 where?_ Its output — the **sites** (span → node), the query's perceived
-**leaves**, and the **split** positions where a form boundary falls inside a
-leaf — is the raw material of every downstream mechanism.
+**leaves**, the **splits** where a form boundary falls inside a leaf, and the
+**starts** (the offsets the query's own fold cut at) — is the raw material of
+every downstream mechanism.
 
-Two complementary readings run over the query:
+Everything here is a bounded number of O(1) content-addressed probes per byte —
+never a scan of the corpus. Two complementary readings run over the query, and a
+third pass cleans up what both leave behind.
 
 ### 15.1 The structural reading
 
@@ -2288,47 +2716,106 @@ Perceive the query (the same fold as ingestion) and walk its own tree, asking
 the store, bottom-up, to name each subtree: leaves by their bytes, branches by
 their children's ids. Because perception is deterministic, any part of the query
 that was ever deposited _as it appears here_ folds into the identical subtree
-and is named exactly. Additionally, within each leaf-parent chunk, every
-contiguous sub-run of leaves is probed, so forms smaller than a chunk are found
-too.
+and is named exactly. A subtree that misses the exact lookup is retried through
+canonical equivalence (§3.4), so a form differing only in surface reaches its
+stored node.
+
+Within each segment, contiguous sub-runs of leaves are probed too, and the
+segment's own **edges are trimmed** at several offsets — a content cut lands
+inside a unit, so the form the cut split sits against the segment's edge, and
+probing the segment minus its first or last k bytes recovers it. Duplicate
+(span, node) sites from different probes are collapsed: the same span must count
+once, or the cover search's cost model gives that span double weight.
 
 ### 15.2 The canonical reading
 
-The query's own fold may cut the stream differently from how training cut it
-(different surroundings ⇒ different group boundaries). The canonical reading
-re-derives the _store's_ segmentation directly on the query's bytes: at each
-position, chain the known single-byte leaves forward and probe each growing
-sequence as a flat branch — recovering forms _as training stored them_,
-regardless of how the query's tree happens to chunk. Where such a form's
-boundary falls strictly inside one of the query's leaves, that position is
-recorded as a **split**: the search may later cut the leaf there (§19.4).
+The query's own fold may cut the stream differently from how training cut it.
+The canonical reading re-derives the _store's_ segmentation directly on the
+query's bytes: at each position, chain the known single-byte leaves forward and
+probe each growing sequence as a flat branch, up to the canonical chain reach
+(W² positions — the deepest two-level composite the write side's windows can
+spell). This recovers forms _as training stored them_, regardless of how the
+query happens to segment. Where such a form's boundary falls strictly inside one
+of the query's leaves, that position is recorded as a **split**: the search may
+later cut the leaf there (§19.3).
+
+A third pass then probes the query's own **edges** beyond the canonical chain's
+reach, because the first and last forms of a query are the ones a chain bounded
+at W² is most likely to truncate.
 
 ### 15.3 What counts as a site
 
-A recognised span is admitted as a site only if its node **leads somewhere** —
-it bears a continuation edge or a halo. A form that leads nowhere contributes
-nothing to any derivation, so recognition filters it out at the source.
+Three admission rules, each of which exists because its absence produced a
+specific fabrication:
+
+1. **It must lead somewhere.** A recognised span is admitted only if its node
+   bears a continuation edge or a halo. A form that leads nowhere contributes
+   nothing to any derivation, so recognition filters it out at the source.
+
+2. **It must span at least one perception window.** Below W, byte overlap is
+   chance rather than evidence — the same principle the identity bar states and
+   the substitution bridge's attestation applies. This _replaces_ a false
+   premise it once shared with the cover's fusion rule: both used to ask "does
+   this offset sit on a fold boundary?", which under a fixed-arity fold meant
+   the offset was a multiple of W and carried **zero** content information. The
+   exemption therefore fired at a quarter of all offsets by arithmetic alone.
+
+3. **Byte atoms are admitted only while atoms can still discriminate.** On a
+   small store a single-letter fact is genuine learnt content and its site is
+   essential; past the atom-hub bound (§8.8) every letter of every query would
+   otherwise become a "recognised form" — the bridge then finds connectors
+   between bare letters, the cover follows edges hanging off them, and pure
+   noise grounds to an arbitrary learnt sentence instead of silence. Atoms stay
+   available as leaves (PASS-carried literals) and through exact tier-0
+   resolution regardless.
 
 ```
 recognise(query):
-    sites, leaves, splits ← ∅
+    sites, leaves, splits, starts ← ∅
+    atomsAreHubs ← atomIsHub(N)                                   # §8.8
+    emit(start, end, id):
+        reject if id is an atom and atomsAreHubs
+        reject if end − start < W
+        reject unless leadsSomewhere(id)      # edge or halo, via probes
+        add once (span, id)
+
     # structural
     tree ← perceive(query)
     for each subtree s of tree (bottom-up, with byte offsets):
-        id ← store lookup of s (leaf bytes / branch kid-ids)
-        if id exists and (next(id) ≠ ∅ or halo(id) ≠ ∅):
-            sites += (span(s), id)
-        collect leaves; probe sub-runs within leaf-parents likewise
+        id ← store lookup of s, else canonResolve(s.bytes)        # §3.4
+        emit(span(s), id)
+        within a segment: probe contiguous sub-runs, and the segment
+        with k bytes trimmed from either edge
+
     # canonical
-    for each position p in query:
-        chain known leaves from p; for each chained prefix that is a known
-        flat branch, resolve its span and admit it as above
-    splits ← form boundaries that fall inside a perceived leaf
-    return (sites, leaves, splits)
+    for each position p:
+        chain known leaves from p, up to W² positions; emit every chained
+        prefix that is a known flat branch
+    # query edges, beyond the chain's reach
+    probe the query's own leading and trailing spans directly
+
+    splits ← form boundaries falling inside a perceived leaf
+    starts ← the offsets the query's own fold cut at
+    return (sites, leaves, splits, starts)
 ```
 
-Everything here is a bounded number of O(1) content-addressed probes per byte —
-never a scan of the corpus.
+### 15.4 Why the recognition memo is not an optimisation
+
+Recognition is memoised by query content, and that memo is **always** consulted
+— including while a rationale trace is attached, which is the one place the
+system otherwise deliberately bypasses its memos (§14.2).
+
+The reason is a genuine non-idempotence. The structural walk resolves subtrees
+through a cache keyed on tree-node identity, and a conversation's incremental
+fold deliberately shares node _objects_ across turns (§10.4). By the second call
+on the same bytes, large parts of the tree are already cached, the walk stops
+short of recursing into them — and therefore stops **emitting their sites**.
+Observed live: 31 sites on the first call, 5 on an immediate repeat. Skipping
+the memo while tracing meant every traced turn re-ran recognition from scratch
+at each of the many call sites that recognise the same query, each call silently
+more incomplete than the last — measurably changing which mechanism grounded the
+answer, not merely costing time. The trace step still fires on every call, so a
+cache hit is never silent.
 
 ---
 
@@ -2343,10 +2830,13 @@ consulted once per query, before the grounding loop, over EVERY mechanism that
 implements it. An extension's `parse` receives the raw query and returns
 **computed spans** — byte ranges it recognises as computations, together with
 the authoritative result bytes for each. The mind lends every extension the same
-four neutral capabilities it already has (resonant meaning-matching, grounded
-continuation lookup, geometric segmentation, and the perception window W)
-through the `ExtensionHost` port; it learns nothing about what the extension
-computes.
+four neutral capabilities it already has — resonant **meaning** matching (which
+of some labelled forms does this span mean?), grounded **continuation** lookup
+(where does this form lead?), geometric **segmentation** (coherent runs by the
+perception tree's own structure, so an extension's notion of "separator" is the
+learnt geometry's), and the perception window W as its **reach** — through the
+`ExtensionHost` port. It learns nothing about what the extension computes, and
+nothing in the port names any particular extension.
 
 An extension joins through `Mind`'s `mechanismFactories` option: a factory
 receiving the `ExtensionHost` and returning a `PipelineMechanism`. Once
@@ -2396,164 +2886,159 @@ dominate), or when it is about _two things at once_. The consensus climb answers
 this with the machinery already on hand: geometry proposes, structure climbs,
 and pooled weighted deduction decides.
 
-### 17.2 The algorithm
+### 17.2 Regions: the three sources of query evidence
+
+A **region** is a span of the query offered as a voter. They come from three
+sources, each answering a different reading of "what parts does this query
+have?"
+
+1. **Fold nodes.** Every branch of the query's own perceived tree, walked
+   post-order and resolved against the store as it goes (so each region knows
+   whether its bytes name a stored node). A region that _dominates_ the query
+   (§8.7) is admitted only when it is the sole structure — a broad wrapper
+   cannot discriminate between topics. Segments themselves are exempt from that
+   filter: a segment is the smallest grouped unit, wrapping nothing, so it can
+   never be the wrapper the rule excludes. (Subdividing a long segment into
+   W-scale tiles was measured and refuted: it reintroduces a fixed stride inside
+   the segment, and the extra votes reorder the climb. A region must come from
+   the fold, not from a stride over it.)
+
+2. **Recognised sites.** Content-addressed nodes the query literally contains
+   (§15). A site _is_ an exact structural anchor where a fold region is
+   approximate, and it fills the gap the fold creates: a word the cut splits is
+   two partial gists that may not resonate distinctively, while the site names
+   the whole word by identity. Sites carry their **node id** with them — a site
+   that claimed exactness while dropping its identity forced the climb to
+   re-derive the anchor through the ANN, so which stored node an exact site
+   voted with turned on approximate rank. Sites are never marked as chunks: they
+   overlap each other and the fold's segments, and the saturated-interval
+   builder (§17.5) requires disjoint regions in byte order.
+
+3. **Forms the query's own cut split** (_corroborating_ regions). The fold walk
+   enumerates fold nodes only, so a stored form the content cut happens to split
+   is not addressable at all — however discriminative it is. Measured:
+   `request_id=1042` against a 200-record log, cut as `...uest_id=|10|42 and r`,
+   where "1042" reaches exactly one context of 205 (maximal IDF) and cast no
+   vote, while the scaffolding "=10" — matching every record 1000–1099 — did.
+   The write side already made these reachable (§11.3 interns each form at both
+   canonical window lengths precisely so one straddling a cut resolves from
+   either side); the read side simply never used the guarantee. So every
+   W-window that resolves, is not already inside a fold region, and climbs
+   somewhere non-saturated is admitted — and **overlapping admissions are
+   coalesced into maximal spans**, because admitting every resolvable window is
+   a redundancy problem, not a threshold problem (on a 5-context corpus, 26
+   bytes yielded 17 "unique" windows that were all fragments of one word;
+   coalesced, they yield the one span that word belongs to). These regions are
+   marked **corroborating**: they are evidence for someone else's anchor, never
+   points of attention of their own — the query never wove them as independent
+   structures, the fold did.
+
+### 17.3 Voting: the per-region evidence ladder
 
 ```
-climbAttention(query, k):
-
-  # 1. REGIONS — TWO sources, both structural:
-  #    a) PERCEIVED SUBTREES of the query (every branch level of the river
-  #       fold).  A region that dominates the query (covers more than half)
-  #       is admitted only if it is the sole structure.
-  #    b) RECOGNISED SITES — content-addressed nodes the query literally
-  #       contains (§15).  A site IS an exact structural anchor; perceived
-  #       sub-regions are approximate (W-byte chunks whose gist must resonate
-  #       to find an anchor).  Sites fill the gap perception creates: a word
-  #       crossing a W-boundary is split into chunks whose partial gists may
-  #       not resonate distinctively, but the site names the whole word by
-  #       exact content identity.  Sites that overlap sub-regions add
-  #       corroborating evidence; sites in gaps fill them.
-  #       Recognition is memoised per response — adding sites costs zero.
-  regions ← subtrees of perceive(query)  ∪  recognise(query).sites
-
-  # 2. VOTE — each region finds its best anchor in the DAG and climbs to
-  #    the edge-bearing contexts ("roots") that contain it.
-  #    Perceived sub-regions resonate their gist into the content index;
-  #    site-regions already carry an exact node id and skip the ANN query
-  #    entirely — they climb directly from the resolved node.
-  #    The climb uses EXPAND-UNTIL-DECIDED (§17.4): it stops the moment the
-  #    answer (saturated vs. voted, with exact contextsReached) is known —
-  #    all reads through it are LIMITed at √N, so the cost is bounded by the
-  #    hub convention, never by the corpus.
+voteRegions(query, regions, k, N):
   for each region r:
-      anchor ← r.nodeId ?? (canonical chunk id ?? contentIndex.nearest(gist(r), k)[0])
-      # contrastive-margin gate: for APPROXIMATE regions only, the gap
-      # between the best and second-best score must exceed the estimator
-      # noise floor (§8.4); otherwise the region abstains
-      if not r.known and (bestScore − secondBestScore) ≤ NOISE: ABSTAIN
-      reach ← expandUntilDecided(anchor):
-                for each level: check prevCount (indexed O(1)) to decide
-                "edge-bearing?" without materialising prev lists; read
-                parentsFirst(√N+1) — getting √N+1 proves "hub" exactly;
-                containment parents page via containersSlice(offset, √N)
-                so a common window's climb stops at the first saturated
-                page; distinct contexts past √N decide "saturated" by an
-                indexed count, never a materialised list.
-      if anchor climbs nowhere and is not saturated:
-          try the remaining hits, nearest first          # ranking is
-                                                          # approximate; an
-                                                          # orphan top hit is
-                                                          # an accident
-      if saturated: the region ABSTAINS                   # §17.4
-      mutual ← mutualExplanation(score, region, anchor)   # angle + magnitude
-      w ← mutual · ln(N / contextsReached) / |roots|      # IDF weighting
-      the region votes w for each root it reached
 
-  # 2b. CROSS-REGION — voteRegions climbs each region INDEPENDENTLY;
-  #     additive pooling can only surface contexts at least one region
-  #     already votes for.  Two regions whose individual climbs land on
-  #     DIFFERENT contexts ("red" → `red square`, "circle" → `circle`)
-  #     leave their JOINT context (`red circle`) with no vote — no amount
-  #     of pooling can recover it.  Cross-region attention recovers it by
-  #     the SAME content-addressed junction ascent the bridge uses
-  #     (the shared junction ascent):
-  #
-  #     Candidate regions: ANY voted region composes — not just recognised
-  #     sites (corpus independence).  At least one side must be a STRONG
-  #     voter (individually discriminative).  A known but non-voting region
-  #     may serve as the WEAK side (a word never learnt standalone still
-  #     binds through its stored byte fragments).  Two non-voting regions
-  #     never pair (the shared-prefix trap).  Only MAXIMAL spans compose
-  #     (a span contained in another candidate is not independent of it).
-  #     A single known region covering both is skipped — the whole form
-  #     already votes directly.  Byte-sorted left-to-right.
-  #
-  #     junctionSeeds are precomputed ONCE per candidate across all its
-  #     pairs (cost hoisting).  The junction ascent is ORDER-FREE (a
-  #     junction is evidence the forms were learnt together; which one the
-  #     query mentioned first is a fact about the query, not the learnt
-  #     whole — the byte-containment test probes both orders).  All reads
-  #     go through the shared per-response walkCache.
-  #
-  #     N-ARY SELECTION: the container covering the MOST remaining
-  #     candidate forms wins (then tightest interior, then lowest id).
-  #     A consumed candidate never re-pairs — its evidence is already
-  #     composed at full joint strength.
-  #
-  #     SELF-EVIDENCE GUARD: a container whose joined occurrence (left
-  #     through right including interior) is a literal substring of the
-  #     query is rejected — shards of a contiguous phrase pairing "around"
-  #     a gap chunk would merely rediscover the phrase they are shards of.
-  #
-  #     EXPLAINING AWAY: when a junction binds, any individual vote whose
-  #     bytes the joint container LITERALLY CONTAINS yet whose roots are
-  #     FULLY DISJOINT from the junction's is SUPERSEDED — the exact joint
-  #     evidence explains those bytes away (grid aliasing).  Partial
-  #     agreement (shared roots) corroborates and is kept.
-  crossVotes ← []
-  superseded ← ∅
-  seedsOf(ri) ≔ junctionSeeds(ctx, query[regions[ri].start..regions[ri].end])
-                # computed once, reused across all pairs of this candidate
-  consumed ← ∅   # a candidate in one junction never re-pairs
-  for each pair (a, b) of eligible candidates (non-overlapping,
-         at least one strong voter, not both covered by one known region,
-         ≤ k total probes, skipping consumed candidates):
-      left  ← query[a.start..a.end]
-      right ← query[b.start..b.end]
-      containers ← junctionContainersFrom(left, right, cap,
-                    seedsOf(a), seedsOf(b), undefined, unordered = true)
-      if containers is empty:
-          # Tier 2.5 fallback — same ascent over halo siblings
-          containers ← junctionSynonyms(left, right, maxInterior,
-                        unordered = true)
-      if containers not empty:
-          best ← the container covering the MOST remaining candidates
-                 (cachedRead + indexOf per extra, never an extra walk);
-                 ties → shortest interior → lowest id
-          if best's joined occurrence is a query substring: continue
-          reach ← edgeAncestors(best.id)
-          if reach is discriminative (not saturated, idf > 0):
-              w ← mutual · ln(N / contextsReached) / |roots|
-              crossVotes.push(vote for best.id's roots at weight w,
-                              span covering all composed candidates)
-              consumed.add(a); consumed.add(b); consumed.add(all extras)
-              # Explaining away: individual votes whose bytes the container
-              # literally contains and whose roots are fully disjoint from
-              # the junction's are superseded
-              for each individual vote rv:
-                  if rv.roots shares any root with reach.roots: keep
-                  if containerBytes literally contains rv's query bytes:
-                      superseded.add(rv)
-      break  # a is consumed — move to next unconsumed candidate
+    # ── how exact is this region? ────────────────────────────────────
+    # `known` used to mean "these bytes resolve to ONE stored node", which
+    # conflates two things: whether the store has seen the content, and
+    # whether THIS query's cut grouped it the way the deposit did.  Under
+    # content-defined cuts those routinely differ.
+    cov ← 1                       if the whole region resolves
+        ← fraction of r's W-windows that resolve   otherwise
+        ← 0                       if r is shorter than one window W
+                                  (below one window, byte identity is chance)
+    known ← cov ≥ 1
 
-  # 3. POOL — votes (INDEPENDENT, minus any superseded by cross-region
-  #    evidence, + CROSS-REGION) accumulate through the
-  #    arithmetic semiring (§5.3): each region is an axiom; each
-  #    (region → anchor) contribution is a summing rule; a vote for a
-  #    TERMINAL answer node redistributes to the ≤ √N contexts that lead
-  #    to it (via prevFirst, capped at the store level). Independent
-  #    corroboration ADDS.
-  votes ← pooledConclusions
+    # ── choose the anchor: EXACT FIRST, ANN only if needed ───────────
+    anchor ← r.id                       # a site: exact, carries its identity
+           ?? canonicalChunkId(r.bytes) # a segment's canonical identity
+           ?? contentIndex.nearest(r.gist, k)[0]
+    # The ANN query is DEFERRED behind the exact path and paid only when
+    # actually consulted (the fallbacks and the margin below) — on
+    # segment-heavy queries this removes the resonate() call for most
+    # regions, the single largest remaining inference sink.
+    score ← 1 for an exact anchor (identity, not an estimate); else the hit's
 
-  # 4. COMMIT — rank anchors by vote. The dominant anchor always stands.
-  #    A FURTHER (non-overlapping) anchor becomes an independent point of
-  #    attention only if its vote clears BOTH:
-  #      · the natural break (the steepest ratio drop in the sorted votes —
-  #        a scale-free "where does signal end" test), and
-  #      · the consensus floor ln N + ½ (§8.6 — more than any single
-  #        region could contribute alone).
-  return the surviving points, each with its query span and vote
+    # ── a diluted segment votes with the span that carries its evidence ──
+    # A content segment folds FLAT, so its gist superposes every one of its
+    # bytes: an entity inside a longer segment is averaged with whatever
+    # scaffolding shares it.  Measured: `ike stee` resonates to the WRONG
+    # deposit at 0.297 while the sub-span `stee` resonates to the right one
+    # at 0.627.  Entered only after the exact path failed; candidates are the
+    # segment's two EDGE W-spans (a cut lands INSIDE a unit, so the remnant
+    # sits against the cut); selection by score²·idf — the same quantity the
+    # vote is weighted by, never score alone.  The region's SPAN narrows with
+    # its gist, so breadth, clusters and cross-region pairing all see where
+    # the evidence really sits.
+
+    reach ← expandUntilDecided(anchor)                        # §17.5
+    if reach has no roots and is not saturated:
+        ORPHAN FALLBACK — walk the remaining hits nearest-first; the
+        top-ranked anchor climbing nowhere is an accident of approximate
+        ranking, not evidence the region relates to nothing.
+    else if reach is saturated and the anchor was approximate:
+        SATURATED-TIE FALLBACK — a hub may only claim its abstention when it
+        is DISTINGUISHABLY nearest.  Two scores against one query differ by
+        √2× the estimator's error ≈ 1/√D, so any hit within that band is the
+        same rank at measurement resolution; the first tied hit that climbs
+        somewhere non-saturated votes instead.  Beyond the band the hub is
+        genuinely nearest and its abstention stands.  An exact anchor never
+        enters: its identity is not an estimate.
+    if reach is saturated: the region ABSTAINS                # §17.5
+
+    idf ← ln(N / contextsReached);  df ← ln(1 + contextsReached)
+    wf  ← idf | df | idf + df       # the DF MODE — see §17.4
+    if wf ≤ 0: ABSTAIN
+
+    # ── contrastive-margin gate (approximate evidence only) ──────────
+    margin ← score − (score of the best hit reaching a DIFFERENT conclusion)
+    if margin ≤ estimatorNoise(D) · (1 − cov): ABSTAIN
+
+    mutual ← min(1, score·ratio) · min(1, score/ratio)        # §17.4
+    vote (mutual · wf)/|roots| for each root reached, and
+         (mutual · idf)/|roots| as the FOCUS weight
 ```
 
-### 17.3 Why inverse document frequency
+Three details of that ladder carry their own arguments:
+
+- **Coverage scales the bar; it does not switch it.** Measured over 42 voting
+  regions, `known` as a boolean loses a wide band: 43% of "unknown" regions are
+  _partially_ content-addressed and 5% are _fully_ addressed while failing the
+  whole-region test — grouping churn taxed as uncertainty. Promoting the partial
+  band wholesale is over-crediting (it grants a region attested one window in
+  five the same exemption a fully attested one gets). So a region pays the
+  estimator's noise floor _in proportion to how much of it is not
+  content-addressed_: cov = 1 pays nothing, cov = 0 pays the full floor. No new
+  constant — the floor is unchanged and the coverage is read off the store by
+  the same content addressing.
+
+- **The margin gates; it does not scale the weight.** A surviving region votes
+  at its genuine strength. Using the margin as a multiplier conflates
+  "discriminative" with "strong": a genuinely discriminative span whose rival
+  happened to score close got a tiny vote, systematically compressing correct
+  scaffolding-dominated groundings below the consensus floor so they grounded
+  nothing.
+
+- **Sub-window regions vote, but not as exact.** Below one window a three-byte
+  string is interned by triviality rather than by evidence. Such a region is not
+  dropped (dropping them cost 35 tests — short regions do carry real evidence);
+  what it must not carry is the exact tier's full mutual weight and its
+  exemption from the margin. Measured: a three-byte segment voting exact at
+  mutual 1.00 with idf 4.22 pushed an unrelated exemplar past the consensus
+  floor and licensed CAST to compare content the query never named.
+
+### 17.4 The weighting: document frequency, and mutual explanation
 
 A region that climbs to few contexts is _specific_ — strong evidence about what
-the query concerns. A region that climbs to half the corpus (a common phrase)
-says almost nothing. Weighting a region's vote by ln(N/c) — the classical
-inverse-document-frequency form (Spärck Jones 1972) — expresses exactly this,
-with N the store's count of learned contexts, and dividing by the number of
-roots reached splits a region's voice among the candidates it cannot
-distinguish.
+the query concerns. A region that climbs to half the corpus says almost nothing.
+Weighting by ln(N/c) — the classical inverse-document-frequency form (Spärck
+Jones 1972) — expresses exactly this, with N the store's count of learned
+contexts, and dividing by the number of roots reached splits a region's voice
+among the candidates it cannot distinguish. Two further readings of the same
+reach are available and selectable (`inverse`, `direct` = ln(1+c), `combined` =
+their sum); inverse is the default every mechanism uses, the others exist for
+corpora where commonality itself is the signal.
 
 The geometric factor is not the raw resonance score but a **mutual-explanation
 weight** that reads both angle and magnitude (§2.6). Under the linear fold,
@@ -2566,52 +3051,117 @@ smaller side even holds; left uncapped, that impossible surplus would let a
 small region echoing inside a large context, or the reverse, vote above its
 physical evidence). The product of the two capped fractions is the mutual weight
 that replaces a bare score: it is exactly the same quantity a plain squared
-cosine approximated implicitly (score² ≈ (shared/len_region)·(shared/len_hit)
-when the two sides are close in size), made explicit and safe at every scale.
-The margin gate that precedes this weighting (§17.2, the noise-floor check
-before the vote is computed) stays in raw cosine units deliberately: it tests
-the RaBitQ estimator's own noise floor, which lives in cosine space, not in
-byte-magnitude space.
+cosine approximated implicitly, made explicit and safe at every scale. The
+magnitude read is itself capped at len·D — beyond that the mutual weight is
+already ~0, so no full walk of a huge hit is ever paid for.
 
-### 17.4 Saturation: expand-until-decided
+The margin gate that precedes this weighting (§17.3) stays in raw cosine units
+deliberately: it tests the RaBitQ estimator's own noise floor, which lives in
+cosine space, not in byte-magnitude space.
+
+### 17.5 Saturation: expand-until-decided
 
 The climb's work is bounded by **expand-until-decided**: the walk stops as soon
 as it knows whether the reach is saturated (the material is too common to
-discriminate) or a concrete vote (exact roots and contextsReached). The decision
-uses only LIMITed store reads:
+discriminate) or a concrete vote (exact roots and contextsReached). Five
+decisions can end it, each recorded by name in the trace, and each reached
+through LIMITed store reads only:
 
-- **Is this node edge-bearing?** `prevCount` — an indexed O(1) count — answers
-  "does this node follow at least one learned context?" without materialising
-  the (potentially corpus-sized) predecessor list.
-- **Is this node a hub?** `parentsFirst(id, √N+1)` — reading √N+1 parents proves
-  "more than √N" exactly; the walk aborts at that step. Below √N, the read IS
-  the full parent list, so the walk is exact.
-- **Distinct contexts past √N?** If the set of learned contexts visited crosses
-  √N, the region is saturated — decided by a set-size check, never by counting
-  every reachable context.
-- **Containment paging.** A window's containers are paged in chunks of √N via
-  `containersSlice`. A distinctive window's containers (few, converging on one
-  context) are walked in full — exact. A common window's corpus-sized container
-  list is abandoned at the first page whose climbs push contexts past √N, with
-  O(√N) page-work.
+- **Predecessor fan-in.** `prevCount` — an indexed O(1) count — decides "≥ √N
+  distinct contexts" without materialising the predecessor list.
+- **Distinct-context limit.** The set of learned contexts visited crossing √N
+  decides saturation by a set-size check.
+- **Parent fan-out.** `parentsFirst(id, √N+1)` — reading √N+1 parents proves
+  "more than √N" exactly. Below √N the read _is_ the full parent list, so the
+  walk is exact.
+- **Lateral-cone limit.** The accumulated cross-structure entries of the whole
+  climb crossing √N (§8.8).
+- **Byte-atom commonality.** An atom whose uniform-expectation floor N·W/256
+  exceeds √N (§8.8).
 
-A region whose climb triggers any of the "decided: saturated" conditions
-abstains rather than vote noise. Saturation is also _recorded_: a leading
-saturated stretch of the query (a boilerplate preamble) is treated as
-scaffolding, and further points of attention are only admitted beyond it. The
-dual use — abstain from voting, and mark scaffolding — is what keeps long
-templated queries from diluting their own payload.
+Two more disciplines bound the work without bounding the evidence: **containment
+paging** (a window's containers are paged in chunks of √N, so a distinctive
+window's containers are walked in full while a common window's corpus-sized list
+is abandoned at the first saturated page) and the **transparent-chain hop**
+(§8.8). The whole climb is memoised per start node in a **shared reach memo**
+that lives as long as the store is unwritten — ordinary and conversational asks
+share it, every ingest invalidates it, and a traced response always gets a cold
+one.
 
-### 17.5 What consumes the climb
+A region whose climb triggers any "decided: saturated" condition abstains rather
+than vote noise. Saturation is also _recorded_: a leading saturated stretch of
+the query (a boilerplate preamble) is treated as scaffolding, and further points
+of attention are only admitted beyond it. The dual use — abstain from voting,
+and mark scaffolding — is what keeps long templated queries from diluting their
+own payload.
 
-The climb is computed once per response (memoised) and consumed by five
-mechanisms: recall's scaffolding tier (§21.3), extraction's search for a skill
-exemplar (§20), CAST's identification of woven structures (§18), confluence's
-constraint-stream detection (§18.5), and fusion's grounding of further topics
-(§23). The cross-region attention pass (§17.6) also runs inside the climb,
-consuming its region votes and the junction module.
+### 17.6 Pooling and commitment
 
-### 17.6 Cross-region attention: the binding problem
+Votes accumulate through the **arithmetic semiring** (§5.3), run through the
+very same `lightestDerivation` engine the cover search uses: each surviving
+region is an axiom, each (region → anchor) contribution is a summing rule, and a
+vote for a _terminal_ answer node redistributes to the ≤ √N contexts that lead
+to it. Independent corroboration ADDS — a pooled-evidence decision is one
+weighted rule of the same deduction system, not a hand-rolled tally alongside
+it.
+
+Each ranked anchor then carries four read-outs, and they answer different
+questions:
+
+| Field         | Meaning                                                                                             |
+| :------------ | :-------------------------------------------------------------------------------------------------- |
+| **vote**      | the pooled sum — grows with how many places corroborated                                            |
+| **peak**      | what the strongest single contributing region said on its own                                       |
+| **start–end** | that same strongest region's query span — the minimal honest statement of what a grounding rests on |
+| **breadth**   | the fraction of the query's own (non-corroborating) regions whose evidence this anchor accounts for |
+| **clusters**  | how many distinct PLACES in the query corroborate it, merging contributors closer than W            |
+
+The distinctions are load-bearing. A consumer holding a point to the consensus
+floor — a bar priced for _one_ region's maximally discriminative evidence — must
+read **peak**, not vote: six scaffolding regions summing past the floor is not
+the same claim as one region clearing it. And `start–end` is the argmax region,
+not a hull over every contributor: widening it to everything that voted made
+recall out-bid mechanisms that had genuinely explained more.
+
+**Breadth** is the scale-invariant confidence the raw IDF vote cannot give (an
+absolute, ln N-scaled quantity means "strong" on a small store and "weak" on a
+large one for the same degree of genuine consensus). **Clusters** answers a
+different question again — not how _much_ evidence, but how many separate places
+carry it. Both breadth and raw region count were tried as the further-topic gate
+and falsified: breadth starves a genuine, evenly split multi-topic query (no
+root in a real N-way split can exceed half the vote), and raw count does not
+separate a short structurally simple echo from a real topic. A coincidental
+match is structurally confined to _one_ cluster however strong its vote; a
+genuine further topic is named in its own distinctive wording somewhere the
+scaffolding does not reach, always a separate cluster.
+
+Commitment then proceeds down the ranked list:
+
+- The first non-overlapping anchor is **dominant** and always grounds; only the
+  leading-saturation gate applies to it.
+- Any **further** anchor must clear both the **natural break** (the steepest
+  ratio drop in the sorted votes — a scale-free "where does signal end" test)
+  and the **consensus floor** ln N + ½ (§8.6), and must lie past any leading
+  saturated stretch. The floor matters because the natural break is scale-free
+  but not floor-free: on a large, topic-diverse corpus the steepest ratio in a
+  long noise tail can sit far below any real signal.
+- An anchor overlapping one already placed is absorbed, never re-elected.
+
+The natural break is read over the anchors the **query itself pointed at** —
+votes standing only on corroborating evidence (§17.2, source 3) are excluded
+from the distribution. They are exact, hence high-IDF, hence they land at the
+top and shift the cut; a two-topic query then elects three roots.
+
+### 17.7 What consumes the climb
+
+The climb is computed once per response (memoised by query content, k and DF
+mode) and consumed by five mechanisms: recall's scaffolding tier (§21), CAST's
+identification of woven structures (§18), confluence's constraint-stream
+detection (§18.5), extraction's search for a skill exemplar (§20), and fusion's
+grounding of further topics (§23). The cross-region pass (§17.8) runs inside the
+climb, consuming its region votes and the shared junction ascent.
+
+### 17.8 Cross-region attention: the binding problem
 
 Additive pooling has a blind spot. Two regions whose independent climbs land on
 _different_ contexts leave their **joint context** — the learnt whole that
@@ -2713,21 +3263,71 @@ _corroborates_ it (partial agreement — a different slice of the same context)
 and is kept. Votes whose bytes the container does not hold at all (a genuine
 second topic) are untouched.
 
-**Graded ladder.** The junction ascent follows the same evidence discipline as
-the bridge: Tier 1 (exact containers of the two forms themselves, order-free)
-first; only when it finds nothing does Tier 2.5 (synonym junctions — the same
-ascent over halo siblings of one side, sharing one expansion budget across all
-sibling walks) run as a fallback. Exact evidence outranks distributional
-approximation; a synonym junction can never override an exact one.
+**The graded ladder — five tiers, exact before approximate.** The pairing walks
+one ladder and stops at the first tier that finds anything, all tiers sharing a
+single walk budget and the per-response walk cache:
 
-**Voting.** A joint container is **exact** evidence — it literally holds the
-composed forms — so it votes at full strength (score = 1, no estimator).
-Weighting uses the same mutual-explanation and IDF discipline as single-region
-votes, with the combined byte length of all composed candidates as the region
-size. The combined pool (independent, minus any superseded by cross-region
-evidence, + cross-region) means a joint context with no single-region support
-can still become a point of attention when its combined evidence clears the
-consensus floor (§8.6).
+1. **Exact** — containers of the two forms themselves, by content-addressed DAG
+   ascent, order-free.
+2. **Single synonym** — the same ascent with one side replaced by a halo
+   sibling.
+3. **Double synonym** — both sides replaced.
+4. **Structural resonance** — the only tier with no byte containment behind it,
+   reached only when every DAG tier found nothing _and_ no already-corroborated
+   region sits between the endpoints (a between-region with its own vote means
+   the gap already means something specific; an ANN guess must not override it).
+   Each side's own gist — and the literal middle bytes, when there are any — are
+   composed positionally into a **synthetic gist** (§2.3's algebra applied to
+   existing vectors, never to a concatenated byte string, and never interned),
+   which is resonated into the content index. Because nothing byte-level backs
+   it, this tier is gated much harder than the DAG ones: **both** sides must be
+   content-addressed _and_ individually discriminative (a shared,
+   non-discriminative preamble can be exact without being evidence of anything,
+   and composing its gist manufactures a plausible-looking but spurious
+   neighbour); the pair must satisfy the same phrase-scale contract the DAG
+   tiers hold their glue to; a candidate whose reach is exactly one side's _own_
+   already-voted conclusion is rejected as self-evidence (that is the side's
+   resonance rediscovering itself through a gist still dominated by its own
+   direction); and the selected proposal must beat the best differently-
+   concluding rival by more than the estimator's noise floor. Proposals are
+   ranked by ANN score × the semantic confidence of the sibling substitution
+   that produced them, so an exact-sided variant outranks a double-synonym one
+   at equal ANN score.
+
+Two asymmetries follow from where each tier's evidence comes from, and both are
+deliberate:
+
+- **Only exact evidence may explain votes away.** Single-synonym, double-synonym
+  and structural-resonance junctions may _add_ supporting evidence but never
+  remove it: their own evidence is a substitution or a guess, and letting their
+  byte containment behave like exact containment would let an approximation
+  override a genuine, independently voted region.
+- **Only container-backed evidence consumes its endpoints.** Consuming a
+  candidate asserts "its evidence is already composed at full joint strength" —
+  a claim only a real container can make. A structural-resonance pick has none,
+  so consuming its endpoints would lock up candidates on the strength of a
+  guess. Measured: a resonated pair consumed "red", after which "red" ▸ "circle"
+  was never probed and the exact junction `red circle` — a stored whole, sitting
+  right there — went unfound. Both votes now stand and pooling decides between
+  them, which is what the mechanism market is for.
+
+**Voting.** A joint container found by a DAG tier is **exact** evidence — it
+literally holds the composed forms — so it votes at full strength (score = 1, no
+estimator); a synonym or structural pick votes at its own confidence instead.
+Weighting is otherwise the same mutual-explanation and IDF discipline as
+single-region votes, with the combined byte length of all composed candidates as
+the region size. A junction whose every composed part is a _corroborating_
+region (§17.2) inherits that flag: composing two forms the query's own cut split
+does not weave a point of attention, and without the inheritance such evidence
+re-entered the root election as a first-class anchor (measured over the suite:
+130 accepted junctions, 44 standing on at least one corroborating region, and 12
+standing on nothing else — precisely the leak). One genuine fold region among
+the parts means the query did point here, and the junction anchors on it.
+
+The combined pool (independent votes, minus any superseded by exact cross-region
+evidence, plus the cross-region votes) means a joint context with no
+single-region support can still become a point of attention when its combined
+evidence clears the consensus floor (§8.6).
 
 ---
 
@@ -2739,60 +3339,149 @@ Some queries do not ask about one learned thing; they _weave together several_ �
 "what if X had Y's property?", "compare X and Y", a sentence that grafts one
 learned frame onto another's subject. CAST (Counterfactual trAnSfer) detects the
 weave by **graded alignment** — the same evidence ladder as `locate()`: literal
-W-gram runs first, then distributional role (halo-matched recognised sites
-filling gaps where the query has no literal coverage). It transfers structure
-between the woven parts. CAST is the byte-level, formalized descendant of
-case-based reasoning's _adaptation_ step (Kolodner 1992).
+W-gram runs first, then distributional role, then the climb's own conclusion. It
+transfers structure between the woven parts. CAST is the byte-level, formalized
+descendant of case-based reasoning's _adaptation_ step (Kolodner 1992).
 
-Preconditions (all structural, per invariant §14.2): the query is at least two
-perception windows long; the climb (§17) ranks at least two anchors; aligning
-the anchors' contexts against the query (below) leaves at least two anchors with
-_free_ aligned runs; the dominant anchor is a committed point of attention; and
-at least one aligned run falls **outside every recognised site** — the
-definition of "woven": material from a learned structure appearing where
-recognition's normal reading has no account of it. If any of this fails, CAST
-returns null — the grounding decider considers the remaining candidates.
+Its preconditions are all structural (per invariant §14.2), and each one is a
+separate refusal with its own trace note:
 
-### 18.2 Graded alignment
+1. the query is at least two perception windows long, and something has been
+   learnt;
+2. the climb (§17) ranks at least two anchors;
+3. the weave (§18.2) leaves at least two aligned points that are genuinely **two
+   topics** (§18.3);
+4. at least one aligned point is a **committed root** of the climb — CAST
+   refuses to transfer through content the climb itself never settled on;
+5. something is actually **woven**: some aligned run falls outside every
+   recognised site, _or_ two points in the current turn restate two _different_
+   sites (which is exactly what a comparison naming both entities looks like).
 
-Alignment follows the same graded-evidence ladder as `locate()` (§14.4):
-**literal first, then distributional role.** For each ranked anchor:
+The last one carries a conversation-specific clause. A multi-turn query is the
+whole transcript, so an earlier turn's own question is an aligned point too —
+traced: the weave for "And what is the capital of Spain?" holds "What is the
+capital of France?" beside the new question. Two points, two named sites, and
+nothing woven at all: one of them is conversation history. So the "two different
+sites" reading requires both points to have evidence in the **current turn** —
+the bytes past the last answered span. Single-turn queries have no answered
+spans, so the current turn is the whole query and nothing changes.
+
+If any of this fails, CAST returns nothing and the grounding decider considers
+the remaining candidates.
+
+### 18.2 The weave: graded alignment over the asker's own stream
+
+The weave is a shared, lazily computed analysis (§14.1), not CAST's private
+machinery. For each of the first k ranked anchors:
 
 1. **Literal** — `alignRuns`: W-gram seed-and-extend. Every W-gram of the query
    is indexed; each W-gram of the context that matches seeds a run, extended
    greedily in both directions; overlaps resolved longest-first. Weight = 1.0
    (exact match is full evidence).
 
-2. **Halo** — where the query has **no literal coverage** from this anchor,
-   recognised sites with halos are matched to the exemplar context's own
-   recognised sites via `bestHaloMate` (gate: `conceptThreshold`). A query site
-   whose halo resonates with a context site above the bar produces a run with
-   `cs` = the context site's structural byte position and `weight` = the cosine
-   itself (measured evidence, not an invented constant).
+2. **Halo** — where the query has no literal coverage from this anchor,
+   recognised sites with halos are matched to the exemplar context's own sites
+   (gate: the concept threshold). The run's weight is the cosine itself —
+   measured evidence, not an invented constant.
 
-The per-byte depth `depth[i]` is the **sum of weights** of aligned structures
-covering byte `i` — a byte covered by two literal runs has depth 2.0; a byte
-covered by one literal (1.0) and one 0.7-halo run has depth 1.7. The `cs`
-(position in the context) is a real byte offset regardless of run kind, so the
-substitution and redirection schemas work unchanged on conceptual alignment.
+3. **The climb's own proposal** — a second pass, after every literal run is
+   placed. `alignRuns` seeds on W-grams, so two forms differing by a single byte
+   share no run at all: on "How is ice like steel?" against a store holding "Ice
+   is cold", the query's "ice" and the stored "Ice" agree on only three bytes
+   and are never seeded, so that structure entered the weave carrying nothing
+   but the scaffolding every exemplar shares. The climb had _already_ identified
+   it — electing "Ice is cold" from one span and "Steel is hard" from another,
+   through gates the aligner has no equivalent of. So the climb **proposes** the
+   pairing (which structure, which query span) and **bytes decide** its terms,
+   under three gates, each one measured: the span must take only query bytes no
+   literal run claimed (run inline with pass 1, a higher-ranked candidate's
+   proposal trimmed a lower-ranked candidate's byte-for-byte match out of
+   existence); the literal agreement must **dominate** the span (a climb vote is
+   not by itself an alignment — where the proposal is real, agreement is
+   overwhelming); and the span must not be **frame** (literal dominance alone is
+   too weak at this scale — a four-byte span agrees three-of-four with half the
+   corpus by accident).
 
-### 18.3 Frame gate
+Three structural disciplines shape what the weave admits:
 
-Both components of the frame gate are **derived from the weave itself**, not
-tuned:
+- **Weave-scale anchors only.** CAST transfers between things the _query_ weaves
+  — query-scale structures. A context an order of magnitude beyond the query is
+  not woven by it (the query can at most quote a fragment, which recognition and
+  the cover already handle), so an anchor is read through a prefix-capped read
+  of W × the asker's own byte count and dropped if it exceeds it. Profiled on a
+  17.7M-node store, uncapped weaves spent 5–8 s per query recognising
+  conversation-length anchors that could never form a weave point.
+- **The asker's stream only.** Completed replies remain available to recognition
+  and the climb as conversation context, but the alignment cuts the answered
+  spans out, aligns the remaining segments as one compacted stream, and splits
+  every run back across the original offsets so no evidence crosses an omitted
+  boundary (§24.5). Otherwise weave work grows with answer length and the engine
+  analogises against its own previous output.
+- **One place, one structure.** A stored sentence and the entity it names are
+  not two independent structures when the query's evidence for them is the same
+  bytes — they are one place read at two grains, and admitting both lets a nest
+  of containing sentences outvote the entity the query actually named (measured:
+  comparison seated on a 49-byte sentence instead of the 17-byte entity). A
+  point earns its place the same way a second point earns CAST's entry: at least
+  one perception quantum of query bytes no better-voted point already explains.
+  Points arrive in the climb's vote order — which structures belong in the weave
+  is the climb's call, not a local run measure.
+
+**Runs are never trimmed against each other.** A point keeps every byte it
+aligned; exclusivity is a property of _structures_, not of individual query
+bytes. This is worth recording because the trimming that used to happen was
+invisible and load-bearing in the wrong way: a point's first run — which three
+CAST branches read as "the filler", "the seat", "the name" — was whichever run
+survived the cut, so those schemas were reading an elimination order as though
+it were evidence, and the query's own bytes were truncated on the way
+("Shakespeare" surviving as "Shakes"). Each consumer now derives its own reading
+from the runs.
+
+Finally, the per-byte **depth** counts _structures_, not weight: the frame test
+below compares `depth[i]` against a count of aligned points, so accumulating
+graded weight there would compare weight-mass against a cardinality. Measured
+with only that toggled: 9 candidates collapsing to 2 points made 29 of 42 bytes
+read as frame; counting distinct covering candidates leaves 6 of 42, which
+decouples the frame gate from however many points happen to survive.
+
+### 18.3 Two gates: two topics, and frame
+
+**Two topics.** `points.length ≥ 2` reads as "two structures to transfer
+between", but measured, it functions as "the query is about more than one
+thing", and it only discriminates because the weave eliminates hard enough that
+a single-topic query cannot reach two points — the condition carried by the
+elimination, not by anything CAST measures. What actually separates a genuine
+comparison from a single-topic query is _content_: a real comparison's points
+are evidenced by **different query spans**, while a single-topic query's extra
+points align to the same shared frame the first one already explains. So two
+points count as two topics when either:
+
+- a second point contributes at least one perception quantum of query bytes the
+  best-covered point does not; **or**
+- the climb found the query **dispersed** (two committed roots, or one whose
+  cluster count reaches two — §17.6) _and_ the points were elected from places
+  at least a quantum apart, _and_ at least a quantum of query bytes remains
+  unexplained by the widest point.
+
+Each clause is there because the others were measured insufficient: dispersion
+alone let CAST into a near-tie and a list skill whose points the climb elects
+from the same place; and without the unexplained-bytes clause, a query that is a
+_prefix of one stored fact_ disperses into two clusters purely because the fact
+repeats a phrase, while that one point's runs cover every query byte — the same
+topic corroborated twice, not two topics.
+
+**Frame.** Both components of the frame gate are derived from the weave itself,
+not tuned:
 
 1. **MIN_WEAVE** — the minimum number of aligned structures to form a weave: the
-   same `2` that gates CAST entry (`points.length < 2`). Frame requires evidence
-   **beyond** the minimum pair — a third structure agreeing — so the depth gate
-   is `depth[i] > MIN_WEAVE`. One definition, two uses.
+   same `2` that gates CAST entry. Frame requires evidence _beyond_ the minimum
+   pair — a third structure agreeing — so the depth gate is
+   `depth[i] > MIN_WEAVE`. One definition, two uses.
 
-2. **Half-dominance** — `dominates(part, whole)` (§8.7), the same test
-   `collectRegions`, `liftAnswer`, and confluence's filler gate all use. A byte
-   is frame when `dominates(depth[i], aligned)` — the structures covering it are
-   a majority of all aligned structures. A run is usable when the framed bytes
-   are NOT a majority: `¬dominates(framedCount, runLen)`.
-
-In full:
+2. **Half-dominance** — `dominates(part, whole)` (§8.7), the same test region
+   collection, `liftAnswer`, and confluence's filler gate all use. A byte is
+   frame when the structures covering it are a majority of all aligned
+   structures; a run is usable when its framed bytes are _not_ a majority.
 
 ```
 frame(i)      ⇔  depth[i] > MIN_WEAVE  ∧  dominates(depth[i], aligned)
@@ -2800,10 +3489,18 @@ usable(qs,qe) ⇔  ¬dominates(framedCount(qs, qe), qe − qs)
 ```
 
 The frame gate is the canonical example of **weave-local commonality** (§8.10):
-`aligned` counts the structures aligned with _this query_, not the corpus. The
-choice of reference set is load-bearing — replacing the weave-local majority
-with corpus-global IDF misfires on reordered single-fact queries. See §8.10 for
-the general theory and the full table of which mechanism uses which measure.
+`aligned` counts the structures aligned with _this query_, not the corpus.
+Replacing the weave-local majority with corpus-global IDF misfires on reordered
+single-fact queries. See §8.10 for the general theory and the full table of
+which mechanism uses which measure.
+
+One more derived reading sits beside the gates: the weave's **dominant** is its
+principal _structure_ — the aligned point explaining the most query bytes — not
+the climb's top-ranked _topic_. The two used to coincide, but the contrastive
+margin (§17.3) ranks the query's own exact site first, while CAST's schemas all
+orient around the frame-bearing structure: the substitution seat is displaced
+_in_ the dominant, and comparison seats the analogs by the contexts that
+establish their roles.
 
 ### 18.4 Three transfer schemas
 
@@ -2842,6 +3539,20 @@ candidate passes any tier, a deterministic structural fallback picks the
 best-evidenced genuine hub among the candidates. The answer voices each analog
 by the context that establishes its role, joined by a learned connector when one
 exists.
+
+Comparison carries one further guard, because its weakest licence — frame-tier
+evidence under a root the consensus floor does not trust — is the easiest to
+satisfy by accident. Under that licence the two analogs' aligned runs must
+account for **every stored window of the query**: the ignored-known principle
+(§19.5). This is the byte-structural separator that no local threshold could
+find. A legitimate small-corpus comparison ("How is ice like steel?") leaves
+only _unattested_ spans ("How ", " like ") unexplained, while a scrap-matched
+junk pair leaves the query's own trained content dismissed as gaps. Halo-tier
+analogs are exempt — distributional company is independent evidence in its own
+right. A **trusted root is not** exempt: the root's trust says the climb settled
+on something, which is a different question about a different quantity from
+whether _this comparison's_ evidence covers what the store knows. Measured, the
+two disagreed exactly where it mattered, and comparison fired on a junk analog.
 
 Whatever CAST produces, the anchors it consumed are marked as such, so the
 reasoning stage (§22) does not re-walk the same facts. Each schema reports its
@@ -2953,8 +3664,37 @@ BRIDGE      Cover(i) ∧ Out(i, j)            → Cover(j)
             material survives between rewritten parts.
 
 FOLLOW-EDGE Form(i, j, n)                    → Form(i, j, n′)   cost STEP
-            where n ──▶ n′ is a learned continuation edge. With several
-            continuations, the disambiguator (§25) picks n′.
+            where n ──▶ n′ is a learned continuation edge.  EVERY hop
+            costs STEP, first or fifth, so a chain's total cost is
+            proportional to its length and the lightest derivation is the
+            SHORTEST successful one.  (Charging later hops nothing made
+            every stopping point at any depth tie, leaving the choice to
+            whichever arrived first.)  With several continuations the
+            disambiguator (§25) is offered first; the engine keeps the
+            first arrival at a given cost, so an evidence-backed edge wins
+            ties deterministically rather than by exploration order.
+            A form born by RECOMPOSITION continues at MICRO instead —
+            once parts are consolidated into a learned whole, following it
+            to its answer is the recomposition completing.
+
+STOP-HERE   Form(i, j, n) reached via edges   → Out(i, j, bytes(n))
+                                                cost CONCEPT
+            Give up mid-chain and emit the node as it stands.  Priced by
+            the same ordering that makes a synonym dearer than a direct
+            edge: a premature stop at depth D costs D·STEP + CONCEPT, so a
+            shorter premature stop beats a longer one and a genuine
+            fixpoint (below, +0) beats any premature stop at equal depth.
+            The search settles here only when continuing dead-ends or
+            grows costlier than giving up.  These bytes are the node's OWN
+            — never the recursive re-cover, which is reserved for the one
+            place it is load-bearing.
+
+GROUND      Form(i, j, n), a genuine FIXPOINT → Out(i, j, bytes)  cost 0
+            The chain reached a node with no whole-node continuation
+            anywhere.  RECOMPLETION (§19.6) runs HERE and only here —
+            once, at the chain's actual end — so its cost tracks the
+            answer's own structure rather than how densely the corpus
+            interconnects the nodes passed through on the way.
 
 CONCEPT-HOP Form(i, j, n), n edge-less       → Form(i, j, s′)   cost CONCEPT
             where s is a halo sibling of n above the concept threshold and
@@ -2962,29 +3702,26 @@ CONCEPT-HOP Form(i, j, n), n edge-less       → Form(i, j, s′)   cost CONCEPT
             a literal edge. (Siblings are pre-resolved before the search,
             since index queries are asynchronous.)
 
-GROUND      Form(i, j, n), n terminal, reached via edges
-                                             → Out(i, j, bytes(n))  cost 0
-            The chain's endpoint becomes answer bytes for the span. Before
-            emitting, RECOMPLETION (§19.6) may resolve deeper.
-
 SPLIT       Out literal, containing a split position k (§15.2)
                                              → the two halves     cost 0
             The query's own chunking is not sacred; a form boundary the
-            store knows can cut a leaf.
+            store knows can cut a leaf.  Demand-driven: emitted only when
+            a split point actually falls inside this out.
 
 FUSE        Out(i, j) ∧ Out(j, k) adjacent    → Out(i, k)          cost 0
-            The concatenation may name a known node (by content-addressed
-            lookup: as a short leaf; as the branch of the two sides'
-            nodes; or by canonical re-perception when a side is a
-            completed rewrite). If it does, also:
+            The concatenation may name a known node (as a short leaf; as
+            the branch of the two sides' nodes; or by canonical
+            re-perception when a side is a completed rewrite).  Kept alive
+            only while it could still grow into a form.  Subject to the
+            ATOM-CHAIN GATE below.
 
 RECOMPOSE   the fused pair                    → Form(i, k, node)   cost 0
             Two already-rewritten parts fusing into a node that itself
-            continues is a RECOMPOSITION: its onward FOLLOW-EDGE is free,
-            so the consolidated whole strictly beats leaving the parts
-            split. A guard requires the fused node to be halo-bearing —
-            i.e. learned as a meaningful unit, not an accidental interior
-            chunk of some one-shot phrase.
+            continues is a RECOMPOSITION: its onward FOLLOW-EDGE costs
+            MICRO, so the consolidated whole strictly beats leaving the
+            parts split.  A guard requires the fused node to be
+            halo-bearing — learned as a meaningful unit, not an accidental
+            interior chunk of some one-shot phrase.
 
 SPLICE      Out(recognised L) ∧ Out(recognised R), a learned connector
             exists between L's and R's answers  → Out(L+connector+R)  cost 0
@@ -2997,6 +3734,24 @@ The A\* heuristic is ε per uncovered byte beyond an item's right edge —
 admissible because ε is the minimum per-position cost, and what keeps the search
 output-sensitive (§5.2, §8.9).
 
+**The atom-chain gate on FUSE.** A pure leaf-leaf fuse — neither side already a
+recognised completion — is opportunistic cross-leaf recovery: the probe has no
+idea _why_ two leaves are adjacent, only that their concatenation happens to
+spell a trained form. At hub scale, where atoms themselves no longer
+discriminate (§8.8), that coincidence is noise. This gate used to exempt any
+fuse starting at a position the query's own fold cut at, documented as "real
+structural evidence" — and under a fixed-arity fold those positions were exactly
+{0, W, 2W, …}, carrying no content information whatsoever. What it cost, on a
+17.9M-node store: "In which country is the Eiffel Tower?" fused two byte atoms
+at offset 4 — trusted only because 4 ≡ 0 (mod W) — into the trained form "hi",
+followed its edge, and grounded a greeting as a fact, explaining 2 of 37 bytes.
+The exemption was removed rather than replaced: there was no cheap signal that
+meant what it claimed, and inventing one would be worse than admitting the
+absence. Genuine cross-leaf forms are not lost — recognition's canonical pass
+already probes every byte offset and emits them as sites, which arrive here as
+recognised outs and stay exempt. Below hub scale nothing changes: on a small
+store, coincidence is rare and every chain is real evidence.
+
 ### 19.4 What the cost ladder buys, concretely
 
 - Coverage dominates: the search _must_ account for every byte, and prefers
@@ -3006,6 +3761,9 @@ output-sensitive (§5.2, §8.9).
 - Free fusion/recomposition means the search always finds the _deepest
   consolidated reading_: if "D E" recomposes into a learned "DE" that continues
   to F, the answer is F, not "D′ E′".
+- A chain's cost is proportional to its LENGTH, so among successful chains the
+  shortest wins; and a genuine fixpoint always beats giving up early at the same
+  depth, while a shorter premature stop beats a longer one.
 - Ties resolve by the fixed conventions of §25 — deterministically.
 
 ### 19.5 Connectors: learned joins (the bridge)
@@ -3014,7 +3772,7 @@ When an answer has several parts, what belongs _between_ them? Sema asks the
 store through a **graded junction ladder** — exact evidence before approximate,
 the same discipline as `locate` (§14.4). The junction search is extracted into
 one shared procedure so that both the bridge (a connector between answer pieces)
-and cross-region attention (§17.6, the joint context of query regions) ascend by
+and cross-region attention (§17.8, the joint context of query regions) ascend by
 the same bounded, cached walk:
 
 1. **Junction containers, by content-addressed identity.** Hash-consing means
@@ -3043,8 +3801,17 @@ the same bounded, cached walk:
 When several junctions qualify, the **response guide** (the query's gist — the
 same disambiguator every projection uses) picks by resonance; ties prefer the
 shortest interior (a junction should not insert unnecessary glue), then the
-lowest node id (deterministic — a property of the corpus, not the seed). No
-learned evidence at any tier ⇒ no connector invented.
+lowest node id (deterministic — a property of the corpus, not the seed). An
+_empty_ interior found by evidence is a confirmed adjacency, returned as such
+and never confused with a miss. No learned evidence at any tier ⇒ no connector
+invented.
+
+Bridge results are memoised per response, keyed on the **bytes** of the pair
+(one code unit per byte — an injective encoding). The cover's connector
+pre-resolution asks for the same pair through several site/answer combinations,
+and fusion and CAST re-ask pairs the cover already resolved, so each unique pair
+is walked once. The key must be injective on raw bytes: a lossy text decoding
+gave `[65,0,66]` and `[65,66,0]` the same key and therefore the same connector.
 
 Connectors are pre-resolved for the query's adjacent site pairs (and for
 first-to-later pairs of longer groups), then handed to the search, where SPLICE
@@ -3062,6 +3829,12 @@ becomes the answer for the span. Recursion needs no depth cap: a node already
 being recompleted is not re-entered (cycle guard), node identities are finite,
 and finished recompletions are memoised — so chains run exactly as deep as the
 graph licenses, and stop.
+
+It runs at **one** place only: the chain's genuine fixpoint (§19.3's GROUND).
+Offering it at every premature stop instead makes a query's total cost scale
+with how densely the corpus happens to interconnect the nodes passed through —
+corpus density — rather than with the answer's own hop count, which is exactly
+the output-sensitivity the rest of the search is built to preserve.
 
 ### 19.7 Reading out the answer
 
@@ -3105,17 +3878,26 @@ not interchangeable:
 
 ```
 extractBySkill(query):
-    ranked ← climbAttention(query).ranked          # §17 — every voted anchor
-    exemplar ← the first ranked anchor that is span-shaped:
-        context ← the anchor's bytes (or, for a terminal answer node, the
-                  longest span-shaped context among ≤ √N of its
-                  predecessors; query-gist resonance breaks length ties)
-        answer  ← its continuation
-        span-shaped ⇔ answer is a contiguous span of context, a recognised
-                      subtree of it, or an ordered sparse subsequence
-                      (a multi-piece answer)
-    if none: return ∅                # no skill applies; decider moves on
+    ranked ← the climb's FULL ranked list (§17) — not just the committed
+             roots: extraction needs ONE anchor that IS a span-shaped
+             exemplar, and it may sit below the further-topic floor
+    for each cand in the first k of ranked:        # bounded — see below
+        exemplar ← spanShapedOf(cand.anchor):
+            context ← the anchor's bytes (or, for a terminal answer node,
+                      the longest span-shaped context among ≤ √N of its
+                      predecessors; query-gist resonance breaks length ties)
+            answer  ← its continuation
+            span-shaped ⇔ answer is a contiguous span of context, a
+                          recognised subtree of it, or an ordered sparse
+                          subsequence (a multi-piece answer)
+        if not exemplar: continue
+        built ← buildFromExemplar(query, exemplar)         # below
+        if built = ∅ or |built.bytes| < W: continue        # sub-quantum
+        if built.accounted = ∅: continue                   # UNANCHORED
+        return built
+    return ∅                          # no skill applies; decider moves on
 
+buildFromExemplar(query, exemplar):
     runs ← decompose the exemplar answer into its pieces within the context
     for each piece:
         framePre  ← up to W bytes of context before the piece
@@ -3127,6 +3909,38 @@ extractBySkill(query):
         the query bytes between the located frames are this piece's analog
     answer ← the concatenated analogs
 ```
+
+**Why the loop retries, and why it is bounded.** The span-shape test is
+deliberately permissive (a sparse subsequence), so it accepts exemplars whose
+relation to the query is coincidental gap-matching. Stopping at the _first_ such
+exemplar let a coincidental match early in the ranked list win outright and read
+out a sub-quantum fragment — observed: a 3-byte "Hel" pulled from an unrelated
+exemplar, while a later ranked anchor would have read the query's own "Hello…"
+correctly. So an exemplar that produces nothing usable is treated like a
+structural non-match and the loop continues.
+
+The retry is bounded at the same evidence-breadth constant k every other
+consumer of a ranked list self-limits to. The frame matcher's exact-byte tier
+has no significance correction of its own — short W-byte frames are cheap to
+match by pure chance — so trying every ranked anchor turns that per-anchor
+chance into a near-certainty over enough attempts: on a pure-gibberish query,
+170 anchors deep found an unrelated exemplar whose short frame happened to
+byte-match, producing an answer. That is the same failure mode recall's own
+chance correction exists to prevent (§21.4). Bounding at k keeps the "genuinely
+relevant but not root-significant" exemplars the loop was built for, without the
+tail's chance collisions.
+
+**An unanchored read is not an extraction.** If _no_ frame of the exemplar was
+located in the query at all, nothing ties the bytes just read to this question —
+the skill applied its exemplar's geometry to a query it never matched. Observed:
+"Which city is France's seat of government?" answered "Which ci" — a fragment of
+the query itself — from an unrelated exemplar. Requiring at least one located
+frame is the structural evidence that permissiveness leaves out. This test is
+scoped to extraction on purpose: the same veto at the pipeline's density check
+was tried and reverted, because `accounted` is empty _by convention_ on recall's
+own tiers, so a veto there refused six legitimate reverse-recall groundings.
+Here the field is this mechanism's own output and carries its documented
+meaning.
 
 The demo in the README is this mechanism: three "X was painted by Y" examples
 make ("…was painted by …", painter) a span-shaped exemplar; the unseen
@@ -3174,81 +3988,348 @@ query bytes its frames did not cover (§14.1).
 
 Recall handles queries whose own decomposition composed nothing: resonate the
 _whole query's gist_ and ground the nearest learned form. It is the most
-fallback-like mechanism — its weight carries the full PASS·|query| for most
-tiers, so it can only win as the sole grounding (the honest price of an
-ungrounded answer) — but it participates in the same decider as every other
-mechanism. Four tiers, each gated on structural evidence, orderly degrading from
-exactness to an honest echo.
+fallback-like mechanism — most of its tiers carry the full PASS·|query|, so they
+can only win as the sole grounding (the honest price of an ungrounded answer) —
+but it participates in the same decider as every other mechanism, and its floor
+is free to state (one STEP-grade projection).
+
+What it is _not_ is a single ladder of resonance scores. Recall is where the
+system's honest-failure path lives, and over time it has accumulated a graded
+sequence of **structural** claims, each strictly weaker than the last, each with
+its own guards, and each running only where the alternative was silence. Nothing
+below the clean-resonance tier costs anything on an answering path.
 
 #### The asymmetry of forward and reverse
 
-The deduction system (§5, §19) is a **forward** engine: its rules (FOLLOW-EDGE,
-CONCEPT-HOP, FUSE, SPLICE) all move from premises toward conclusions in the
-direction of the learned edges. There is no backward rule — no inference step
-that consumes a conclusion to produce a premise. This is not an omission; it is
-the formalism: a derivation is a directed hyperpath from axioms to a goal, and
-the cost ladder prices each forward step. A reading against the edge direction —
-`reverseContext`, which asks "what establishes this?" rather than "what does
-this lead to?" — produces bytes but no derivation. It explains nothing about the
-query in the forward direction the search operates in.
+The deduction system (§5, §19) is a **forward** engine: its rules all move from
+premises toward conclusions in the direction of the learned edges. There is no
+backward rule — no inference step that consumes a conclusion to produce a
+premise. This is not an omission; it is the formalism: a derivation is a
+directed hyperpath from axioms to a goal, and the cost ladder prices each
+forward step. A reading against the edge direction — `reverseContext`, which
+asks "what establishes this?" rather than "what does this lead to?" — produces
+bytes but no derivation.
 
 The grounding decider expresses this exactly: reverse readings get
-`accounted = []` (nothing matched against learnt structure in the forward
-direction), so their weight is the full PASS·|query| plus a STEP — the most
-expensive grounding, available when nothing composes forward, impossible to
+`accounted = []`, so their weight is the full PASS·|query| plus a STEP — the
+most expensive grounding, available when nothing composes forward, impossible to
 prefer when anything does. The decider _derives_ this from the evidence the
-formalism itself declares: a backward step carries no explanatory weight.
+formalism itself declares.
 
-Every tier grounds through the shared projections of §14.4: `reverseContext` for
-the reverse cases, `project` (forward-else-reverse) for the rest — recall owns
-no grounding machinery of its own.
+Every tier grounds through the shared projections of §14.4 — recall owns no
+grounding machinery of its own.
 
-**Tier 0 — exact self-match (content-addressed).** If the query _resolves_ — it
-is literally a stored node — answer with the context that predicts it (the
-reverse projection; among several predecessors, the query gist picks by
-resonance). This tier never consults the ANN index: identity is exactly
-decidable, and an estimated score must never stand in for it (§6.2). The
-grounding is a pure reverse reading: `accounted = []`, `moves = STEP`. The
-decider prices this honestly: a reverse reading is the designated last resort,
-never a peer of forward evidence.
+#### Two guards every tier shares
 
-**Tier 1 — clean resonance.** If the top hit's estimated score clears the merge
-threshold (§8.1), the query essentially _is_ a learned form: `project` tries
-forward first (to the continuation fixpoint), then reverse (to the establishing
-context). A forward grounding accounts for the _whole_ query (identity-grade
-match, `accounted = [[0, query.length]]`); a reverse reading accounts for
-nothing. Cost: one STEP either way.
+Because every tier below is a claim about the query, two failure modes recur,
+and both are checked at every exit:
 
-**Tier 2 — scaffolding-dominated.** If the top score clears only the
-significance bar (§8.3) — real but diluted, typically because shared boilerplate
-dominates the gist — run the consensus climb (§17) and ground its dominant
-anchor, provided the anchor's pooled vote clears the consensus floor (§8.6).
-Accounts for exactly the query spans whose evidence carried the winning point of
-attention — not the whole query. Cost: one CONCEPT (the climb is a halo-mediated
-act).
+- **Restatement.** A candidate whose bytes _are_ the query's own — exactly, or
+  under the response's canonical equivalence — may only conclude through
+  disciplined reverse recall. Voicing its bytes echoes the question back at
+  itself; projecting it forward is "whatever followed these bytes in some
+  document".
+- **Restated fragments.** A projection that is a proper byte-subspan of the
+  query restates part of the question and is never an answer. This matters most
+  in conversations, where each earlier turn is itself a trained form and would
+  otherwise read as the next thing to say.
 
-**Tier 3 — last resort.** This tier is gated on the **fraction of the query the
-grounding explains**, not the raw cosine (§2.6). Root gists are unit vectors,
-but under the linear fold cosine = shared / √(len_query · len_grounding), so the
-raw cosine of a query fully contained in a much longer grounded answer is
-√(len_query / len_grounding) — a number that shrinks the longer the honestly-
-containing answer is, and would refuse a perfectly good containment while
-letting a same-length answer that shares only scaffolding pass. Converting the
-cosine into `cos · √(len_grounding / len_query)` — a query-relative fraction —
-measures exactly what the reach bar is supposed to mean: how much of THE QUERY
-the store accounts for, regardless of how much longer the matched form is.
+### 21.1 Tier 0 — exact self-match, and argument binding
 
-Walk the hits nearest-first and ground the first one whose query-relative
-fraction clears the reach threshold (§8.2). Failing that: if even the nearest
-hit's fraction is _below_ the reach threshold, **return nothing** — the store
-holds nothing related. Otherwise return the nearest form's own bytes verbatim,
-explicitly flagged as an **echo**: within reach, but not a grounded fact — it
-accounts for nothing and carries no move cost, so it can only win as the sole
-grounding (the honest price of an ungrounded answer). The flag travels in the
-response's provenance (§26) so a confident-looking parrot is always
-distinguishable from an answer. Each tier also carries `unexplained` — a
-human-readable label for the query bytes its evidence left on the table (§14.1)
-— appearing in the rationale trace alongside `accounted` and `moves`.
+**Exact self-match (content-addressed).** If the query _resolves_ — it is
+literally a stored node — answer with the context that predicts it (the reverse
+projection; among several predecessors, the query gist picks by resonance). This
+tier never consults the ANN index: identity is exactly decidable, and an
+estimated score must never stand in for it (§6.2). `accounted = []`,
+`moves = STEP`.
+
+**Argument binding.** The query is not itself a stored form, but it _contains_ a
+recognised constituent that is an edge **source** — a learnt pair's left side
+carried inside a wrapper ("How do you say 'thank you' in French?"). The wrapper
+is scaffolding; the argument is the span that leads somewhere, so its
+continuation, guided by the whole query's gist, is the answer. Matching the
+wrapper while ignoring the argument is worse than silence, so anything short of
+**one unambiguous binding** falls through: constituents must clear two
+perception windows (the same 2W bar confluence binds under), nested recognitions
+collapse to their maximal span, two distinct maximal arguments mean the query
+asks about neither alone, and another substantial recognised form _outside_ the
+chosen argument means this is not one argument in a wrapper but several
+independently meaningful pieces — which is exactly the shape of an accumulated
+conversation. Accounts for the argument's span; one STEP.
+
+### 21.2 Tier 1 — clean resonance, at the scale-aware identity bar
+
+If the top hit clears the **scale-aware identity bar** (§8.1) the query
+essentially _is_ a learned form. The bar is per-hit, not per-tier: hits are
+ranked nearest-first and the walk stops at the first one below it, because
+grounding a lower hit under this tier's "near-identical" label would launder
+byte-overlap noise (observed: "merci" projecting through the unrelated near hit
+"meraih"). A hit that restates the query concludes only through reverse recall;
+otherwise `project` tries forward first, then reverse. A forward grounding
+accounts for the whole query (an identity-grade match); a reverse reading
+accounts for nothing. One STEP either way.
+
+### 21.3 Tier 2 — scaffolding-dominated: two independent readings of consensus
+
+If the top score clears only the significance bar (§8.3) — real but diluted,
+typically because shared boilerplate dominates the gist — ground the consensus
+climb's dominant anchor. The question is when that anchor may be trusted, and
+the answer is **two alternative readings, never a substitution**:
+
+- its **pooled vote** clears the consensus floor ln N + ½ (§8.6) — the reading
+  that legitimately fires on a small store, where ln N is low; **or**
+- its **breadth** clears half-dominance _and_ its **peak** exceeds ln 2 — the
+  scale-invariant reading (§17.6).
+
+Both clauses are needed, and each was falsified alone. The absolute vote is an
+ln N-scaled quantity: measured on a 325K-context store, a junk attractor
+out-voted every correct anchor (12.69 against 8.19–10.77), so no vote threshold
+admits the right anchors without admitting fabrication — while breadth > ½
+admitted exactly the correct ones. Conversely, _replacing_ the vote test with
+breadth broke seven tests, because breadth starves a genuine, evenly split
+multi-topic query (no root in a real N-way split can exceed half the vote). Peak
+is required beside breadth because breadth asks how much of the query
+corroborates the anchor, never whether the anchor _says_ anything: on a
+one-context store every region trivially corroborates the only anchor there is,
+breadth is 1 while the anchor's IDF is 0, and "explain quantum chromodynamics"
+answered a lone cat fact. Requiring the per-region contribution ln(N/c) to
+exceed ln 2 is requiring c·2 < N — half-dominance again, in the IDF's own units.
+
+One further gate asks about the **query** rather than the anchor: a query every
+one of whose windows is corpus-global scaffolding gives the corpus nothing to be
+held to, and this tier — which exists to serve scaffolding-dominated queries —
+is exactly where that runs out. Measured: "What is the capital " answered a Sri
+Lanka fact on breadth 0.667, every window it spells being a hub, while the
+probes this tier serves correctly all retain at least one discriminating window.
+(Dispersion was tried here and falsified: the fabrication and a legitimate
+no-punctuation probe have identical cluster profiles.)
+
+The tier accounts for exactly the query span whose evidence carried the winning
+point of attention (§17.6's `start`–`end`), not the whole query — a consensus
+vote for "ice" among scaffolding does not explain the word "steel". One CONCEPT.
+
+### 21.4 Tier 3 — the nearest grounded hit, at the query-relative fraction
+
+Walk the hits nearest-first and ground the first whose grounding explains enough
+of the **query**. The gate is not the raw cosine (§2.6): root gists are unit
+vectors, but under the linear fold cos = shared/√(len_q · len_g), so a query
+fully contained in a much longer grounded answer scores √(len_q/len_g) — the raw
+cosine punishes honest containment and lets a long answer sharing only
+scaffolding pass. Converting to `cos · √(len_g / len_q)` measures what the reach
+bar is supposed to mean: how much of THE QUERY the store accounts for.
+
+That conversion carries one trap, and it is closed by an existing bar. The same
+√(len_g/len_q) factor amplifies the estimator's own chance floor: a stored form
+100× longer multiplies a noise-level cosine by ten and lifted pure gibberish
+past the reach bar (observed). Only the **above-chance** part of a similarity is
+evidence of shared content, so the significance bar (3/√D, §8.3) is subtracted
+before the conversion. Derived from the existing bars; never tuned.
+
+### 21.5 The refusal path — three structural tiers before silence
+
+Everything geometric has now failed. Three tiers remain, each making a
+**structural** claim about the query that resonance cannot state, and all three
+read the _same_ candidate list — memoised, so the expensive branch runs at most
+once per response. That list is the ranked hits, widened to an exhaustive index
+scan only when the top hit clears the concept threshold: when the query gist has
+no concept-level match to anything stored, an exhaustive scan would only score
+more vectors below the bar (profiled at 38–40K vectors scored per refusing query
+on a 325K-context store, costing 44% of think). Whether the gist ranks
+_anything_ at concept level is the discriminator — corpus size never was.
+
+#### The substitution bridge
+
+**The gap.** A query phrased through a near-synonym of a trained word ("Name the
+biggest planet" against a corpus that only ever says "largest planet") reaches
+nothing, even though the fact is trained and the pairing is corroborated across
+the corpus. Words are never independently addressable nodes — deposition interns
+whole streams plus W−1/W leaf windows, and a word mid-sentence falls between
+those scales — so no halo ever links "biggest" to "largest".
+
+**The mechanism.** The query's own content-addressed windows are probed against
+the store; the rarest anchor a bounded climb (the same `edgeAncestors` the
+consensus vote uses) to the trained contexts containing them, alongside the
+already-ranked resonance proposals. Each candidate context is aligned to the
+query byte-for-byte around the anchor, leaving mismatched spans. A mismatch
+grounds as a **substitution** only under three derived gates:
+
+- **Corroboration** — the query-side span is itself corpus-attested: every
+  W-window inside it resolves as a stored form, at least one reused across ≥ 2
+  containers (the same bar suffix propagation gates inheritance with, §12.1). An
+  untrained word can never substitute.
+- **Graded identity** — lexical geometry first, at the concept threshold;
+  differently spelled forms fall through to VSA company, whose bundled halos
+  must clear the significance bar (the same distributional bar analogy strength
+  uses).
+- **Raw balance** — the mismatch, _before_ expansion absorbs any matched
+  flanking bytes, must be roughly length-balanced on both sides
+  (`dominates(min, max)`, half-dominance again). This is the guard that closed a
+  real wrong-answer gap: "France" → "Spain si(nce)" had a 3-byte query span
+  standing for 8 candidate bytes, an asymmetry a genuine morphological synonym
+  never has and an arbitrary sentence divergence always does. Three more
+  plausible fixes were implemented and refuted first — requiring non-vacuous
+  frame consensus, excluding self-witness, and demanding candidate-side
+  attestation — each of which broke the legitimate synonym case or failed to
+  discriminate at all.
+
+A candidate is accepted when its aligned-plus-substituted spans **dominate** the
+query and every unexplained gap stays within one perception window. Beyond that,
+the **ignored-known principle** applies: a span may be dismissed only when the
+store has never seen it, so an unaccounted range that contains a stored window
+is grounds for refusal. Genuinely novel spans remain tolerable. (This same test
+guards CAST's frame-tier comparison, §18.4.)
+
+Two guards sit at the exit. A projection contained in a substituted span is the
+substitution **restated as knowledge** — the observed failure where a bridge
+through " England." → " Germany." would have voiced "Germany". And a **strict
+byte prefix** with zero substitutions is refused here and deferred to the next
+tier, which owns that shape: the claim "a trained context IS this query up to
+filler" is false in exactly the way that matters when the candidate's extra tail
+is the discriminating part (measured on a 4,300-fact fixture, "what is the value
+of" bridged to one arbitrary pick among 4,300 equally matching contexts).
+
+Both bridge readings account for their aligned spans — matched **and**
+substituted. A corroborated substitution is not a gap in the explanation; it is
+an explanation the mechanism paid a CONCEPT for, and leaving its span
+unaccounted charges the same act twice, the second charge being far the larger
+(measured: a bridge matching 28 of 29 bytes declared the whole query unexplained
+and lost to a comparison voicing the wrong country). The **identity** reading —
+zero substitutions — is additionally marked `complete` (§14.1): the query _is_
+that trained context, so its continuation is the whole read-out.
+
+#### Prefix completion
+
+The query is not _similar_ to a trained form; it is a **proper prefix** of one —
+every byte a literal match, in order, from offset zero. That is the strongest
+grounding relation in the store, stronger than a corroborated substitution and
+stronger than resonance, which only claims an angle. Nothing is invented: the
+answer IS a trained form, voiced whole.
+
+The earlier tiers cannot reach it, for two independently measured reasons.
+`resolve(prefix)` is null — a proper prefix of a deposited stream has no branch
+of its own. And the form is frequently absent from the ranked list _at any k_:
+measured, cos(query, form) = 0.5752 while the form is missing from `resonate` at
+k = 24, 256 and 2048, with lower-scoring forms returned instead, because k only
+reorders within the IVF clusters already probed. This is a **retrievability**
+gap, not a semantic one. When the candidate list supplies nothing, a second
+supply proposes from the write side's own leaf-id window index: leaf ids are
+position-invariant (content-addressed on single bytes) where a fold is not, so a
+prefix shares the deposit's window nodes exactly and reaches it by climbing
+containment then parents, under the same √N budget everything else obeys.
+
+Three guards, each falsified into existence, none droppable:
+
+1. **An unreadable continuation vetoes.** Reads are bounded, so a candidate
+   opening with the query but _saturating_ the read continues in a way nobody
+   can see. It must not be quietly skipped — the skip is what manufactures a
+   fragment. Measured: a query matched both a whole 138-byte form (saturating)
+   and a 34-byte interior node; skipping the saturated candidate removed the
+   only evidence that disagreed, uniqueness then passed, and a mid-form slice
+   was voiced as an answer.
+2. **The continuation must reach one grouping window.** Below W it is
+   sub-quantum — the fold groups nothing from it.
+3. **Uniqueness.** Several trained forms may open with the query and continue
+   differently; then the corpus does not say which the asker means. Distinct
+   continuations ⇒ refuse. Uniqueness is judged on the continuation _bytes_, not
+   the candidate id: one continuation reached through two forms is one answer.
+
+This is the documented **prefix trap**, and it is real — just not for every
+prefix. Measured over 15 battery probes, exactly one yields a unique
+continuation, and all three honest-silence probes yield none. The tier accounts
+for the whole query and costs one STEP; it is _not_ marked complete, since the
+form may carry more past the remainder voiced.
+
+#### Frame-filler substitution
+
+The remaining shape is compositional: "What is the capital of the country where
+the Eiffel Tower is?" sits one edge away from the trained "What is the capital
+of France?", differing by a single contiguous span where a **definite
+description** stands in a **proper noun's** place. Every earlier tier correctly
+declines — the constituent is not an edge source, the gist tiers are blind (cos
+= 0.0076, with "capital of Spain" scoring _higher_), and the bridge refuses on
+raw balance, as it must: a short span standing for a long one is exactly how a
+wrong fact once got voiced.
+
+The reframing is the point. The bridge asks whether two spans are _similar_; a
+description and the noun it denotes are not similar, they are
+**co-referential**, so no similarity threshold can separate this case from that
+fabrication. So this tier does not try:
+
+> **It invents a lookup key, never an answer.**
+
+Build the query with a candidate filler in the description's place, and require
+the **store itself** to already hold that key, byte-exactly, by content address.
+The answer is then the trained continuation of a form the store verifiably has —
+the same grounding tier 0 performs. A key the store does not hold is discarded.
+
+Four guards, each falsified into existence on a 15.7M-node store:
+
+1. The evidence hit must literally contain the description's **rarest** unit.
+   Pooling fillers from every ranked hit gave one query nine resolving keys
+   dominated by the wrong one; qualifying on any _shared_ unit earned a
+   confident wrong answer off the scaffolding unit "write".
+2. The frame must be **non-empty** — the description is a proper sub-span.
+   Otherwise a "substitution" replaces the whole query.
+3. The key must **resolve** byte-exactly and lead somewhere.
+4. Exactly **one** stored form may survive. "What is the capital of Zamunda?"
+   produces 24 resolving keys in weaker variants (Chile, India, Japan, Italy…) —
+   fabrication, refused by ambiguity. The same discipline argument binding
+   applies.
+
+Resolution alone is not the safety argument: holding the frame fixed and varying
+only the filler makes byte-exact resolution look like a perfect filter, but when
+the description is searched too, 95,836 candidate keys were tried and 9
+resolved. Resolution is necessary, never sufficient; the guards are what make it
+sound.
+
+**Where constituency comes from.** This tier substitutes one _constituent_ for
+another, so it must know where a constituent begins — and there is no character
+class here, no separator, no "word", because Sema has none. A byte value cannot
+say whether it delimits; asserting a class over the alphabet overrides what the
+corpus is able to state itself. The reading used is the store's own, already
+spelled out in the weave and CAST's frame gate: **a byte is frame when more than
+half the aligned structures share it, and a span is frame when more than half
+its bytes are.** Scaffolding is what many exemplars have in common; content is
+what tells them apart. So the spans come from literal alignment and the
+judgement is half-dominance — both modality-free by construction; in a grid the
+padding value would fall out as frame on exactly this test, with nothing
+rewritten. Asking "what are the units of this byte string?" has no answer here,
+and every attempt to derive one failed: the fold's own cuts land
+mid-constituent, interning is uninformative because every W-window is interned,
+and recognition returns only whole learnt forms — all three read _one_ string
+alone. Constituency is **relational**, a property of what the corpus agrees on
+across exemplars, and only a comparison can expose it.
+
+The tier accounts for the whole query at CONCEPT + STEP, under the same
+restatement and manufactured-answer guards: a projection contained in the filler
+is the substitution restated as knowledge.
+
+### 21.6 Echo, or silence
+
+If everything above declines, one decision remains: echo the nearest stored
+form, or say nothing.
+
+An echo returns a stored form's bytes _as_ the answer — a near-identity claim
+about the query — and identity-grade decisions are never made on an estimated
+score (§6.2): a RaBitQ estimate overshooting the reach bar echoed a wrong-entity
+neighbour (observed). The bytes are being read anyway in order to be echoed, so
+the decision uses their **exact** fold: one fold of the top hit, measured in the
+same query-relative, chance-corrected units as tier 3.
+
+- Below the reach threshold (§8.2) — **return nothing**. The store holds nothing
+  related. Silence is a first-class output.
+- If the nearest form _is_ the query restated — **return nothing**. Restating
+  the question answers nothing.
+- Otherwise return the form's bytes, explicitly flagged as an **echo**: within
+  reach, but not a grounded fact. It accounts for nothing and carries no move
+  cost, so it can only win as the sole grounding — the honest price of an
+  ungrounded answer. The flag travels in the response's provenance
+  (`recall-echo`, §26) so a confident-looking parrot is always distinguishable
+  from an answer.
+
+Every tier also carries `unexplained` — a human-readable label for the query
+bytes its evidence left on the table (§14.1) — appearing in the rationale trace
+alongside `accounted` and `moves`.
 
 ---
 
@@ -3287,18 +4368,66 @@ Picasso" continues onward to what the store knows _about Picasso_: the extracted
 answer contains the learned context "Pablo Picasso", whose continuation is the
 Cubism fact.
 
+Two further disciplines bound what may be hopped through:
+
+- **A grounding that declared itself complete is not extended at all** (§14.1).
+  The answer is already a trained form's own continuation, reached through an
+  identity claim about the query, so a pivot could only chain past the fact that
+  produced it.
+- **What a mechanism WITHHELD may not be re-opened.** CAST's comparison cites
+  two analogs and deliberately refuses their own downstream facts, so pivoting
+  into one undoes the mechanism's own refusal one step later (observed: a pivot
+  through a stored fragment of an analog's name reached the biography CAST had
+  declined). The rule reads the used anchors' **continuations** — the content
+  actually withheld — not their own bytes: a comparison's seat sentence
+  legitimately contains further terms with their own unrelated facts, and those
+  genuine hops must still fire. Only a mechanism carrying its own `used` set
+  (CAST and confluence) gets this; for every other provenance the consumed set
+  is derived by re-recognising the answer — "everything in it" rather than "what
+  it voiced" — and a containment rule over that would suppress every legitimate
+  pivot.
+
 ---
 
 ## 23. Fusion: multi-topic answers
 
-If the query carries several independent points of attention (§17) — and the
-grounded answer was _not_ drawn from the query's own text (extraction already
-spans all its pieces; fusing would add noise) — each further committed point
-grounds its own answer, and the pieces are joined in query order, with a learned
-connector (§19.5) between each adjacent pair where one exists. A missing
-connector joins the pieces bare and records the degradation in the trace. Thus
-"ice fire" (two topics) becomes "cold hot" — or "cold and hot", if the corpus
-ever joined such answers with "and".
+If the query carries several independent points of attention (§17), each further
+committed point grounds its own answer, and the pieces are joined **in query
+order** — the order the question posed its topics — with a learned connector
+(§19.5) between each adjacent pair where one exists. A missing connector joins
+the pieces bare and records the degradation in the trace. Thus "ice fire" (two
+topics) becomes "cold hot" — or "cold and hot", if the corpus ever joined such
+answers with "and".
+
+Fusion fires only on a genuine **remainder**: query bytes touched by neither the
+winning candidate's evidence nor any computed span, and at least one perception
+quantum of them (§14.1). Three further gates decide whether there is really a
+second topic to fuse:
+
+- **An answer drawn from the query's own text is left alone.** Extraction
+  already spans all the query's pieces, so fusing would only add noise from
+  unrelated stored contexts. The test is **strict containment** — the answer
+  resolves inside the query's tree, or is a contiguous byte run of it. The
+  earlier sparse-subsequence reading was trivially satisfied by short answers
+  over long queries and silently starved multi-topic queries of fusion.
+
+- **A lone root is ordinarily the primary answer's own source**, so there is
+  nothing to fuse. The exception is a primary that never touched the climb at
+  all — a pure computation has no anchor of its own — where the lone root was
+  admitted unconditionally by the commit rule and was never checked against
+  anything. There it may be promoted, but only on **breadth** (the
+  scale-invariant reading, §17.6; the raw IDF vote cannot serve, since a genuine
+  root on a large store can score below its own floor while a coincidental echo
+  on a small one scores comfortably above its smaller one).
+
+- **A second point must stand on structurally separate evidence.** Breadth alone
+  is not enough for a computed primary: the ALU answers "2+2 equals what?" with
+  4, the store's own arithmetic table supplies a lone root whose breadth
+  dominates _because it is corroborated by the computation's own bytes_, and
+  fusing it voiced an unrelated sum. So the further point's query span must sit
+  at least one perception quantum away from the primary's — the same separation
+  the climb's cluster count uses to tell independent evidence neighbourhoods
+  apart. Not a score, and not a tuned bar: the fold's own quantum.
 
 ---
 
@@ -3318,6 +4447,61 @@ cover does not compose, the answer stands unchanged.
 
 ---
 
+## 24.5 Conversations: the accumulated context
+
+A conversation is not a separate inference mode. It is the ordinary pipeline run
+over an **accumulated context** — the full exchange so far, as one byte stream —
+and everything that makes that cheap and honest falls out of the fold's own
+properties (§10.4).
+
+A conversation handle owns three things: the accumulated bytes, the byte offsets
+where each turn ended, and the incremental fold state. A turn is appended by
+**raw byte concatenation plus an offset**; the engine's own reply is appended
+the same way, and the span it occupies is recorded. The conversation's state
+(context, boundaries, answered spans) is serialisable, so a conversation can be
+saved and resumed; a restored one starts with fold state its next turn can
+reuse, and is otherwise indistinguishable from a live one.
+
+**There is no separator question.** A turn boundary is an _offset_, held by the
+conversation, never a character the geometry scans for. Nothing downstream finds
+boundaries by looking at content at all. A separator inside a _corpus_ is
+ordinary content: if a trainer joins turns with a newline, those newlines are
+bytes in the stream, folded like every other byte, and a replay reproduces them
+by passing them inside the turn. Differing separator bytes between a corpus and
+a query is therefore an ordinary _content_ difference — measured like any other
+wording difference, degrading rather than failing closed — not an
+incompatibility and not a convention to agree on.
+
+Three properties make this work:
+
+- **Growth is O(turn), not O(context).** The context grows by append, cuts are
+  stable under append, and unchanged segments are reused by object identity, so
+  a turn refolds only the right edge (§10.4). That object identity is also what
+  the subtree-resolution cache is keyed on, so recognition over the grown
+  context costs O(suffix) too. Measured: ~92% of nodes reused by identity, ~40
+  rebuilt nodes per turn, flat as the context grows sevenfold.
+- **The conversation fold imposes nothing.** It is exactly the tree
+  `perceive(context)` builds for the same bytes — which is exactly the tree the
+  _deposit_ path folded when it learnt them. That agreement is the whole point:
+  when it was absent, the alignment family went quadratic (measured: 5.2M cells
+  on a 476-byte context, against 0 when the two sides agree). Turn boundaries
+  remain exact API metadata; they are not a fold instruction.
+- **The engine's own answers are context, but not evidence to analogise
+  against.** Completed replies stay available to recognition and the climb — a
+  later turn can refer to what was _answered_, not only to what was asked. But
+  CAST's weave aligns only the **asker's** stream: the answered spans are cut
+  out, the remaining segments aligned as one compacted stream, and every run
+  split back across the original offsets so no evidence crosses an omitted
+  boundary. Without this, weave work grows with answer length and the engine
+  analogises against its own previous output.
+
+Each conversation carries its own perception, recognition and climb memos, which
+are swapped into the response-scoped slots for the duration of a turn — the same
+lifecycle an ordinary ask uses, so a memo present in one path can never be
+missing from the other. At most one turn may be in flight per Mind.
+
+---
+
 ## 25. Disambiguation: choosing among alternatives
 
 Learned knowledge is plural: a context may have many continuations; a
@@ -3326,10 +4510,26 @@ fixed regimes — and which regime applies is a matter of _direction_:
 
 - **Forward (which continuation?): structural evidence.** Candidates are often
   short spans whose gists are dominated by accidental byte correlations, so
-  geometry is _not_ consulted. The winner is the candidate predicted by the most
-  **distinct contexts** (diversity of independent evidence), tie-broken by
-  **halo mass** (sheer episodic repetition), then by insertion order
-  (first-learned). Candidates are capped at the hub bound √N.
+  geometry is _not_ consulted — the guide's **presence** gates disambiguation (a
+  null guide means no query is in flight, so structural walkers keep plain
+  first-edge behaviour), but its value is deliberately unused. The winner is the
+  candidate predicted by the most **distinct contexts** (diversity of
+  independent evidence, read as one indexed count — never a materialised reverse
+  fan-in), tie-broken by **halo mass** (sheer episodic repetition), then by
+  insertion order (first-learned). Candidates are capped at the hub bound √N, so
+  a strongly supported edge inserted beyond the cap is invisible here — the
+  deliberate trade against paying O(fan-out) on every disambiguation.
+
+  There is deliberately **no significance floor** on this choice. That floor is
+  calibrated for pooled, IDF-weighted climb votes, where each corroborating
+  region contributes at most ln N and the floor grows with N exactly as that
+  ceiling does. A continuation's support count is a different kind of quantity —
+  how often one specific fact was retold, bounded by nothing that grows with the
+  corpus — so gating an N-invariant count against an N-growing threshold
+  guarantees failure once N is large enough (observed: a fact corroborated
+  2-to-1-1-1 refused at N ≈ 325K, falling back to a noisy concept hop). The
+  comparison above already _is_ the "genuinely competing" test: a tie leaves
+  first-inserted as the pick, and a strict winner is real evidence at any scale.
 - **Reverse (which context?): geometric evidence.** Candidate contexts are whole
   learned experiences — long enough that their gists are semantically meaningful
   — so the winner is the context whose gist best resonates with the query's gist
@@ -3382,6 +4582,31 @@ yields the property regulated and safety-critical settings actually require: any
 output can be reproduced exactly and attributed to enumerable stored facts and
 rules.
 
+**The work meter** — the profiling counterpart of the rationale. Where the
+rationale says _why_ an answer was chosen, the meter says what it _cost_: an
+optional per-response accumulator that counts the work one inference call
+performs at every layer (store reads by kind and by byte volume, index queries
+and vectors actually scored, perceptions and recognitions with their byte
+counts, climbs and ancestor visits, alignment cells, junction ascents and the
+nodes they popped, mechanism floors/runs/skips, candidates considered) and times
+named **phases**. Four properties make it trustworthy:
+
+1. **Never read by inference.** A counter that reached a decision would end
+   determinism. The engine's side is write-only.
+2. **Counts are the product; times are the hint.** The counters are
+   deterministic, so two runs are diffable and a work regression is visible
+   without a stopwatch; only the millisecond totals are not.
+3. **Phases nest and carry their own counter deltas**, so "which phase did those
+   byte reads?" is answerable at all. Phase totals are inclusive and must never
+   be summed.
+4. **A logical operation is counted once, and a shared analysis is charged to
+   itself** — never to whichever mechanism happened to pay for it on everyone's
+   behalf.
+
+The meter is off by default and free when off. It also observes one honest
+limitation: a traced response bypasses the response memos, so it measures a
+different machine — profile without a trace attached.
+
 ---
 
 ---
@@ -3401,8 +4626,11 @@ as in §8; thresholds by their §8 names. Store operations (`resolve`, `next`,
 # ── geometry (VSA, §2) ────────────────────────────────────────────────
 alphabet[b]          ≔ deterministic unit vector for byte b (recursive
                        refinement 16→64→256, seeded)
-π₀ … π_{S−1}         ≔ fixed independent random permutations (the keyring)
-fold(v₀ … vₖ)        ≔ Σᵢ πᵢ·vᵢ                     # NOT normalized — only
+π₀ … π_{S−1}         ≔ fixed independent random permutations (the keyring),
+                       S = max(8, W) seats
+seat(size, k)        ≔ k               if k < ⌈size/2⌉      # two-ended frame
+                     ≔ S − size + k    otherwise            # (§2.3)
+fold(v₀ … vₖ)        ≔ Σᵢ π_{seat(k+1, i)}·vᵢ      # NOT normalized — only
                                                     # a fold's finished ROOT is
                                                     # (§2.6): interior gists
                                                     # keep a byte-proportional
@@ -3418,25 +4646,43 @@ fracOfQuery(cos, otherLen, qLen) ≔ min(1, cos · √(otherLen / max(1, qLen)))
                        # of shared content (§2.6, §21)
 
 # ── perception (§10) ──────────────────────────────────────────────────
-perceive(bytes):
-    leaves ≔ [ node(bytes = bᵢ, gist = alphabet[bᵢ]) ]
-    p ≔ longest proper prefix already known as a stored leaf-sequence
-    level ≔ leaves
-    while |level| > 1:
-        partition level at the item containing offset p (if p > 0)
-        within each partition, fold complete groups of W;
-            carry incomplete trailing items up unchanged
-        if nothing folded (stall): force-fold in groups of W
-        level ≔ the folded row
-    normalize(level[0].gist)           # ONLY the finished root — every
+contentLevels(bytes):                  # §10.2 — the ONE boundary rule
+    h ≔ rolling window of the last W raw bytes (cyclic polynomial)
+    for each position i:
+        m ≔ avalanche(h)               # two rounds
+        hit ≔ (m mod W = 0)
+        if hit and neither of the previous 2 positions hit:
+            lvl ≔ max L with m mod W^(L+1) = 0
+            emit a cut at i+1 with level lvl
+        force a cut whenever a segment would exceed S seats
+    return (cuts, levels)
+
+perceive(bytes, boundaries ≔ ∅):
+    if boundaries ≠ ∅:                 # §10.4 stable prefix
+        fold each span between consecutive boundaries by contentFold,
+        join the span roots LEFT-NESTED, normalize the root, return
+    return contentFold(bytes)
+
+contentFold(bytes):
+    (cuts, levels) ≔ contentLevels(bytes)
+    segs ≔ [ flatFold(bytes[e_i .. e_{i+1})) for consecutive cut edges ]
+             # each segment = ONE flat node, kids = its byte leaves,
+             # gist = Σₖ π_{seat(n,k)}·alphabet[byteₖ]      (§10.3)
+    tree ≔ groupByLevel(segs, levels, 1)
+             # items separated by a cut of level < L share a parent; a
+             # group exceeding S seats splits at its strongest interior
+             # cut (ties → the items' own content hash); climb L when a
+             # level splits nothing
+    normalize(tree.gist)               # ONLY the finished root — every
                                        # interior gist keeps its raw,
                                        # byte-proportional magnitude (§2.6)
-    return level[0]                    # tree: every node has gist + kids/bytes
+    return tree                        # every node has gist + kids/bytes
 
 gistOf(bytes)   ≔ perceive(bytes).gist
 resolve(bytes)  ≔ intern-lookup of perceive(bytes), bottom-up:
                   leaves by findLeaf, branches by findBranch(kidIds);
-                  null the moment any part is unknown
+                  null the moment any part is unknown;
+                  then canonResolve(bytes) as the equivalence fallback (§3.4)
 read(node)      ≔ concatenation of the node's leaf bytes, left to right
 
 # ── thresholds (§8) ───────────────────────────────────────────────────
@@ -3454,13 +4700,22 @@ ingestPair(context, continuation):
     (ctxTree, ctxRoot, ctxIds, changed) ≔ deposit(context, tracked)
     (conTree, conRoot, _, _)            ≔ deposit(continuation, untracked)
     link(ctxRoot → conRoot)
+    propagateSuffixes(ctxRoot → conRoot)   # §12.1: every ESTABLISHED
+        # right-edge suffix of the context inherits the same edge.  Gated by
+        # one flat-branch existence probe per offset (no fold unless it hits),
+        # skipped for contexts shorter than 2W; established ⇔ ≥2 structural
+        # parents, or (halo > 0 ∧ already an edge source).
     for part in changed:
         pourHalo(ctxIds[part], π₁·companySignature(conRoot));  massOf(part) += 1
         pourHalo(conRoot,      π₀·companySignature(part));    massOf(conRoot) += 1
     # link/pour lazily admit both subtrees' interiors to the content index
 
 deposit(input, tracked):
-    tree ≔ perceive(flatten(input))
+    tree ≔ contentFold(flatten(input))     # no imposed boundaries — the
+                                           # deposit tree IS what inference
+                                           # perceives for the same bytes;
+                                           # segments of an already-folded
+                                           # byte-identical prefix are reused
     for node in postorder(tree):
         id(node) ≔ intern(node)                       # §11.1 ladder:
                                                       # exact-dedup →
@@ -3498,12 +4753,22 @@ think(query, mechanisms ≔ defaultMechanisms):
     # by every mechanism's floor/run AND by the post-grounding stages:
     guide ≔ gistOf(query)
     pre   ≔ Precomputed(rec, computed, guide, k)      # eager fields only.
-            # Every EXPENSIVE analysis is a lazily-cached method:
+            # k ≔ 2·recallQueryK — the response's ONE evidence-breadth
+            # constant, read by the climb, the weave and every resonance probe.
+            # Every EXPENSIVE analysis is a lazily-cached method; an async one
+            # is cached BY PROMISE (the first caller starts it, every later
+            # caller awaits the same one):
             #   pre.attention()      — the consensus climb (§17)
             #   pre.weave()          — graded alignment over ranked anchors
             #   pre.spanShapedOf(a)  — per-anchor skill classification
-            #   pre.windowsOf(a) / pre.queryWindows / pre.reachMemo — the
-            #                          content-addressed identity reads
+            #   pre.spanShapedAll()  — the same for every ranked anchor,
+            #                          sharing the per-anchor cache
+            #   pre.windowsOf(a) / pre.queryWindows / pre.queryResolved /
+            #   pre.reachMemo        — the content-addressed identity reads
+            #                          (reachMemo is the store-lifetime memo
+            #                           the climb itself uses — §17.5)
+            # Each shared analysis bills its OWN profiling phase, never the
+            # mechanism that happened to first-touch it.
             # Computed at most once, shared by every consumer; NEVER computed
             # if no surviving mechanism asks — a query an extension decided
             # outright never pays for a climb.
@@ -3556,26 +4821,46 @@ think(query, mechanisms ≔ defaultMechanisms):
             consider({ bytes: r.bytes, provenance: r.provenance ?? mech.provenance,
                        weight: r.weight ?? weigh(r.accounted, r.moves),
                        used: r.used, accounted: r.accounted,
-                       unexplained: r.unexplained })
+                       unexplained: r.unexplained, complete: r.complete,
+                       scaffolding: r.scaffolding })
+
+    # consider(c):  skip empty bytes; take c when its GRADE is lower; at EQUAL
+    #   grade take it when it carries fewer scaffolding bytes; otherwise keep
+    #   the incumbent (the list order).
 
     if best = ∅: return ∅
     # ── Diagnostics (observational, never affect the decision) ──────────
-    if |candidates| > 1 and runnerUp exists:
-        margin ≔ grade(runnerUp.weight) − grade(best.weight)
-        if margin ≤ 1: emit narrowDecision trace with both candidates
+    emit decideGrounding trace with every candidate's
+        (provenance, weight, grade, unexplainedBytes, decided) + runnerUpMargin
+    if runnerUp exists and margin ≤ 1: emit narrowDecision trace
     density ≔ |union(best.accounted)| / query.length
     if density < 1/W: emit thinGrounding trace
 
-    (answer, provenance, consumed) ≔ (best.bytes, best.provenance,
-                                       best.used ?? ∅)
+    (answer, provenance) ≔ (best.bytes, best.provenance)
 
     # ── Post-grounding ──────────────────────────────────────────────────
     consumed ≔ per provenance: cast.used | join.used | sites of
                recognise(answer) | ∅ (recall/recall-echo consume nothing)
-    # cast and join pre-consume their own consumed set for reasoning
-    answer ≔ reason(query, answer, consumed)                     # §22
-    if provenance ∈ {recall, recall-echo}:
-        answer ≔ fuseAttention(query, answer)                    # §23
+    # WITHHELD, NOT VOICED: for cast/join only, the used anchors' own
+    # CONTINUATIONS (capped at √N) are handed to reason as content the
+    # mechanism deliberately declined — a pivot may not re-open them, while
+    # terms merely CONTAINED in what was voiced stay pivotable.
+    voiced ≔ (provenance ∈ {cast, join})
+             ? [ read(n) for id in consumed, n in nextFirst(id, hubBound) ]
+             : ∅
+    answer ≔ best.complete ? answer                              # §22
+                           : reason(query, answer, consumed, voiced)
+
+    # FUSE on a genuine REMAINDER, not on provenance: bytes touched by
+    # neither best.accounted nor any computed span.  Under one quantum W it
+    # is bridging punctuation, never a second topic.
+    explained ≔ best.accounted ∪ { [u.i, u.j] for u in pre.computed }
+    if unaccounted(explained) ≥ W:
+        primarySpans ≔ best.accounted ≠ ∅ ? best.accounted
+                                          : spans of pre.computed
+        unclimbed   ≔ best.accounted ≠ ∅ ∧ every accounted span IS a
+                      computed span      # a pure computation has no anchor
+        answer ≔ fuseAttention(query, answer, primarySpans, unclimbed)  # §23
     return (answer, provenance)
 ```
 
@@ -3633,113 +4918,215 @@ system(L, sites, concepts, leaves, splits, connectors, computed):
 ### 27.5 The consensus climb (§17)
 
 ```
-climbAttention(query, k):
-    regions ≔ subtrees of perceive(query), excluding any region that
-              dominates (covers more than half of) the query unless it is
-              the sole structure
-    # sites name content-addressed nodes — exact anchors, no ANN needed
-    regions ∪= recognise(query).sites (as {start, end, gist, nodeId})
-    for each region:
-        anchor ≔ region.nodeId  # site: exact, skip resonance
-               ?? canonicalChunkId(region.bytes, HUB(N))
-               ?? contentIndex.nearest(region.gist, k)[0]
+climbAttention(query, k, mode ≔ inverse):
+    # ── REGIONS — three sources (§17.2) ──────────────────────────────
+    regions ≔ fold nodes of perceive(query), each resolved against the
+              store as the walk goes; a region DOMINATING the query is
+              dropped unless it is the sole structure (segments exempt —
+              a segment wraps nothing)
+    regions ∪= recognise(query).sites, each CARRYING its node id
+    regions ∪= coalesced maximal spans of resolvable W-windows no fold
+               region contains and whose climb is neither saturated nor
+               rootless      # marked CORROBORATING: evidence, not a topic
+
+    for each region r:
+        cov ≔ 1 if r resolves whole; else the fraction of r's W-windows
+              that resolve; 0 when |r| < W (below one window, identity is
+              chance)
+        anchor ≔ r.id ?? canonicalChunkId(r.bytes) ?? nearest(r.gist, k)[0]
+        score  ≔ 1 for an exact anchor, else the hit's estimate
+        # a diluted segment may re-anchor on one of its two EDGE W-spans,
+        # chosen by score²·idf — the same quantity its vote is weighted by
         reach  ≔ expandUntilDecided(anchor, HUB(N)):
-                   # uses ONLY LIMITed store reads, bounded by √N:
-                   #  · prevCount(id) — indexed O(1) "edge-bearing?" check
-                   #  · parentsFirst(id, HUB(N)+1) — hub if |result| > HUB(N)
-                   #  · containersSlice(anchor, offset, HUB(N)) — paged
-                   #  · distinct contexts past HUB(N) → saturated
-                   #  · below √N, every read IS the full set → exact
-                   # fall back to lower hits if orphaned and not saturated
+                   # ONLY LIMITed store reads; five decisions end it:
+                   #  · prevCount(id) > √N          — predecessor fan-in
+                   #  · distinct contexts past √N   — context limit
+                   #  · parentsFirst(id, √N+1)      — parent fan-out
+                   #  · accumulated laterals > √N   — lateral cone (§8.8)
+                   #  · atomReach(N) > √N           — byte atom (§8.8)
+                   # containersSlice pages containment at √N; transparent
+                   # chains hop in ONE read; below √N every read IS the
+                   # full set → exact.  Memoised in the shared reach memo.
+        if reach has no roots and not saturated: try lower hits (orphan)
+        if reach saturated and anchor approximate: try hits tied within
+            estimatorNoise(D) of the top (saturated-tie)
         if reach.saturated: abstain
-        mutual ≔ min(1, score · ratio) · min(1, score / ratio)   # §17.3
+        idf ≔ ln(N / reach.contexts);   df ≔ ln(1 + reach.contexts)
+        wf  ≔ mode = direct ? df : mode = combined ? idf + df : idf
+        if wf ≤ 0: abstain
+        if not (cov ≥ 1):                             # contrastive margin
+            margin ≔ score − score of the best hit reaching a DIFFERENT
+                     conclusion
+            if margin ≤ estimatorNoise(D)·(1 − cov): abstain
+        mutual ≔ min(1, score · ratio) · min(1, score / ratio)   # §17.4
                where ratio ≔ √( max(1, contentLen(anchor, region.len·D))
                               / max(1, region.len) )
                # contentLen capped at region.len·D — beyond that the
                # mutual weight approaches zero and the full walk is waste
-        w ≔ mutual · ln(N / reach.contexts) / |reach.roots|
-        vote w for each root (a terminal answer root redistributes its
-            vote over prevFirst(root, HUB(N)) of the contexts that lead
-            to it — capped at the store level, never materialised)
-    # cross-region: any two regions (at least one strong voter) pair to
-    # recover joint contexts their independent climbs missed (junction ascent).
-    # Corpus-independent: known but non-voting regions may serve as weak side.
-    # Order-free, n-ary, with self-evidence guard and explaining away.
-    cross ≔ []
-    superseded ≔ ∅
-    seedsOf(ri) ≔ junctionSeeds(ctx, query[regions[ri].start..regions[ri].end])
-                  # precomputed once per candidate, reused across all its pairs
-    consumed ≔ ∅
-    for each pair (a, b) of eligible candidates (non-overlapping,
-           at least one strong voter, not both covered by one known region,
-           ≤ k total probes, skipping consumed):
-        containers ≔ junctionContainersFrom(left, right, cap,
-                      seedsOf(a), seedsOf(b), undefined, unordered = true)
-        if containers = ∅:
-            containers ≔ junctionSynonyms(left, right, maxInterior,
-                          unordered = true)
-        if containers ≠ ∅:
-            best ≔ the container covering the MOST remaining candidates
-                   (cached reads, never an extra walk); ties → shortest
-                   interior → lowest id
-            if best's joined occurrence is a query substring: continue
-            reach ≔ edgeAncestors(best.id, HUB(N))
-            if not saturated and idf > 0:
-                w ≔ mutual · ln(N / reach.contexts) / |reach.roots|
-                cross.push(vote for best.id's roots at weight w,
-                           span covering all composed candidates)
-                consumed.add(a); consumed.add(b); consumed.add(all extras)
-                # Explaining away: supersede individual votes whose bytes the
-                # container literally contains and whose roots are disjoint
+        vote (mutual·wf)/|reach.roots| for each root, carrying
+             (mutual·idf)/|reach.roots| as the FOCUS weight
+             (a terminal answer root redistributes over prevFirst(root,
+              HUB(N)) — capped at the store level, never materialised)
+
+    # ── CROSS-REGION (§17.8) — five tiers, exact before approximate ──
+    # Candidates: regions that voted; a KNOWN non-voting region may be the
+    # WEAK side of a pair whose other side voted; two non-voting regions
+    # never pair.  Only MAXIMAL spans compose.  Order-free, n-ary, with a
+    # self-evidence guard.  Seeds computed once per candidate; all reads
+    # through the shared per-response walk cache.
+    cross ≔ [];  superseded ≔ ∅;  consumed ≔ ∅
+    for each eligible pair (a, b), ≤ k probes total:
+        containers ≔ junctionContainersFrom(left, right, unordered)   # exact
+        if ∅: containers ≔ junctionSynonyms(left, right)   # single, double
+        if ∅ and both sides KNOWN and both STRONG and no voted region lies
+              between them:
+            pick ≔ structuralResonance(a, b)   # synthetic gist from the two
+                   # sides' own vectors + the literal middle; rejects a
+                   # candidate reaching exactly one side's own conclusion;
+                   # requires margin > estimatorNoise(D) over the best
+                   # differently-concluding rival
+        best ≔ the container covering the MOST remaining candidates;
+               ties → shortest interior → lowest id
+        if best's joined occurrence is a query substring: continue
+        reach ≔ edgeAncestors(best.id, HUB(N))
+        if not saturated and idf > 0:
+            confidence ≔ 1 for an exact container, else the tier's own
+            w ≔ mutual(confidence) · ln(N / reach.contexts) / |reach.roots|
+            cross.push(vote for best.id's roots at w, span covering all
+                       composed candidates; CORROBORATING when every
+                       composed part was)
+            if the pick is container-backed:            # never for tier 4
+                consumed += {a, b, extras}
+            if the tier is EXACT:                       # explaining away
                 for each individual vote rv:
                     if rv.roots shares any root with reach.roots: keep
-                    if containerBytes literally contains rv's query bytes:
+                    else if containerBytes contains rv's query bytes:
                         superseded.add(rv)
-        break  # a is consumed
+
+    # ── POOL AND COMMIT (§17.6) ──────────────────────────────────────
     pooled ≔ lightestDerivation in the (+,+) semiring over the union
               of the independent votes (minus superseded) and cross  # §5.3
-    ranked ≔ anchors by pooled vote, descending
-    cut    ≔ steepest ratio drop in the sorted focus votes (natural break)
-    roots  ≔ [ranked[0]] ∪ { further non-overlapping anchors past any
-              leading saturated stretch whose vote ≥ max(cut, FLOOR(N)) }
+    ranked ≔ anchors by pooled vote, descending, each carrying
+             peak, start–end (its strongest region), breadth, clusters
+    cut    ≔ steepest ratio drop (natural break) over the focus votes of
+             anchors the QUERY pointed at (corroborating-only excluded)
+    roots  ≔ [ranked[0]]                       # dominant: always grounds
+           ∪ { further non-overlapping anchors past any leading saturated
+               stretch whose focus vote ≥ max(cut, FLOOR(N)) }
     return (roots, ranked)
 ```
 
 ### 27.6 Recall, reasoning, fusion (§21–23)
 
 ```
-recallByResonance(query):
-    whole_ ≔ [[0, query.length]]    # identity-grade match: the whole query
-    nothing ≔ []                    # reverse readings/echoes: nothing matched
-    q ≔ resolve(query)
-    if q ≠ ∅:                                                    # tier 0
-        g ≔ reverseContext(q, guide)
+recallByResonance(query, pre):
+    whole_ ≔ [[0, query.length]];  nothing ≔ []
+    restates(b) ≔ b = query, or canon(b) = canon(query)
+    fragment(g) ≔ |g| < |query| ∧ query CONTAINS g   # a restated fragment
+                                                     # — never an answer
+    # every tier below exits through both guards
+
+    # ── tier 0: exact self-match ─────────────────────────────────────
+    q ≔ pre.queryResolved
+    if q ≠ ∅:
+        g ≔ reverseContext(q, guide, prevFirst(q, hubBound))
         if g ≠ ∅: return { bytes: g, accounted: nothing, moves: STEP }
+
+    # ── tier 0b: argument binding ────────────────────────────────────
+    if q = ∅:
+        args ≔ MAXIMAL recognised sites with |s| ≥ 2W, |s| < |query|,
+               hasNext(s)
+        if |args| = 1 and no OTHER site of ≥ 2W lies outside it:
+            g ≔ follow(args[0], guide)
+            if g ≠ ∅ ∧ ¬fragment(g):
+                return { bytes: g, accounted: [args[0].span], moves: STEP }
+
     hits ≔ contentIndex.nearest(gistOf(query), k)
     if hits = ∅: return ∅
-    if hits[0].score ≥ MERGE:                                    # tier 1
+
+    # ── tier 1: clean resonance, at the SCALE-AWARE identity bar ─────
+    idBar ≔ identityBar(D, W, |query|)                            # §8.1
+    if hits[0].score ≥ idBar:
         for h in hits:
-            g ≔ project(h, guide)                                # forward first
+            if h.score < idBar: break        # per HIT, not per tier
+            if h = q or restates(read(h)):   # only reverse recall may
+                g ≔ reverseContext(h, guide) # conclude from a restating hit
+                if g ≠ ∅: return { bytes: g, accounted: nothing, moves: STEP }
+                continue
+            g ≔ project(h, guide)
             if g ≠ ∅: return { bytes: g, accounted: whole_, moves: STEP }
-        # all reverse — accounted: nothing (no forward rule)
-        g ≔ reverseContext(hits[0], guide)
-        if g ≠ ∅: return { bytes: g, accounted: nothing, moves: STEP }
-    if hits[0].score ≥ SIG:                                      # tier 2
-        forest ≔ climbAttention(query).roots
-        if forest[0].vote ≥ FLOOR(N):
+
+    # the query-relative, CHANCE-CORRECTED fraction shared by tiers 2-4
+    fracOfQuery(cos, otherLen) ≔
+        min(1, max(0, cos − SIG) · √(otherLen / max(1, |query|)))
+
+    # ── tier 2: scaffolding-dominated ────────────────────────────────
+    if hits[0].score ≥ SIG:
+        forest ≔ pre.attention().roots
+        if forest ≠ ∅ ∧ ¬allWindowsAreScaffolding(query) ∧
+           ( forest[0].vote ≥ FLOOR(N)                    # small-store read
+             ∨ (DOMINATES(forest[0].breadth, 1)           # scale-invariant
+                ∧ forest[0].peak > ln 2) ):
             g ≔ project(forest[0].anchor, guide)
-            if g ≠ ∅: return { bytes: g,
-                               accounted: [[forest[0].start, forest[0].end]],
-                               moves: CONCEPT }                  # the climb
-    for h in hits:                                               # tier 3
+            if g ≠ ∅ ∧ ¬fragment(g):
+                return { bytes: g,
+                         accounted: [[forest[0].start, forest[0].end]],
+                         moves: CONCEPT }
+
+    # ── tier 3: the nearest grounded hit ─────────────────────────────
+    for h in hits:
         g ≔ project(h, guide)
-        if g ≠ ∅ and fracOfQuery(resonance(gistOf(query), gistOf(g)),
-                                  contentLen(g), query.length) ≥ REACH:
+        if g ≠ ∅ ∧ fracOfQuery(cos(gistOf(query), gistOf(g)), |g|) ≥ REACH:
             return { bytes: g, accounted: nothing, moves: STEP }
-    if fracOfQuery(hits[0].score, contentLen(hits[0]), query.length) < REACH:
+
+    # ── the REFUSAL PATH — one shared, memoised candidate list ───────
+    wideIds() ≔ hits[0].score ≥ CONCEPT_BAR
+                ? exhaustive resonate(gistOf(query), hubBound)   # ids only
+                : hits                                # the gist ranks nothing
+                                                      # at concept level
+
+    # 3b. substitution / identity bridge
+    bridged ≔ substitutionBridge(query, wideIds)
+              # anchors: rarest query windows → edgeAncestors, plus wideIds
+              # align byte-for-byte; a mismatch substitutes only under
+              # CORROBORATION ∧ GRADED IDENTITY ∧ RAW BALANCE
+              # accept when matched+substituted DOMINATES the query, every
+              # gap ≤ W, and ¬dismissedKnownContent(query, accounted)
+    if bridged ≠ ∅:
+        g ≔ project(bridged.id, guide)
+        manufactured ≔ g lies inside one of bridged's substituted spans
+        strictPrefix ≔ bridged.subs = ∅ ∧ query is a strict byte prefix
+                       of read(bridged.id)          # deferred to 3b′
+        if g ≠ ∅ ∧ ¬restates(g) ∧ ¬manufactured ∧ ¬strictPrefix ∧ ¬fragment(g):
+            return { bytes: g, accounted: bridged.accounted,
+                     moves: CONCEPT·|bridged.subs| + STEP,
+                     complete: bridged.subs = ∅ }    # the IDENTITY bridge
+
+    # 3b′. prefix completion — the candidate list first, then the write
+    #      side's own leaf-id window index as the supply of last resort
+    completed ≔ prefixCompletion(query, wideIds())
+             ?? prefixCompletion(query, prefixCandidates(query))
+             # guards: an UNREADABLE continuation VETOES; the continuation
+             # must reach W; distinct continuation BYTES ⇒ refuse
+    if completed ≠ ∅:
+        return { bytes: completed.form, accounted: whole_, moves: STEP }
+
+    # 3c. frame-filler substitution — invent a KEY, never an answer
+    filled ≔ frameFillerSubstitution(query, wideIds())
+             # the evidence hit must hold the description's RAREST unit;
+             # the frame must be non-empty; the constructed key must
+             # RESOLVE and lead somewhere; exactly ONE may survive
+    if filled ≠ ∅:
+        g ≔ project(filled.id, guide)
+        if g ≠ ∅ ∧ ¬restates(g) ∧ g ⊄ filled.filler ∧ ¬fragment(g):
+            return { bytes: g, accounted: whole_, moves: CONCEPT + STEP }
+
+    # ── echo or silence — decided on the EXACT fold, never an estimate ─
+    topBytes ≔ read(hits[0])
+    if fracOfQuery(cos(gistOf(query), gistOf(topBytes)), |topBytes|) < REACH:
         return ∅                                                  # silence
-    return { bytes: read(hits[0]), accounted: nothing,
-             moves: 0, echoed: true }                            # honest echo
+    if restates(topBytes): return ∅          # restating the question
+    return { bytes: topBytes, accounted: [], moves: 0, echoed: true }
 
 reason(query, answer, consumed₀):                                # §22
     q ≔ resolve(query)
@@ -3785,10 +5172,15 @@ pivotInto(answer, consumed):            # §22 — the stepping stone
            longest such span wins; ∅ if none          # resonance proposes,
                                                        # bytes confirm
 
-fuseAttention(query, primary):                                   # §23
-    if primary is strictly contained in query: return primary
-    roots ≔ climbAttention(query).roots
-    if |roots| ≤ 1: return primary
+fuseAttention(query, primary, primarySpans, unclimbed):          # §23
+    # (think already gated this on a REMAINDER of ≥ W bytes — §14.1)
+    if containsSpan(query, primary): return primary   # STRICT containment:
+                                    # resolved inside the query's tree, or a
+                                    # contiguous byte run of it
+    roots ≔ pre.attention().roots
+    lonePromotes ≔ unclimbed ∧ |roots| = 1 ∧ roots[0].breadth > ½
+                   ∧ every primarySpan is ≥ W bytes away from roots[0]
+    if |roots| = 0 or (|roots| ≤ 1 ∧ ¬lonePromotes): return primary
     qv ≔ guide (the response guide, already computed — once, not per root)
     pieces ≔ [primary] ∪ [ project(r.anchor, qv) for r in roots[1:] ,
                            dropping ∅ and duplicates ]
@@ -3890,14 +5282,31 @@ counterfactualTransfer(query, sites, roots, ranked):
     # gates are checked once in the floor, not duplicated here.
     # If roots/ranked not given (standalone call), compute the climb.
 
-    # ── graded alignment (literal → halo) ────────────────────────────
-    MIN_WEAVE ≔ 2;  points ≔ ∅;  depth ≔ Float64Array(|query|)
-    for cand in the first 2k of ranked:
-        ... (alignment as before) ...
-    if |points| < 2: return []
-    # frame gate (weave-local): frame(i) ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], |points|)
-    dominant ≔ points[0];  require dominant ∈ roots
+    # ── the weave (§18.2), computed once and shared ──────────────────
+    MIN_WEAVE ≔ 2;  (points, depth) ≔ pre.weave()
+    #   · anchors read prefix-capped at W · |asker bytes|; oversized dropped
+    #   · aligned over the ASKER's compacted stream (answered spans cut out,
+    #     runs split back across the original offsets)
+    #   · pass 1: literal W-gram runs (weight 1) → halo-mated sites (weight
+    #     = the cosine); depth[i] counts distinct covering STRUCTURES
+    #   · pass 2: the climb's own (anchor, span) proposals, admitted only on
+    #     unclaimed bytes, with literal agreement DOMINATING the span, and
+    #     not framed
+    #   · "one place, one structure": a point needs ≥ W bytes no better-voted
+    #     point already covers; runs are never trimmed against each other
+
+    # ── two-topic gate (§18.3) ───────────────────────────────────────
+    aligned ≔ |points| when some point owns ≥ W bytes the widest does not,
+                       OR (climb dispersed ∧ points elected ≥ W apart ∧
+                           ≥ W query bytes unexplained by the widest)
+              else 1
+    if aligned < 2: return []
+
+    # frame gate (weave-local): frame(i) ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)
+    dominant ≔ the point covering the MOST query bytes   # structure, not topic
+    require some point ∈ roots                           # a committed root
     require some run outside every recognised site
+            OR (two points in the CURRENT turn restating two DIFFERENT sites)
 
     results ≔ []   # multi-candidate: each schema records independently
     runSpans(p) ≔ p's free runs as [qs, qe] pairs
@@ -4047,41 +5456,64 @@ pours halos both ways. The three painter names, having each appeared as an
 answer following a painting-frame, acquire similar halos; "was painted by …"
 spans become shared, many-parent interior structure.
 
-Query: `"The Weeping Woman was painted by Pablo Picasso."`
+Query: `"The Weeping Woman was painted by Pablo Picasso."` (47 bytes)
 
-1. **Recognise (§15).** Sites include "was painted by" material (shared interior
-   forms), " Pablo Picasso" (a learned context — it has an edge to the Cubism
-   fact), and assorted chunks. "The Weeping Woman" resolves to nothing: never
-   seen.
-2. **Compute (§16).** No extension claims any span.
-3. **Grounding decider (§14.1).** Every self-gating mechanism weighs in:
-   - **CAST (§18):** The climb ranks the three painting exemplars and the
-     Picasso context; alignment finds runs, but no substitution seat or
-     redirection shape fits — CAST yields no candidate.
-   - **Confluence (§18.5):** Only one constraint stream (the query asks about
-     one painting, not a conjunction of independent properties) — returns null.
-   - **Cover (§19):** The recognised forms do not compose a cover that lifts an
-     answer clear of the framing (the unseen painting title blocks a clean
-     composition) — returns null. _(On other seeds/corpora this query can also
-     ground via cover; the strategies are redundant by design, and provenance
-     records which one fired.)_
-   - **Extraction (§20):** The climb's ranked anchors include the exemplar "The
-     Mona Lisa was painted by Leonardo da Vinci." — span-shaped. Its frames are
-     located in the query; the analogous span reads out **"Pablo Picasso"**. The
-     candidate's weight: CONCEPT (one skill analogy) + STEP per located frame +
-     PASS per unexplained byte. It is the lightest grounding derivation.
-   - **Recall (§21):** Its best candidate carries the full PASS·|query| plus a
-     STEP — heavier.
-   - **Decider:** Extraction wins — lightest grounding derivation.
-4. **Reason (§22).** "Pablo Picasso" resolves — and it is a learned context with
-   an unconsumed continuation. Forward absorb follows the edge: **"Pablo Picasso
-   co-founded the Cubist movement"**. The next iteration finds no unconsumed
-   pivot; the chain fixes.
-5. **Fuse / articulate (§23–24).** One point of attention grounded from the
-   query's text; no halo-sibling substitutions apply. The answer stands.
+The trace below is the one the engine actually emits, with its real weights.
 
-Provenance: `extract`. Every step above is present, with spans, node ids, costs,
-and data-flow edges, in the rationale when one is requested.
+1. **Recognise (§15).** Two learnt forms that lead somewhere — " Pablo Picasso"
+   material and the painting-frame span — plus 47 perceived leaves. "The Weeping
+   Woman" resolves to nothing: never seen.
+2. **Compute (§16).** No extension claims any span; the ALU abstains on its
+   structural precondition.
+3. **Consensus climb (§17).** Fourteen regions (twelve perceived, two
+   recognised); every one votes. The pooled ranking is led by the Picasso
+   context (vote 3.28, peak 1.56, breadth 0.46, clusters 2, elected from the
+   query span 33–46), then the three painting exemplars at 1.18, 1.10 and 0.94.
+   With `corpusN = 5` the consensus floor is 2.11 and the natural break sits at
+   3.28, so exactly **one** point of attention commits — the rest are rejected
+   below both bars or absorbed as overlaps. Cross-region attention probes ten
+   pairs and binds none: one pair's exact containers are all rejected by the
+   **self-evidence guard** (§17.8), and the rest are ineligible for structural
+   resonance because at least one side is not content-addressed.
+4. **Grounding decider (§14.1).** Four mechanisms produce candidates, weighed in
+   the one ladder:
+
+   | Mechanism        |    Weight | Unexplained bytes | Moves                       |
+   | :--------------- | --------: | ----------------: | :-------------------------- |
+   | cover (§19)      | 34001.001 |                34 | one edge + ε bridging       |
+   | **CAST** (§18)   | **14001** |            **14** | one STEP (redirection)      |
+   | extraction (§20) |     29013 |                29 | CONCEPT + 3 located frames  |
+   | recall (§21)     |     34001 |                34 | one STEP (argument binding) |
+
+   Every one of them found the same answer bytes by a different route — the
+   strategies are redundant by design. What separates them is **how much of the
+   query each explains with learnt structure**. CAST's redirection schema
+   accounts for 33 of the 47 bytes: the query names a substitute ("Pablo
+   Picasso") wholly and freshly for the thing the dominant structure is about,
+   and none of that structure's own continuations appears in the query, so the
+   substitute's own grounded fact replaces the displaced one. Extraction reads
+   the analogous span out correctly — the same painter — but its three located
+   frames explain only 18 bytes, and recall's argument binding explains 13.
+   Confluence abstains (one constraint stream); the ALU is skipped.
+
+   **Decider:** CAST wins by a 15,012-grade margin — comfortably wide, so no
+   `narrowDecision` is recorded.
+
+5. **Reason (§22).** The answer already _is_ the Picasso context's continuation,
+   so the forward chain finds no unconsumed pivot and fixes immediately.
+6. **Fuse (§23).** One committed point of attention, and the remainder is under
+   one quantum — nothing to fuse.
+7. **Articulate (§24).** No answer form is a halo sibling of an asker concept;
+   the answer stands.
+
+Answer: **"Pablo Picasso co-founded the Cubist movement"** — containing no word
+of the question. Provenance: `cast`. Every step above is present, with spans,
+node ids, costs, and data-flow edges, in the rationale when one is requested.
+
+_(This is a four-fact store; on a larger corpus the same query can ground
+through extraction or cover instead. That the answer is stable while the route
+is not is the market working as designed — which is why provenance is part of
+every response.)_
 
 The second demo query, `"a museum charges 12*4 for a family ticket"`: the ALU
 claims the span `12*4` with result bytes `48`; recognition's sites overlapping
@@ -4092,7 +5524,7 @@ the computed span (recognised, STEP + ε), and lifting drops the framing:
 ### 27.10 Determinism, stated as an invariant
 
 Every function above is deterministic given (seed, store contents): the alphabet
-and keyring are seeded; perception is positional; interning is
+and keyring are seeded; perception is a pure function of the bytes; interning is
 content-addressed; the deduction engine breaks ties by fixed conventions;
 disambiguation bottoms out in corpus-determined orderings; the ANN index is
 deterministic for a fixed build. Hence: **same seed + same deposits (in order) +
@@ -4133,7 +5565,7 @@ terms of art borrowed from the literature.
 - **Hyperdimensional computing** — Kanerva's (2009) umbrella term for computing
   with high-dimensional random vectors; synonym of VSA as used here. §2.
 - **IDF** — inverse document frequency; the specificity weighting of the
-  consensus climb (Spärck Jones 1972). §17.3.
+  consensus climb (Spärck Jones 1972). §17.4.
 - **Instance-based learning** — generalization at query time from stored
   instances. §1.1.
 - **Merkle DAG** — a graph whose node identities derive from content (Merkle
@@ -4156,17 +5588,20 @@ n = input/query length; D = dimension; W = fold window; N = learned contexts; k
 all index queries are sub-linear in the collection (empirically ≈ N^0.32
 distance computations).
 
-| Operation                  | Cost                                                                                                                                                                    | Where     |
-| :------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------- |
-| Perceive                   | O(n·D) vector work; O(n) nodes                                                                                                                                          | §10       |
-| Deposit (intern + windows) | O(n) content-addressed probes                                                                                                                                           | §11       |
-| Learn a pair               | O(1) edge + O(changed) halo pours                                                                                                                                       | §12       |
-| Recognise                  | O(n·W) bounded probes                                                                                                                                                   | §15       |
-| Consensus climb            | O(regions · k) index queries + expand-until-decided: work bounded by √N per region regardless of corpus size (LIMITed store reads, indexed existence probes)            | §17       |
-| Cover search               | output-sensitive A\*LD: proportional to the lightest derivation, not the corpus (§5.2); the dominant per-query index cost is connector pre-resolution, O(sites) queries | §19       |
-| Recall                     | O(k) index probes + graded structural checks                                                                                                                            | §21       |
-| Reasoning                  | ≤ K hops, each bounded by the answer's subtree                                                                                                                          | §22       |
-| Storage                    | O(distinct subtrees); vector index over resonance targets only, 1-bit codes (32× compression)                                                                           | §3, §12.3 |
+| Operation                  | Cost                                                                                                                                                                                                                                                                          | Where     |
+| :------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------- |
+| Perceive                   | O(n) rolling-hash pass + O(n·D) vector work; O(n) nodes. A stream EXTENDING an already-folded one costs O(new bytes) — cuts are stable under append and unchanged segments are reused (§10.4)                                                                                 | §10       |
+| Deposit (intern + windows) | O(n) content-addressed probes; the intern walk itself is O(new nodes) when a prefix was already interned                                                                                                                                                                      | §11       |
+| Learn a pair               | O(1) edge + O(changed) halo pours + one flat-branch probe per suffix offset (suffix propagation, §12.1)                                                                                                                                                                       | §12       |
+| Recognise                  | O(n·W) bounded probes                                                                                                                                                                                                                                                         | §15       |
+| Canonical resolution       | one canonicalization + one hash probe + one verify read per candidate; only on an exact-lookup miss                                                                                                                                                                           | §3.4      |
+| Consensus climb            | O(regions · k) index queries + expand-until-decided: work bounded by √N per region regardless of corpus size (LIMITed store reads, indexed existence probes)                                                                                                                  | §17       |
+| Cover search               | output-sensitive A\*LD: proportional to the lightest derivation, not the corpus (§5.2); the dominant per-query index cost is connector pre-resolution, O(sites) queries                                                                                                       | §19       |
+| Recall (answering tiers)   | O(k) index probes + graded structural checks                                                                                                                                                                                                                                  | §21       |
+| Recall (refusal path)      | Nothing on an answering path. One shared candidate list (exhaustive only when the top hit clears the concept bar), then O(\|query\|) content-hash probes, ≤ W anchor climbs, and one O(\|query\|·\|candidate\|)-bounded alignment each; the frame filler's probe budget is √N | §21.5     |
+| Reasoning                  | ≤ K hops, each bounded by the answer's subtree                                                                                                                                                                                                                                | §22       |
+| Storage                    | O(distinct subtrees); vector index over resonance targets only, 1-bit codes (32× compression)                                                                                                                                                                                 | §3, §12.3 |
+| Profiling                  | free when off; when on, one counter bump per logical operation and one timer per named phase — never read by inference                                                                                                                                                        | §26       |
 
 Nothing on any per-query path scans the corpus; every fan-out is capped at the
 hub bound, and the cap is enforced at the _store level_ through LIMITed reads
