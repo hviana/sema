@@ -203,21 +203,48 @@ export function foldTree(
   start: number,
   visit?: (n: Sema, start: number, end: number, node: number | null) => void,
 ): { end: number; node: number | null } {
-  // Fast path: subtree already resolved (from a previous conversation turn
-  // or an earlier recognition pass).  The pyramid reuses prefix subtrees as
-  // identical Sema objects, so this cache turns foldTree into O(suffix)
-  // instead of O(context) for multi-turn recognition.
+  // Subtree already resolved (from a previous conversation turn or an earlier
+  // recognition pass).  The pyramid reuses prefix subtrees as identical Sema
+  // objects, so a conversation's prefix is warm from its second turn on.
+  // Without a visitor that makes foldTree O(suffix) instead of O(context);
+  // with one it stays O(context) and saves the per-node store probes instead
+  // (see below for why the distinction is not negotiable).
+  //
+  // WHAT THE CACHE KNOWS, AND WHAT IT DOES NOT.  An entry records this
+  // subtree's id and byte length — nothing about its DESCENDANTS' spans.
+  // Returning here therefore emits ONE visit() where a cold walk emits one per
+  // node, and `visit` is not instrumentation: recognise() emits its sites from
+  // it (recognition.ts) and attention's collectRegions votes over what it
+  // yields (attention.ts).  Skipping the descent silently shrinks the evidence
+  // those mechanisms see, purely because the cache happened to be warm.
+  //
+  // That is not hypothetical and not an edge case — it is every conversation
+  // turn after the first.  `contentFoldIncremental` deliberately shares prefix
+  // segment OBJECTS across turns (~99% reuse), so by turn 2 the prefix is
+  // warm; meanwhile recogniseMemo/climbMemo are keyed on exact query BYTES,
+  // which a growing context never repeats.  Warm subtrees + missed memos is
+  // the unprotected quadrant.  Measured over real trained conversations,
+  // recognising the same context with a warm prefix lost 67-92% of its leaves
+  // (772->204, 589->47, 872->291, 377->37) with `sites` unchanged, so the loss
+  // is invisible to the coarse counts; a direct foldTree probe on identical
+  // bytes and an identical tree object fired visit() 661 times cold and 37
+  // warm.  respond() is immune only because it never sets _resolvedSubtrees
+  // (mind.ts) — the degradation was unique to the multi-turn API.
+  //
+  // So the fast path is taken only when NOBODY IS WATCHING.  With a visitor
+  // present we still walk, and the cache degrades to the thing it soundly is:
+  // an elision of the store probes (findLeaf/findBranch) at each node, not an
+  // elision of the traversal.  Ids still come from the cache, so a warm walk
+  // is cheaper than a cold one; it is no longer *different* from one.
   const cached = ctx._resolvedSubtrees?.get(n);
-  if (cached !== undefined) {
-    const end = start + cached.len;
-    visit?.(n, start, end, cached.id);
-    return { end, node: cached.id };
+  if (cached !== undefined && visit === undefined) {
+    return { end: start + cached.len, node: cached.id };
   }
 
   if (n.kids === null) {
     const b = n.leaf ?? new Uint8Array(0);
     const end = start + b.length;
-    const node = ctx.store.findLeaf(b);
+    const node = cached !== undefined ? cached.id : ctx.store.findLeaf(b);
     visit?.(n, start, end, node);
     if (node !== null && ctx._resolvedSubtrees) {
       ctx._resolvedSubtrees.set(n, { id: node, len: b.length });
@@ -233,7 +260,16 @@ export function foldTree(
     else if (known) kids.push(r.node);
     pos = r.end;
   }
-  const node = known ? ctx.store.findBranch(kids) : null;
+  // Same store-probe elision as the leaf case: a cached entry already names
+  // this subtree, so the descent above was for `visit`'s benefit alone and the
+  // id need not be re-derived.  Using it also keeps a warm walk's ids
+  // bit-identical to a cold walk's rather than re-deriving them from children
+  // that may themselves have come from cache.
+  const node = cached !== undefined
+    ? cached.id
+    : known
+    ? ctx.store.findBranch(kids)
+    : null;
   visit?.(n, start, pos, node);
   if (node !== null && ctx._resolvedSubtrees) {
     ctx._resolvedSubtrees.set(n, { id: node, len: pos - start });

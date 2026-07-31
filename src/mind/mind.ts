@@ -110,8 +110,12 @@ export interface Conversation {
  *
  *  {@link resolvedSubtrees} caches foldTree resolutions at the Sema-node
  *  level.  When the pyramid reuses prefix subtrees (identical objects),
- *  foldTree returns their ids immediately — O(suffix) instead of
- *  O(context) for every tree walk. */
+ *  foldTree recovers their ids without touching the store.  A walk that
+ *  passes no `visit` callback can stop at a cached subtree outright and is
+ *  O(suffix); a walk that DOES pass one — recognition and attention both do —
+ *  still descends in full and spends O(context), banking the elided store
+ *  probes rather than an elided traversal.  That asymmetry is deliberate and
+ *  load-bearing: see foldTree in primitives.ts. */
 interface ConversationData {
   tree: Sema;
   bytes: Uint8Array;
@@ -120,8 +124,11 @@ interface ConversationData {
    *  grown context reuses every content segment it already folded and folds
    *  only the new turn — O(turn) instead of O(context) — and, because the
    *  reused segments are the SAME Sema objects, `resolvedSubtrees` (keyed by
-   *  node identity) hits across turns, which is what makes recognition
-   *  O(suffix).  Undefined until the first grow.
+   *  node identity) hits across turns, so recognition recovers the prefix's
+   *  ids without re-probing the store for any of them.  It still WALKS the
+   *  prefix — it must, or it would emit fewer sites on a warm cache than a
+   *  cold one (see foldTree) — so the saving is in probes, not in traversal.
+   *  Undefined until the first grow.
    *
    *  No turn boundaries are involved: reuse comes from content cuts being
    *  stable under append, and imposing boundaries would only change the tree
@@ -480,8 +487,9 @@ export class Mind implements MindContext {
    *  serves BOTH entry points: `respond` takes fresh per-response memos,
    *  `respondTurn` passes its conversation, whose memos persist across turns
    *  (content-keyed, so the previous turn's results are found by this turn's
-   *  sub-span calls) and whose `resolvedSubtrees` makes foldTree O(suffix)
-   *  instead of O(context).  respondTurn used to inline its own copy of this
+   *  sub-span calls) and whose `resolvedSubtrees` spares foldTree the store
+   *  probes for every prefix subtree — and, for walks that pass no visitor,
+   *  the descent as well.  respondTurn used to inline its own copy of this
    *  and of {@link endResponse}; the two drifted (a memo added to one was
    *  silently absent from the other), so there is exactly one pair now. */
   private beginResponse(

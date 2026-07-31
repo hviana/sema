@@ -331,9 +331,13 @@ export interface MindContext extends GraphSearchHost {
   /** Subtree-resolution cache: Sema node → its store id and byte length.
    *  Populated by {@link foldTree} during inference; checked before
    *  walking children.  When a conversation's pyramid reuses prefix
-   *  subtrees, this cache lets {@link recognise} skip them entirely —
-   *  O(suffix) instead of O(context).  Mind-lifetime (WeakMap keys are
-   *  the Sema objects the pyramid keeps alive).
+   *  subtrees, this cache names them without a store probe.  It does NOT let
+   *  {@link recognise} skip them: recognise walks with a `visit` callback and
+   *  emits its sites from it, so a skipped descent would mean fewer sites on
+   *  a warm cache than a cold one.  foldTree short-circuits only for
+   *  visitor-less walks (O(suffix) there); a visiting walk stays O(context)
+   *  and banks the elided probes.  Mind-lifetime (WeakMap keys are the Sema
+   *  objects the pyramid keeps alive).
    *
    *  THAT REUSE IS A PRECONDITION, NOT A GIVEN: the keys are node IDENTITIES,
    *  so it hits only while the conversation's fold hands back the SAME Sema

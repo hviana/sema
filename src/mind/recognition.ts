@@ -37,23 +37,40 @@ export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
   // Content-keyed memo — works for both single-turn respond() and multi-turn
   // respondTurn() (where the map persists across calls).  ALWAYS consulted,
   // regardless of tracing — matching perceive()'s own memo, which carries no
-  // trace gate at all.  This memo is NOT an optional accelerator: recogniseImpl
-  // walks the query's perceived tree via foldTree, whose subtree-resolution
-  // fast path (see primitives.ts) skips invoking `visit` — and therefore
-  // skips EMITTING SITES — for any subtree already cached in
-  // ctx._resolvedSubtrees.  A multi-turn conversation's stable-prefix fold
-  // deliberately shares node OBJECTS across turns, so by the second call on
-  // the exact same bytes, large swaths of the tree are already cached and
-  // foldTree stops short of recursing into them — a second recogniseImpl
-  // call on the SAME bytes is not idempotent; it silently finds FEWER sites
-  // than the first (observed live: 31 sites → 5 on an immediate repeat
-  // call).  Skipping this memo "only while tracing" used to mean every
-  // traced turn re-ran recogniseImpl from scratch at every one of the many
-  // call sites that recognise the same query (cover, reason, articulate...),
-  // each subsequent call silently more incomplete than the last — measurably
-  // changing which mechanism grounds the answer, not just costing time.  The
-  // trace step must still fire on every call regardless (a cache hit is not
-  // silent), so it is emitted here directly instead of only inside
+  // trace gate at all.
+  //
+  // This memo is an accelerator, and that is now the whole of it: repeated
+  // recognition of the same query is ordinary within one response (cover,
+  // reason and articulate all recognise it) and recogniseImpl is O(n ·
+  // maxGroup) probes each time.
+  //
+  // IT USED TO BE LOAD-BEARING FOR CORRECTNESS, and the history is worth
+  // keeping because it explains why there is no trace gate here.  foldTree's
+  // subtree-resolution fast path (primitives.ts) once returned on a cache hit
+  // WITHOUT recursing, so it skipped invoking `visit` — and therefore skipped
+  // EMITTING SITES — for any subtree already in ctx._resolvedSubtrees.  A
+  // conversation's incremental fold deliberately shares node OBJECTS across
+  // turns, so by the second call on the same bytes large swaths of the tree
+  // were already cached and recogniseImpl silently found FEWER sites than the
+  // first call (observed live: 31 → 5).  Skipping this memo "only while
+  // tracing" therefore meant every traced turn re-ran recogniseImpl at each of
+  // those call sites, each result more incomplete than the last — changing
+  // which mechanism grounded the answer, not merely costing time.
+  //
+  // foldTree no longer does that: it takes the fast path only when no `visit`
+  // is supplied, so a walk that emits sites always walks in full and the id
+  // cache is reduced to eliding store probes (see primitives.ts).  recognise()
+  // is idempotent on its own now — verified with the memo bypassed, the
+  // subtree cache warm and the tree object shared: three consecutive calls on
+  // the same 544-byte context returned sites=2 leaves=544 splits=0 starts=88,
+  // identical every time.
+  //
+  // The unconditional consult STAYS regardless.  A memo whose absence can only
+  // cost time is still not something to gate on whether an audit happens to be
+  // attached: tracing must not change what the pipeline computes, and the
+  // cheapest way to guarantee that is for the trace flag to touch nothing but
+  // the trace.  The trace step must still fire on every call (a cache hit is
+  // not silent), so it is emitted here directly rather than only inside
   // recogniseImpl.
   if (ctx.recogniseMemo) {
     const key = latin1Key(bytes);

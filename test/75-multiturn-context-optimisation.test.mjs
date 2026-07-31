@@ -59,7 +59,10 @@ import {
 // White-box: the memo key is internal, but its soundness is exactly what
 // section C is about, so it is imported directly rather than inferred from
 // downstream accuracy.
-import { perceiveKey } from "../dist/src/mind/primitives.js";
+import { foldTree, perceiveKey } from "../dist/src/mind/primitives.js";
+// White-box for section G: the visit-completeness invariant is a property of
+// these two functions directly, not of any number they eventually move.
+import { recognise } from "../dist/src/mind/recognition.js";
 
 const enc = (s) => new TextEncoder().encode(s);
 const newMind = (opts = {}) => new Mind({ seed: 7, ...opts });
@@ -1078,5 +1081,254 @@ test("F3: the conversation API is never WORSE than respond() on the same bytes",
     turnwise,
     pairs.length,
     `respondTurn should answer every trained turn`,
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// G. A CACHE MAY ELIDE WORK, NEVER OBSERVATION
+//
+// THE FIFTH BUG THIS FILE EXISTS TO PREVENT RECURRING.  `_resolvedSubtrees`
+// records a subtree's {id, len} and NOTHING about its descendants' spans.
+// foldTree's fast path returned on a hit without recursing, so it fired
+// `visit` ONCE for the subtree root where a cold walk fires once per node.
+//
+// `visit` is not instrumentation.  recognise() emits its SITES from it and
+// attention's collectRegions votes over what it yields, so a warm cache
+// silently shrank the evidence those mechanisms saw — the answer could change
+// because of what had been computed BEFORE, which is unreproducible by
+// construction and is the same hazard as bug 4, one level up.
+//
+// It was not an edge case.  The incremental fold deliberately shares prefix
+// segment OBJECTS across turns (~99% reuse, section B), so a conversation's
+// prefix is warm from its second turn on; meanwhile recogniseMemo/climbMemo
+// are keyed on exact query BYTES, which a GROWING context never repeats.
+// Warm subtrees + missed memos is the unprotected quadrant, and it is where
+// every real conversation lives.  Measured before the fix: recognising an
+// identical context with a warm prefix lost 67-92% of its leaves (772->204,
+// 589->47, 872->291, 377->37) while `sites` stayed EQUAL — invisible to any
+// coarse count, and invisible to F1/F3, which passed throughout.
+//
+// The fix: take the fast path only when NOBODY IS WATCHING.  With a visitor
+// present foldTree still walks, and the cache degrades to what it soundly is —
+// an elision of the store probes, not of the traversal.  G1-G3 pin the
+// observation; G4 pins that the elision itself survives, so a future
+// optimisation cannot "fix" the cost by quietly deleting the cache, and G5
+// pins the behaviour the whole machine exists for.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Every node reachable from a root that carries a subtree-cache entry AND has
+ *  children — a branch entry is exactly what the old fast path skipped INTO,
+ *  so a test with none of these proves nothing. */
+const cachedBranches = (mind, n) => {
+  let c = 0;
+  const go = (x) => {
+    if (x.kids !== null) {
+      if (mind._resolvedSubtrees.get(x) !== undefined) c++;
+      for (const k of x.kids) go(k);
+    }
+  };
+  go(n);
+  return c;
+};
+
+/** The full observation a foldTree walk makes: one record per visit, in order.
+ *  Spans AND ids — a walk that reports the same ids over fewer spans is still
+ *  a different observation. */
+const observe = (mind, tree) => {
+  const seen = [];
+  foldTree(mind, tree, 0, (n, s, e, id) => seen.push(`${s}:${e}:${id}`));
+  return seen;
+};
+
+const CONV = [
+  "who painted guernica",
+  "pablo picasso painted guernica",
+  "what year was it made",
+  "it was made in nineteen thirty seven",
+  "where is it kept now",
+  "it hangs in madrid",
+];
+
+test("G1: foldTree's visit set is identical warm and cold", async () => {
+  const mind = newMind();
+  await teach(mind, CONV, "");
+  const bytes = enc(CONV.join(""));
+  // ONE tree object, reused across both walks — this is precisely what a
+  // conversation hands its next turn, and the only thing an identity-keyed
+  // cache can hit on.  Rebuild it per walk and the test goes vacuous.
+  const tree = contentFoldIncremental(mind.space, mind.alphabet, bytes).tree;
+
+  mind._resolvedSubtrees = new WeakMap();
+  const cold = observe(mind, tree);
+
+  // NON-VACUITY, asserted rather than assumed: the cold walk must have left
+  // the cache genuinely warm, with entries on BRANCH nodes.  Without this the
+  // comparison below could pass on an empty cache and guard nothing.
+  const branches = cachedBranches(mind, tree);
+  assert.ok(
+    branches >= 5,
+    `only ${branches} cached branch entries — the warm walk would skip nothing ` +
+      `and this test would prove nothing`,
+  );
+
+  const warm = observe(mind, tree);
+  assert.deepEqual(
+    warm,
+    cold,
+    "a warm subtree cache changed what foldTree reported to its visitor",
+  );
+  // And stays stable — the old failure got progressively worse per call.
+  assert.deepEqual(observe(mind, tree), cold, "third walk diverged");
+});
+
+test("G2: a warm PREFIX cannot change recognition of a GROWN context", async () => {
+  // The unprotected quadrant, stated exactly: the query BYTES differ between
+  // turns (so recogniseMemo misses) while the prefix SUBTREES are shared (so
+  // the identity-keyed cache hits).  This is the real multi-turn shape.
+  const mind = newMind();
+  await teach(mind, CONV, "");
+  const prefix = enc(CONV.slice(0, 3).join(""));
+  const full = enc(CONV.join(""));
+  const f1 = contentFoldIncremental(mind.space, mind.alphabet, prefix);
+  // grown from f1 — prefix segments are the SAME objects in both trees
+  const f2 = contentFoldIncremental(mind.space, mind.alphabet, full, f1.fold);
+
+  const shape = (r) => ({
+    sites: r.sites.map((s) => `${s.start}:${s.end}`),
+    leaves: r.leaves.length,
+    splits: r.splits.size,
+    starts: r.starts.size,
+  });
+
+  // COLD: nothing seen before.
+  mind._resolvedSubtrees = new WeakMap();
+  mind.recogniseMemo = new Map();
+  mind.perceiveMemo = new Map([[perceiveKey(full), f2.tree]]);
+  const cold = shape(recognise(mind, full));
+
+  // WARM: an earlier turn already recognised the prefix.
+  mind._resolvedSubtrees = new WeakMap();
+  mind.recogniseMemo = new Map();
+  mind.perceiveMemo = new Map([[perceiveKey(prefix), f1.tree]]);
+  recognise(mind, prefix);
+  const warmedBranches = cachedBranches(mind, f2.tree);
+  assert.ok(
+    warmedBranches >= 3,
+    `recognising the prefix warmed only ${warmedBranches} branches of the grown ` +
+      `tree — the two folds are not sharing objects and this test is vacuous`,
+  );
+  mind.recogniseMemo = new Map(); // the query GREW: the byte-keyed memo misses
+  mind.perceiveMemo.set(perceiveKey(full), f2.tree);
+  const warm = shape(recognise(mind, full));
+
+  assert.deepEqual(
+    warm,
+    cold,
+    "recognition of the same context depended on whether its prefix was seen first",
+  );
+});
+
+test("G3: recognise() is idempotent under a warm cache, memo bypassed", async () => {
+  // The memo used to be load-bearing for CORRECTNESS: with it bypassed, a
+  // second call on the SAME bytes found fewer sites than the first (observed
+  // live: 31 -> 5).  The memo is an accelerator again only while this holds.
+  const mind = newMind();
+  await teach(mind, CONV, "");
+  const bytes = enc(CONV.join(""));
+  const tree = contentFoldIncremental(mind.space, mind.alphabet, bytes).tree;
+  mind._resolvedSubtrees = new WeakMap();
+  mind.recogniseMemo = null; // bypassed: nothing is hiding the walk
+  mind.perceiveMemo = new Map([[perceiveKey(bytes), tree]]);
+
+  const shape = (r) =>
+    `${r.sites.map((s) => `${s.start}:${s.end}`).join(",")}|${r.leaves.length}`;
+  const first = shape(recognise(mind, bytes));
+  assert.ok(
+    cachedBranches(mind, tree) >= 5,
+    "the first call left no branch entries — nothing would be skipped",
+  );
+  assert.equal(shape(recognise(mind, bytes)), first, "second call diverged");
+  assert.equal(shape(recognise(mind, bytes)), first, "third call diverged");
+});
+
+test("G4: the cache still ELIDES STORE PROBES — completeness is not a rollback", async () => {
+  // The other half of the contract.  Making the walk complete must not be
+  // achieved by neutering the cache: a warm visiting walk must still cost
+  // strictly fewer findLeaf/findBranch probes than a cold one.  Without this,
+  // deleting `_resolvedSubtrees` outright would pass G1-G3.
+  const mind = newMind();
+  await teach(mind, CONV, "");
+  const bytes = enc(CONV.join(""));
+  const tree = contentFoldIncremental(mind.space, mind.alphabet, bytes).tree;
+  const store = mind.store;
+  const realLeaf = store.findLeaf.bind(store);
+  const realBranch = store.findBranch.bind(store);
+  let probes = 0;
+  store.findLeaf = (b) => {
+    probes++;
+    return realLeaf(b);
+  };
+  store.findBranch = (k) => {
+    probes++;
+    return realBranch(k);
+  };
+  try {
+    mind._resolvedSubtrees = new WeakMap();
+    probes = 0;
+    observe(mind, tree);
+    const cold = probes;
+    probes = 0;
+    observe(mind, tree);
+    const warm = probes;
+    assert.ok(cold > 0, "cold walk made no probes — nothing to elide");
+    // Not zero: a node that resolves to null is never cached (foldTree stores
+    // only non-null ids), so the unresolved few are re-probed on every walk.
+    // The property is ELISION, and it must stay overwhelming — a rollback to
+    // "no cache" would put warm back at cold.
+    assert.ok(
+      warm * 10 <= cold,
+      `warm visiting walk made ${warm} store probes against the cold walk's ` +
+        `${cold} — the cache has stopped eliding probes`,
+    );
+  } finally {
+    store.findLeaf = realLeaf;
+    store.findBranch = realBranch;
+  }
+});
+
+test("G5: accumulated context is load-bearing, not decorative", async () => {
+  // What the whole multi-turn machine is FOR, as a property.  Measured on the
+  // real 15.7M-node store: 19/20 from full context, 0/20 from the last turn
+  // alone, 0/20 with a genuinely foreign prefix.  A regression that quietly
+  // began answering from the latest turn only would keep every accuracy test
+  // in this file green.
+  const mind = newMind();
+  await teach(mind, CONV, "");
+  const other = [
+    "who wrote hamlet",
+    "william shakespeare wrote hamlet",
+    "what century was that",
+    "it was the sixteenth century",
+  ];
+  await teach(mind, other, "");
+
+  const ctx = CONV.slice(0, 5).join("");
+  const want = CONV[5];
+  const last = CONV[4];
+
+  assert.equal(
+    (await mind.respondText(ctx)).trim(),
+    want,
+    "the trained cumulative context must answer",
+  );
+  assert.notEqual(
+    (await mind.respondText(last)).trim(),
+    want,
+    `"${last}" alone reached "${want}" — the answer is not using the history`,
+  );
+  assert.notEqual(
+    (await mind.respondText(other.join("") + last)).trim(),
+    want,
+    "a foreign history still produced this conversation's answer",
   );
 });

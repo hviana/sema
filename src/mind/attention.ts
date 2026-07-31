@@ -460,16 +460,21 @@ export async function climbAttention(
 
 /** Full read-out of one consensus climb: both the roots (dominant points of
  *  attention) and the entire ranked list.  Cached via ctx.climbMemo, ALWAYS —
- *  see {@link recognise} for why this memo (and recognise()'s own) must
- *  never be skipped while tracing: computeAttention's collectRegions walks
- *  the query's perceived tree via the same foldTree whose subtree-resolution
- *  fast path makes a second call on identical bytes non-idempotent once
- *  ctx._resolvedSubtrees is warm (which a multi-turn conversation's shared
- *  prefix subtrees guarantee by the second turn).  A cache hit still emits
- *  a trace step — abbreviated, since the full per-sub-region voting detail
- *  {@link traceAttention} builds isn't preserved by the cached read-out —
- *  so a traced response is never silently blacked out for a repeated
- *  query. */
+ *  see {@link recognise} for why this memo (and recognise()'s own) is never
+ *  gated on tracing.  The short of it: computeAttention's collectRegions
+ *  votes over what walking the query's perceived tree EMITS, and foldTree's
+ *  subtree-resolution fast path used to skip that walk on a warm cache, so a
+ *  second climb over identical bytes saw less evidence than the first — which
+ *  a conversation's shared prefix subtrees guaranteed by the second turn.
+ *  foldTree now takes that fast path only when nothing is watching the walk
+ *  (see primitives.ts), so the climb is idempotent on its own and this memo
+ *  is an accelerator again.  It stays unconditional anyway: attaching a trace
+ *  must not change which regions attention weighs.
+ *
+ *  A cache hit still emits a trace step — abbreviated, since the full
+ *  per-sub-region voting detail {@link traceAttention} builds isn't preserved
+ *  by the cached read-out — so a traced response is never silently blacked
+ *  out for a repeated query. */
 export async function climbAttentionAll(
   ctx: MindContext,
   query: Uint8Array,
