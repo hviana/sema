@@ -31,6 +31,13 @@ interface StructCache {
   prevCount: Map<number, number>;
   hasParents: Map<number, boolean>;
 }
+//
+// Budgeted on the same terms as the reach memo below (AGENTS §2.12): these
+// three maps are cleared on every write, but a long read-only session over a
+// large store converges on one entry per node per map with nothing to bound
+// it.  Past the cap all three are dropped together and re-derived, costing
+// cold structural probes and never a wrong answer.
+const STRUCT_MEMO_MAX = 100_000;
 const structCaches = new WeakMap<object, StructCache>();
 
 // ── The shared ancestor-reach memo ──────────────────────────────────────
@@ -85,6 +92,14 @@ function getStructCache(ctx: MindContext): StructCache | null {
         hasParents: new Map(),
       },
     );
+  } else if (
+    c.hasNext.size >= STRUCT_MEMO_MAX ||
+    c.prevCount.size >= STRUCT_MEMO_MAX ||
+    c.hasParents.size >= STRUCT_MEMO_MAX
+  ) {
+    c.hasNext.clear();
+    c.prevCount.clear();
+    c.hasParents.clear();
   }
   return c;
 }
