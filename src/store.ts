@@ -970,16 +970,25 @@ export abstract class AbstractStore implements Store {
   /** Content (gist) index write buffer. */
   protected _contentBuffer: Array<{ id: NodeId; vector: Float32Array }> = [];
   /** Halo index write buffer — keyed by id so repeats within a batch coalesce. */
-  protected _haloBuffer = new Map<NodeId, Float32Array>();
+  protected _haloBuffer: Map<NodeId, Float32Array> = new Map<
+    NodeId,
+    Float32Array
+  >();
   /** Containment write buffer: child → new parents, merged on flush cadence. */
-  protected _containBuf = new Map<NodeId, Set<NodeId>>();
+  protected _containBuf: Map<NodeId, Set<NodeId>> = new Map<
+    NodeId,
+    Set<NodeId>
+  >();
 
   /** Dedup-target candidates still in the write buffer (keyed by id).  Only
    *  roots that have gained an edge/halo are targets; a fresh intermediate
    *  branch is never folded onto. */
-  protected _nearDedupBuf = new Map<NodeId, Float32Array>();
+  protected _nearDedupBuf: Map<NodeId, Float32Array> = new Map<
+    NodeId,
+    Float32Array
+  >();
   /** Ids currently in `_contentBuffer` (not yet flushed) — O(1) membership. */
-  protected _bufferedIds = new Set<NodeId>();
+  protected _bufferedIds: Set<NodeId> = new Set<NodeId>();
 
   // ── Transparent-chain cache ────────────────────────────────────────────
 

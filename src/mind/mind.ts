@@ -304,7 +304,7 @@ export class Mind implements MindContext {
   /** Per-response memo of {@link chooseNext} picks — ensures every mechanism
    *  of a single response follows the SAME continuation for each ambiguous
    *  context node. */
-  _edgeChoice = new Map<number, number>();
+  _edgeChoice: Map<number, number> = new Map<number, number>();
 
   /** Previous deposit's seen node ids for incremental change detection. */
   _prevSeen: Set<number> | null = null;
@@ -312,7 +312,7 @@ export class Mind implements MindContext {
   /** Session cache of node-id → perceived gist for candidate scoring — see
    *  {@link MindContext._gistCache}.  32 MB ≈ 8K gists at D=1024; hub
    *  candidate sets (√N at most) fit comfortably and recur across queries. */
-  _gistCache = new BoundedMap<number, Vec>(
+  _gistCache: BoundedMap<number, Vec> = new BoundedMap<number, Vec>(
     32_000_000,
     (v) => v.byteLength,
   );
@@ -320,12 +320,16 @@ export class Mind implements MindContext {
   // bounded: a pyramid costs ~KB per content byte (one D-float gist per
   // interior node), and only the few live conversation chains need to stay
   // warm, so 8 entries is the honest budget.
-  _depositTrees = new BoundedMap<
-    string,
-    import("./types.js").DepositCacheEntry
-  >(8);
-  _depositLens = new Set<number>();
-  _internIds = new WeakMap<import("../sema.js").Sema, number>();
+  _depositTrees: BoundedMap<string, import("./types.js").DepositCacheEntry> =
+    new BoundedMap<
+      string,
+      import("./types.js").DepositCacheEntry
+    >(8);
+  _depositLens: Set<number> = new Set<number>();
+  _internIds: WeakMap<import("../sema.js").Sema, number> = new WeakMap<
+    import("../sema.js").Sema,
+    number
+  >();
 
   // ── Conversation state ──────────────────────────────────────────────────
 
