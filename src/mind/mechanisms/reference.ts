@@ -37,6 +37,7 @@
 import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
 import { carriesFillers, distinct, follow, substituteAll } from "../match.js";
+import { dominates } from "../../geometry.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
 import { unexplainedLabel } from "../rationale.js";
 import { STEP } from "../graph-search.js";
@@ -63,8 +64,46 @@ import { rItem, rNode, traceFail } from "../trace.js";
  *  honest reading (§2.13). */
 const MIN_INSTANCES = 2;
 
-/** Elect ONE frame from the inventory: the instances that place the slots in
- *  the same query spans.
+/** THE VOICING GATES — this mechanism's own reading of a pairing, applied here
+ *  and NOT in the shared matcher.
+ *
+ *  Every one of these is a requirement for SUBSTITUTING AND SPEAKING, not for
+ *  knowing where a pairing varies, so each belongs to the consumer that
+ *  speaks.  They lived in `frameSlots` first and made the shared reading
+ *  reference-shaped: three of four real pairings were hidden from every other
+ *  consumer, including a definite description standing where a noun stands —
+ *  the shape the frame filler exists for.  A shared layer with one usable
+ *  consumer is private code at a public address.
+ *
+ *  1. EVERY slot must be a SUBSTITUTION.  An insertion or deletion means the
+ *     query says more or less than the frame does, and there is no occupant to
+ *     carry.  (A consumer that WANTS insertions — "what did the asker add?" —
+ *     now sees them; this one cannot use them.)
+ *  2. EVERY slot must reach one river window on BOTH sides.  Below one window
+ *     byte overlap is chance, not evidence — the floor identityBar, the
+ *     bridge's attestedQ and recognition's site test all draw.
+ *  3. The FRAME MUST DOMINATE the query, or this is a different sentence that
+ *     happens to align somewhere.  It is also what bounds the slot count
+ *     without a constant: every slot costs at least a window, and the frame
+ *     must still be more than half the query.
+ *  4. FILLERS PAIRWISE DISTINCT.  Two slots holding the same bytes make the
+ *     occurrence → referent mapping ambiguous, and no evidence resolves it. */
+function voiceable(
+  inst: FrameInstance,
+  W: number,
+  queryLen: number,
+): boolean {
+  if (inst.slots.length === 0) return false;
+  for (const slot of inst.slots) {
+    if (slot.kind !== "substitution") return false;
+    if (slot.qe - slot.qs < W || slot.ce - slot.cs < W) return false;
+  }
+  if (!dominates(inst.covered, queryLen)) return false;
+  return distinct(inst.slots.map((s) => s.filler));
+}
+
+/** Elect ONE frame from the inventory: the voiceable instances that place
+ *  their slots in the same query spans.
  *
  *  THE ELECTION IS THIS MECHANISM'S, not the inventory's (see
  *  Precomputed.frames).  Demanding that everything which aligned agree would
@@ -82,10 +121,13 @@ const MIN_INSTANCES = 2;
  *  two-slot binding it says nothing about. */
 function electFrame(
   inventory: ReadonlyArray<FrameInstance>,
+  W: number,
+  queryLen: number,
 ): FrameInstance[] {
   const bySignature = new Map<string, FrameInstance[]>();
   for (const inst of inventory) {
-    const key = inst.slots.map(([s, e]) => `${s}:${e}`).join(",");
+    if (!voiceable(inst, W, queryLen)) continue;
+    const key = inst.slots.map((s) => `${s.qs}:${s.qe}`).join(",");
     const group = bySignature.get(key);
     if (group === undefined) bySignature.set(key, [inst]);
     else group.push(inst);
@@ -109,14 +151,19 @@ export async function bindReference(
   const t = ctx.trace?.enter("bindReference", [rItem(query, "query")]);
   const fail = traceFail(t);
 
-  const frame = electFrame(await pre.frames());
+  const frame = electFrame(
+    await pre.frames(),
+    ctx.space.maxGroup,
+    query.length,
+  );
   if (frame.length < MIN_INSTANCES) {
     return fail(
       `${frame.length} instance(s) of one frame — agreement needs ` +
         `${MIN_INSTANCES}`,
     );
   }
-  const slots = frame[0].slots;
+  const slots = frame[0].slots.map((s): [number, number] => [s.qs, s.qe]);
+  const fillersOf = (inst: FrameInstance) => inst.slots.map((s) => s.filler);
   const referents = slots.map(([s, e]) => query.subarray(s, e));
 
   // A referent must be the ASKER's, never the engine's own words.  A completed
@@ -157,7 +204,9 @@ export async function bindReference(
   for (let i = 1; i < frame.length; i++) {
     const cont = await follow(ctx, frame[i].id, pre.guide);
     if (cont === null || cont.length === 0) return fail(leadsNowhere);
-    if (!carriesFillers(first, frame[0].fillers, cont, frame[i].fillers)) {
+    if (
+      !carriesFillers(first, fillersOf(frame[0]), cont, fillersOf(frame[i]))
+    ) {
       ctx.trace?.step(
         "referenceLicence",
         [rItem(first, "instance"), rNode(ctx, frame[i].id, "against")],
@@ -177,7 +226,7 @@ export async function bindReference(
   // precedent is frame-filler, which constructs its lookup key the same way.
   const bytes = substituteAll(
     first,
-    frame[0].fillers.map((needle, s) => ({ needle, repl: referents[s] })),
+    fillersOf(frame[0]).map((needle, s) => ({ needle, repl: referents[s] })),
   );
   if (bytes.length === 0) return fail("the binding produced nothing");
   // Answering with the question is not answering — the same restated-fragment

@@ -204,25 +204,39 @@ without knowing extraction exists.
 
 The **frame reading** (`alignAround` / `contractGap` / `frameSlots` /
 `carriesFillers`, plus `Precomputed.frames`) is the same story told at full
-length, and it is worth reading as the worked example of this pattern. Sema is
-otherwise fully GROUND — nothing anywhere represents a position whose occupant
-comes from the context rather than the corpus — so no mechanism could tell "the
-corpus does not explain these bytes" (PASS, refuse) from "these bytes occupy a
-place the corpus keeps open" (bind). Filling that gap inside the mechanism that
-first needed it would have made it a private capability; split along the §2.5
-triple it lands in three different places, each at its correct altitude:
+length, and it is worth reading as the worked example — including the way it was
+got WRONG first. Sema is otherwise fully GROUND: nothing anywhere represents a
+position whose occupant comes from the context rather than the corpus, so no
+mechanism could tell "the corpus does not explain these bytes" (PASS, refuse)
+from "these bytes occupy a place the corpus keeps open" (bind). Split along the
+§2.5 triple the notion lands in three places, each at its own altitude:
 
-- the **matcher** (`frameSlots`) is bytes only and safe for every consumer —
-  knowing a span is variable can only improve an alignment;
-- the **gate** (`carriesFillers`, the carriage licence) is the much stronger
-  claim that a slot may be VOICED through, so it is deliberately NOT folded into
-  the matcher: a consumer taking the matcher's answer as permission to voice
-  would be making exactly the claim the licence withholds;
-- the **inventory** (`Precomputed.frames`) reports every pairing and **elects no
-  frame**, because a slot is a property of a PAIRING, not of the query.
-  Committing to one reading inside the shared container would push whichever
-  consumer asked first onto every other — the market's decoupling broken from
-  the inside, and the §2.7 population error. Election is each consumer's own.
+- the **matcher** (`frameSlots`) REPORTS and does not judge: every place a
+  pairing varies, contracted to its varying core, tagged
+  substitution/insertion/deletion, plus how much the two share. It rejects
+  nothing.
+- the **gate** (`carriesFillers`) is the much stronger claim that a slot may be
+  VOICED through, so it is deliberately not folded into the matcher: a consumer
+  taking the matcher's answer as permission to voice would be making exactly the
+  claim the licence withholds.
+- the **inventory** (`Precomputed.frames`) elects no frame, because a slot is a
+  property of a PAIRING, not of the query. Election is each consumer's own.
+
+**The failure mode to learn from.** Four VOICING gates were first written
+_inside_ `frameSlots` — the frame must dominate the query, each slot must reach
+one window on both sides, an insertion or deletion disqualifies the pairing,
+fillers must be pairwise distinct — and a fifth (a candidate-length floor) sat
+in `frames`. Every one is a requirement for substituting and SPEAKING, not for
+knowing where a pairing varies. With them in place the "shared" reading was
+shaped like its only consumer: measured over four real pairings, three came back
+as NOTHING, including a definite description standing where a proper noun stands
+— the shape `frame-filler.ts` exists for. It compiled, every test passed, and
+the abstraction was worthless to anyone else.
+
+_The rule this yields:_ a shared analysis with exactly ONE consumer is unproven,
+whatever its address. Before declaring machinery shared, run a second consumer's
+real case through it and check the answer is not `null`. If every gate you wrote
+happens to be one your own mechanism needs, they are not the matcher's gates.
 
 Making a notion available is not the same as imposing it, and two mechanisms
 deliberately do **not** consume this one: the substitution bridge (its

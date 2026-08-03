@@ -64,6 +64,7 @@ import { Precomputed } from "../dist/src/mind/pipeline-mechanism.js";
 import { recognise } from "../dist/src/mind/recognition.js";
 import { gistOf } from "../dist/src/mind/primitives.js";
 import { bindReference } from "../dist/src/mind/mechanisms/reference.js";
+import { frameSlots } from "../dist/src/mind/match.js";
 
 const dec = new TextDecoder();
 const clean = (b) => dec.decode((b ?? new Uint8Array()).filter((x) => x !== 0));
@@ -110,7 +111,60 @@ const TWO_SLOT = [
 // query, and committing to one reading in the shared container would push
 // whichever consumer asked first onto every other.
 
-test("the frame inventory is shared, and elects nothing", async () => {
+test("the frame inventory REPORTS without judging", async () => {
+  // The shared reading must be usable by consumers other than this one, and
+  // that is not a matter of where the code sits — it is a matter of what the
+  // code hides.  Four real pairings, only ONE of which reference can voice:
+  // every one must come back, correctly typed, so another consumer can apply
+  // its own reading.
+  //
+  // Measured before the gates were moved out of frameSlots: three of these
+  // four were reported as NOTHING, including a definite description standing
+  // where a proper noun stands — the shape the frame filler exists for.  A
+  // shared layer with one usable consumer is private code at a public address.
+  const m = await mindWith([
+    ["What is the capital of France?", "Paris is the capital of France."],
+  ]);
+  const enc = (t) => new TextEncoder().encode(t);
+  const q = enc(
+    "What is the capital of the country where the " +
+      "Eiffel Tower is?",
+  );
+  const cand = enc("What is the capital of France?");
+
+  // 1. A SUBSTITUTION reference cannot voice: the varying part dwarfs the
+  //    frame (covered 23 of 61), so `voiceable` refuses it — but the matcher
+  //    must still report it.
+  const inst = frameSlots(m, q, cand, 1);
+  assert.ok(inst !== null, "the pairing was hidden");
+  assert.equal(inst.slots.length, 1);
+  assert.equal(inst.slots[0].kind, "substitution");
+  assert.equal(
+    clean(q.subarray(inst.slots[0].qs, inst.slots[0].qe)),
+    "the country where the Eiffel Tower is",
+  );
+  assert.equal(clean(inst.slots[0].filler), "France");
+  assert.equal(inst.covered, 23, "coverage must be reported, not judged");
+
+  // 2. An INSERTION — a real variation, and not a slot anything can carry.
+  const ins = frameSlots(
+    m,
+    enc("What is the capital of France, really?"),
+    cand,
+    1,
+  );
+  assert.equal(ins.slots[0].kind, "insertion");
+  assert.equal(clean(new Uint8Array(ins.slots[0].filler)), "");
+
+  // 3. A DELETION, likewise.
+  const del = frameSlots(m, enc("What is the capital of Fran?"), cand, 1);
+  assert.equal(del.slots[0].kind, "deletion");
+  assert.equal(clean(del.slots[0].filler), "ce");
+
+  await m.store.close();
+});
+
+test("the inventory is shared, lazy, and elects no frame", async () => {
   const m = await mindWith(CARRIED);
   const q = new TextEncoder().encode("How do I compile main.c?");
   m.beginResponse(undefined, null);
@@ -118,23 +172,16 @@ test("the frame inventory is shared, and elects nothing", async () => {
     m._edgeGuide = gistOf(m, q);
     const pre = new Precomputed(m, q, recognise(m, q), [], m._edgeGuide);
     const inventory = await pre.frames();
-
-    // It found the frame's instances and reported the SAME slot for each,
-    // without picking one — every instance is present, none is marked chosen.
     assert.ok(inventory.length >= 2, "no instances reported");
     for (const inst of inventory) {
-      assert.equal(inst.slots.length, 1);
-      assert.equal(
-        clean(q.subarray(...inst.slots[0])),
-        "main",
-        "the slot is the varying core, not the bracketed novel run",
-      );
-      assert.ok(inst.fillers[0].length > 0);
       assert.ok(!("chosen" in inst), "the inventory must not elect");
+      assert.equal(typeof inst.covered, "number");
     }
-    // Distinct instances, so a consumer can group them for its own question.
-    assert.ok(new Set(inventory.map((i) => i.id)).size === inventory.length);
-
+    assert.equal(
+      new Set(inventory.map((i) => i.id)).size,
+      inventory.length,
+      "instances must stay distinct so a consumer can group them",
+    );
     // Computed once and shared, not per-consumer.
     assert.equal(await pre.frames(), inventory);
   } finally {

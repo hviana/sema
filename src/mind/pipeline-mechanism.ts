@@ -178,15 +178,20 @@ export class Precomputed {
       const out: FrameInstance[] = [];
       for (const h of await this.resonance()) {
         // REJECT BY LENGTH BEFORE RECONSTRUCTING (§2.8): `contentLen` is an
-        // indexed read, `bytesPrefix` rebuilds a subtree.  Both bounds are
-        // implied by gates frameSlots applies anyway — the upper is phrase
-        // scale, and the lower follows from its frame-dominance test, since
-        // matched runs are equal-length on both sides and so `covered` can
-        // never exceed the candidate's own length.
+        // indexed read, `bytesPrefix` rebuilds a subtree.  ONLY the phrase-scale
+        // cap is applied — it is a bounded-read discipline, not a judgement.
+        //
+        // A LOWER bound was here too (`dominates(len, query.length)`, on the
+        // reasoning that a candidate shorter than half the query cannot supply
+        // a frame that dominates it).  That is reference's gate wearing a cost
+        // argument's clothes, and it hid the very pairings another consumer
+        // needs: `What is the capital of France?` (30 B) against `What is the
+        // capital of the country where the Eiffel Tower is?` (61 B) was
+        // rejected before it was ever read — a definite description standing
+        // where a noun stands, which is exactly the shape the frame filler
+        // exists for.
         const len = ctx.store.contentLen(h.id, capBytes + 1);
-        if (len === 0 || len > capBytes || !dominates(len, this.query.length)) {
-          continue;
-        }
+        if (len === 0 || len > capBytes) continue;
         const cand = ctx.store.bytesPrefix(h.id, capBytes + 1);
         if (cand.length === 0 || cand.length > capBytes) continue;
         const inst = frameSlots(ctx, this.query, cand, h.id);

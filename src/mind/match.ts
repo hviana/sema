@@ -493,42 +493,81 @@ export function contractGap(
   return qe > qs && ce > cs ? { qs, qe, cs, ce } : null;
 }
 
-/** One trained context read as an instance of the same frame as the query:
- *  the same structure, differing only at variable positions.
+/** What one place two streams disagree IS, once contracted to its varying
+ *  core.  A consumer decides which kinds it can use; the matcher only reports.
  *
- *  `slots` and `fillers` are index-aligned and sorted by query position, so
- *  slot s of every instance of one frame stands in the same place.  A query
- *  may name several new things at once, and a frame with two slots is not two
- *  frames. */
+ *    substitution  both sides carry bytes — one thing stands where another does
+ *    insertion     the query carries bytes the candidate does not
+ *    deletion      the candidate carries bytes the query does not */
+export type SlotKind = "substitution" | "insertion" | "deletion";
+
+/** One VARIABLE POSITION of a pairing: where the query and a candidate differ,
+ *  contracted to the bytes that actually vary. */
+export interface FrameSlot {
+  /** Query span (empty for a deletion). */
+  qs: number;
+  qe: number;
+  /** Candidate span (empty for an insertion). */
+  cs: number;
+  ce: number;
+  kind: SlotKind;
+  /** The candidate's own bytes here — empty for an insertion. */
+  filler: Uint8Array;
+}
+
+/** One trained context read against the query as ONE structure with variable
+ *  positions.
+ *
+ *  EVERYTHING THE ALIGNER SAW, NOTHING JUDGED.  `slots` holds every place the
+ *  pairing varies, in query order, whatever its kind or size, and `covered`
+ *  says how much of the query the two hold in common.  No gate is applied
+ *  here — see {@link frameSlots}. */
 export interface FrameInstance {
   /** The trained context this reading is against. */
   id: number;
-  /** Query spans the corpus keeps OPEN — this pairing's variable positions. */
-  slots: Array<[number, number]>;
-  /** What this instance holds in each slot, index-aligned with `slots`. */
-  fillers: Uint8Array[];
+  /** Every variable position, in query order. */
+  slots: FrameSlot[];
   /** Query spans the pairing literally matched — the frame itself. */
   matched: Array<[number, number]>;
+  /** Query bytes the frame accounts for: the size of what is shared. */
+  covered: number;
 }
 
-/** THE SLOT MATCHER: read one query ↔ context pairing as a frame with
- *  variable positions, or null when the pairing is not one structure.
+/** THE SLOT MATCHER: read one query ↔ context pairing as one structure with
+ *  variable positions.
+ *
+ *  IT REPORTS; IT DOES NOT JUDGE.  This returns every gap the aligner found,
+ *  contracted to its varying core and tagged with its kind, plus the shared
+ *  coverage — and rejects nothing.  That is the whole point of the split, and
+ *  it was got WRONG first: four VOICING gates (the frame must dominate the
+ *  query, each slot must reach one window on both sides, an insertion or
+ *  deletion disqualifies the pairing, fillers must be pairwise distinct) were
+ *  applied here, and every one of them is a requirement for SUBSTITUTING AND
+ *  SPEAKING, not for knowing where a pairing varies.  With them in place the
+ *  shared reading was reference-shaped: measured over four real pairings, three
+ *  were hidden from every consumer —
+ *
+ *    `What is the capital of the country where the Eiffel Tower is?`
+ *        against `What is the capital of France?`  (covered 23/61)  HIDDEN
+ *    `What is the capital of France, really?`      (an insertion)   HIDDEN
+ *    `What is the capital of Fran?`                (sub-window)     HIDDEN
+ *
+ *  — including the case of the one consumer that most obviously needed it.  A
+ *  shared layer with one usable consumer is private code at a public address.
+ *  Each gate now lives with the mechanism that needs it (see reference.ts).
  *
  *  Seeded at the origin, because a frame is shared structure the query and its
  *  instances both OPEN with: the maximal run around (0,0) is the frame's head
- *  and the sweeps find the rest.  A pairing needing a rarest-window seed to
- *  find common structure at all is not one frame in two instances.
+ *  and the sweeps find the rest.
  *
- *  Pure bytes — no projection, no store read beyond the caller's, no licence.
- *  It answers only "where does this pairing vary?", which is the question
- *  every consumer of the alignment family is entitled to an answer to. */
+ *  Null only for a degenerate pairing (either side empty). */
 export function frameSlots(
   ctx: MindContext,
   query: Uint8Array,
   cand: Uint8Array,
   id: number,
 ): FrameInstance | null {
-  const W = ctx.space.maxGroup;
+  if (query.length === 0 || cand.length === 0) return null;
   const { matched, gaps } = alignAround(ctx, query, cand, 0, 0);
   const spans = [...matched].sort((a, b) => a[0] - b[0]);
   // Where the alignment RAN OUT on each side.  Seeded at the origin there is
@@ -547,35 +586,30 @@ export function frameSlots(
   if (qEnd < query.length || cEnd < cand.length) {
     all.push({ qs: qEnd, qe: query.length, cs: cEnd, ce: cand.length });
   }
-  const real = all.filter((g) => g.qe > g.qs || g.ce > g.cs);
-  if (real.length === 0) return null;
-  const slots: Array<[number, number]> = [];
-  const fillers: Uint8Array[] = [];
-  for (const gap of real.sort((a, b) => a.qs - b.qs)) {
-    const slot = contractGap(query, cand, gap);
-    // A gap contracting to nothing on either side is a pure insertion or
-    // deletion: it names no slot, and a context the query does not instantiate
-    // in the same SHAPE is not the same frame.
-    if (slot === null) return null;
-    // A slot under one river window is not a variable position: below one
-    // window byte overlap is chance, not evidence — the floor identityBar, the
-    // bridge's attestedQ and recognition's site test all draw.
-    if (slot.qe - slot.qs < W || slot.ce - slot.cs < W) return null;
-    slots.push([slot.qs, slot.qe]);
-    fillers.push(cand.slice(slot.cs, slot.ce));
+  const slots: FrameSlot[] = [];
+  for (const gap of all.sort((a, b) => a.qs - b.qs)) {
+    if (gap.qe <= gap.qs && gap.ce <= gap.cs) continue;
+    // Contract to the varying core.  contractGap returns null when one side is
+    // wholly shared with the other — a pure insertion or deletion, which is a
+    // real variation and is reported AS ONE, not discarded.
+    const core = contractGap(query, cand, gap);
+    const g = core ?? gap;
+    const kind: SlotKind = g.qe > g.qs && g.ce > g.cs
+      ? "substitution"
+      : g.qe > g.qs
+      ? "insertion"
+      : "deletion";
+    slots.push({
+      qs: g.qs,
+      qe: g.qe,
+      cs: g.cs,
+      ce: g.ce,
+      kind,
+      filler: cand.slice(g.cs, g.ce),
+    });
   }
-  // Two slots of ONE instance may not hold the same bytes: an occurrence in
-  // that instance's continuation could then stand for either, and no evidence
-  // distinguishes them.
-  if (!distinct(fillers)) return null;
-  // THE FRAME MUST BE A FRAME.  What the two forms share has to dominate the
-  // query, or this is a different sentence that happens to align somewhere —
-  // the same half-dominance reading used throughout.  It is also what bounds
-  // the slot count without a constant: every slot costs at least a window, and
-  // the frame must still be more than half the query.
   const covered = spans.reduce((n, [s, e]) => n + e - s, 0);
-  if (!dominates(covered, query.length)) return null;
-  return { id, slots, fillers, matched: spans };
+  return { id, slots, matched: spans, covered };
 }
 
 /** Whether every member is byte-distinct from the others. */
