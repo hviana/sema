@@ -179,12 +179,12 @@ matchers (`locate`, `alignRuns`, `alignGraded`, `alignAround`/`frameSlots`,
 `bestHaloMate`, `haloSiblings`, `analogyStrength` and its structural tier
 `sharedFrameStrength`, `spanHalo`, `spanSynonymStrength`), projections
 (`follow`, `reverseContext`, `project`, `conceptHop`), the span-shape family
-(`skillExemplar`, `isSpanShaped`, `containsSpan`), and the two STRUCTURAL gates
-that are byte predicates rather than derived thresholds (`isSpanShaped`,
-`carriesFillers`). `mind/traverse.ts` owns the graph readings (`edgeAncestors`,
-`reachOf`, `chooseNext`/`chooseAmong`, `guidedFirst`, `leadsSomewhere`,
-`allWindowsAreScaffolding`, `formsOpenedBy`) and the corpus scale (`corpusN`,
-`hubBound`, `hubCap`, `atomReach`).
+(`skillExemplar`, `isSpanShaped`, `containsSpan`), and the STRUCTURAL gates that
+are byte predicates rather than derived thresholds (`isSpanShaped`,
+`carriesFillers`, `voicesDisplacedFiller`). `mind/traverse.ts` owns the graph
+readings (`edgeAncestors`, `reachOf`, `chooseNext`/`chooseAmong`, `guidedFirst`,
+`leadsSomewhere`, `allWindowsAreScaffolding`, `formsOpenedBy`) and the corpus
+scale (`corpusN`, `hubBound`, `hubCap`, `atomReach`).
 
 _Follow it:_ before writing a new generalising mechanism, express it as a
 (matcher, direction, gate) triple. If those already exist, the mechanism is a

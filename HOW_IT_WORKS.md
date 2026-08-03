@@ -4314,6 +4314,22 @@ The tier accounts for exactly the query span whose evidence carried the winning
 point of attention (§17.6's `start`–`end`), not the whole query — a consensus
 vote for "ice" among scaffolding does not explain the word "steel". One CONCEPT.
 
+One further refusal is specific to grounding _through an anchor_. This tier
+voices the anchor's continuation, so when the query is the same structure as the
+anchor with one position filled differently, that continuation speaks the
+**anchor's** occupant of the position — fluent, specific, and about the wrong
+thing (`How do I compile main.c?` answered `Run gcc hello.c`). A displaced slot
+alone does not license the refusal, because it cannot separate a different
+_thing_ from a different _word_: `symbol` ← `formula` has exactly the shape
+`main` ← `hello` does, and refusing it silences a correct answer phrased in the
+corpus's own words. The discriminator is whether the projection still shares
+perceivable content with the query outside that position — one river window is
+enough. `The chemical formula for water is H2O.` shares `for water`;
+`Run gcc hello.c` shares only `.c`, two bytes, below the scale at which overlap
+stops being chance. The gate refuses only; putting the asker's own occupant in
+its place is a stronger claim needing the corpus's carriage evidence, which is
+§20.5's business.
+
 ### 21.4 Tier 3 — the nearest grounded hit, at the query-relative fraction
 
 Walk the hits nearest-first and ground the first whose grounding explains enough

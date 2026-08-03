@@ -17,7 +17,12 @@ import type { MindContext } from "../types.js";
 import { gistOf, read, resolve } from "../primitives.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
 import { allWindowsAreScaffolding, corpusN, hubBound } from "../traverse.js";
-import { follow, project, reverseContext } from "../match.js";
+import {
+  follow,
+  project,
+  reverseContext,
+  voicesDisplacedFiller,
+} from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
@@ -349,7 +354,28 @@ export async function recallByResonance(
         (dominates(forest[0].breadth, 1) && forest[0].peak > Math.LN2))
     ) {
       const g = await project(ctx, forest[0].anchor, queryGist);
-      // The anchor cleared the consensus floor, but the floor prices the
+      // THE ANCHOR'S OCCUPANT IS NOT THE ASKER'S.  This tier grounds an anchor
+      // the climb elected, and voices that anchor's continuation.  When the
+      // query is the same structure with one position filled differently, the
+      // continuation speaks the ANCHOR's occupant of that position — a fluent,
+      // specific, wrong answer (see voicesDisplacedFiller).  Refusing here is
+      // silence, not a redirection: putting the asker's referent in its place
+      // is a stronger claim that needs the corpus's own carriage evidence, and
+      // that is `reference`'s job.
+      const anchorBytes = read(
+        ctx,
+        forest[0].anchor,
+        query.length * ctx.space.maxGroup + 1,
+      );
+      if (g !== null && voicesDisplacedFiller(ctx, query, anchorBytes, g)) {
+        ctx.trace?.step(
+          "displacedFiller",
+          [rItem(query, "query"), rNode(ctx, forest[0].anchor, "anchor")],
+          [rItem(g, "withheld")],
+          "refused — the anchor's continuation speaks the anchor's own " +
+            "occupant of a position this query fills differently",
+        );
+      } // The anchor cleared the consensus floor, but the floor prices the
       // ANCHOR's evidence, not the projection's: a junk attractor can clear
       // it and project a PIECE OF THE QUERY back at it (the observed
       // "buenos días in English" → "English" fragment).  A projection that
@@ -357,7 +383,7 @@ export async function recallByResonance(
       // — never an answer (the same principle as `restates` above, extended
       // to fragments).  Genuine anchor groundings — longer than the query,
       // or disjoint from it — pass untouched.
-      if (g && !(g.length < query.length && indexOf(query, g, 0) >= 0)) {
+      else if (g && !(g.length < query.length && indexOf(query, g, 0) >= 0)) {
         return ground(
           g,
           "scaffolding-dominated query — ground the consensus-climb anchor",

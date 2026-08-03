@@ -403,6 +403,78 @@ test("a referent may not be lifted out of the engine's OWN reply", async () => {
   await m.store.close();
 });
 
+// ── THE DISPLACED-FILLER GATE ──────────────────────────────────────────────
+//
+// Reference needs two instances before it will voice a binding: one instance
+// agrees with nothing, so nothing distinguishes "Run gcc hello.c" (a carriage
+// that follows the filename) from "hello.c needs -lm" (a fact about that one
+// file).  Abstaining there is right.
+//
+// What is NOT right is what used to happen next.  Recall's
+// scaffolding-dominated tier grounds the anchor the climb elected and voices
+// that anchor's continuation — which speaks the ANCHOR's occupant of the very
+// position the query fills differently.  Measured on a one-example corpus,
+// `How do I compile main.c?` answered `Run gcc hello.c`; on the trained
+// 15.7M-node store, `How do you say 'flurbish' in French?` answers "the way to
+// say hello is \"Bonjour\"".  Fluent, specific, and about the wrong thing.
+//
+// The gate REFUSES ONLY.  It never puts the asker's referent in the corpus's
+// place — that is a stronger claim needing the corpus's own carriage evidence,
+// which is what the licence above supplies.  Where the corpus cannot license a
+// binding, silence is the honest degradation.
+
+test("a projection may not voice the ANCHOR's occupant of a displaced slot", async () => {
+  const m = await mindWith([
+    ["How do I compile hello.c?", "Run gcc hello.c"],
+    ["What is the capital of France?", "Paris"],
+  ]);
+  const out = clean((await m.respond("How do I compile main.c?")).bytes).trim();
+  assert.ok(
+    !out.includes("hello"),
+    `voiced the corpus's filename for the asker's file: ${JSON.stringify(out)}`,
+  );
+  assert.equal(out, "", "the honest degradation here is silence");
+  await m.store.close();
+});
+
+test("the gate is not the restated-fragment guard", async () => {
+  // The refused projection is not a piece of the QUERY — it passes the
+  // restatement guard cleanly — it is a piece of the ANCHOR the query
+  // displaced.  Neither guard implies the other.
+  const m = await mindWith([
+    ["How do I compile hello.c?", "Run gcc hello.c"],
+    ["What is the capital of France?", "Paris"],
+  ]);
+  const q = "How do I compile main.c?";
+  assert.ok(
+    !q.includes("Run gcc hello.c"),
+    "fixture broken: the projection must NOT be a query fragment",
+  );
+  assert.equal(clean((await m.respond(q)).bytes).trim(), "");
+  await m.store.close();
+});
+
+test("a projection that carries the ASKER's own occupant is untouched", async () => {
+  // Voicing the anchor's filler AND the query's referent is what a licensed
+  // reference does; the gate must not touch it.
+  const m = await mindWith(CARRIED);
+  const r = await m.respond("How do I compile main.c?");
+  assert.equal(clean(r.bytes).trim(), "Run gcc main.c");
+  assert.equal(r.provenance, "reference");
+  await m.store.close();
+});
+
+test("a sub-quantum difference does not trip the gate", async () => {
+  // Below one river window byte overlap is chance, not a displaced slot.
+  const m = await mindWith([
+    ["What is the capital of France?", "Paris"],
+    ["Who wrote Hamlet?", "Shakespeare"],
+  ]);
+  const out = clean((await m.respond("What is the capital of Franc?")).bytes);
+  assert.match(out, /Paris/, `a near-identical query lost its answer: ${out}`);
+  await m.store.close();
+});
+
 // ── NO HIJACK ──────────────────────────────────────────────────────────────
 
 test("a trained query is answered by its own edge, not by reference", async () => {

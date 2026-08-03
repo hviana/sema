@@ -612,6 +612,87 @@ export function frameSlots(
   return { id, slots, matched: spans, covered };
 }
 
+/** THE DISPLACED-FILLER GATE: does `projection` speak the ANCHOR's occupant of
+ *  a position the query fills differently?
+ *
+ *  A mechanism grounding through an anchor voices that anchor's continuation.
+ *  When the query is the same structure as the anchor with one position filled
+ *  differently — a different filename, a different word — the anchor's
+ *  continuation is ABOUT THE ANCHOR'S occupant, and voicing it answers a
+ *  question the asker did not ask.  It is worse than silence, because it is
+ *  fluent and specific and wrong:
+ *
+ *      trained  `How do I compile hello.c?` -> `Run gcc hello.c`
+ *      asked    `How do I compile main.c?`
+ *      voiced   `Run gcc hello.c`            <- the corpus's file, not the asker's
+ *
+ *  The same shape on the trained 15.7M-node store: `How do you say 'flurbish'
+ *  in French?` answers "the way to say hello is \"Bonjour\"".
+ *
+ *  THIS IS NOT THE RESTATED-FRAGMENT GUARD.  That one asks whether the
+ *  projection is a piece of the QUERY; this asks whether it is a piece of the
+ *  ANCHOR that the query displaced.  Neither implies the other, and the
+ *  observed failures pass the restatement guard cleanly.
+ *
+ *  Three conditions, all byte-exact and all necessary:
+ *
+ *  1. the query and the anchor must be ONE STRUCTURE — what they share has to
+ *     dominate the query, or the query is not a variant of the anchor at all
+ *     and the anchor's occupant of anything is beside the point;
+ *  2. both sides of the position must reach one river window — below it byte
+ *     overlap is chance, not evidence (the floor identityBar and the bridge's
+ *     attestedQ both draw);
+ *  3. the projection must voice the anchor's filler and NOT the query's
+ *     referent.  Voicing both is a projection that carried the asker's own
+ *     occupant through, which is exactly what a licensed reference does and
+ *     must stay allowed;
+ *  4. and the projection must share NO perceivable content with the query
+ *     outside that position — no run of one river window.
+ *
+ *  GATE 4 IS WHAT SEPARATES A DIFFERENT THING FROM A DIFFERENT WORD, and
+ *  without it this refuses correct answers.  A displaced slot alone cannot
+ *  tell them apart: `symbol` <- `formula` and `main` <- `hello` are the same
+ *  shape to the matcher — one substitution slot, frame dominating.  Measured
+ *  on the trained store, gates 1-3 alone silenced
+ *
+ *      Q `What is the chemical symbol for water?`
+ *      A `The chemical formula for water is H2O.`
+ *
+ *  which is right, and merely phrased in the corpus's own words.  The answer
+ *  shares `the chemical ` and ` for water` with the question, so it is plainly
+ *  about what was asked.  `Run gcc hello.c` against `How do I compile main.c?`
+ *  shares nothing but `.c` — two bytes, below the window where overlap stops
+ *  being chance — so it is not about what was asked at all.  No new constant:
+ *  W is the same floor identityBar, attestedQ and the site test already draw. */
+export function voicesDisplacedFiller(
+  ctx: MindContext,
+  query: Uint8Array,
+  anchor: Uint8Array,
+  projection: Uint8Array,
+): boolean {
+  const W = ctx.space.maxGroup;
+  const inst = frameSlots(ctx, query, anchor, 0);
+  if (inst === null) return false;
+  if (!dominates(inst.covered, query.length)) return false;
+  for (const slot of inst.slots) {
+    if (slot.kind !== "substitution") continue;
+    if (slot.qe - slot.qs < W || slot.filler.length < W) continue;
+    if (indexOf(projection, slot.filler, 0) < 0) continue;
+    const referent = query.subarray(slot.qs, slot.qe);
+    if (indexOf(projection, referent, 0) >= 0) continue;
+    // Gate 4: does the projection still speak about the query's FRAME?  A run
+    // of one window anywhere outside the displaced position is enough — the
+    // answer is then about the thing that was asked, in the corpus's own
+    // wording.  Sharing nothing means it is about something else.
+    const shared = alignRuns(ctx, query, projection).some((r) =>
+      r.qe - r.qs >= W && (r.qe <= slot.qs || r.qs >= slot.qe)
+    );
+    if (shared) continue;
+    return true;
+  }
+  return false;
+}
+
 /** Whether every member is byte-distinct from the others. */
 export function distinct(items: readonly Uint8Array[]): boolean {
   for (let i = 0; i < items.length; i++) {
