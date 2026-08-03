@@ -18,19 +18,29 @@
 //                       direct or mutual-sibling)
 //   multi-hop pivot     byte containment               forward       —
 //   articulation        halo sibling                   substitute    conceptThreshold
+//   reference           frameSlots() (the shared       carry into    carriesFillers
+//                       aligner, gaps contracted)      the answer
 //
 // This module holds the shared vocabulary those configurations are built
-// from — the MATCHERS (locate, alignRuns, alignGraded, analogyStrength) and
-// the PROJECTIONS (follow, conceptHop, reverseContext, project) — so each
-// mechanism file states only its configuration, never its own copy of the
-// machinery.  The gates all live in geometry.ts (derived, never tuned).
+// from — the MATCHERS (locate, alignRuns, alignGraded, alignAround/frameSlots,
+// analogyStrength) and the PROJECTIONS (follow, conceptHop, reverseContext,
+// project) — so each mechanism file states only its configuration, never its
+// own copy of the machinery.  Most gates live in geometry.ts (derived, never
+// tuned); the two STRUCTURAL gates that are byte predicates rather than
+// thresholds — isSpanShaped and carriesFillers — live here beside the matchers
+// they gate.
 
 import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
 import type { Hit } from "../store.js";
-import { conceptThreshold, identityBar, significanceBar } from "../geometry.js";
-import { indexOf } from "../bytes.js";
+import {
+  conceptThreshold,
+  dominates,
+  identityBar,
+  significanceBar,
+} from "../geometry.js";
+import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { leafIdRun } from "./canonical.js";
+import { chainReach, leafIdRun } from "./canonical.js";
 import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
 import {
   argmaxCosine,
@@ -292,6 +302,371 @@ export function alignGraded(
 
   out.sort((a, b) => a.qs - b.qs);
   return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE FRAME READING — variable positions, and the licence to voice through one
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Sema is otherwise a fully GROUND system: every item of the deduction system,
+// every matcher and every gate compares ground bytes.  Nothing anywhere
+// represents a POSITION whose occupant comes from the context rather than the
+// corpus, and so no mechanism can tell
+//
+//     "the corpus does not explain these bytes"   (PASS — refuse)
+//
+// apart from
+//
+//     "these bytes occupy a place the corpus keeps open"   (bind).
+//
+// Both arrive as unaligned residue.  That single missing distinction is why
+// the substitution bridge refuses on `attestedQ`, why the cover charges PASS
+// over a slot, and why CAST reads a filler as noise rather than as the
+// variable it is.  The family below supplies it, and it lives HERE — not in
+// any mechanism — because it is the ordinary (matcher, projection, gate)
+// triple of §2.5 with its three parts in their proper places:
+//
+//   matcher     alignAround + contractGap + frameSlots — bytes only, no
+//               projection, no licence.  SAFE FOR EVERY CONSUMER: knowing a
+//               span is variable can only improve an alignment.
+//   projection  follow / project — unchanged, already here.
+//   gate        carriesFillers — the licence to VOICE through a slot.  Needed
+//               only by a mechanism that voices, so it is deliberately NOT
+//               folded into the matcher.
+//
+// The split matters.  Slot detection is universal; the licence is not, and a
+// consumer that took the matcher's answer as permission to voice would be
+// making exactly the claim the licence exists to withhold.
+
+/** One place two byte streams DISAGREE, between runs where they agree: the
+ *  query span `[qs,qe)` standing where the candidate's `[cs,ce)` stands.
+ *
+ *  Two mechanisms read the same gap and ask OPPOSITE questions of it, which is
+ *  why the shape lives here rather than in either of them:
+ *
+ *    • the substitution bridge asks whether the two sides MEAN THE SAME, and
+ *      so EXPANDS the gap (absorbing flanking matched bytes) until the query
+ *      side is corpus-attested and the pair clears the concept bar;
+ *    • the frame reading asks WHERE THE SLOT IS, and so CONTRACTS it
+ *      ({@link contractGap}) until the two sides share nothing at all.
+ *
+ *  Neither reading is derivable from the other, and both need the same gap. */
+export interface AlignGap {
+  qs: number;
+  qe: number;
+  cs: number;
+  ce: number;
+}
+
+/** Extend a seed match (query offset qo ↔ candidate offset co) to its maximal
+ *  common run, then walk outward in both directions collecting further common
+ *  runs of at least W bytes across bounded mismatch gaps (each side ≤
+ *  chainReach).  Returns the matched query spans and the mismatch pairs
+ *  between consecutive runs.
+ *
+ *  This is the SEEDED aligner, distinct from {@link alignRuns}: that one finds
+ *  every run two structures share anywhere (a weave), this one reads two
+ *  streams as ONE structure that diverges in bounded places (a frame with
+ *  slots).
+ *
+ *  Gaps come back in SWEEP order (right sweep, then left), not query order,
+ *  and only the INTERIOR ones are reported — a consumer that needs the query's
+ *  unmatched head or tail derives it from `matched`.  Both are the bridge's
+ *  contract, which prices its edges separately (see its matchStart/matchEnd
+ *  window test); {@link frameSlots} takes the other reading. */
+export function alignAround(
+  ctx: MindContext,
+  q: Uint8Array,
+  c: Uint8Array,
+  qo: number,
+  co: number,
+): { matched: Array<[number, number]>; gaps: AlignGap[] } {
+  const W = ctx.space.maxGroup;
+  const reachCap = chainReach(W);
+  // Maximal run around the seed.
+  let qs = qo, ss = co;
+  while (qs > 0 && ss > 0 && q[qs - 1] === c[ss - 1]) {
+    qs--;
+    ss--;
+  }
+  let qe = qo, se = co;
+  while (qe < q.length && se < c.length && q[qe] === c[se]) {
+    qe++;
+    se++;
+  }
+  const matched: Array<[number, number]> = [[qs, qe]];
+  const gaps: AlignGap[] = [];
+  // The next common run of ≥ W bytes past (qi, si), with each side's gap
+  // bounded by chainReach; smallest total gap wins (nearest continuation).
+  const runLenAt = (qi: number, si: number): number => {
+    let n = 0;
+    while (qi + n < q.length && si + n < c.length && q[qi + n] === c[si + n]) {
+      n++;
+    }
+    return n;
+  };
+  // RIGHT sweep.
+  let qi = qe, si = se;
+  for (;;) {
+    let found = false;
+    for (let total = 1; total <= 2 * reachCap && !found; total++) {
+      for (let gq = 0; gq <= Math.min(total, reachCap); gq++) {
+        const gs = total - gq;
+        if (gs > reachCap) continue;
+        if (qi + gq >= q.length || si + gs >= c.length) continue;
+        const n = runLenAt(qi + gq, si + gs);
+        if (n >= W || qi + gq + n === q.length) {
+          if (n === 0) continue;
+          if (gq > 0 || gs > 0) {
+            gaps.push({ qs: qi, qe: qi + gq, cs: si, ce: si + gs });
+          }
+          matched.push([qi + gq, qi + gq + n]);
+          qi = qi + gq + n;
+          si = si + gs + n;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) break;
+  }
+  // LEFT sweep (mirror).
+  qi = qs;
+  si = ss;
+  for (;;) {
+    let found = false;
+    for (let total = 1; total <= 2 * reachCap && !found; total++) {
+      for (let gq = 0; gq <= Math.min(total, reachCap); gq++) {
+        const gs = total - gq;
+        if (gs > reachCap) continue;
+        if (qi - gq <= 0 || si - gs <= 0) continue;
+        // Run ENDING at (qi - gq, si - gs).
+        let n = 0;
+        while (
+          n < qi - gq && n < si - gs &&
+          q[qi - gq - 1 - n] === c[si - gs - 1 - n]
+        ) {
+          n++;
+        }
+        if (n >= W || n === qi - gq) {
+          if (n === 0) continue;
+          if (gq > 0 || gs > 0) {
+            gaps.push({ qs: qi - gq, qe: qi, cs: si - gs, ce: si });
+          }
+          matched.push([qi - gq - n, qi - gq]);
+          qi = qi - gq - n;
+          si = si - gs - n;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) break;
+  }
+  return { matched, gaps };
+}
+
+/** Contract a gap to its VARYING CORE: strip the prefix and suffix the two
+ *  sides share.  {@link alignAround} cannot match a shared affix shorter than
+ *  W, so that affix lands INSIDE the gap — measured, the slot of
+ *  `How do I compile main.c?` against `…hello.c?` comes back as
+ *  `main.c?`/`hello.c?`, three bytes of which (`.c?`) both sides hold.
+ *
+ *  Splicing the uncontracted gap carries the query's own punctuation into the
+ *  answer; worse, it hides what actually VARIES, which is the only thing a
+ *  cohort can agree about.  Returns null when nothing is left on either side —
+ *  a pure insertion or deletion, which names no slot. */
+export function contractGap(
+  q: Uint8Array,
+  c: Uint8Array,
+  g: AlignGap,
+): AlignGap | null {
+  let { qs, qe, cs, ce } = g;
+  while (qs < qe && cs < ce && q[qs] === c[cs]) {
+    qs++;
+    cs++;
+  }
+  while (qe > qs && ce > cs && q[qe - 1] === c[ce - 1]) {
+    qe--;
+    ce--;
+  }
+  return qe > qs && ce > cs ? { qs, qe, cs, ce } : null;
+}
+
+/** One trained context read as an instance of the same frame as the query:
+ *  the same structure, differing only at variable positions.
+ *
+ *  `slots` and `fillers` are index-aligned and sorted by query position, so
+ *  slot s of every instance of one frame stands in the same place.  A query
+ *  may name several new things at once, and a frame with two slots is not two
+ *  frames. */
+export interface FrameInstance {
+  /** The trained context this reading is against. */
+  id: number;
+  /** Query spans the corpus keeps OPEN — this pairing's variable positions. */
+  slots: Array<[number, number]>;
+  /** What this instance holds in each slot, index-aligned with `slots`. */
+  fillers: Uint8Array[];
+  /** Query spans the pairing literally matched — the frame itself. */
+  matched: Array<[number, number]>;
+}
+
+/** THE SLOT MATCHER: read one query ↔ context pairing as a frame with
+ *  variable positions, or null when the pairing is not one structure.
+ *
+ *  Seeded at the origin, because a frame is shared structure the query and its
+ *  instances both OPEN with: the maximal run around (0,0) is the frame's head
+ *  and the sweeps find the rest.  A pairing needing a rarest-window seed to
+ *  find common structure at all is not one frame in two instances.
+ *
+ *  Pure bytes — no projection, no store read beyond the caller's, no licence.
+ *  It answers only "where does this pairing vary?", which is the question
+ *  every consumer of the alignment family is entitled to an answer to. */
+export function frameSlots(
+  ctx: MindContext,
+  query: Uint8Array,
+  cand: Uint8Array,
+  id: number,
+): FrameInstance | null {
+  const W = ctx.space.maxGroup;
+  const { matched, gaps } = alignAround(ctx, query, cand, 0, 0);
+  const spans = [...matched].sort((a, b) => a[0] - b[0]);
+  // Where the alignment RAN OUT on each side.  Seeded at the origin there is
+  // no leading gap, so both cursors are everything consumed so far: the
+  // matched runs (equal length on both sides by construction) plus what each
+  // interior gap ate of its own side.  Counting only the runs reads the
+  // candidate cursor short by exactly the fillers already seen, and invents a
+  // trailing gap on every well-aligned instance.
+  const all: AlignGap[] = [...gaps];
+  let qEnd = 0, cEnd = 0;
+  for (const [s, e] of spans) {
+    cEnd += e - s;
+    qEnd = Math.max(qEnd, e);
+  }
+  for (const g of gaps) cEnd += g.ce - g.cs;
+  if (qEnd < query.length || cEnd < cand.length) {
+    all.push({ qs: qEnd, qe: query.length, cs: cEnd, ce: cand.length });
+  }
+  const real = all.filter((g) => g.qe > g.qs || g.ce > g.cs);
+  if (real.length === 0) return null;
+  const slots: Array<[number, number]> = [];
+  const fillers: Uint8Array[] = [];
+  for (const gap of real.sort((a, b) => a.qs - b.qs)) {
+    const slot = contractGap(query, cand, gap);
+    // A gap contracting to nothing on either side is a pure insertion or
+    // deletion: it names no slot, and a context the query does not instantiate
+    // in the same SHAPE is not the same frame.
+    if (slot === null) return null;
+    // A slot under one river window is not a variable position: below one
+    // window byte overlap is chance, not evidence — the floor identityBar, the
+    // bridge's attestedQ and recognition's site test all draw.
+    if (slot.qe - slot.qs < W || slot.ce - slot.cs < W) return null;
+    slots.push([slot.qs, slot.qe]);
+    fillers.push(cand.slice(slot.cs, slot.ce));
+  }
+  // Two slots of ONE instance may not hold the same bytes: an occurrence in
+  // that instance's continuation could then stand for either, and no evidence
+  // distinguishes them.
+  if (!distinct(fillers)) return null;
+  // THE FRAME MUST BE A FRAME.  What the two forms share has to dominate the
+  // query, or this is a different sentence that happens to align somewhere —
+  // the same half-dominance reading used throughout.  It is also what bounds
+  // the slot count without a constant: every slot costs at least a window, and
+  // the frame must still be more than half the query.
+  const covered = spans.reduce((n, [s, e]) => n + e - s, 0);
+  if (!dominates(covered, query.length)) return null;
+  return { id, slots, fillers, matched: spans };
+}
+
+/** Whether every member is byte-distinct from the others. */
+export function distinct(items: readonly Uint8Array[]): boolean {
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (bytesEqual(items[i], items[j])) return false;
+    }
+  }
+  return true;
+}
+
+/** Substitute every `needle -> repl` pair SIMULTANEOUSLY: one left-to-right
+ *  pass, longest needle first at each position, and a replacement is never
+ *  re-examined.
+ *
+ *  SIMULTANEOUS IS NOT A DETAIL.  Applying the pairs in sequence lets one
+ *  substitution's OUTPUT be another's input: with slots `gcc -> zig` and
+ *  `hello.c -> zig.c` a sequential pass rewrites bytes it had just written,
+ *  and the result depends on the order the slots happened to be found in.
+ *  Longest-first at each position makes the pass independent of pair order,
+ *  which is what keeps {@link carriesFillers} and the binding it licenses the
+ *  SAME operation — if they could disagree, the licence would not be testing
+ *  what is voiced. */
+export function substituteAll(
+  hay: Uint8Array,
+  pairs: ReadonlyArray<{ needle: Uint8Array; repl: Uint8Array }>,
+): Uint8Array {
+  const usable = pairs.filter((p) => p.needle.length > 0);
+  if (usable.length === 0) return hay;
+  // Longest needle first, so a needle that is a prefix of another can never
+  // pre-empt it.  Ties cannot arise: an instance whose fillers are not
+  // pairwise distinct is refused by frameSlots.
+  const order = [...usable].sort((a, b) => b.needle.length - a.needle.length);
+  const out: number[] = [];
+  let i = 0;
+  let hit = false;
+  outer:
+  while (i < hay.length) {
+    for (const p of order) {
+      if (i + p.needle.length > hay.length) continue;
+      let k = 0;
+      while (k < p.needle.length && hay[i + k] === p.needle[k]) k++;
+      if (k < p.needle.length) continue;
+      for (const b of p.repl) out.push(b);
+      i += p.needle.length;
+      hit = true;
+      continue outer;
+    }
+    out.push(hay[i]);
+    i++;
+  }
+  return hit ? Uint8Array.from(out) : hay;
+}
+
+/** THE CARRIAGE LICENCE — the gate that decides whether a slot may be VOICED
+ *  through.  Given two instances of one frame and what each one continues to,
+ *  it asks one byte question:
+ *
+ *      substituteAll(contA, fillersA -> fillersB) == contB
+ *
+ *  When it holds, the corpus attests byte-exactly that the continuation is a
+ *  function of the fillers and nothing else, so putting a NEW occupant through
+ *  the same carriage is derivation rather than invention.  No threshold, no
+ *  similarity, no new constant: the store's own instances decide, exactly as
+ *  the bridge's `unanimous` decides whether a frame is a value slot.
+ *
+ *  Its FAILURE is what this is really for.  A frame whose continuation carries
+ *  filler-DEPENDENT content — `What is the capital of X?` answering a different
+ *  city per X — fails it, and that failure is the only thing between a slot
+ *  and an invented fact.  Measured on the trained 15.7M-node store (325,615
+ *  contexts): `What is the capital of Zamunda?` resonates to a PURE cohort,
+ *  every one of the top 14 hits an instance of that frame, with an unambiguous
+ *  slot; every structural gate passes and only this one refuses, on
+ *  `replace("Tokyo", "Japan" -> "France") != "Paris"`.
+ *
+ *  With SEVERAL slots the test is unchanged, which is the point of testing the
+ *  whole substitution at once: a frame whose answer tracks one slot but
+ *  invents around another fails exactly as a single-slot value slot does. */
+export function carriesFillers(
+  contA: Uint8Array,
+  fillersA: readonly Uint8Array[],
+  contB: Uint8Array,
+  fillersB: readonly Uint8Array[],
+): boolean {
+  if (fillersA.length !== fillersB.length) return false;
+  const projected = substituteAll(
+    contA,
+    fillersA.map((needle, s) => ({ needle, repl: fillersB[s] })),
+  );
+  return bytesEqual(projected, contB);
 }
 
 /** The IN-LIST halo matcher: the best halo-mate for `halo` among EXPLICIT

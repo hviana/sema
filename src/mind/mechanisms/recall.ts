@@ -165,7 +165,10 @@ export async function recallByResonance(
     }
   }
 
-  const whole = await ctx.store.resonate(queryGist, k);
+  // The response's ONE top-k read (Precomputed.resonance) — the same list the
+  // frame inventory is assembled from, so a query that reaches both pays for a
+  // single ANN query rather than two identical ones.
+  const whole = await pre.resonance();
   if (whole.length === 0) {
     return ground(null, "empty store — nothing to resonate with", [], 0);
   }

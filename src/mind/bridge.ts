@@ -105,16 +105,13 @@ import {
 } from "./traverse.js";
 import { rItem, rNode } from "./trace.js";
 import { junctionContainersFrom } from "./junction.js";
-import { spanHalo } from "./match.js";
+import { alignAround, type AlignGap, spanHalo } from "./match.js";
 
 /** One accepted substitution: query span [qs,qe) stands in for the
- *  candidate context's span — recorded for the rationale trace. */
-interface Substitution {
-  qs: number;
-  qe: number;
-  cs: number;
-  ce: number;
-}
+ *  candidate context's span — recorded for the rationale trace.  The same
+ *  shape the shared aligner reports a disagreement as ({@link AlignGap}); an
+ *  accepted substitution is a gap that cleared this file's gates. */
+type Substitution = AlignGap;
 
 /** A bridged grounding proposal: the trained context to ground, the query
  *  spans its alignment accounts for, and the substitutions that closed it. */
@@ -151,102 +148,11 @@ export function dismissedKnownContent(
   return false;
 }
 
-/** Extend a seed match (query offset qo ↔ candidate offset co) to its
- *  maximal common run, then walk outward in both directions collecting
- *  further common runs of at least W bytes across bounded mismatch gaps
- *  (each side ≤ chainReach).  Returns the matched query spans and the
- *  mismatch pairs between consecutive runs. */
-function align(
-  ctx: MindContext,
-  q: Uint8Array,
-  c: Uint8Array,
-  qo: number,
-  co: number,
-): { matched: Array<[number, number]>; gaps: Substitution[] } {
-  const W = ctx.space.maxGroup;
-  const reachCap = chainReach(W);
-  // Maximal run around the seed.
-  let qs = qo, ss = co;
-  while (qs > 0 && ss > 0 && q[qs - 1] === c[ss - 1]) {
-    qs--;
-    ss--;
-  }
-  let qe = qo, se = co;
-  while (qe < q.length && se < c.length && q[qe] === c[se]) {
-    qe++;
-    se++;
-  }
-  const matched: Array<[number, number]> = [[qs, qe]];
-  const gaps: Substitution[] = [];
-  // The next common run of ≥ W bytes past (qi, si), with each side's gap
-  // bounded by chainReach; smallest total gap wins (nearest continuation).
-  const runLenAt = (qi: number, si: number): number => {
-    let n = 0;
-    while (qi + n < q.length && si + n < c.length && q[qi + n] === c[si + n]) {
-      n++;
-    }
-    return n;
-  };
-  // RIGHT sweep.
-  let qi = qe, si = se;
-  for (;;) {
-    let found = false;
-    for (let total = 1; total <= 2 * reachCap && !found; total++) {
-      for (let gq = 0; gq <= Math.min(total, reachCap); gq++) {
-        const gs = total - gq;
-        if (gs > reachCap) continue;
-        if (qi + gq >= q.length || si + gs >= c.length) continue;
-        const n = runLenAt(qi + gq, si + gs);
-        if (n >= W || qi + gq + n === q.length) {
-          if (n === 0) continue;
-          if (gq > 0 || gs > 0) {
-            gaps.push({ qs: qi, qe: qi + gq, cs: si, ce: si + gs });
-          }
-          matched.push([qi + gq, qi + gq + n]);
-          qi = qi + gq + n;
-          si = si + gs + n;
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found) break;
-  }
-  // LEFT sweep (mirror).
-  qi = qs;
-  si = ss;
-  for (;;) {
-    let found = false;
-    for (let total = 1; total <= 2 * reachCap && !found; total++) {
-      for (let gq = 0; gq <= Math.min(total, reachCap); gq++) {
-        const gs = total - gq;
-        if (gs > reachCap) continue;
-        if (qi - gq <= 0 || si - gs <= 0) continue;
-        // Run ENDING at (qi - gq, si - gs).
-        let n = 0;
-        while (
-          n < qi - gq && n < si - gs &&
-          q[qi - gq - 1 - n] === c[si - gs - 1 - n]
-        ) {
-          n++;
-        }
-        if (n >= W || n === qi - gq) {
-          if (n === 0) continue;
-          if (gq > 0 || gs > 0) {
-            gaps.push({ qs: qi - gq, qe: qi, cs: si - gs, ce: si });
-          }
-          matched.push([qi - gq - n, qi - gq]);
-          qi = qi - gq - n;
-          si = si - gs - n;
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found) break;
-  }
-  return { matched, gaps };
-}
+// The seeded aligner this file used to own now lives in the shared match
+// family as {@link alignAround} — the frame reading (match.ts) reads the same
+// gaps and asks the OPPOSITE question of them (see AlignGap's own doc).  Two
+// consumers, one definition (AGENTS §2.5); the bridge's reading is unchanged.
+const align = alignAround;
 
 /** Recall's corroborated-substitution bridge — see the module comment.
  *  Returns the best bridged grounding proposal, or null. */

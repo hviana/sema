@@ -41,7 +41,8 @@ The mental model, top to bottom:
 
 ```
 mind/pipeline.ts     the grounding decider: mechanisms compete on one cost scale
-mind/mechanisms/*    cover · cast · confluence · extraction · recall · alu
+mind/mechanisms/*    cover · cast · confluence · extraction · reference ·
+                     recall · alu
 mind/*               shared machinery: match/project, attention, recognition,
                      junction ascent, graph search, learning, rationale;
                      recall's refusal-path tiers (bridge, prefix-completion,
@@ -174,11 +175,13 @@ policy in callers, the engine neutral.
 ### 2.5 One factored machinery: match → project, under a gate
 
 `mind/match.ts` is the shared family every generalising mechanism configures:
-matchers (`locate`, `alignRuns`, `alignGraded`, `bestHaloMate`, `haloSiblings`,
-`analogyStrength` and its structural tier `sharedFrameStrength`, `spanHalo`,
-`spanSynonymStrength`), projections (`follow`, `reverseContext`, `project`,
-`conceptHop`), and the span-shape family (`skillExemplar`, `isSpanShaped`,
-`containsSpan`). `mind/traverse.ts` owns the graph readings (`edgeAncestors`,
+matchers (`locate`, `alignRuns`, `alignGraded`, `alignAround`/`frameSlots`,
+`bestHaloMate`, `haloSiblings`, `analogyStrength` and its structural tier
+`sharedFrameStrength`, `spanHalo`, `spanSynonymStrength`), projections
+(`follow`, `reverseContext`, `project`, `conceptHop`), the span-shape family
+(`skillExemplar`, `isSpanShaped`, `containsSpan`), and the two STRUCTURAL gates
+that are byte predicates rather than derived thresholds (`isSpanShaped`,
+`carriesFillers`). `mind/traverse.ts` owns the graph readings (`edgeAncestors`,
 `reachOf`, `chooseNext`/`chooseAmong`, `guidedFirst`, `leadsSomewhere`,
 `allWindowsAreScaffolding`) and the corpus scale (`corpusN`, `hubBound`,
 `hubCap`, `atomReach`).
@@ -198,6 +201,35 @@ _out of_ `mechanisms/`, the dependency is inverted and the market's decoupling
 span-shape family (`isSpanShaped` / `containsSpan` / `skillExemplar`) was
 exactly this and now lives in `match.ts`, where its two consumers can reach it
 without knowing extraction exists.
+
+The **frame reading** (`alignAround` / `contractGap` / `frameSlots` /
+`carriesFillers`, plus `Precomputed.frames`) is the same story told at full
+length, and it is worth reading as the worked example of this pattern. Sema is
+otherwise fully GROUND — nothing anywhere represents a position whose occupant
+comes from the context rather than the corpus — so no mechanism could tell "the
+corpus does not explain these bytes" (PASS, refuse) from "these bytes occupy a
+place the corpus keeps open" (bind). Filling that gap inside the mechanism that
+first needed it would have made it a private capability; split along the §2.5
+triple it lands in three different places, each at its correct altitude:
+
+- the **matcher** (`frameSlots`) is bytes only and safe for every consumer —
+  knowing a span is variable can only improve an alignment;
+- the **gate** (`carriesFillers`, the carriage licence) is the much stronger
+  claim that a slot may be VOICED through, so it is deliberately NOT folded into
+  the matcher: a consumer taking the matcher's answer as permission to voice
+  would be making exactly the claim the licence withholds;
+- the **inventory** (`Precomputed.frames`) reports every pairing and **elects no
+  frame**, because a slot is a property of a PAIRING, not of the query.
+  Committing to one reading inside the shared container would push whichever
+  consumer asked first onto every other — the market's decoupling broken from
+  the inside, and the §2.7 population error. Election is each consumer's own.
+
+Making a notion available is not the same as imposing it, and two mechanisms
+deliberately do **not** consume this one: the substitution bridge (its
+substitution asserts equivalence, and it grounds through its candidate's
+continuation UNSUBSTITUTED, so admitting a slot-gap there voices the corpus's
+filler for the asker's referent) and CAST (its frame gate is weave-local while a
+slot is cohort-local — §2.7 again).
 
 Related single-definition contracts (define once, import everywhere):
 
@@ -237,8 +269,8 @@ the same interface, `PipelineMechanism` (`mind/pipeline-mechanism.ts`): optional
 (an admissible lower bound, or `null` when the mechanism structurally cannot
 fire), and `run` (candidate answers). The decider in `mind/pipeline.ts`
 (`think`) holds a plain list (`defaultMechanisms`: cover, cast, confluence,
-extraction, recall, plus the ALU and any user mechanisms) and never branches on
-which mechanism it is holding.
+extraction, reference, recall, plus the ALU and any user mechanisms) and never
+branches on which mechanism it is holding.
 
 Four constraints make the market honest — verify all four for anything you add:
 
@@ -399,11 +431,13 @@ Asking never writes, which is the only reason per-response memos are sound.
 `Precomputed` (`pipeline-mechanism.ts`) is the shared response-scoped container:
 eager fields (recognition, computed spans, guide, the evidence-breadth constant
 `k`) plus **lazily-cached methods** for expensive analyses (`attention()` — the
-consensus climb, `weave()`, `spanShapedOf`/`spanShapedAll`, `queryWindows`,
-`queryResolved`, `windowsOf`, `reachMemo`) — each computed at most once, shared
-by mechanisms and post-grounding stages, and never computed if nobody asks. The
-async ones are cached **by promise**, so a second caller awaits the first
-computation rather than starting another.
+consensus climb, `weave()`, `resonance()` — the response's ONE top-k
+content-index read, `frames()` — the frame/slot inventory,
+`spanShapedOf`/`spanShapedAll`, `queryWindows`, `queryResolved`, `windowsOf`,
+`reachMemo`) — each computed at most once, shared by mechanisms and
+post-grounding stages, and never computed if nobody asks. The async ones are
+cached **by promise**, so a second caller awaits the first computation rather
+than starting another.
 
 Mind-level memos (`climbMemo`, `recogniseMemo`, `perceiveMemo`, `canonMemo`,
 `_resolvedSubtrees`, `_edgeChoice`, `_gistCache`) are created in
@@ -566,7 +600,7 @@ story of the fix.
 | Store domain logic / SQLite adapter                 | `src/store.ts`, `src/store-sqlite.ts`                                             |
 | Mechanism contract + shared `Precomputed`           | `src/mind/pipeline-mechanism.ts`                                                  |
 | The grounding decider (`think`)                     | `src/mind/pipeline.ts`                                                            |
-| Grounding mechanisms (one file each)                | `src/mind/mechanisms/{cover,cast,confluence,extraction,recall,alu}.ts`            |
+| Grounding mechanisms (one file each)                | `src/mind/mechanisms/{cover,cast,confluence,extraction,reference,recall,alu}.ts`  |
 | Weighted deduction system + cost ladder             | `src/mind/graph-search.ts` (engine in `src/derive/`)                              |
 | Match/project family                                | `src/mind/match.ts`                                                               |
 | Graph traversal, corpus scale, disambiguators       | `src/mind/traverse.ts`                                                            |
@@ -666,13 +700,16 @@ into the response-scoped slots for the turn's duration.
 const r = await mind.respond(query, (rationale) => {
   console.dir(rationale, { depth: null }); // every step, cost, data-flow edge
 });
-console.log(r.provenance); // cast | join | cover | extract | recall | recall-echo
+console.log(r.provenance); // cast | join | cover | extract | reference | recall | recall-echo
 ```
 
 Read top-down: which mechanism fired (and why the others abstained), what
 recognition found, how the climb voted, which edges were followed
 (`disambiguate` steps carry the evidence). `recall-echo` means "nearest stored
-form, not a derived fact".
+form, not a derived fact"; `reference` means "part of this answer is bytes the
+ASKER supplied, voiced through a slot the corpus attests as a carriage" — read
+its `bindReferent` step for the referents and the instances, and
+`referenceLicence` for why a binding was refused.
 
 Three steps carry **structured data**, so tooling need not parse notes:
 `decideGrounding` (every candidate's provenance, exact weight, discrete grade,

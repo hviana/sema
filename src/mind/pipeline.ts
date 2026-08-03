@@ -23,6 +23,7 @@ import { coverMechanism } from "./mechanisms/cover.js";
 import { castMechanism } from "./mechanisms/cast.js";
 import { confluenceMechanism } from "./mechanisms/confluence.js";
 import { extractionMechanism } from "./mechanisms/extraction.js";
+import { referenceMechanism } from "./mechanisms/reference.js";
 import { recallMechanism } from "./mechanisms/recall.js";
 
 // Re-exports: cover's pre-resolution helpers and the ALU adapter kept
@@ -60,12 +61,21 @@ async function collectComputed(
 // floor pruning every mechanism is already subject to — not by asking
 // "is this an extension?". Grade TIES keep the earlier candidate, so this
 // order is also the tie-break priority: cover, cast, confluence, extraction,
-// recall.
+// reference, recall.
+//
+// REFERENCE sits after extraction and before recall because that is what its
+// claim is worth: extraction READS a span out of the query (no synthesis),
+// reference voices one through a learnt slot, and recall's tiers degrade
+// toward echo and silence.  It does not PRUNE recall — its floor is two
+// projections, so recall's one-STEP floor still clears `worthRunning` — and it
+// is not meant to: both run, share one resonance read
+// (Precomputed.resonance), and the ladder decides.
 export const defaultMechanisms: PipelineMechanism[] = [
   coverMechanism,
   castMechanism,
   confluenceMechanism,
   extractionMechanism,
+  referenceMechanism,
   recallMechanism,
 ];
 
@@ -76,6 +86,7 @@ export type Provenance =
   | "join"
   | "cover"
   | "extract"
+  | "reference"
   | "recall"
   | "recall-echo";
 

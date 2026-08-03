@@ -16,12 +16,19 @@
 import type { AncestorReach, MindContext, Recognition } from "./types.js";
 import type { AttentionRead } from "./types.js";
 import type { ComputedSpan } from "../extension.js";
+import type { Hit } from "../store.js";
 import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
 import { dominates } from "../geometry.js";
 import { windowIds } from "./canonical.js";
 import { read, resolve } from "./primitives.js";
-import { alignGraded, type GradedRun, skillExemplar } from "./match.js";
+import {
+  alignGraded,
+  type FrameInstance,
+  frameSlots,
+  type GradedRun,
+  skillExemplar,
+} from "./match.js";
 import { climbAttentionAll } from "./attention.js";
 import { sharedReachMemo } from "./traverse.js";
 
@@ -123,6 +130,70 @@ export class Precomputed {
   private shared<T>(phase: string, fn: () => Promise<T>): Promise<T> {
     const meter = this.ctx.meter;
     return meter ? meter.time(phase, fn) : fn();
+  }
+
+  private _resonance?: Promise<ReadonlyArray<Hit>>;
+  /** The response's ONE top-k content-index read: the k learnt forms nearest
+   *  the whole-query gist, ranked.  Recall's every gist tier is built on it,
+   *  and {@link frames} assembles the frame inventory from it.
+   *
+   *  An ANN query is the single most expensive read in the engine, and two
+   *  mechanisms asking the same question of the same gist is the one
+   *  duplication a profile shows as doubled `annVectorReads` with nothing to
+   *  account for it.  Cached BY PROMISE, so a second caller awaits the first. */
+  resonance(): Promise<ReadonlyArray<Hit>> {
+    return this._resonance ??= this.shared(
+      "resonance",
+      () => this.ctx.store.resonate(this.guide, this.k),
+    );
+  }
+
+  private _frames?: Promise<ReadonlyArray<FrameInstance>>;
+  /** THE FRAME INVENTORY — every ranked candidate that reads as an instance of
+   *  the same frame as the query, each with the query spans it leaves VARIABLE
+   *  ({@link FrameInstance}).  The one place the engine represents "a position
+   *  whose occupant comes from the context rather than the corpus".
+   *
+   *  AN INVENTORY, NOT AN ELECTION.  It reports every pairing and elects no
+   *  frame, deliberately: a slot is a property of a PAIRING, not of the query,
+   *  and different candidates put slots in different places.  Committing to one
+   *  reading here would push whichever consumer asked first onto everyone else
+   *  — the market's decoupling (§2.6) broken from inside the shared container,
+   *  and the population error §2.7 names.  Each consumer groups and commits
+   *  for its own question; reference elects the modal slot signature, and a
+   *  consumer wanting a different reading is not fighting this one.
+   *
+   *  NO LICENCE EITHER.  Knowing a span is variable is safe for every consumer
+   *  — it can only improve an alignment.  Knowing one may be VOICED through is
+   *  a different and much stronger claim, gated separately by
+   *  {@link carriesFillers}, which needs projections this must not perform. */
+  frames(): Promise<ReadonlyArray<FrameInstance>> {
+    return this._frames ??= this.shared("frames", async () => {
+      const ctx = this.ctx;
+      const W = ctx.space.maxGroup;
+      // PHRASE SCALE, the same bound the bridge and the frame filler put on a
+      // candidate's bytes: a form an order of magnitude longer than the query
+      // is not a candidate for BEING it with a span replaced.
+      const capBytes = this.query.length * W;
+      const out: FrameInstance[] = [];
+      for (const h of await this.resonance()) {
+        // REJECT BY LENGTH BEFORE RECONSTRUCTING (§2.8): `contentLen` is an
+        // indexed read, `bytesPrefix` rebuilds a subtree.  Both bounds are
+        // implied by gates frameSlots applies anyway — the upper is phrase
+        // scale, and the lower follows from its frame-dominance test, since
+        // matched runs are equal-length on both sides and so `covered` can
+        // never exceed the candidate's own length.
+        const len = ctx.store.contentLen(h.id, capBytes + 1);
+        if (len === 0 || len > capBytes || !dominates(len, this.query.length)) {
+          continue;
+        }
+        const cand = ctx.store.bytesPrefix(h.id, capBytes + 1);
+        if (cand.length === 0 || cand.length > capBytes) continue;
+        const inst = frameSlots(ctx, this.query, cand, h.id);
+        if (inst !== null) out.push(inst);
+      }
+      return out;
+    });
   }
 
   private _attention?: Promise<AttentionRead>;

@@ -37,6 +37,7 @@ or machine — can follow it from first principles.
   - [18. Grounding I — counterfactual transfer (CAST)](#18-grounding-i--counterfactual-transfer-cast)
   - [19. Grounding II — cover: the graph search](#19-grounding-ii--cover-the-graph-search)
   - [20. Grounding III — extraction by skill](#20-grounding-iii--extraction-by-skill)
+  - [20.5 Grounding V — reference: voicing a slot with the context's own bytes](#205-grounding-v--reference-voicing-a-slot-with-the-contexts-own-bytes)
   - [21. Grounding IV — recall by resonance](#21-grounding-iv--recall-by-resonance)
   - [22. Reasoning: the multi-hop chain](#22-reasoning-the-multi-hop-chain)
   - [23. Fusion: multi-topic answers](#23-fusion-multi-topic-answers)
@@ -1363,6 +1364,17 @@ the vocabulary the rest of the document (and the codebase) speaks.
   resolve. (§18.5)
 - **Skill / exemplar** — a learned fact shaped "answer-is-a-span-of-context",
   reusable as an extraction template on unseen text (§20).
+- **Slot / referent** — a position a frame's instances leave VARIABLE, and the
+  bytes the asker puts there. The one place the engine represents "an occupant
+  supplied by the context rather than the corpus"; without it no mechanism can
+  distinguish "unexplained" from "open" (§20.5).
+- **Carriage / the reference licence** —
+  `substituteAll(cont_i, fillers_i →
+  fillers_j) == cont_j` over two instances
+  of one frame: the corpus attesting, byte-exactly, that the answer is a
+  function of the fillers and nothing else. Its failure is what separates
+  `Run gcc main.c` (derivation) from a capital invented for a country the corpus
+  never saw (§20.5).
 - **Recall tiers** — the graded fallback for whole-query resonance: exact
   self-match, argument binding, clean resonance, scaffolding-dominated
   consensus, the nearest grounded hit, then the three REFUSAL-PATH tiers
@@ -3984,6 +3996,152 @@ query bytes its frames did not cover (§14.1).
 
 ---
 
+## 20.5 Grounding V — reference: voicing a slot with the context's own bytes
+
+Sema is otherwise a **fully ground system**. Every item of the deduction system,
+every matcher and every gate compares ground bytes; nothing anywhere represents
+a position whose occupant comes from the context rather than the corpus. The
+consequence is that no mechanism can distinguish
+
+```
+"the corpus does not explain these bytes"        -> PASS, refuse
+"these bytes occupy a place the corpus keeps open" -> bind
+```
+
+Both arrive as unaligned residue. That single missing distinction is why the
+substitution bridge refuses on `attestedQ`, why the cover charges PASS over a
+filename, and why a query that names something new inside an otherwise familiar
+frame — `How do I compile main.c?` against a corpus that knows hello.c, server.c
+and parser.c — grounds nothing, while the corpus attests three times over
+exactly what to do with a name in that slot.
+
+### The act: position, not equivalence
+
+A **substitution asserts equivalence** — "these two spans mean the same" — and
+nothing can corroborate an equivalence claim about bytes the corpus has never
+seen. That is why `attestedQ` demands the query-side span be attested, and the
+bridge is right to refuse this shape.
+
+A **reference asserts no equivalence**. It asserts _position_: "this is the
+thing you named, where the corpus keeps one." The bytes come from the asker, so
+voicing them cannot fabricate corpus knowledge. What _can_ be fabricated is the
+**relation** claimed about them, and that is the licence's whole subject.
+
+### The licence: is the answer a carriage of its fillers?
+
+For two instances _i_, _j_ of one frame, one byte predicate decides:
+
+```
+substituteAll(cont_i, fillers_i -> fillers_j) == cont_j
+```
+
+When it holds, the corpus attests byte-exactly that the continuation is a
+function of the fillers and nothing else, so putting a new occupant through the
+same carriage is derivation rather than invention. No threshold, no similarity,
+no new constant — the store's own instances decide, exactly as the bridge's
+`unanimous` decides whether a frame is a value slot. Three readings fall out:
+
+- **Carried** — the continuation quotes the fillers, so the referents are
+  spliced in (`Run gcc main.c`). The carriage may be structural: with the slot
+  contracted to its varying core, `Run gcc hello.c -o hello` carries its filler
+  to _two_ places, and both follow the referent.
+- **Absorbed** — the continuation is constant across distinct fillers, so the
+  test passes vacuously and the frame's answer stands as-is.
+- **Refused** — the continuation carries filler-_dependent_ content, which is
+  knowledge about _which_ filler and cannot exist for a new one.
+
+The refusal is load-bearing, and at corpus scale it is the only thing standing
+between this mechanism and invented facts. Measured on the 15.7M-node store,
+`What is the capital of Zamunda?` resonates to a **pure cohort** — every one of
+the top 14 hits an instance of `What is the capital of X?` — with an unambiguous
+slot. Every structural gate passes; only the licence refuses, on
+`replace("Tokyo", "Japan" -> "France") != "Paris"`.
+
+**Any number of slots, one predicate.** A query may name several new things at
+once, and a frame with two slots is not two frames. Swapping every filler
+_simultaneously_ and demanding the attested continuation back is one test
+whatever the arity, so a frame whose answer tracks one slot but invents around
+another fails exactly as a single-slot value slot does. Simultaneity is not a
+detail: applied in sequence, one substitution's output becomes another's input
+and the result depends on the order slots happened to be found in.
+
+### Why the slot is an alignment gap, not "the novel part"
+
+The intuitive delimiter — "the part the corpus has never seen" — fails twice,
+and both failures are measured:
+
+- It only **brackets** the slot. Attestation is read over W-windows, so a novel
+  run is dilated by up to W−1 at each edge: the filler `main.c` comes back as
+  `main.c?`, and splicing that carries the asker's punctuation into the answer.
+- At corpus scale it **does not fire at all**. At 325,615 contexts every window
+  of `Zamunda` and `flurbish` is already attested somewhere, so
+  novelty-by-existence reports "not a reference" for the very queries this
+  exists for.
+
+The gap between the query and an instance of its frame **is** the varying slot,
+by construction. So the frame reading reuses the same seeded aligner the bridge
+does and asks the opposite question of its output: the bridge **expands** a gap
+until the query side attests, the frame reading **contracts** it to its varying
+core.
+
+### Where the machinery lives, and why it is not one mechanism's
+
+The three parts sit at three different altitudes (§14.4), and the split is the
+design:
+
+- the **matcher** (`frameSlots`) is bytes only, and safe for every consumer —
+  knowing a span is variable can only improve an alignment;
+- the **gate** (`carriesFillers`) is the much stronger claim that a slot may be
+  _voiced through_, so it is deliberately not folded into the matcher;
+- the **inventory** (`Precomputed.frames`) reports every pairing and elects no
+  frame, because a slot is a property of a _pairing_, not of the query.
+  Committing to one reading inside the shared container would push whichever
+  consumer asked first onto every other. Election is each consumer's own; the
+  reference mechanism elects the modal slot signature.
+
+Making a notion available is not the same as imposing it. Two mechanisms
+deliberately do **not** consume it: the substitution bridge, because it grounds
+through its candidate's continuation _unsubstituted_ and would therefore voice
+the corpus's filler for the asker's referent (measured live:
+`How do you say
+'flurbish' in French?` answering "the way to say hello is
+Bonjour"); and CAST, whose frame gate is weave-local while a slot is
+cohort-local — substituting one population for the other is the error §8.10
+names.
+
+### Evidence, price, and what it refuses to say
+
+Reference reports the frame it matched literally **and** every slot as
+`accounted`: a slot is not a hole in the explanation but an act it paid for —
+one STEP each — and leaving it unaccounted would charge the same act twice, once
+as a move and once at PASS per byte (§19.4). Its `moves` are one binding per
+slot plus one edge follow, so a two-slot binding claims strictly more than a
+one-slot one and the smaller claim wins where both are licensed. It is
+deliberately not CONCEPT: the ladder reserves that for halo-mediated acts, and a
+reference is decided by byte identity.
+
+It reports no `scaffolding` — that field counts answer bytes carried through
+_because nothing explained them_, and a referent is carried because the slot
+explains it. And it is always `complete`: the bound answer is a byte string the
+mechanism **constructed**, which the corpus never said, so pivoting through it
+would treat the engine's own construction as a trained fact. Measured before
+that was set: the binding produced `Run gcc main.c`, the multi-hop chain pivoted
+straight past it into an unrelated stored continuation, and the answer was lost.
+
+Three structural refusals complete it: a slot under one river window is chance
+rather than a referent (§8.2); two slots naming the same bytes are ambiguous,
+since nothing says which occurrence stands for which; and a referent lying
+inside a completed reply is not the asker's — quoting the engine's own output
+back would launder invention into evidence, the same rule the weave applies when
+it aligns only the asker's stream (§24.5).
+
+The mechanism's reach is bounded by the shared top-_k_ it reads, so a frame the
+corpus instantiates only _once_ within _k_ is out of range and it abstains.
+Abstaining on thin evidence is the honest reading, and it is what keeps this
+from becoming a cheaper route to the fabrications the licence exists to refuse.
+
+---
+
 ## 21. Grounding IV — recall by resonance
 
 Recall handles queries whose own decomposition composed nothing: resonate the
@@ -4561,8 +4719,11 @@ grows with the corpus.
 Sema's answers carry their epistemology with them, at two grains:
 
 **Provenance** — every response is tagged with the mechanism that grounded it:
-`cast`, `join`, `cover`, `extract`, `recall`, or `recall-echo`. The `join` tag
-means the answer was produced by intersecting independent constraint streams
+`cast`, `join`, `cover`, `extract`, `reference`, `recall`, or `recall-echo`. The
+`reference` tag means part of the answer is bytes the ASKER supplied, voiced
+through a slot the corpus attests as a carriage (§20.5) — so a consumer knows
+which part came from the context rather than the corpus. The `join` tag means
+the answer was produced by intersecting independent constraint streams
 (confluence, §18.5) — a conjunctive query where no single fact holds the answer.
 The `recall-echo` tag is the honesty flag of §21's tier 3: the bytes are a
 stored form returned verbatim for being _near_, not a derived fact. A consumer
