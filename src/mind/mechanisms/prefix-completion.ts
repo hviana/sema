@@ -1,5 +1,20 @@
-// prefix-completion.ts — Grounding a query that IS the opening of a trained
-// form.
+// mechanisms/prefix-completion.ts — Grounding a query that IS the opening of a
+// trained form (Grounding V).
+//
+// A MECHANISM, NOT A TIER.  This used to run inside recall's refusal path, in
+// a fixed if-chain that first-match-wins — the shape CAST was refactored away
+// from, where placement rather than the cost ladder decided.  Its claim is
+// maximal (every query byte literally matched, from offset zero, against a
+// trained form) at one STEP, so as a market candidate it competes honestly and
+// the decider weighs it like everything else.  It is registered LAST: recall's
+// exact self-match makes an IDENTITY claim about the query while this makes a
+// CONTAINMENT one, and on an exact grade tie the identity claim is the
+// stronger evidence — the same ordering §2.3's ladders use.
+//
+// Its SUPPLY moved too, and further: `formsOpenedBy` (traverse.ts) answers a
+// question about the STORE — "which trained forms does this byte run open?" —
+// so it is retrieval machinery any mechanism may ask, not this one's private
+// helper.
 //
 // THE SHAPE.  `The capital of France is` grounds nothing, while
 // `The capital of France is Paris.` is trained and reads back byte-exact.  The
@@ -75,96 +90,12 @@
 // same continuation reached through two trained forms is one answer, not an
 // ambiguity.
 
-import type { MindContext } from "./types.js";
-import { bytesEqual } from "../bytes.js";
-import { rItem } from "./trace.js";
-import { canonicalWindows, leafIdPrefix } from "./canonical.js";
-import { hubBound } from "./traverse.js";
-
-/** Trained forms the query may OPEN, proposed from the write side's own
- *  leaf-id window index — the supply of last resort for {@link
- *  prefixCompletion}.
- *
- *  WHY A SECOND SUPPLY EXISTS.  The ranked list this mechanism normally reads
- *  is a resonance list, and resonance cannot rank a proper prefix: measured on
- *  the trained store, cos(prefix, form) falls from 0.9629 at a one-byte
- *  truncation to 0.6206 at three bytes, against a reachThreshold of 0.8750.
- *  Three bytes of truncation put the answer out of reach on GEOMETRY, not on a
- *  bug, so no k and no re-ranking recovers it.
- *
- *  WHY THIS ROUTE WORKS WHERE THE FOLD DOES NOT.  A query's own fold is
- *  useless here: content addressing is not phrase-position-invariant, so a
- *  standalone prefix folds to a DIFFERENT node than the same bytes sitting
- *  inside a longer deposit, and neither the prefix's own node nor its
- *  ancestors lead to the deposit (measured: the 22-byte prefix of the
- *  photosynthesis form resolves, is shared by 6 contexts, and does not have
- *  the form among its ancestors).  Leaf ids ARE position-invariant — they are
- *  content-addressed on single bytes — and `indexSubSpans` already interns a
- *  flat branch over every canonical WINDOW of a deposit's leaf-id stream, with
- *  containment edges to the chunks that window spans.  A query that is a
- *  prefix therefore shares those window nodes exactly, and reaches the deposit
- *  by climbing containment then parents.  Nothing is added to the write side;
- *  this reads an index training already built.
- *
- *  BOUNDED (§2.8), AND WITH NO NEW THRESHOLD.  The window whose containment is
- *  SMALLEST carries the most evidence, and one saturated at `hubBound` carries
- *  none — that is the same √N reading of "hub" the rest of the mind uses, not
- *  a tuned knob.  The upward walk spends a budget of `hubBound` nodes and
- *  fans out by W, so a hub query enumerates nothing and the caller stays
- *  silent rather than guessing (§2.13).  Measured on the trained store: the
- *  photosynthesis form at a one-byte truncation picks a window with 52
- *  containers, visits 446 nodes, and yields exactly ONE candidate that
- *  survives the caller's byte compare — the form itself.
- *
- *  These are PROPOSALS only.  Every candidate still faces the byte-exact
- *  prefix compare and all three guards below, so a wrong proposal costs one
- *  bounded read and can never be voiced (§2.3). */
-export function prefixCandidates(
-  ctx: MindContext,
-  query: Uint8Array,
-): number[] {
-  const store = ctx.store;
-  const W = ctx.space.maxGroup;
-  const run = leafIdPrefix(ctx, query);
-  // The widest canonical window is the most discriminative one the write side
-  // ever interned; a query too short to spell one carries no window evidence.
-  const len = canonicalWindows(W)[1];
-  if (run.length < len) return [];
-  const bound = hubBound(ctx);
-
-  let best: number | null = null;
-  let bestN = 0;
-  for (let off = 0; off + len <= run.length; off++) {
-    const wid = store.findBranch(run.slice(off, off + len));
-    if (wid === null) continue;
-    const n = store.containersSlice(wid, 0, bound).length;
-    // Empty says the window spans no chunk; saturated says it is a hub, whose
-    // containment discriminates nothing.  Neither is evidence.
-    if (n === 0 || n >= bound) continue;
-    if (best === null || n < bestN) {
-      best = wid;
-      bestN = n;
-    }
-  }
-  if (best === null) return [];
-
-  let frontier = store.containersSlice(best, 0, bound);
-  const seen = new Set<number>(frontier);
-  let budget = bound;
-  while (frontier.length > 0 && budget > 0) {
-    const next: number[] = [];
-    for (const f of frontier) {
-      if (budget-- <= 0) break;
-      for (const p of store.parentsFirst(f, W)) {
-        if (seen.has(p)) continue;
-        seen.add(p);
-        next.push(p);
-      }
-    }
-    frontier = next;
-  }
-  return [...seen];
-}
+import type { MindContext } from "../types.js";
+import { bytesEqual } from "../../bytes.js";
+import { rItem } from "../trace.js";
+import { formsOpenedBy } from "../traverse.js";
+import { STEP } from "../graph-search.js";
+import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 
 /** A trained form the query opens, and the bytes by which it continues. */
 export interface PrefixCompletion {
@@ -312,3 +243,46 @@ export function prefixCompletion(
     data,
   );
 }
+
+// ── Pipeline mechanism ──────────────────────────────────────────────────────
+
+export const prefixMechanism: PipelineMechanism = {
+  name: "prefix",
+  provenance: "prefix",
+  async floor(ctx, query, _pre, worthRunning) {
+    // One projection: the form is voiced whole, nothing is substituted.
+    // INVESTMENT DISCIPLINE — the supplies below are the response's wide
+    // candidate list and a bounded √N walk, so neither is touched until the
+    // bound can still beat the incumbent.
+    if (!worthRunning(STEP)) return STEP;
+    // A query with no room for a perceivable continuation inside the phrase
+    // cap cannot clear guard 2, so it is not worth a single read.
+    const cap = query.length * ctx.space.maxGroup;
+    if (query.length === 0 || cap < query.length + ctx.space.maxGroup) {
+      return null;
+    }
+    return STEP;
+  },
+  async run(ctx, query, pre) {
+    // The response's shared wide list first; only when it supplies nothing does
+    // the write side's window index propose.  That ordering is the whole cost
+    // story: a query the ranked list can already explain pays not one extra
+    // read, and the bounded walk is spent only where the alternative is an
+    // empty answer.  A second SUPPLY, not a second mechanism — the same three
+    // guards decide either way.
+    const completed = prefixCompletion(ctx, query, await pre.wideResonance()) ??
+      prefixCompletion(ctx, query, formsOpenedBy(ctx, query));
+    if (completed === null) return [];
+    return [{
+      bytes: completed.form,
+      // Every query byte is literally matched against the form, so there is
+      // nothing to be humble about in the accounting — the same reading the
+      // IDENTITY bridge takes.
+      accounted: [[0, query.length]],
+      moves: STEP,
+      unexplained: "",
+      // NOT complete: the query is a proper PREFIX, so the form may carry more
+      // past the remainder this voiced.
+    }];
+  },
+};

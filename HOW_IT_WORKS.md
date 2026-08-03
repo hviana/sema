@@ -37,8 +37,9 @@ or machine — can follow it from first principles.
   - [18. Grounding I — counterfactual transfer (CAST)](#18-grounding-i--counterfactual-transfer-cast)
   - [19. Grounding II — cover: the graph search](#19-grounding-ii--cover-the-graph-search)
   - [20. Grounding III — extraction by skill](#20-grounding-iii--extraction-by-skill)
-  - [20.5 Grounding V — reference: voicing a slot with the context's own bytes](#205-grounding-v--reference-voicing-a-slot-with-the-contexts-own-bytes)
-  - [21. Grounding IV — recall by resonance](#21-grounding-iv--recall-by-resonance)
+  - [20.5 Grounding IV — reference: voicing a slot with the context's own bytes](#205-grounding-iv--reference-voicing-a-slot-with-the-contexts-own-bytes)
+  - [20.6 Grounding V — prefix completion: the query is an opening](#206-grounding-v--prefix-completion-the-query-is-an-opening)
+  - [21. Grounding VI — recall by resonance](#21-grounding-vi--recall-by-resonance)
   - [22. Reasoning: the multi-hop chain](#22-reasoning-the-multi-hop-chain)
   - [23. Fusion: multi-topic answers](#23-fusion-multi-topic-answers)
   - [24. Articulation: answering in the asker's words](#24-articulation-answering-in-the-askers-words)
@@ -1377,20 +1378,20 @@ the vocabulary the rest of the document (and the codebase) speaks.
   never saw (§20.5).
 - **Recall tiers** — the graded fallback for whole-query resonance: exact
   self-match, argument binding, clean resonance, scaffolding-dominated
-  consensus, the nearest grounded hit, then the three REFUSAL-PATH tiers
-  (substitution bridge, prefix completion, frame-filler substitution), then echo
-  or silence. Each reports _what it matched_ (`accounted`), its _moves_, and
-  `unexplained`, so the decider compares it against every other mechanism in the
-  same currency. (§21)
+  consensus, the nearest grounded hit, then the REFUSAL PATH (the substitution
+  bridge), then echo or silence. Each reports _what it matched_ (`accounted`),
+  its _moves_, and `unexplained`, so the decider compares it against every other
+  mechanism in the same currency. (§21)
 - **Substitution bridge** — refusal-path grounding through corroborated
   substitutions: align the query byte-for-byte against a trained context and
   accept a mismatch only under corroboration, graded identity, and RAW BALANCE
   (the pre-expansion mismatch must be length-balanced). Its zero-substitution
   reading is the IDENTITY bridge, which is `complete` (§21.5).
 - **Prefix completion** — the query is a proper byte PREFIX of exactly one
-  trained form, which is then voiced whole. Guarded by unreadable-continuation
-  veto, a sub-quantum floor, and uniqueness on the continuation BYTES. Repairs a
-  retrievability gap no k can close (§21.5).
+  trained form, which is then voiced whole. Guarded by an
+  unreadable-continuation veto, a sub-quantum floor, and uniqueness on the
+  continuation BYTES. Its supply is `formsOpenedBy`, which repairs a
+  RETRIEVABILITY gap no k can close (§20.6).
 - **Frame-filler substitution** — INVENT A LOOKUP KEY, NEVER AN ANSWER: put a
   candidate filler where a definite description stands and require the store to
   already hold that key byte-exactly. Constituency is read relationally, from
@@ -2479,9 +2480,8 @@ the modules of the implementation; see AGENTS.md, "Where things live".)
                         │ bridge (→ junction) ·             │
                         │ pivotInto · meaningOf             │
                         ├───────────────────────────────────┤
-                        │ recall's refusal-path tiers      │
-                        │ (§21.5): substitutionBridge ·     │
-                        │ prefixCompletion · frameFiller    │
+                        │ recall's refusal path (§21.5):    │
+                        │ substitutionBridge                │
                         └──┬──────────────┬────────────────┘
                            │              │
  L2  DECOMPOSITION      ┌──▼──────────┐ ┌─▼────────────────────────────┐
@@ -2548,13 +2548,13 @@ How to read the layers:
   of computation. The junction ascent sits as a shared utility consumed by both
   L3 (the bridge's Tier 1 connector search) and L4 (cross-region attention's
   joint-context recovery).
-- **L5** are the five grounding strategies plus the two post-grounding
-  extenders. Their candidates are **weighed together** by the grounding decider
-  of §14.1 — no fixed priority ladder; the lightest grounding derivation wins.
-  Their _dependency_ structure is what the diagram shows — e.g. extraction
-  depends on the climb (to find an exemplar) and on resonance (to locate
-  frames), but never on cover or CAST. Confluence (like CAST) depends on the
-  climb and on canonical window identity.
+- **L5** are the six grounding strategies plus the two post-grounding extenders.
+  Their candidates are **weighed together** by the grounding decider of §14.1 —
+  no fixed priority ladder; the lightest grounding derivation wins. Their
+  _dependency_ structure is what the diagram shows — e.g. extraction depends on
+  the climb (to find an exemplar) and on resonance (to locate frames), but never
+  on cover or CAST. Confluence (like CAST) depends on the climb and on canonical
+  window identity.
 - **L6** is orchestration only: `think` sequences L5, `articulate` closes the
   loop, and the rationale tracer observes every layer without being depended on
   by any.
@@ -3996,7 +3996,7 @@ query bytes its frames did not cover (§14.1).
 
 ---
 
-## 20.5 Grounding V — reference: voicing a slot with the context's own bytes
+## 20.5 Grounding IV — reference: voicing a slot with the context's own bytes
 
 Sema is otherwise a **fully ground system**. Every item of the deduction system,
 every matcher and every gate compares ground bytes; nothing anywhere represents
@@ -4102,9 +4102,9 @@ design:
 Making a notion available is not the same as imposing it. Two mechanisms
 deliberately do **not** consume it: the substitution bridge, because it grounds
 through its candidate's continuation _unsubstituted_ and would therefore voice
-the corpus's filler for the asker's referent (measured live:
+the corpus's filler for the asker's referent (measured:
 `How do you say
-'flurbish' in French?` answering "the way to say hello is
+'flurbish' in French?` answers "the way to say hello is
 Bonjour"); and CAST, whose frame gate is weave-local while a slot is
 cohort-local — substituting one population for the other is the error §8.10
 names.
@@ -4122,11 +4122,12 @@ reference is decided by byte identity.
 
 It reports no `scaffolding` — that field counts answer bytes carried through
 _because nothing explained them_, and a referent is carried because the slot
-explains it. And it is always `complete`: the bound answer is a byte string the
-mechanism **constructed**, which the corpus never said, so pivoting through it
-would treat the engine's own construction as a trained fact. Measured before
-that was set: the binding produced `Run gcc main.c`, the multi-hop chain pivoted
-straight past it into an unrelated stored continuation, and the answer was lost.
+explains it. And it is always `complete` (§14.1): the bound answer is a byte
+string the mechanism **constructed**, which the corpus never said, so pivoting
+through it would treat the engine's own construction as a trained fact. Measured
+without it, on a corpus that also holds `Run gcc main.c` as a context: the
+binding produced `Run gcc main.c`, the multi-hop chain pivoted straight past it
+into that context's own continuation, and the answer was lost.
 
 Three structural refusals complete it: a slot under one river window is chance
 rather than a referent (§8.2); two slots naming the same bytes are ambiguous,
@@ -4142,7 +4143,54 @@ from becoming a cheaper route to the fabrications the licence exists to refuse.
 
 ---
 
-## 21. Grounding IV — recall by resonance
+## 20.6 Grounding V — prefix completion: the query is an opening
+
+`The capital of France is` grounds nothing, while
+`The capital of France is Paris.` is trained and reads back byte-exact. The
+query is not _similar_ to that form, it is a **proper prefix** of it: every
+query byte is a literal match, in order, from offset zero. That is the strongest
+grounding relation in the store, and nothing is invented — the answer IS a
+trained form, voiced whole.
+
+Two independent reasons keep the earlier mechanisms from reaching it, both
+measured. `resolve(prefix)` is null, because a proper prefix of a deposited
+stream has no branch of its own. And the form is not among the resonance
+candidates **at all**: cos(query, form) = 0.5752, yet the form is absent from
+`resonate(k)` at k = 24, 256 _and_ 2048, while forms scoring lower are returned
+— `k` only reorders within the IVF clusters already probed. So this is a
+**retrievability** gap, not a semantic one.
+
+That distinction decides where the machinery lives. The **supply** —
+`formsOpenedBy` (`traverse.ts`) — answers a question about the _store_: "which
+trained forms does this byte run open?" It reads the write side's own sub-span
+window index (§11.3) and climbs containment then parents under a √N budget. Leaf
+ids are position-invariant where a fold is not, which is why this route works
+where the query's own fold cannot. It is retrieval machinery any mechanism may
+ask, not one mechanism's helper.
+
+The **decision** is three guards, each falsified into existence:
+
+1. **An unreadable continuation vetoes.** A candidate that opens with the query
+   but saturates the bounded read continues out of sight. Skipping it is what
+   manufactures a fragment: measured, suppressing the one disagreeing candidate
+   let uniqueness pass on an interior fold node and voiced a mid-form slice.
+2. **The continuation must reach one grouping window.** Below W there is no
+   structure to voice, whatever the modality.
+3. **Uniqueness**, judged on the continuation _bytes_ — the same continuation
+   reached through two forms is one answer, not an ambiguity. A sub-quantum or
+   unreadable competitor still _counts_ as a disagreement even though it cannot
+   be voiced, or guard 3 passes vacuously.
+
+It is a **mechanism**, registered last. Its claim is maximal (the whole query
+accounted, one STEP), so in the market it wins where it fires and is pruned by
+`worthRunning` where a cheaper incumbent exists. Last position is not timidity:
+recall's exact self-match makes an _identity_ claim about the query while this
+makes a _containment_ one, and on an exact grade tie the identity claim is the
+stronger evidence — the same ordering the graded ladders use throughout (§6.2).
+
+---
+
+## 21. Grounding VI — recall by resonance
 
 Recall handles queries whose own decomposition composed nothing: resonate the
 _whole query's gist_ and ground the nearest learned form. It is the most
@@ -4283,17 +4331,18 @@ past the reach bar (observed). Only the **above-chance** part of a similarity is
 evidence of shared content, so the significance bar (3/√D, §8.3) is subtracted
 before the conversion. Derived from the existing bars; never tuned.
 
-### 21.5 The refusal path — three structural tiers before silence
+### 21.5 The refusal path — the substitution bridge, before silence
 
-Everything geometric has now failed. Three tiers remain, each making a
-**structural** claim about the query that resonance cannot state, and all three
-read the _same_ candidate list — memoised, so the expensive branch runs at most
-once per response. That list is the ranked hits, widened to an exhaustive index
-scan only when the top hit clears the concept threshold: when the query gist has
-no concept-level match to anything stored, an exhaustive scan would only score
-more vectors below the bar (profiled at 38–40K vectors scored per refusing query
-on a 325K-context store, costing 44% of think). Whether the gist ranks
-_anything_ at concept level is the discriminator — corpus size never was.
+Everything geometric has now failed. One tier remains, making a **structural**
+claim about the query that resonance cannot state. It reads the response's
+**wide candidate list** (`Precomputed.wideResonance`, §14.5) — the ranked hits,
+widened to an exhaustive index scan only when the top hit clears the concept
+threshold. When the query gist has no concept-level match to anything stored, an
+exhaustive scan would only score more vectors below the bar (profiled at 38–40K
+vectors scored per refusing query on a 325K-context store, costing 44% of
+think). Whether the gist ranks _anything_ at concept level is the discriminator
+— corpus size never was. The list is shared response-wide, so whichever
+mechanism first-touches it pays once and every later reader is free.
 
 #### The substitution bridge
 
@@ -4354,113 +4403,6 @@ unaccounted charges the same act twice, the second charge being far the larger
 and lost to a comparison voicing the wrong country). The **identity** reading —
 zero substitutions — is additionally marked `complete` (§14.1): the query _is_
 that trained context, so its continuation is the whole read-out.
-
-#### Prefix completion
-
-The query is not _similar_ to a trained form; it is a **proper prefix** of one —
-every byte a literal match, in order, from offset zero. That is the strongest
-grounding relation in the store, stronger than a corroborated substitution and
-stronger than resonance, which only claims an angle. Nothing is invented: the
-answer IS a trained form, voiced whole.
-
-The earlier tiers cannot reach it, for two independently measured reasons.
-`resolve(prefix)` is null — a proper prefix of a deposited stream has no branch
-of its own. And the form is frequently absent from the ranked list _at any k_:
-measured, cos(query, form) = 0.5752 while the form is missing from `resonate` at
-k = 24, 256 and 2048, with lower-scoring forms returned instead, because k only
-reorders within the IVF clusters already probed. This is a **retrievability**
-gap, not a semantic one. When the candidate list supplies nothing, a second
-supply proposes from the write side's own leaf-id window index: leaf ids are
-position-invariant (content-addressed on single bytes) where a fold is not, so a
-prefix shares the deposit's window nodes exactly and reaches it by climbing
-containment then parents, under the same √N budget everything else obeys.
-
-Three guards, each falsified into existence, none droppable:
-
-1. **An unreadable continuation vetoes.** Reads are bounded, so a candidate
-   opening with the query but _saturating_ the read continues in a way nobody
-   can see. It must not be quietly skipped — the skip is what manufactures a
-   fragment. Measured: a query matched both a whole 138-byte form (saturating)
-   and a 34-byte interior node; skipping the saturated candidate removed the
-   only evidence that disagreed, uniqueness then passed, and a mid-form slice
-   was voiced as an answer.
-2. **The continuation must reach one grouping window.** Below W it is
-   sub-quantum — the fold groups nothing from it.
-3. **Uniqueness.** Several trained forms may open with the query and continue
-   differently; then the corpus does not say which the asker means. Distinct
-   continuations ⇒ refuse. Uniqueness is judged on the continuation _bytes_, not
-   the candidate id: one continuation reached through two forms is one answer.
-
-This is the documented **prefix trap**, and it is real — just not for every
-prefix. Measured over 15 battery probes, exactly one yields a unique
-continuation, and all three honest-silence probes yield none. The tier accounts
-for the whole query and costs one STEP; it is _not_ marked complete, since the
-form may carry more past the remainder voiced.
-
-#### Frame-filler substitution
-
-The remaining shape is compositional: "What is the capital of the country where
-the Eiffel Tower is?" sits one edge away from the trained "What is the capital
-of France?", differing by a single contiguous span where a **definite
-description** stands in a **proper noun's** place. Every earlier tier correctly
-declines — the constituent is not an edge source, the gist tiers are blind (cos
-= 0.0076, with "capital of Spain" scoring _higher_), and the bridge refuses on
-raw balance, as it must: a short span standing for a long one is exactly how a
-wrong fact once got voiced.
-
-The reframing is the point. The bridge asks whether two spans are _similar_; a
-description and the noun it denotes are not similar, they are
-**co-referential**, so no similarity threshold can separate this case from that
-fabrication. So this tier does not try:
-
-> **It invents a lookup key, never an answer.**
-
-Build the query with a candidate filler in the description's place, and require
-the **store itself** to already hold that key, byte-exactly, by content address.
-The answer is then the trained continuation of a form the store verifiably has —
-the same grounding tier 0 performs. A key the store does not hold is discarded.
-
-Four guards, each falsified into existence on a 15.7M-node store:
-
-1. The evidence hit must literally contain the description's **rarest** unit.
-   Pooling fillers from every ranked hit gave one query nine resolving keys
-   dominated by the wrong one; qualifying on any _shared_ unit earned a
-   confident wrong answer off the scaffolding unit "write".
-2. The frame must be **non-empty** — the description is a proper sub-span.
-   Otherwise a "substitution" replaces the whole query.
-3. The key must **resolve** byte-exactly and lead somewhere.
-4. Exactly **one** stored form may survive. "What is the capital of Zamunda?"
-   produces 24 resolving keys in weaker variants (Chile, India, Japan, Italy…) —
-   fabrication, refused by ambiguity. The same discipline argument binding
-   applies.
-
-Resolution alone is not the safety argument: holding the frame fixed and varying
-only the filler makes byte-exact resolution look like a perfect filter, but when
-the description is searched too, 95,836 candidate keys were tried and 9
-resolved. Resolution is necessary, never sufficient; the guards are what make it
-sound.
-
-**Where constituency comes from.** This tier substitutes one _constituent_ for
-another, so it must know where a constituent begins — and there is no character
-class here, no separator, no "word", because Sema has none. A byte value cannot
-say whether it delimits; asserting a class over the alphabet overrides what the
-corpus is able to state itself. The reading used is the store's own, already
-spelled out in the weave and CAST's frame gate: **a byte is frame when more than
-half the aligned structures share it, and a span is frame when more than half
-its bytes are.** Scaffolding is what many exemplars have in common; content is
-what tells them apart. So the spans come from literal alignment and the
-judgement is half-dominance — both modality-free by construction; in a grid the
-padding value would fall out as frame on exactly this test, with nothing
-rewritten. Asking "what are the units of this byte string?" has no answer here,
-and every attempt to derive one failed: the fold's own cuts land
-mid-constituent, interning is uninformative because every W-window is interned,
-and recognition returns only whole learnt forms — all three read _one_ string
-alone. Constituency is **relational**, a property of what the corpus agrees on
-across exemplars, and only a comparison can expose it.
-
-The tier accounts for the whole query at CONCEPT + STEP, under the same
-restatement and manufactured-answer guards: a projection contained in the filler
-is the substitution restated as knowledge.
 
 ### 21.6 Echo, or silence
 
@@ -4719,15 +4661,19 @@ grows with the corpus.
 Sema's answers carry their epistemology with them, at two grains:
 
 **Provenance** — every response is tagged with the mechanism that grounded it:
-`cast`, `join`, `cover`, `extract`, `reference`, `recall`, or `recall-echo`. The
-`reference` tag means part of the answer is bytes the ASKER supplied, voiced
-through a slot the corpus attests as a carriage (§20.5) — so a consumer knows
-which part came from the context rather than the corpus. The `join` tag means
-the answer was produced by intersecting independent constraint streams
-(confluence, §18.5) — a conjunctive query where no single fact holds the answer.
-The `recall-echo` tag is the honesty flag of §21's tier 3: the bytes are a
-stored form returned verbatim for being _near_, not a derived fact. A consumer
-can gate on this tag mechanically.
+`cast`, `join`, `cover`, `extract`, `reference`, `prefix`, `recall`, or
+`recall-echo`. Four of these carry information a consumer can gate on
+mechanically:
+
+- `join` — the answer was produced by intersecting independent constraint
+  streams (confluence, §18.5): a conjunctive query no single fact holds.
+- `reference` — part of the answer is bytes the ASKER supplied, voiced through a
+  slot the corpus attests as a carriage (§20.5), so a consumer knows which part
+  came from the context rather than the corpus.
+- `prefix` — the query is the literal opening of exactly one trained form, which
+  was voiced whole (§20.6).
+- `recall-echo` — the honesty flag of §21's echo tier: the bytes are a stored
+  form returned verbatim for being _near_, not a derived fact.
 
 **Rationale** — on request, the response includes the complete replayable trace:
 every mechanism's entries and exits, and — at the finest grain — every rule
@@ -4950,7 +4896,8 @@ think(query, mechanisms ≔ defaultMechanisms):
     # Weights are compared at STEP resolution (grade ≔ ⌊w/STEP⌋): sub-STEP
     # costs (MICRO) are non-ordering bookkeeping.  Grade TIES keep the
     # earlier candidate — the mechanism list's own order (cover, cast,
-    # confluence, extract, recall — see defaultMechanisms).
+    # confluence, extract, reference, recall, prefix — see
+    # defaultMechanisms).
 
     best ≔ ∅
     grade(w) ≔ ⌊w / STEP⌋
@@ -5240,14 +5187,16 @@ recallByResonance(query, pre):
         if g ≠ ∅ ∧ fracOfQuery(cos(gistOf(query), gistOf(g)), |g|) ≥ REACH:
             return { bytes: g, accounted: nothing, moves: STEP }
 
-    # ── the REFUSAL PATH — one shared, memoised candidate list ───────
-    wideIds() ≔ hits[0].score ≥ CONCEPT_BAR
-                ? exhaustive resonate(gistOf(query), hubBound)   # ids only
-                : hits                                # the gist ranks nothing
-                                                      # at concept level
+    # ── the REFUSAL PATH ─────────────────────────────────────────────
+    # pre.wideResonance() — the response's ONE wide candidate list, shared
+    # by every mechanism that must look past the top-k:
+    #     hits[0].score ≥ CONCEPT_BAR
+    #       ? exhaustive resonate(gistOf(query), hubBound)       # ids only
+    #       : hits                        # the gist ranks nothing at concept
+    #                                     # level, so a wider scan says nothing
 
     # 3b. substitution / identity bridge
-    bridged ≔ substitutionBridge(query, wideIds)
+    bridged ≔ substitutionBridge(query, pre.wideResonance)
               # anchors: rarest query windows → edgeAncestors, plus wideIds
               # align byte-for-byte; a mismatch substitutes only under
               # CORROBORATION ∧ GRADED IDENTITY ∧ RAW BALANCE
@@ -5257,30 +5206,11 @@ recallByResonance(query, pre):
         g ≔ project(bridged.id, guide)
         manufactured ≔ g lies inside one of bridged's substituted spans
         strictPrefix ≔ bridged.subs = ∅ ∧ query is a strict byte prefix
-                       of read(bridged.id)          # deferred to 3b′
+                       of read(bridged.id)          # deferred to §20.6
         if g ≠ ∅ ∧ ¬restates(g) ∧ ¬manufactured ∧ ¬strictPrefix ∧ ¬fragment(g):
             return { bytes: g, accounted: bridged.accounted,
                      moves: CONCEPT·|bridged.subs| + STEP,
                      complete: bridged.subs = ∅ }    # the IDENTITY bridge
-
-    # 3b′. prefix completion — the candidate list first, then the write
-    #      side's own leaf-id window index as the supply of last resort
-    completed ≔ prefixCompletion(query, wideIds())
-             ?? prefixCompletion(query, prefixCandidates(query))
-             # guards: an UNREADABLE continuation VETOES; the continuation
-             # must reach W; distinct continuation BYTES ⇒ refuse
-    if completed ≠ ∅:
-        return { bytes: completed.form, accounted: whole_, moves: STEP }
-
-    # 3c. frame-filler substitution — invent a KEY, never an answer
-    filled ≔ frameFillerSubstitution(query, wideIds())
-             # the evidence hit must hold the description's RAREST unit;
-             # the frame must be non-empty; the constructed key must
-             # RESOLVE and lead somewhere; exactly ONE may survive
-    if filled ≠ ∅:
-        g ≔ project(filled.id, guide)
-        if g ≠ ∅ ∧ ¬restates(g) ∧ g ⊄ filled.filler ∧ ¬fragment(g):
-            return { bytes: g, accounted: whole_, moves: CONCEPT + STEP }
 
     # ── echo or silence — decided on the EXACT fold, never an estimate ─
     topBytes ≔ read(hits[0])
@@ -5749,20 +5679,20 @@ n = input/query length; D = dimension; W = fold window; N = learned contexts; k
 all index queries are sub-linear in the collection (empirically ≈ N^0.32
 distance computations).
 
-| Operation                  | Cost                                                                                                                                                                                                                                                                          | Where     |
-| :------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------- |
-| Perceive                   | O(n) rolling-hash pass + O(n·D) vector work; O(n) nodes. A stream EXTENDING an already-folded one costs O(new bytes) — cuts are stable under append and unchanged segments are reused (§10.4)                                                                                 | §10       |
-| Deposit (intern + windows) | O(n) content-addressed probes; the intern walk itself is O(new nodes) when a prefix was already interned                                                                                                                                                                      | §11       |
-| Learn a pair               | O(1) edge + O(changed) halo pours + one flat-branch probe per suffix offset (suffix propagation, §12.1)                                                                                                                                                                       | §12       |
-| Recognise                  | O(n·W) bounded probes                                                                                                                                                                                                                                                         | §15       |
-| Canonical resolution       | one canonicalization + one hash probe + one verify read per candidate; only on an exact-lookup miss                                                                                                                                                                           | §3.4      |
-| Consensus climb            | O(regions · k) index queries + expand-until-decided: work bounded by √N per region regardless of corpus size (LIMITed store reads, indexed existence probes)                                                                                                                  | §17       |
-| Cover search               | output-sensitive A\*LD: proportional to the lightest derivation, not the corpus (§5.2); the dominant per-query index cost is connector pre-resolution, O(sites) queries                                                                                                       | §19       |
-| Recall (answering tiers)   | O(k) index probes + graded structural checks                                                                                                                                                                                                                                  | §21       |
-| Recall (refusal path)      | Nothing on an answering path. One shared candidate list (exhaustive only when the top hit clears the concept bar), then O(\|query\|) content-hash probes, ≤ W anchor climbs, and one O(\|query\|·\|candidate\|)-bounded alignment each; the frame filler's probe budget is √N | §21.5     |
-| Reasoning                  | ≤ K hops, each bounded by the answer's subtree                                                                                                                                                                                                                                | §22       |
-| Storage                    | O(distinct subtrees); vector index over resonance targets only, 1-bit codes (32× compression)                                                                                                                                                                                 | §3, §12.3 |
-| Profiling                  | free when off; when on, one counter bump per logical operation and one timer per named phase — never read by inference                                                                                                                                                        | §26       |
+| Operation                  | Cost                                                                                                                                                                                                                                   | Where     |
+| :------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------- |
+| Perceive                   | O(n) rolling-hash pass + O(n·D) vector work; O(n) nodes. A stream EXTENDING an already-folded one costs O(new bytes) — cuts are stable under append and unchanged segments are reused (§10.4)                                          | §10       |
+| Deposit (intern + windows) | O(n) content-addressed probes; the intern walk itself is O(new nodes) when a prefix was already interned                                                                                                                               | §11       |
+| Learn a pair               | O(1) edge + O(changed) halo pours + one flat-branch probe per suffix offset (suffix propagation, §12.1)                                                                                                                                | §12       |
+| Recognise                  | O(n·W) bounded probes                                                                                                                                                                                                                  | §15       |
+| Canonical resolution       | one canonicalization + one hash probe + one verify read per candidate; only on an exact-lookup miss                                                                                                                                    | §3.4      |
+| Consensus climb            | O(regions · k) index queries + expand-until-decided: work bounded by √N per region regardless of corpus size (LIMITed store reads, indexed existence probes)                                                                           | §17       |
+| Cover search               | output-sensitive A\*LD: proportional to the lightest derivation, not the corpus (§5.2); the dominant per-query index cost is connector pre-resolution, O(sites) queries                                                                | §19       |
+| Recall (answering tiers)   | O(k) index probes + graded structural checks                                                                                                                                                                                           | §21       |
+| Recall (refusal path)      | Nothing on an answering path. One shared candidate list (exhaustive only when the top hit clears the concept bar), then O(\|query\|) content-hash probes, ≤ W anchor climbs, and one O(\|query\|·\|candidate\|)-bounded alignment each | §21.5     |
+| Reasoning                  | ≤ K hops, each bounded by the answer's subtree                                                                                                                                                                                         | §22       |
+| Storage                    | O(distinct subtrees); vector index over resonance targets only, 1-bit codes (32× compression)                                                                                                                                          | §3, §12.3 |
+| Profiling                  | free when off; when on, one counter bump per logical operation and one timer per named phase — never read by inference                                                                                                                 | §26       |
 
 Nothing on any per-query path scans the corpus; every fan-out is capped at the
 hub bound, and the cap is enforced at the _store level_ through LIMITed reads

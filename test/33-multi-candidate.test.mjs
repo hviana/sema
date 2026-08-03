@@ -171,18 +171,28 @@ test("3 — a near-tie between the winner and runner-up emits narrowDecision", a
     ["water is frigid so water is freezing", "freezing"],
   ]);
   // The near-tie has to be REAL: two candidates whose accounted spans are the
-  // same, separated by a single move.  `steel is hard so steel is` is that —
-  // extraction and recall both explain the whole prefix (grades 21011 and
-  // 21010, margin 1).
+  // same, separated by a single move.  `water is hard so water is ???` is that
+  // — extraction and recall both explain the same span (grades 25011 and
+  // 25010, margin 1).
   //
-  // The old fixture, `steel is frigid so steel is ???`, was a near-tie only
-  // while CAST could not fire on it: the counterfactual subject and the seat
-  // it fills sit on opposite sides of one recurring structure, and CAST's
-  // subject gate used to reject any point whose alignment continued PAST the
-  // seat — which that very recurrence guarantees.  With CAST firing, it leaves
-  // only "???" unexplained and wins by 22008; a decisive win is the opposite
-  // of what this test pins, and test 3b already covers it.
-  const { steps } = await trace(m, "steel is hard so steel is");
+  // THIS FIXTURE HAS NOW BEEN REPLACED TWICE, BOTH TIMES FOR THE SAME REASON:
+  // a mechanism that genuinely explains the query started firing, and a
+  // decisive win is the opposite of what this test pins.
+  //
+  //   * `steel is frigid so steel is ???` was a near-tie only while CAST could
+  //     not fire on it — CAST's subject gate used to reject any point whose
+  //     alignment continued PAST the seat, which that fixture's recurrence
+  //     guarantees.  With CAST firing it wins by 22008.
+  //   * `steel is hard so steel is` was a near-tie only while prefix
+  //     completion was a buried recall TIER.  As a market mechanism it grounds
+  //     that query for what it is — the literal opening of exactly one trained
+  //     form — at grade 1 against 21010, and answers `steel is hard so steel
+  //     is strong`.  That is a better answer, not a regression.
+  //
+  // The lesson for whoever re-fixtures this next: pick a query no mechanism can
+  // explain OUTRIGHT.  A trailing `???` is what keeps this one honest — it is
+  // not the prefix of anything trained.
+  const { steps } = await trace(m, "water is hard so water is ???");
   const narrow = stepsNamed(steps, "narrowDecision");
   assert.equal(narrow.length, 1, "expected exactly one narrowDecision step");
   assert.ok(/margin \d+ grade-unit/.test(narrow[0].note), narrow[0].note);

@@ -31,7 +31,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import { prefixCompletion } from "../dist/src/mind/prefix-completion.js";
+import { prefixCompletion } from "../dist/src/mind/mechanisms/prefix-completion.js";
 import { resolve } from "../dist/src/mind/primitives.js";
 
 const enc = (s) => new TextEncoder().encode(s);

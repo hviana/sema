@@ -8,7 +8,7 @@
 // 0.9629 at a one-byte truncation to 0.6206 at three bytes, against a
 // reachThreshold of 0.8750.  The mechanism's guards were therefore never
 // reached — the trace read `candidates: 24, opened: 0` — and the query answered
-// nothing.  `prefixCandidates` is the second SUPPLY that closes it, reading the
+// nothing.  `formsOpenedBy` is the second SUPPLY that closes it, reading the
 // leaf-id WINDOW index `indexSubSpans` already writes at deposit time.  No
 // ingestion, storage or fold change is involved: this test would pass on a
 // store trained before the supply existed.
@@ -16,7 +16,7 @@
 // WHY THE ASSERTIONS ARE SHAPED THIS WAY.  On a small fixture resonance may
 // well return the form by luck, and then an end-to-end "does it answer?" test
 // would pass with the supply deleted — pinning nothing.  So the contract is
-// asserted on `prefixCandidates` DIRECTLY, and the resonance list is asserted
+// asserted on `formsOpenedBy` DIRECTLY, and the resonance list is asserted
 // to lack the form, which is what makes the supply load-bearing rather than
 // redundant.
 //
@@ -27,10 +27,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import {
-  prefixCandidates,
-  prefixCompletion,
-} from "../dist/src/mind/prefix-completion.js";
+import { prefixCompletion } from "../dist/src/mind/mechanisms/prefix-completion.js";
+import { formsOpenedBy } from "../dist/src/mind/traverse.js";
 import { gistOf, resolve } from "../dist/src/mind/primitives.js";
 
 const enc = (s) => new TextEncoder().encode(s);
@@ -71,7 +69,7 @@ test("a proper prefix reaches its trained form through the window supply", async
   // prefix is a LARGE-CORPUS property — cos falls to 0.6206 at a three-byte
   // truncation against a 0.8750 bar, on a 15.7M-node store — and cannot be
   // reproduced at this scale.  That is why the contract below is asserted on
-  // `prefixCandidates` DIRECTLY: deleting or emptying the supply fails this
+  // `formsOpenedBy` DIRECTLY: deleting or emptying the supply fails this
   // test regardless of what resonance happens to return.
   const ranked = (await m.store.resonate(gistOf(m, query), 64)).map((h) =>
     h.id
@@ -84,7 +82,7 @@ test("a proper prefix reaches its trained form through the window supply", async
   );
 
   // THE CONTRACT — the write side's own window index proposes the form.
-  const proposed = prefixCandidates(m, query);
+  const proposed = formsOpenedBy(m, query);
   assert.ok(
     proposed.includes(formId),
     `the window supply must propose the trained form the query opens ` +
@@ -105,7 +103,7 @@ test("a proper prefix reaches its trained form through the window supply", async
   // supply that widened until it found something would be the real defect.
   const hub = enc("The ");
   assert.equal(
-    prefixCompletion(m, hub, prefixCandidates(m, hub)),
+    prefixCompletion(m, hub, formsOpenedBy(m, hub)),
     null,
     "a query carrying no discriminative window must stay silent",
   );

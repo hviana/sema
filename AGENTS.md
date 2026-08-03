@@ -42,11 +42,11 @@ The mental model, top to bottom:
 ```
 mind/pipeline.ts     the grounding decider: mechanisms compete on one cost scale
 mind/mechanisms/*    cover · cast · confluence · extraction · reference ·
-                     recall · alu
+                     recall · prefix-completion · alu
 mind/*               shared machinery: match/project, attention, recognition,
                      junction ascent, graph search, learning, rationale;
-                     recall's refusal-path tiers (bridge, prefix-completion,
-                     frame-filler) live beside them, not inside recall.ts
+                     the substitution bridge lives beside them, not inside
+                     recall.ts
 store.ts             AbstractStore: ALL domain logic of the DAG store
 store-sqlite.ts      the one concrete backend (thin SQL wrappers)
 geometry.ts + vec/alphabet/sema/canon
@@ -183,8 +183,8 @@ matchers (`locate`, `alignRuns`, `alignGraded`, `alignAround`/`frameSlots`,
 that are byte predicates rather than derived thresholds (`isSpanShaped`,
 `carriesFillers`). `mind/traverse.ts` owns the graph readings (`edgeAncestors`,
 `reachOf`, `chooseNext`/`chooseAmong`, `guidedFirst`, `leadsSomewhere`,
-`allWindowsAreScaffolding`) and the corpus scale (`corpusN`, `hubBound`,
-`hubCap`, `atomReach`).
+`allWindowsAreScaffolding`, `formsOpenedBy`) and the corpus scale (`corpusN`,
+`hubBound`, `hubCap`, `atomReach`).
 
 _Follow it:_ before writing a new generalising mechanism, express it as a
 (matcher, direction, gate) triple. If those already exist, the mechanism is a
@@ -198,44 +198,54 @@ A shared analysis must not live inside a mechanism. If `pipeline-mechanism.ts`
 (the shared contract and `Precomputed`) or a post-grounding stage has to import
 _out of_ `mechanisms/`, the dependency is inverted and the market's decoupling
 (2.6) is broken — deleting that mechanism would break the shared container. The
-span-shape family (`isSpanShaped` / `containsSpan` / `skillExemplar`) was
-exactly this and now lives in `match.ts`, where its two consumers can reach it
-without knowing extraction exists.
+span-shape family (`isSpanShaped` / `containsSpan` / `skillExemplar`) lives in
+`match.ts` for exactly this reason: its two consumers reach it without knowing
+extraction exists. `alignAround` is there on the same grounds — the substitution
+bridge and the frame reading both need the same gaps, and ask opposite questions
+of them (the bridge EXPANDS a gap until the query side attests, because a
+substitution claims equivalence; the frame reading CONTRACTS it to its varying
+core, because a reference claims only position). Neither reading derives the
+other, and one aligner serves both. `formsOpenedBy` (`traverse.ts`) is the
+retrieval counterpart: "which trained forms does this byte run open?" is a
+question about the STORE, so it sits with the graph readings rather than inside
+the mechanism that first needed it.
 
 The **frame reading** (`alignAround` / `contractGap` / `frameSlots` /
-`carriesFillers`, plus `Precomputed.frames`) is the same story told at full
-length, and it is worth reading as the worked example — including the way it was
-got WRONG first. Sema is otherwise fully GROUND: nothing anywhere represents a
-position whose occupant comes from the context rather than the corpus, so no
-mechanism could tell "the corpus does not explain these bytes" (PASS, refuse)
-from "these bytes occupy a place the corpus keeps open" (bind). Split along the
-§2.5 triple the notion lands in three places, each at its own altitude:
+`carriesFillers`, plus `Precomputed.frames`) is the worked example of this
+pattern at full length. Sema is otherwise fully GROUND — nothing anywhere
+represents a position whose occupant comes from the context rather than the
+corpus — so without it no mechanism can tell "the corpus does not explain these
+bytes" (PASS, refuse) from "these bytes occupy a place the corpus keeps open"
+(bind). Split along the §2.5 triple the notion lands in three places, each at
+its own altitude:
 
 - the **matcher** (`frameSlots`) REPORTS and does not judge: every place a
   pairing varies, contracted to its varying core, tagged
   substitution/insertion/deletion, plus how much the two share. It rejects
-  nothing.
+  nothing, so a consumer can apply its own reading to a pairing another consumer
+  would throw away.
 - the **gate** (`carriesFillers`) is the much stronger claim that a slot may be
   VOICED through, so it is deliberately not folded into the matcher: a consumer
   taking the matcher's answer as permission to voice would be making exactly the
   claim the licence withholds.
 - the **inventory** (`Precomputed.frames`) elects no frame, because a slot is a
-  property of a PAIRING, not of the query. Election is each consumer's own.
+  property of a PAIRING, not of the query. Election is each consumer's own —
+  `reference.ts` keeps the modal slot signature, and a consumer wanting another
+  reading is not fighting that one.
 
-**The failure mode to learn from.** Four VOICING gates were first written
-_inside_ `frameSlots` — the frame must dominate the query, each slot must reach
+**Voicing gates belong to the consumer that voices, never to the matcher.** The
+four reference applies — the frame must dominate the query, each slot must reach
 one window on both sides, an insertion or deletion disqualifies the pairing,
-fillers must be pairwise distinct — and a fifth (a candidate-length floor) sat
-in `frames`. Every one is a requirement for substituting and SPEAKING, not for
-knowing where a pairing varies. With them in place the "shared" reading was
-shaped like its only consumer: measured over four real pairings, three came back
-as NOTHING, including a definite description standing where a proper noun stands
-— the shape `frame-filler.ts` exists for. It compiled, every test passed, and
-the abstraction was worthless to anyone else.
+fillers must be pairwise distinct — are all requirements for substituting and
+SPEAKING, not for knowing where a pairing varies. Inside `frameSlots` they make
+the shared reading useless to anyone else: measured over four real pairings,
+only reference's own survives, while a definite description standing where a
+proper noun stands, a pure insertion and a sub-window difference all come back
+as NOTHING. Nothing fails to compile and no test notices.
 
-_The rule this yields:_ a shared analysis with exactly ONE consumer is unproven,
-whatever its address. Before declaring machinery shared, run a second consumer's
-real case through it and check the answer is not `null`. If every gate you wrote
+_Follow it:_ a shared analysis with exactly ONE consumer is unproven, whatever
+its address. Before declaring machinery shared, run a second consumer's real
+case through it and check the answer is not `null`. If every gate you wrote
 happens to be one your own mechanism needs, they are not the matcher's gates.
 
 Making a notion available is not the same as imposing it, and two mechanisms
@@ -254,7 +264,7 @@ Related single-definition contracts (define once, import everywhere):
 - `canonical.ts` — the write/read contract for canonical segmentation
   (`canonicalWindows`, `chainReach`, `leafIdRun`, `leafIdPrefix`, `windowIds`).
   Learning writes through it; recognition, attention, confluence, the bridge and
-  prefix-completion read through it. Changing one side means changing this file
+  prefix completion read through it. Changing one side means changing this file
   — drift between sides breaks canonical recognition with **no type error**.
 - `junction.ts` — the content-addressed "which learnt whole contains these two
   forms?" ascent, shared by the bridge and cross-region attention, with its
@@ -283,8 +293,8 @@ the same interface, `PipelineMechanism` (`mind/pipeline-mechanism.ts`): optional
 (an admissible lower bound, or `null` when the mechanism structurally cannot
 fire), and `run` (candidate answers). The decider in `mind/pipeline.ts`
 (`think`) holds a plain list (`defaultMechanisms`: cover, cast, confluence,
-extraction, reference, recall, plus the ALU and any user mechanisms) and never
-branches on which mechanism it is holding.
+extraction, reference, recall, prefix-completion, plus the ALU and any user
+mechanisms) and never branches on which mechanism it is holding.
 
 Four constraints make the market honest — verify all four for anything you add:
 
@@ -351,9 +361,8 @@ using the wrong one is a semantic bug the type system cannot catch:
   store?"
 - **Weave-local** — reference set: the structures aligned with _this query_.
   Tooling: the `depth[]` array built in `computeWeave` + `MIN_WEAVE` +
-  `dominates`. Used by CAST's frame gate and by the frame filler's constituency
-  reading. Answers "does this discriminate among the structures this query
-  activates?"
+  `dominates`. Used by CAST's frame gate. Answers "does this discriminate among
+  the structures this query activates?"
 
 `depth[]` counts **distinct covering structures**, not accumulated alignment
 weight: the frame test compares it against a COUNT of aligned points, so
@@ -446,7 +455,8 @@ Asking never writes, which is the only reason per-response memos are sound.
 eager fields (recognition, computed spans, guide, the evidence-breadth constant
 `k`) plus **lazily-cached methods** for expensive analyses (`attention()` — the
 consensus climb, `weave()`, `resonance()` — the response's ONE top-k
-content-index read, `frames()` — the frame/slot inventory,
+content-index read, `wideResonance()` — the one WIDE candidate list every
+past-the-top-k mechanism reads, `frames()` — the frame/slot inventory,
 `spanShapedOf`/`spanShapedAll`, `queryWindows`, `queryResolved`, `windowsOf`,
 `reachMemo`) — each computed at most once, shared by mechanisms and
 post-grounding stages, and never computed if nobody asks. The async ones are
@@ -602,32 +612,32 @@ story of the fix.
 
 ## 3. Where things live
 
-| Concept                                             | File(s)                                                                           |
-| :-------------------------------------------------- | :-------------------------------------------------------------------------------- |
-| Public surface / assembly                           | `src/index.ts`, `src/mind/mind.ts`                                                |
-| Conversation API (turns, state, answered spans)     | `src/mind/mind.ts`                                                                |
-| Config (capacities, budgets, seed)                  | `src/config.ts`                                                                   |
-| Derived thresholds, the fold, Hilbert               | `src/geometry.ts`                                                                 |
-| Content canonicalizer (injected, modality-specific) | `src/canon.ts`                                                                    |
-| Vector primitives, alphabet, node/fold types, seats | `src/vec.ts`, `src/alphabet.ts`, `src/sema.ts`                                    |
-| Perceive / resolve / read primitives                | `src/mind/primitives.ts`                                                          |
-| Store domain logic / SQLite adapter                 | `src/store.ts`, `src/store-sqlite.ts`                                             |
-| Mechanism contract + shared `Precomputed`           | `src/mind/pipeline-mechanism.ts`                                                  |
-| The grounding decider (`think`)                     | `src/mind/pipeline.ts`                                                            |
-| Grounding mechanisms (one file each)                | `src/mind/mechanisms/{cover,cast,confluence,extraction,reference,recall,alu}.ts`  |
-| Weighted deduction system + cost ladder             | `src/mind/graph-search.ts` (engine in `src/derive/`)                              |
-| Match/project family                                | `src/mind/match.ts`                                                               |
-| Graph traversal, corpus scale, disambiguators       | `src/mind/traverse.ts`                                                            |
-| Consensus climb + cross-region attention            | `src/mind/attention.ts`                                                           |
-| Recall's refusal-path tiers                         | `src/mind/bridge.ts`, `src/mind/prefix-completion.ts`, `src/mind/frame-filler.ts` |
-| Recognition / canonical contract                    | `src/mind/recognition.ts`, `src/mind/canonical.ts`                                |
-| Junction ascent (bridge + attention share)          | `src/mind/junction.ts`, `src/mind/resonance.ts`                                   |
-| Learning / ingestion / training cache               | `src/mind/learning.ts`, `src/ingest-cache.ts`                                     |
-| Post-grounding (reason, fuse, articulate)           | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                               |
-| Rationale / trace                                   | `src/mind/rationale.ts`, `src/mind/trace.ts`                                      |
-| Computational-usage meter                           | `src/meter.ts` (harness: `bench/profile-inference.mjs`)                           |
-| Extension host types                                | `src/extension.ts`                                                                |
-| Sublibraries (own READMEs, own tests)               | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                                      |
+| Concept                                             | File(s)                                                                                            |
+| :-------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| Public surface / assembly                           | `src/index.ts`, `src/mind/mind.ts`                                                                 |
+| Conversation API (turns, state, answered spans)     | `src/mind/mind.ts`                                                                                 |
+| Config (capacities, budgets, seed)                  | `src/config.ts`                                                                                    |
+| Derived thresholds, the fold, Hilbert               | `src/geometry.ts`                                                                                  |
+| Content canonicalizer (injected, modality-specific) | `src/canon.ts`                                                                                     |
+| Vector primitives, alphabet, node/fold types, seats | `src/vec.ts`, `src/alphabet.ts`, `src/sema.ts`                                                     |
+| Perceive / resolve / read primitives                | `src/mind/primitives.ts`                                                                           |
+| Store domain logic / SQLite adapter                 | `src/store.ts`, `src/store-sqlite.ts`                                                              |
+| Mechanism contract + shared `Precomputed`           | `src/mind/pipeline-mechanism.ts`                                                                   |
+| The grounding decider (`think`)                     | `src/mind/pipeline.ts`                                                                             |
+| Grounding mechanisms (one file each)                | `src/mind/mechanisms/{cover,cast,confluence,extraction,reference,recall,prefix-completion,alu}.ts` |
+| Weighted deduction system + cost ladder             | `src/mind/graph-search.ts` (engine in `src/derive/`)                                               |
+| Match/project family                                | `src/mind/match.ts`                                                                                |
+| Graph traversal, corpus scale, disambiguators       | `src/mind/traverse.ts`                                                                             |
+| Consensus climb + cross-region attention            | `src/mind/attention.ts`                                                                            |
+| Recall's refusal-path tier (substitution bridge)    | `src/mind/bridge.ts`                                                                               |
+| Recognition / canonical contract                    | `src/mind/recognition.ts`, `src/mind/canonical.ts`                                                 |
+| Junction ascent (bridge + attention share)          | `src/mind/junction.ts`, `src/mind/resonance.ts`                                                    |
+| Learning / ingestion / training cache               | `src/mind/learning.ts`, `src/ingest-cache.ts`                                                      |
+| Post-grounding (reason, fuse, articulate)           | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                                                |
+| Rationale / trace                                   | `src/mind/rationale.ts`, `src/mind/trace.ts`                                                       |
+| Computational-usage meter                           | `src/meter.ts` (harness: `bench/profile-inference.mjs`)                                            |
+| Extension host types                                | `src/extension.ts`                                                                                 |
+| Sublibraries (own READMEs, own tests)               | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                                                       |
 
 Mind functions are **free functions over `MindContext`** (`mind/types.ts`), not
 methods — `mind.ts` is a thin assembly that implements the context and
@@ -714,16 +724,17 @@ into the response-scoped slots for the turn's duration.
 const r = await mind.respond(query, (rationale) => {
   console.dir(rationale, { depth: null }); // every step, cost, data-flow edge
 });
-console.log(r.provenance); // cast | join | cover | extract | reference | recall | recall-echo
+console.log(r.provenance); // cast | join | cover | extract | reference | recall | recall-echo | prefix
 ```
 
 Read top-down: which mechanism fired (and why the others abstained), what
 recognition found, how the climb voted, which edges were followed
 (`disambiguate` steps carry the evidence). `recall-echo` means "nearest stored
-form, not a derived fact"; `reference` means "part of this answer is bytes the
+form, not a derived fact". `reference` means "part of this answer is bytes the
 ASKER supplied, voiced through a slot the corpus attests as a carriage" — read
 its `bindReferent` step for the referents and the instances, and
-`referenceLicence` for why a binding was refused.
+`referenceLicence` for why a binding was refused. `prefix` means "the query is
+the literal opening of exactly one trained form, which this voiced whole".
 
 Three steps carry **structured data**, so tooling need not parse notes:
 `decideGrounding` (every candidate's provenance, exact weight, discrete grade,

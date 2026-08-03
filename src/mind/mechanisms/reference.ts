@@ -1,5 +1,5 @@
 // mechanisms/reference.ts — Reference: voice a slot with the context's own
-// bytes (Grounding V).
+// bytes (Grounding IV).
 //
 // This file is a CONFIGURATION of the shared frame reading in match.ts, not a
 // pipeline of its own.  The three parts it configures live where §2.5 puts

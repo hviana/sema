@@ -24,6 +24,7 @@ import { castMechanism } from "./mechanisms/cast.js";
 import { confluenceMechanism } from "./mechanisms/confluence.js";
 import { extractionMechanism } from "./mechanisms/extraction.js";
 import { referenceMechanism } from "./mechanisms/reference.js";
+import { prefixMechanism } from "./mechanisms/prefix-completion.js";
 import { recallMechanism } from "./mechanisms/recall.js";
 
 // Re-exports: cover's pre-resolution helpers and the ALU adapter kept
@@ -77,6 +78,7 @@ export const defaultMechanisms: PipelineMechanism[] = [
   extractionMechanism,
   referenceMechanism,
   recallMechanism,
+  prefixMechanism,
 ];
 
 // ── think — the main inference pipeline ─────────────────────────────────────
@@ -88,7 +90,8 @@ export type Provenance =
   | "extract"
   | "reference"
   | "recall"
-  | "recall-echo";
+  | "recall-echo"
+  | "prefix";
 
 export interface Thought {
   bytes: Uint8Array;

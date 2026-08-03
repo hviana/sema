@@ -1,4 +1,4 @@
-// mechanisms/recall.ts — Recall by resonance (Grounding IV).
+// mechanisms/recall.ts — Recall by resonance (Grounding VI).
 //
 // The recall mechanism resonates the whole query's gist against the content
 // index and grounds the nearest learned form.  Four tiers, orderly degrading
@@ -23,8 +23,6 @@ import { unexplainedLabel } from "../rationale.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 import { substitutionBridge } from "../bridge.js";
-import { frameFillerSubstitution } from "../frame-filler.js";
-import { prefixCandidates, prefixCompletion } from "../prefix-completion.js";
 
 /** A recall result. */
 export interface RecallResult {
@@ -388,48 +386,10 @@ export async function recallByResonance(
     }
   }
   // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts).
-  // MEMOISED ACROSS EVERY REMAINING TIER, and that is load-bearing rather than
-  // tidy: the bridge, prefix completion and the frame filler all read the SAME
-  // candidate list, so the exhaustive branch runs at most once per response.
-  // Without the memo each tier re-issues it — measured at 490 ms median against
-  // 13 ms non-exhaustive (36x).
-  const wideIdsOnce = async (): Promise<ReadonlyArray<number>> => {
-    // When the top resonance hit is below the concept threshold, the query
-    // gist has no concept-level match to any stored form — an exhaustive √N
-    // ANN would only score more vectors below the bar (profiled at 38K–40K
-    // annVectorReads per refusing query on a 325K-context store).  The
-    // bridge's structural channels (junction walks, anchor climbs) are the
-    // correct proposal source for a query whose gist has no clean match;
-    // the ANN cannot propose what the gist cannot rank.
-    // The condition above is the SCORE of the top hit, not the size of the
-    // corpus.  It used to be spelled `corpusN(ctx) <= (k · W)³`, which asks
-    // a different question and answers it wrongly at exactly the scale the
-    // note was written from: on the trained store N = 325,608 with k = 24
-    // and W = 4 puts the cube at 884,736, so that store took the exhaustive
-    // branch — the very branch measured here as 38K–40K annVectorReads.
-    // Measured cost of the mismatch: substitutionBridge 8,544ms of a
-    // 19,548ms think (44%), against 1,248ms and 14,218ms without it, with
-    // every answer in the battery byte-identical and the suite unchanged
-    // at 445/445.  Corpus size was never the discriminator; whether the
-    // gist ranks ANYTHING at concept level is.
-    //
-    // Reading it as the note states also removes a duplicated (k · W)³ —
-    // the same cube gates crossRegionVotes' walk budget, where it likewise
-    // never engages at real scale (see attention.ts).
-    if (whole.length > 0 && whole[0].score >= conceptThreshold(ctx.store.D)) {
-      const exhaustive = await ctx.store.resonate(
-        queryGist,
-        hubBound(ctx),
-        true,
-      );
-      return exhaustive.map((h) => h.id);
-    }
-    return whole.map((h) => h.id);
-  };
-  let wide: Promise<ReadonlyArray<number>> | null = null;
-  const wideIds = (): Promise<
-    ReadonlyArray<number>
-  > => (wide ??= wideIdsOnce());
+  // The WIDE candidate list every past-the-top-k mechanism reads lives on
+  // Precomputed (see wideResonance): shared across the whole response, so the
+  // exhaustive branch runs at most once whoever first-touches it.
+  const wideIds = () => pre.wideResonance();
 
   // Every gist-based tier has failed; before refusing, align the query
   // byte-for-byte against the trained contexts its own stored windows
@@ -547,86 +507,6 @@ export async function recallByResonance(
           // read-out.  A SUBSTITUTED bridge makes no such claim (it stood a
           // different word in the query's place), so it stays extendable.
           bridged.subs.length === 0,
-        );
-      }
-    }
-
-    // 3b′. PREFIX COMPLETION — refusal-path only (prefix-completion.ts).
-    // Inside the bridge's block, and deliberately: it consumes `wideIds`, the
-    // list the bridge has already fetched, so it costs a bounded byte compare
-    // per candidate and not one resonance.  The claim it makes is the
-    // strongest in the ladder — every query byte is a LITERAL match from
-    // offset zero of a trained form — so it needs no projection and no reach
-    // gate.  It runs after the bridge only because the bridge answers the
-    // richer relation when it can; a prefix match that the bridge also
-    // explains is the same trained form either way.
-    {
-      // The resonance list first; only when it supplies nothing does the
-      // write side's leaf-id window index propose (prefixCandidates).  That
-      // ordering is the whole cost story: a query the ranked list can already
-      // explain pays not one extra read, and the fallback's bounded walk is
-      // spent only where the alternative is an empty answer.  It is a second
-      // SUPPLY, not a second mechanism — the same three guards decide.
-      const completed = prefixCompletion(ctx, query, await wideIds()) ??
-        prefixCompletion(ctx, query, prefixCandidates(ctx, query));
-      if (completed !== null) {
-        return ground(
-          completed.form,
-          "prefix completion — the query IS the opening of exactly one " +
-            "trained form, which this grounds whole",
-          // Every query byte is literally matched against the form.  The
-          // completion is the form's own continuation, not a substitution, so
-          // there is nothing to be humble about in the accounting — the same
-          // reading the IDENTITY bridge above takes.
-          whole_,
-          STEP,
-          false,
-          // NOT complete: the query is a proper PREFIX, so the form may carry
-          // more past the remainder this tier voiced.
-          false,
-        );
-      }
-    }
-  }
-
-  // 3c. FRAME-FILLER SUBSTITUTION — refusal-path only (frame-filler.ts).
-  // The bridge has failed, and for the shape this tier answers it MUST fail:
-  // a definite description standing where a proper noun stands is not a
-  // similarity relation the bridge can price (raw balance refuses
-  // `dominates(6, 37)`, and correctly — that is the France/Spain trap).  This
-  // tier makes a different claim: not that the two spans resemble each other,
-  // but that the store ALREADY HOLDS this query with the filler in the
-  // description's place, byte-exactly.  A key the store does not hold is
-  // discarded, so the answer is always a trained continuation.
-  {
-    // THE COHORT NEEDS EVIDENCE, AND THE REFUSAL PATH HAS ALREADY BOUGHT IT.
-    // This tier reads constituency from what a cohort of exemplars does NOT
-    // share, so its resolution is bounded by how many instances of the frame it
-    // can see.  The top-k resonance hits are too few — on the two-hop probe the
-    // exemplars holding the query's discriminative content number TWO, and two
-    // structures agree on so little that a whole clause reads as content.  The
-    // exhaustive list the bridge fetched is the same evidence at ~570 wide, and
-    // it is already paid for (memoised above, so this costs no ANN call).
-    const filled = frameFillerSubstitution(ctx, query, await wideIds());
-    if (filled !== null) {
-      const g = await project(ctx, filled.id, queryGist);
-      // The same restated-fragment and manufactured-answer guards every tier
-      // above applies: a projection contained in the FILLER is the
-      // substitution restated as if it were knowledge, not knowledge.
-      if (
-        g !== null && g.length > 0 && !restates(g) &&
-        indexOf(filled.filler, g, 0) < 0 &&
-        !(g.length < query.length && indexOf(query, g, 0) >= 0)
-      ) {
-        return ground(
-          g,
-          "frame-filler substitution — a trained form IS this query with a " +
-            "corroborated filler in the described span's place",
-          // The frame is literally matched against the resolved form and the
-          // described span is explained by the substitution — the same
-          // matched-plus-substituted accounting the bridge reports.
-          [[0, query.length]],
-          CONCEPT + STEP,
         );
       }
     }
