@@ -233,15 +233,42 @@ are fully decoupled — Sema reaches them only through interfaces.
 
 ---
 
+## ✦ Try it — one file, zero setup
+
+A **self-contained app** that opens a **web chat with Sema**. Download, run,
+start talking — no install, no runtime, no API key.
+
+<div align="center">
+
+| Your machine             | Download                                                                                                                       |
+| :----------------------- | :----------------------------------------------------------------------------------------------------------------------------- |
+| 🪟 **Windows**           | [Download · 85 MB](https://huggingface.co/buckets/hviana/sema-binary-examples/resolve/sema-demo-windows-x64.exe?download=true) |
+| 🍎 **Mac** — M1–M4       | [Download · 73 MB](https://huggingface.co/buckets/hviana/sema-binary-examples/resolve/sema-demo-macos-arm64?download=true)     |
+| 🍎 **Mac** — Intel       | [Download · 85 MB](https://huggingface.co/buckets/hviana/sema-binary-examples/resolve/sema-demo-macos-x64?download=true)       |
+| 🐧 **Linux** — Intel/AMD | [Download · 113 MB](https://huggingface.co/buckets/hviana/sema-binary-examples/resolve/sema-demo-linux-x64?download=true)      |
+| 🐧 **Linux** — ARM       | [Download · 114 MB](https://huggingface.co/buckets/hviana/sema-binary-examples/resolve/sema-demo-linux-arm64?download=true)    |
+
+</div>
+
+> [!TIP]
+> Not sure which Mac you have? Anything sold from 2020 onward is almost
+> certainly **M1–M4**. On Linux, if you're on a regular desktop or server, pick
+> **Intel/AMD**; **ARM** is for boards like the Raspberry Pi and ARM cloud
+> instances. All builds are browsable at
+> [🤗 sema-binary-examples](https://huggingface.co/buckets/hviana/sema-binary-examples).
+
+---
+
 ## ✦ Learn more
 
-| Document                                                                         | What's inside                                                                                                                                            |
-| :------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 📘 **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)**                                        | The full theory: vector symbolic architectures, the Merkle DAG, distributional halos, weighted deduction — concepts, diagrams, and extensive pseudocode. |
-| 🛠️ **[AGENTS.md](AGENTS.md)**                                                    | The development manual: repo layout, build/test, internals, invariants, and recipes for extending the system.                                            |
-| ⚖️ **[LICENSE.md](LICENSE.md)**                                                  | PolyForm Noncommercial License 1.0.0.                                                                                                                    |
-| 💼 **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**                            | Commercial licensing terms and contact.                                                                                                                  |
-| 🤗 **[Trained examples](https://huggingface.co/buckets/hviana/sema-trained-v1)** | Pre-trained memory files you can download and use directly.                                                                                              |
+| Document                                                                             | What's inside                                                                                                                                            |
+| :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 📘 **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)**                                            | The full theory: vector symbolic architectures, the Merkle DAG, distributional halos, weighted deduction — concepts, diagrams, and extensive pseudocode. |
+| 🛠️ **[AGENTS.md](AGENTS.md)**                                                        | The development manual: repo layout, build/test, internals, invariants, and recipes for extending the system.                                            |
+| ⚖️ **[LICENSE.md](LICENSE.md)**                                                      | PolyForm Noncommercial License 1.0.0.                                                                                                                    |
+| 💼 **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**                                | Commercial licensing terms and contact.                                                                                                                  |
+| 🤗 **[Trained examples](https://huggingface.co/buckets/hviana/sema-trained-v1)**     | Pre-trained memory files you can download and use directly.                                                                                              |
+| 💿 **[Binary examples](https://huggingface.co/buckets/hviana/sema-binary-examples)** | Ready-to-run web chat apps for Windows, Mac, and Linux — one file, no install.                                                                           |
 
 ---
 
