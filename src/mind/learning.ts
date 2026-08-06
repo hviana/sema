@@ -3,7 +3,7 @@
 //   Learning is DEPOSITION: perceive a stream into a tree and intern every
 //   node.  A fact is an EDGE between node ids; recall traverses edges.
 
-import { Vec } from "../vec.js";
+import { addInto, normalize, Vec, zeros } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
 import { changedNodes } from "./types.js";
@@ -15,6 +15,7 @@ import {
   resolve,
 } from "./primitives.js";
 import { canonicalWindows, leafIdPrefix } from "./canonical.js";
+import { atomIsHub, corpusN, hubBound } from "./traverse.js";
 import { fold as foldVecs } from "../sema.js";
 
 /** Intern a perceived tree into node ids, bottom-up, sharing equal subtrees.
@@ -233,6 +234,97 @@ export interface DepositReport {
   continuationId?: number;
 }
 
+/** The COMPANY PROFILE of a partner: its own identity signature superposed
+ *  with the signatures of its DISCRIMINATING content-defined constituents.
+ *
+ *  WHY THE WHOLE-PARTNER SIGNATURE ALONE IS NOT ENOUGH.  The distributional
+ *  hypothesis is a claim about TYPES ("occurs near a city name"), but a
+ *  signature keyed on the whole partner's node id records a TOKEN ("occurred
+ *  near node #4711992").  Two nodes are then distributional siblings only when
+ *  their partners are the very same node — and a content-addressed store of
+ *  natural language almost never repeats a whole deposit (measured on the
+ *  trained store: whole-span dedup 0.98×, i.e. effectively none).  So the
+ *  halos of genuine synonyms came out quasi-orthogonal BY CONSTRUCTION: the
+ *  best distributional sibling of "Eiffel Tower" scored 0.146 against a
+ *  concept threshold of 0.516, with its own attested translations absent
+ *  entirely, and the whole concept-hop / articulation / analogy layer was
+ *  inert at corpus scale.  (Re-verified under the store's OWN training seed:
+ *  company signatures key on NODE ID, not the alphabet, so this reading is
+ *  seed-independent and the figures are identical either way.  Worth stating
+ *  because a Mind built with a seed other than the store's makes every GIST
+ *  comparison meaningless while leaving halo comparisons untouched.)  Superposing the constituents' signatures makes two
+ *  episodes share halo mass exactly when they share a content-defined
+ *  CONSTITUENT — which is what "kept similar company" was always meant to
+ *  mean.
+ *
+ *  A PURE FUNCTION OF THE NODE — the constraint that makes it sound.  The
+ *  constituents are read from the STORE, never from the depositing tree's id
+ *  map.  That map holds only the nodes THIS deposit newly interned, so a
+ *  partner met a second time (its subtrees already stored) yielded a profile
+ *  missing exactly those constituents: the same partner produced different
+ *  signatures on different episodes, the exact-partner case fell from cosine
+ *  1 to 1/√(1+k), and the geometry stopped meaning anything (measured: it
+ *  silenced CAST's analogy gate outright — test/29 C1).  Reading the store
+ *  makes the profile content-addressed like everything else: same node, same
+ *  profile, forever, so pouring the same partner twice is bit-identical and
+ *  §2.1 holds.
+ *
+ *  DISCRIMINATING CONSTITUENTS ONLY.  A constituent that is a hub (contained
+ *  in more than √N forms — the one bound §8.8 derives, read LIMITed) is
+ *  scaffolding: " is ", "the ".  Superposing it would put a term shared by
+ *  every deposit into every profile, so ALL halos would correlate and the
+ *  concept threshold's null model (unrelated halos at 0 ± 1/√D) — which
+ *  §4.1's hygiene note exists to protect — would collapse.  This is the
+ *  frame-echo problem transplanted into the halo layer, and corpus-global
+ *  commonality (§8.10) is the measure that answers it.  On a small store √N
+ *  is small, nearly everything reads as a hub, and the profile degrades to
+ *  the bare whole-partner signature — exactly the previous behaviour, which
+ *  is the honest floor when the corpus cannot yet say what discriminates.
+ *
+ *  THE NULL MODEL IS OTHERWISE UNTOUCHED (§4.1).  Every term is still a seeded
+ *  function of a NODE IDENTITY, never a gist, so no byte-similarity between
+ *  partners can leak content similarity into distributional similarity.  The
+ *  result is normalized, so ONE episode still pours ONE unit of mass:
+ *  {@link Store.haloMass} keeps counting episodes and every mass-based
+ *  reading is unchanged.  Two partners sharing j of k discriminating
+ *  constituents meet at j/(1+k) — graded evidence, above the 1/√D noise floor
+ *  and below conceptThreshold until the overlap is most of the content, which
+ *  is the semantics "same company" should have.
+ *
+ *  Bounded: the constituent count is the fold's own arity bound (§10.3), each
+ *  tested by ONE LIMITed containment read, so a pour costs O(W) reads and no
+ *  scan. */
+function companyProfile(ctx: MindContext, id: number): Vec {
+  const acc = zeros(ctx.space.D);
+  addInto(acc, companySignature(ctx.space, id));
+  const rec = ctx.store.get(id);
+  const kids = rec?.kids;
+  if (kids) {
+    const bound = hubBound(ctx);
+    // BYTE ATOMS NEVER CONTRIBUTE — §8.8's floor, and the reason the first
+    // version of this function silenced CAST's analogy gate (test/29 C1).  An
+    // atom carries no containment rows BY CONSTRUCTION, so the hub test below
+    // reads 0 containers and passes it as maximally discriminative — the
+    // exact inversion §8.8 exists to forbid.  A short partner ("cold") folds
+    // FLAT, so its constituents ARE its byte leaves: every profile then
+    // absorbed a handful of alphabet signatures, which are shared by
+    // everything in the store.  That both polluted the null model and pushed
+    // the genuine analog's halo evidence off its tier (measured: analogy
+    // strength 0.3636 -> 0.2004, "no halo-tier company evidence").  An atom's
+    // commonality is unmeasurable, so it takes the honest floor: hub.
+    const atomsAreHubs = atomIsHub(ctx, corpusN(ctx));
+    for (const kid of kids) {
+      if (kid === id) continue;
+      if (kid < 0 || atomsAreHubs && ctx.store.get(kid)?.kids === null) {
+        continue;
+      }
+      if (ctx.store.containersSlice(kid, 0, bound + 1).length > bound) continue;
+      addInto(acc, companySignature(ctx.space, kid));
+    }
+  }
+  return normalize(acc);
+}
+
 /** Ingest a pair (context, continuation) — learn an edge and pour halos.
  *  Returns the deposited root ids (context, continuation) — a pure
  *  read-out; callers that ignore it behave exactly as before. */
@@ -255,14 +347,17 @@ export async function ingestPair(
   await propagateSuffixes(ctx, ctxId, contId);
 
   // Halos pour company SIGNATURES (identity), not gists (content) — see
-  // companySignature in sema.ts.
-  const contSeat = bindSeat(ctx.space, companySignature(ctx.space, contId), 1);
+  // companySignature in sema.ts — as a TYPE-level profile: the partner's own
+  // signature superposed with its discriminating constituents' (see
+  // companyProfile), so company is shared by what partners are MADE OF and
+  // not only by partner identity.
+  const contSeat = bindSeat(ctx.space, companyProfile(ctx, contId), 1);
   for (const part of c.changed) {
     const partId = c.ids.get(part)!;
     await ctx.store.pourHalo(partId, contSeat);
     await ctx.store.pourHalo(
       contId,
-      bindSeat(ctx.space, companySignature(ctx.space, partId), 0),
+      bindSeat(ctx.space, companyProfile(ctx, partId), 0),
     );
   }
   return { ctxId, contId };
