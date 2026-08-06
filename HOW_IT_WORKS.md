@@ -1570,38 +1570,48 @@ size of the grouping quantum has nothing to do with it — any fixed modulus doe
 this, and identity must not depend on the fold's arity at all.
 
 Sema therefore lets the **bytes choose where the stream segments**. A rolling
-hash runs over a bounded window of the recent bytes; a cut is offered where that
-hash vanishes modulo W. Because the decision reads only a bounded window, a
-change upstream can move only the cut it falls inside — every downstream
-boundary, and therefore every downstream segment, is unchanged. Since each
-segment folds from its own seat 0, byte-identical content produces
-byte-identical subtrees wherever it occurs, and hash-consing then makes it the
-very same node id.
+window holds the recent bytes; a cut is offered where a mix of that window
+vanishes modulo W. Because the test reads only that window, a change upstream
+perturbs boundaries near itself and the segmentation downstream re-synchronises
+on its own. Since each segment folds from its own seat 0, byte-identical content
+that survives that re-synchronisation produces byte-identical subtrees wherever
+it occurs, and hash-consing then makes it the very same node id.
 
-The rule is entirely mechanical, and every constant in it is derived:
+The rule is entirely mechanical:
 
-- **The window** is W bytes wide, implemented as a cyclic polynomial (each byte
-  enters as a table value and leaves rotated by the window width), so the
-  register holds _exactly_ the last W raw bytes and nothing before them can
-  reach the decision. The raw window is put through a two-round avalanche mix
-  before the test, which is what makes the rule behave the same on a gradient or
-  a sparse binary stream as it does on prose.
+- **The window** is a 32-bit shift register (`h ≔ (h << 8) | byte`), so it holds
+  _exactly_ the last four raw bytes and nothing before them can reach the test.
+  The raw window is put through a two-round avalanche mix before the test, which
+  is what makes the rule behave the same on a gradient or a sparse binary stream
+  as it does on prose. Note that the window is a property of the register, not
+  of W: changing W changes the cut _rate_, not how far a disturbance reaches.
 - **The cut rate** is one offer per W bytes (`mix % W === 0`).
-- **The minimum segment length** is expressed _locally_, not as a count from the
-  previous cut (a count carries the stream's initial phase forever, which is
-  exactly the offset dependence being removed): a hit is taken only if the
-  previous two positions did not hit.
+- **Acceptance is gated locally**, not by a count from the previous cut (a count
+  carries the stream's initial phase forever, which is exactly the offset
+  dependence being removed): a hit is taken only if the previous two positions
+  did not hit. Both terms of the acceptance test are therefore functions of a
+  bounded byte window.
 - **The maximum segment length** is the keyring's seat count, because a segment
   folds as one flat node and the fold has exactly that many seats to bind
-  children into. An over-long stretch is split at strides from its own start —
-  content-relative, and rare enough (mean segment ≈ 5–7 bytes against a bound of
-  8) not to reintroduce a systematic phase.
+  children into. An over-long stretch is split at strides from its own start:
+  the stretch _begins_ at a content-chosen cut, but the split points themselves
+  are counted off, so this is the one boundary in the rule that content does not
+  choose.
 
-The expected segment is therefore `minLen + W − 1` bytes — deliberately coarser
-than the fold's own arity. A segment is the flat **phrase-scale unit** the W-ary
-groups are built _from_, not a group of W children; the mechanisms downstream
-are fitted to that scale, and forcing the two to coincide was measured and
-refuted.
+The resulting segment averages ≈ 5–6 bytes against a seat bound of 8 (measured:
+5.2 on prose, 5.3–5.8 across uniform, sparse, low-entropy, periodic-record and
+gradient streams) — deliberately coarser than the fold's own arity. A segment is
+the flat **phrase-scale unit** the W-ary groups are built _from_, not a group of
+W children; the mechanisms downstream are fitted to that scale, and forcing the
+two to coincide was measured and refuted.
+
+The forced split is not rare enough to ignore: it ends ~25% of segments on prose
+and ~32% on uniform random bytes. It is what keeps re-synchronisation an
+empirical property rather than a guaranteed one — a single-byte edit moves
+boundaries for a median of 4 bytes downstream, but 5% of edits reach ~14 bytes
+and the worst observed case ~28 (W = 4, seat bound 8). Lengthening segments to
+shrink it makes forced splits dominant and alignment collapses instead
+(measured: 0.000 on two-symbol data at rate 1/16).
 
 This reads **bytes, never text**. Measured over 400 real deposits under 1–7 byte
 shifts, downstream cuts survive 99.6–99.9% of the time and segments stay
@@ -4770,7 +4780,7 @@ fracOfQuery(cos, otherLen, qLen) ≔ min(1, cos · √(otherLen / max(1, qLen)))
 
 # ── perception (§10) ──────────────────────────────────────────────────
 contentLevels(bytes):                  # §10.2 — the ONE boundary rule
-    h ≔ rolling window of the last W raw bytes (cyclic polynomial)
+    h ≔ 32-bit shift register: the last 4 raw bytes
     for each position i:
         m ≔ avalanche(h)               # two rounds
         hit ≔ (m mod W = 0)

@@ -31,6 +31,12 @@ No weights. No gradients. No training loop. No neural network. No GPU.
 > inspectable, exact — and _reasons_ over it on demand. The store **is** the
 > model. What it knows, you can read. Why it answered, you can trace.
 >
+> The difference is not a matter of degree. A trained model's meanings are real,
+> but nothing in it records where they came from — provenance is diffused across
+> an entire training run rather than kept. Sema's meanings are assembled from
+> **enumerable events**, and the record is the mechanism: for any concept it
+> holds, you can list what taught it, and in what role.
+>
 > Formally, Sema is a **non-parametric, instance-based reasoning system**: a
 > Vector Symbolic Architecture (Plate 1995; Kanerva 2009) over a
 > content-addressable memory, with inference by weighted automated deduction
@@ -39,39 +45,52 @@ No weights. No gradients. No training loop. No neural network. No GPU.
 
 ---
 
-## ✦ Retrieval and reasoning, one search
+## ✦ It chooses how to think
 
-Two questions, asked of every query — and Sema answers both in a single pass:
+A question can be answered in more than one way, and the ways are not
+interchangeable. Sema holds several, lets them compete, and takes the one that
+leaves the least of your question unaccounted for.
 
 <div align="center">
 
-|                  | The question it asks                                 |
-| :--------------- | :--------------------------------------------------- |
-| 🔎 **Retrieval** | _"What do I already know that bears on this?"_       |
-| 🧠 **Deduction** | _"What can I conclude or decide from what I found?"_ |
+| What Sema claims about your question                                               |
+| :--------------------------------------------------------------------------------- |
+| _"I can build this answer out of pieces I already know."_                          |
+| _"You've woven two things I know — let me carry structure between them."_          |
+| _"You gave me two conditions; the answer is where they meet."_                     |
+| _"I've seen this shape of question before — let me read yours the same way."_      |
+| _"You've begun something I know the whole of."_                                    |
+| _"Part of this answer is **your** words, in a place my memory keeps open."_        |
+| _"The nearest thing I hold is this — and I'm telling you it's near, not derived."_ |
+| **_"Nothing I hold bears on this."_**                                              |
 
 </div>
 
 ```text
-               ┌──────────────────────────────────────────────┐
-Your question  │"The Weeping Woman was painted by Picasso."   │
-               └──────────────────────┬───────────────────────┘
-                                      ▼
-   🔎  Retrieve     resonate the query against the memory
-                    ·  "… painted by … → the painter"  (a learned pattern)
-                    ·  "Picasso → co-founded the Cubist movement"
-                                      ▼
-   🧠  Deduce       connect · derive · compose
-                    ·  lift the painter from a sentence never seen
-                    ·  follow that name onward to what it implies
-                                      ▼
-   ✅  Answer       "Pablo Picasso co-founded the Cubist movement"
-                    (a fact that appears in no word of the question)
+                 ┌──────────────────────────────────────┐
+ your question   │  every route prices its own answer   │
+       │         └──────────────────┬───────────────────┘
+       ▼                            ▼
+┌─────────────┐        one price, one question:
+│  route  ·   │        "how much of what you asked
+│  route  ·   │  ───▶   did this route fail to
+│  route  ·   │         account for?"
+│  route  ·   │                     │
+└─────────────┘                     ▼
+                         ┌─────────────────────────┐
+                         │  the lightest answer    │
+                         │  wins — and arrives     │
+                         │  tagged with the route  │
+                         │  that produced it       │
+                         └─────────────────────────┘
 ```
 
-Retrieval and reasoning are not two bolted-together stages — they are **one
-search** over **one memory**, which is why the answer can be something no single
-stored fact contains. Watch it happen below.
+Because the price is _unexplained question_ — not speed, not confidence — the
+winner is the route that accounts for most of what you actually asked, rather
+than the one most eager to answer. It is also why the last line of that table is
+a legitimate outcome and not a failure: when no route can account for what you
+asked, **silence is a first-class answer.** A system that must always produce
+something will always, eventually, produce fiction.
 
 ---
 
@@ -83,22 +102,13 @@ stored fact contains. Watch it happen below.
 
 ### 🧩 Symbolic, not statistical
 
-Knowledge is stored as a **content-addressed graph**, not smeared across a
-weight matrix. Every fact is an edge you can point at. Nothing is hallucinated
-out of a probability distribution.
+Everything stored carries a vector for what it is _made of_; anything that takes
+part in a fact carries a second for the **company it keeps**. The first makes
+_colour_ close to _colours_; the second makes _colour_ close to _hue_, two words
+whose spellings have nothing to do with each other. Meaning here is assembled
+and readable, not smeared across a weight matrix.
 
 </td>
-<td width="50%" valign="top">
-
-### 🔀 Retrieval and reasoning, unified
-
-Retrieval and reasoning are **one mechanism**, not a brittle pipeline of bolted-
-together components. A query enters the graph where it _resonates_ and a single
-lightest-derivation search composes the answer.
-
-</td>
-</tr>
-<tr>
 <td width="50%" valign="top">
 
 ### 🔍 Fully auditable
@@ -108,6 +118,8 @@ output back to the exact deposits that produced it — a hard requirement for
 regulated, high-stakes, and safety-critical deployments.
 
 </td>
+</tr>
+<tr>
 <td width="50%" valign="top">
 
 ### ♻️ Deterministic & reproducible
@@ -115,6 +127,17 @@ regulated, high-stakes, and safety-critical deployments.
 Same seed + same bytes → **identical result, every time.** No temperature, no
 sampling, no drift between runs. Reproducibility is a property of the
 architecture, not a flag you toggle.
+
+</td>
+<td width="50%" valign="top">
+
+### 📐 Nothing tuned
+
+**No threshold is a chosen number.** Every bar the system decides on is derived
+from the representation's own geometry — its dimension, its perception window,
+how much it has learned. Nothing was fitted to a benchmark, so there is no dev
+set to overfit and no calibration that silently expires when your data stops
+resembling someone else's.
 
 </td>
 </tr>
@@ -139,9 +162,11 @@ leak. Everything a trained mind knows lives in a few files on your disk.
 </table>
 
 > [!TIP]
-> **No GPU. No cluster. No cloud bill.** Sema runs on an ordinary CPU with a
-> tiny memory footprint, because it never multiplies a weight matrix — it walks
-> a graph. The economics of deploying intelligence change completely.
+> **No GPU. No cluster. No cloud bill.** Sema runs on an ordinary CPU, because
+> it never multiplies a weight matrix — it walks a graph. Its resident memory is
+> capped by configuration rather than by how much it has learned, so a large
+> store does not become a large machine. The economics of deploying intelligence
+> change completely.
 
 ---
 
@@ -150,20 +175,11 @@ leak. Everything a trained mind knows lives in a few files on your disk.
 Give Sema four plain notes — the way you'd jot them down — then ask things **no
 note answers**. From three worked examples it learns the _shape_ of "X was
 painted by Y", lifts the painter out of a sentence it has **never seen**, and —
-in the same pass — reasons onward to a separate fact about that painter. The
-reply contains no word from the question: it is **retrieval, generalization, and
-reasoning composing as a single act**.
+in the same pass — reasons onward to a separate fact about that painter. Nothing
+in the reply but the painter's own name comes from the question.
 
 ```ts
 // demo.ts — one short session that drives the WHOLE pipeline from one memory.
-//
-// We give Sema a handful of plain notes, then ask things that no single note
-// answers. The headline query is the third one: from three worked examples Sema
-// learns the shape of "X was painted by Y", lifts the painter out of a sentence
-// it has NEVER seen, and then — in the same pass — reasons forward to a separate
-// fact about that painter. The reply contains no word from the question. That is
-// retrieval, generalization, and reasoning composing as a single act, with every
-// step traceable back to the notes behind it.
 
 import { Mind } from "../src/index.js";
 import { SQliteStore } from "../src/store-sqlite.js";
@@ -186,16 +202,11 @@ async function main(): Promise<void> {
   ]);
 
   // 1) GENERALIZE — apply the learned pattern to an unseen sentence and read out
-  //    the painter. "Pablo Picasso" was never given as an answer; Sema locates it
-  //    by analogy to the three examples.
+  //    the painter, then keep going into what is known about him.
   console.log(await ask("The Weeping Woman was painted by Pablo Picasso."));
-  // → "Pablo Picasso co-founded the Cubist movement"
-  //   …and, having found the painter, it KEEPS GOING: the name bridges into the
-  //   one fact it holds about him. The answer appears in no word of the question.
 
   // 2) COMPUTE — exact arithmetic, grounded right where the notes go silent.
   console.log(await ask("a museum charges 12*4 for a family ticket"));
-  // → "48"
 
   await mind.store.close();
 }
@@ -208,28 +219,70 @@ Pablo Picasso co-founded the Cubist movement
 48
 ```
 
+Ask for the receipt instead of the text, and each answer says how it was reached
+— `mind.respond(q)` returns the same bytes plus a **`provenance` tag** naming
+the route, and, on request, the complete replayable trace behind it:
+
+```text
+"The Weeping Woman was painted by Pablo Picasso."  →  provenance: cast
+    ( structure carried across the three worked examples )
+
+"a museum charges 12*4 for a family ticket"        →  provenance: cover
+    ( composed from the question's own parts — one of them computed exactly )
+```
+
 > [!NOTE]
-> This is **[example/demo.ts](example/demo.ts)**, verbatim — run it yourself
-> with `npm run demo`. Look closely at the first answer: the question names a
-> painting Sema was never shown and asks nothing explicit, yet the reply is a
-> fact about Picasso that appears **nowhere** in the question. Sema generalized
-> "_painted by_" from three examples to recognize _Pablo Picasso_ as the answer
-> slot, then followed that name to the one thing it knows about him — retrieval,
-> an analogy, and a reasoning hop, in one query. The second answer is exact, not
-> a plausible-looking guess. Every step traces back to the four notes above.
+> This is **[example/demo.ts](example/demo.ts)** — run it with `npm run demo`.
+> The first question names a painting Sema was never shown, and asks nothing
+> explicit; what comes back is a fact about Cubism that appears **nowhere** in
+> it. The second is exact, not a plausible-looking guess. Every step traces back
+> to the four notes above.
 
 ---
 
-## ✦ Engineered from three solved problems
+## ✦ Learn it in one pass
 
-Sema is composed of three self-contained, independently documented engines. They
-are fully decoupled — Sema reaches them only through interfaces.
+There is no training phase distinct from using it. **Depositing _is_ learning**,
+and a fact is available the instant it lands.
 
-| Engine           | What it solves                                                                             | Result                                                                                                                       |
-| :--------------- | :----------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
-| **`rabitq-ivf`** | _"Given a vector, find the nodes whose gist resonates with it — fast, at scale, on disk."_ | Partitioned (IVF) index over 1-bit RaBitQ codes · ~32× compression · bounded RAM · flat inserts, bounded queries             |
-| **`derive`**     | _"Explore a huge implicit space of derivations and return the single lightest one."_       | adapted A\*LD (adapted A\* Lightest Derivation) over a weighted deduction hypergraph — Sema's thinking _is_ one call to this |
-| **`alu`**        | _"Compute, exactly and symbolically, the things that are rules, not facts."_               | A tiny irreducible kernel from which arithmetic, logic, and n-dimensional computation are derived                            |
+<div align="center">
+
+|                      |                                                                                                     |
+| :------------------- | :-------------------------------------------------------------------------------------------------- |
+| 📥 **To teach it**   | Hand it the fact. One pass. No epochs, no GPU, no fine-tuning window.                               |
+| ✏️ **To correct it** | Deposit the correction — a write, not a retraining run. Nothing is erased; the evidence is weighed. |
+| 🔁 **To repeat it**  | Teaching the same thing twice creates nothing new — identity is content.                            |
+| 📦 **To scale it**   | Storage grows with _distinct_ content, never with volume.                                           |
+
+</div>
+
+> [!TIP]
+> It does not learn by repetition and does not need an enormous corpus. What it
+> needs is **coverage of fundamental patterns** — conversation, logic,
+> relationships, quantities — not the same pattern ten thousand times. A small,
+> well-chosen curriculum teaches it more than a scraped ocean.
+
+---
+
+## ✦ Where it matters
+
+Not "faster than an LLM" — **possible where an LLM is not.** Each of these
+sectors is blocked by a requirement no sampled model can meet.
+
+| Sector                        | The blocker                                                       | What Sema puts on the table                                                     |
+| :---------------------------- | :---------------------------------------------------------------- | :------------------------------------------------------------------------------ |
+| 🏥 **Healthcare**             | Patient data cannot leave; a recommendation must be explicable    | Runs in the building, cites the record behind every answer                      |
+| 🏦 **Finance & credit**       | An adverse decision must be justified, and reproduced on demand   | The same inputs give the same decision, with the reasoning attached             |
+| ⚖️ **Legal & compliance**     | A cited authority that does not exist is a career-ending event    | Nothing is invented: every answer is a derivation over what was deposited       |
+| 🛡️ **Defense & intelligence** | Air-gapped, no external inference, no telemetry                   | One binary, no network, no API key, no weights to exfiltrate                    |
+| 🏭 **Industrial & safety**    | Certification requires deterministic, auditable behaviour         | Determinism is architectural, and every answer is a replayable derivation       |
+| 🏛️ **Public sector**          | Decisions about citizens must be contestable                      | A citizen can be shown exactly which rules and records produced the outcome     |
+| 🛰️ **Edge & robotics**        | No datacenter, tight power budget, knowledge changes in the field | CPU-only, memory capped by configuration; new knowledge is a write, not a build |
+
+> [!NOTE]
+> The common thread: these are settings where **"I don't know" is worth more
+> than a confident guess** — and where a wrong answer is not an inconvenience
+> but a liability. Sema is built to say it.
 
 ---
 
@@ -265,6 +318,7 @@ start talking — no install, no runtime, no API key.
 | :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 📘 **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)**                                            | The full theory: vector symbolic architectures, the Merkle DAG, distributional halos, weighted deduction — concepts, diagrams, and extensive pseudocode. |
 | 🛠️ **[AGENTS.md](AGENTS.md)**                                                        | The development manual: repo layout, build/test, internals, invariants, and recipes for extending the system.                                            |
+| 🎓 **[CITATION.cff](CITATION.cff)**                                                  | How to cite Sema in academic work.                                                                                                                       |
 | ⚖️ **[LICENSE.md](LICENSE.md)**                                                      | PolyForm Noncommercial License 1.0.0.                                                                                                                    |
 | 💼 **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**                                | Commercial licensing terms and contact.                                                                                                                  |
 | 🤗 **[Trained examples](https://huggingface.co/buckets/hviana/sema-trained-v1)**     | Pre-trained memory files you can download and use directly.                                                                                              |
