@@ -512,6 +512,73 @@ similarity into _distributional_ similarity, silently shifting the halo null
 model that the concept threshold's derivation (unrelated halos ⇒ cosine 0 ±
 1/√D) depends on.
 
+#### Company must be keyed on types, not tokens
+
+A signature derived from the _whole_ partner's node id records a **token**:
+"occurred next to node #4711992". But the distributional hypothesis is a claim
+about **types**: "occurred next to a city name". On a content-addressed store of
+natural language the difference is fatal, because a whole deposit essentially
+never repeats: on a trained 15.7M-node store, 331,110 trained pairs produced
+325,615 distinct contexts — 98.3% of them unique, so barely one span in sixty
+ever recurs. Two genuine synonyms in different sentences then share no partner
+id at all, and their halos come out quasi-orthogonal _by construction_: the best
+distributional sibling of "Eiffel Tower" measured 0.146 against a concept
+threshold of 0.516, with its own attested translations absent entirely. The
+whole concept-hop, articulation and analogy layer was inert at corpus scale —
+not for want of data, but because the key was too fine.
+
+Sema therefore pours a **company profile**: the partner's own signature
+superposed with the signatures of the partner's _constituents_. Two episodes
+then share halo mass exactly when their partners are **made of** something in
+common, which is what "keeps similar company" was always meant to mean.
+
+Which constituents count is decided by four rules, each one load-bearing:
+
+- **Every depth, not just the partner's children.** Cuts are content-defined
+  over a rolling window, so a chunk boundary depends on the bytes _around_ a
+  unit. "The Eiffel Tower is in Paris" folds to `The Eiffel` ·
+  `Tower is in
+  Paris`, and "Tour Eiffel dia any Paris" to `Tour Eiffel` ·
+  `dia any Paris` — the shared unit `Paris` is a child of neither. Reading only
+  the children merely moves the token problem from whole-partner identity down
+  to top-level-chunk identity, which for full sentences is nearly as rare. The
+  descent finds `Paris` and `ffel`; the top level finds nothing.
+- **Never gate on recurrence-so-far.** The tempting rule — descend while a
+  constituent is corpus-unique, stop at the first unit attested twice — is
+  order-dependent: when the _first_ of a pair is deposited its shared unit has
+  been seen once, so the descent runs past it, and only the second partner ever
+  profiles it. Whether two synonyms become siblings must not depend on which was
+  taught first. The hub test below is the one reading that does consult corpus
+  state, and it can only ever remove a term — never decide which units are
+  found.
+- **Nothing narrower than the fold's own window `W`.** Sub-window shards are
+  fragments of a unit, not units; admitting them lets mid-frequency byte
+  coincidences leak company across unrelated domains.
+- **Minimal units only, and nothing that half-dominates the partner.** A
+  constituent that still contains a constituent of its own is a composite, and
+  superposing both counts the same content twice. This matters most for _nested_
+  partners — an accumulated conversation, where turn _k_'s context is a prefix
+  of turn _k+1_'s — which share their large chunks structurally rather than
+  distributionally.
+
+Hubs (more than √N structural parents — Section 8.8) are excluded as
+scaffolding, since a term shared by every deposit would put a common component
+in every profile and collapse the null model the concept threshold depends on.
+Byte atoms are excluded for the same reason: an atom's fan-in is the alphabet's.
+
+The result stays **normalized**, so one episode still pours one unit of mass and
+every mass-based reading is unchanged; and every term is still a seeded function
+of a **node identity**, never a gist, so the hygiene rule above is untouched.
+
+Similarity is **graded and size-relative**: two partners meet in proportion to
+how much of what they are made of they share, so a shared unit inside a long
+partner says less than the same unit inside a short one. This is the honest
+reading of the evidence, not a defect — but it means the layer speaks clearly at
+sentence scale and softly for very long partners. One further honest limit: the
+hub bound is √N, so on a _small_ store almost nothing reads as scaffolding and
+frame words do enter profiles. That is the correct floor for a corpus that
+cannot yet say what discriminates, and it resolves itself as N grows.
+
 Two nodes whose halos are similar have occurred in similar circumstances — they
 are **distributional siblings**: synonyms, paraphrases, items of the same
 category, two names for one thing. Note the complementarity:
@@ -532,6 +599,13 @@ embedding model:
   rule).
 - **Articulation.** An answer is re-voiced in the asker's own vocabulary by
   substituting answer forms with query forms that share a halo (Section 24).
+  Halo similarity alone is not sufficient authority for this: the strongest
+  company any two forms can keep is standing next to each other, so a question
+  and the answer it is answered by are _maximally_ similar distributionally. Two
+  exact-side vetoes keep that from being read as synonymy — a stored
+  continuation edge between the two forms, and a candidate form spanning the
+  _whole_ answer (substituting that is replacement, not re-voicing). Without
+  them, "it hangs in madrid" is faithfully re-voiced as "where is it kept now".
 - **Analogy strength.** Whether two entities are genuinely analogous — the gate
   on counterfactual comparison (Section 18) — is measured by halo similarity,
   directly or through shared siblings (a second-order distributional test).
