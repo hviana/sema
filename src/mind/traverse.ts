@@ -558,6 +558,35 @@ export function contains(
   return false;
 }
 
+/** Whether a continuation edge joins the two forms, in either direction —
+ *  the EXACT half's veto on calling them synonyms.
+ *
+ *  Halos measure company, and the strongest company any two forms can keep is
+ *  standing next to each other: a question and its answer co-occur in every
+ *  episode that taught the pair, so their halos SHOULD be similar, and on a
+ *  conversational store they are (measured on the CONV fixture: consecutive
+ *  turns at 0.809 against a 0.516 concept threshold).  A gate reading halo
+ *  cosine alone therefore reads adjacency as synonymy and revoices an answer
+ *  in the words of the question it answers — "it hangs in madrid" spliced back
+ *  into "where is it kept now".  The distributional layer cannot tell the two
+ *  relations apart, because to it they are the same observation; the exact
+ *  half can, for free, because it stored the edge.  §4.1's division of labour
+ *  exactly: approximate proposes, exact decides.
+ *
+ *  Read LIMITed in both directions at the hub bound — a common continuation's
+ *  fan-in is corpus-sized, and no single decision may scale with it. */
+export function answers(
+  ctx: MindContext,
+  a: number,
+  b: number,
+): boolean {
+  const bound = hubBound(ctx);
+  if (ctx.store.hasNext(a) && ctx.store.nextFirst(a, bound).includes(b)) {
+    return true;
+  }
+  return ctx.store.hasNext(b) && ctx.store.nextFirst(b, bound).includes(a);
+}
+
 // ── Edge disambiguation (Section 6) ──────────────────────────────────────
 
 /** The best-scoring item by cosine against `query`, among items scoring at

@@ -15,7 +15,8 @@ import {
   resolve,
 } from "./primitives.js";
 import { canonicalWindows, leafIdPrefix } from "./canonical.js";
-import { atomIsHub, corpusN, hubBound } from "./traverse.js";
+import { hubBound } from "./traverse.js";
+import { dominates } from "../geometry.js";
 import { fold as foldVecs } from "../sema.js";
 
 /** Intern a perceived tree into node ids, bottom-up, sharing equal subtrees.
@@ -234,8 +235,17 @@ export interface DepositReport {
   continuationId?: number;
 }
 
+/** How many constituents one profile may VISIT.  A partner's constituent tree
+ *  is O(len/W) nodes, so an uncapped descent would make a pour cost grow with
+ *  the partner's LENGTH — and a partner is a whole deposit, which may be a
+ *  paragraph.  The budget is what keeps a pour O(1) in the input, the property
+ *  that lets {@link companyProfile} claim no new cost class.  It binds only on
+ *  long partners whose constituents are all corpus-unique; the descent's own
+ *  stop rule (below) reaches recurring units far sooner on a trained store. */
+const PROFILE_VISITS = 64;
+
 /** The COMPANY PROFILE of a partner: its own identity signature superposed
- *  with the signatures of its DISCRIMINATING content-defined constituents.
+ *  with the signatures of its RECURRING content-defined constituents.
  *
  *  WHY THE WHOLE-PARTNER SIGNATURE ALONE IS NOT ENOUGH.  The distributional
  *  hypothesis is a claim about TYPES ("occurs near a city name"), but a
@@ -252,34 +262,69 @@ export interface DepositReport {
  *  company signatures key on NODE ID, not the alphabet, so this reading is
  *  seed-independent and the figures are identical either way.  Worth stating
  *  because a Mind built with a seed other than the store's makes every GIST
- *  comparison meaningless while leaving halo comparisons untouched.)  Superposing the constituents' signatures makes two
- *  episodes share halo mass exactly when they share a content-defined
- *  CONSTITUENT — which is what "kept similar company" was always meant to
- *  mean.
+ *  comparison meaningless while leaving halo comparisons untouched.)
  *
- *  A PURE FUNCTION OF THE NODE — the constraint that makes it sound.  The
- *  constituents are read from the STORE, never from the depositing tree's id
- *  map.  That map holds only the nodes THIS deposit newly interned, so a
- *  partner met a second time (its subtrees already stored) yielded a profile
- *  missing exactly those constituents: the same partner produced different
- *  signatures on different episodes, the exact-partner case fell from cosine
- *  1 to 1/√(1+k), and the geometry stopped meaning anything (measured: it
- *  silenced CAST's analogy gate outright — test/29 C1).  Reading the store
- *  makes the profile content-addressed like everything else: same node, same
- *  profile, forever, so pouring the same partner twice is bit-identical and
- *  §2.1 holds.
+ *  WHY THE DESCENT MUST NOT STOP AT DEPTH 1.  Reading only `rec.kids` does
+ *  NOT deliver this.  Cuts are content-defined over a rolling window, so a
+ *  chunk boundary depends on the bytes AROUND a unit: "The Eiffel Tower is in
+ *  Paris" folds to "The Eiffel " + "Tower is in Paris", and "Tour Eiffel dia
+ *  any Paris" to "Tour Eiffel " + "dia any Paris".  The shared unit "Paris"
+ *  is a node in NEITHER — depth-1 profiles of that pair intersect in the
+ *  EMPTY SET, and their halos measured 0.0319 against 0.0416 for an unrelated
+ *  control: no signal at all.  A depth-1 read merely moves the token problem
+ *  from whole-partner identity down to top-level-chunk identity, which for
+ *  full sentences is nearly as rare.  Descending, the same pair shares
+ *  " Paris" and "ffel " while the control still shares nothing — the units
+ *  the distributional hypothesis is actually about.
  *
- *  DISCRIMINATING CONSTITUENTS ONLY.  A constituent that is a hub (contained
- *  in more than √N forms — the one bound §8.8 derives, read LIMITed) is
- *  scaffolding: " is ", "the ".  Superposing it would put a term shared by
- *  every deposit into every profile, so ALL halos would correlate and the
- *  concept threshold's null model (unrelated halos at 0 ± 1/√D) — which
- *  §4.1's hygiene note exists to protect — would collapse.  This is the
- *  frame-echo problem transplanted into the halo layer, and corpus-global
- *  commonality (§8.10) is the measure that answers it.  On a small store √N
- *  is small, nearly everything reads as a hub, and the profile degrades to
- *  the bare whole-partner signature — exactly the previous behaviour, which
- *  is the honest floor when the corpus cannot yet say what discriminates.
+ *  EVERY DEPTH CONTRIBUTES, AND THE RULE MUST NOT DEPEND ON ARRIVAL ORDER.
+ *  The tempting stop rule — descend only while a constituent is corpus-unique,
+ *  stop at the first unit attested in ≥ 2 forms — is wrong, and measurably so.
+ *  Recurrence is a property of the corpus SO FAR: when the first of a pair is
+ *  deposited its shared unit has fan-in 1, so the descent runs past it, and
+ *  only the second partner ever profiles it.  The pair then never meets
+ *  (measured on the fixture above: 0.0165 against a 0.0375 control — still
+ *  nothing).  Whether two synonyms become distributional siblings cannot be
+ *  allowed to depend on which was trained first.  So the walk descends through
+ *  EVERY constituent within its budget and superposes each one that is not a
+ *  hub, at whatever depth it sits.  A partner's own unique chunks contribute
+ *  terms unique to that partner, which dilute but never mislead; the shared
+ *  units contribute the signal.
+ *
+ *  HUBS ARE THE ONE EXCLUSION, read LIMITed as `parentsFirst(n, bound+1)` —
+ *  the store's own exact hub-or-not probe (a result longer than the bound
+ *  means MORE than the bound), never a fan-in-sized read.  A constituent with
+ *  more than √N structural parents is scaffolding by §8.8's bound: " is ",
+ *  "the ".  Superposing it would put a term shared by every deposit into every
+ *  profile, ALL halos would correlate, and the concept threshold's null model
+ *  (unrelated halos at 0 ± 1/√D) that §4.1's hygiene note protects would
+ *  collapse.  It is still DESCENDED into — a hub chunk can contain a rare
+ *  unit — but contributes nothing itself.
+ *
+ *  Byte atoms are skipped in BOTH representations (a negative id and a stored
+ *  kid-less node): an atom's fan-in is the alphabet's, so it can only ever
+ *  read as a hub, and a short partner folding FLAT would otherwise put a
+ *  handful of alphabet signatures into every profile — which is what silenced
+ *  CAST's analogy gate in the first version of this function (measured:
+ *  analogy strength 0.3636 -> 0.2004, "no halo-tier company evidence",
+ *  test/29 C1).
+ *
+ *  A FUNCTION OF THE NODE AND THE CORPUS STATE — stated precisely, because
+ *  the weaker claim is the true one.  The constituents are read from the
+ *  STORE, never from the depositing tree's id map: that map holds only the
+ *  nodes THIS deposit newly interned, so a partner met a second time yielded a
+ *  profile missing exactly those constituents, the exact-partner case fell
+ *  from cosine 1 to 1/√(1+k), and the geometry stopped meaning anything.
+ *  Reading the store fixes that.  It does NOT make the profile permanent: the
+ *  hub test reads fan-in against √N and both grow with training, so a partner
+ *  poured early and again late can profile differently.  That residue is
+ *  confined to the hub EXCLUSION — which terms are dropped as scaffolding —
+ *  and never to which units are found, because the descent itself is now
+ *  order-independent.  The drift is one-directional and benign: a term can
+ *  only ever go from contributing to being excluded as scaffolding.  Replay of
+ *  a fixed training order is bit-identical, so §2.1 holds.  What must not be
+ *  claimed is that a node's profile is fixed for all time; it is fixed given
+ *  the corpus that has been seen.
  *
  *  THE NULL MODEL IS OTHERWISE UNTOUCHED (§4.1).  Every term is still a seeded
  *  function of a NODE IDENTITY, never a gist, so no byte-similarity between
@@ -291,36 +336,51 @@ export interface DepositReport {
  *  and below conceptThreshold until the overlap is most of the content, which
  *  is the semantics "same company" should have.
  *
- *  Bounded: the constituent count is the fold's own arity bound (§10.3), each
- *  tested by ONE LIMITed containment read, so a pour costs O(W) reads and no
- *  scan. */
+ *  Bounded: at most {@link PROFILE_VISITS} constituents are classified, each
+ *  by ONE LIMITed structural-parent read, so a pour costs O(1) reads in the
+ *  partner's size and performs no scan. */
 function companyProfile(ctx: MindContext, id: number): Vec {
   const acc = zeros(ctx.space.D);
   addInto(acc, companySignature(ctx.space, id));
-  const rec = ctx.store.get(id);
-  const kids = rec?.kids;
-  if (kids) {
-    const bound = hubBound(ctx);
-    // BYTE ATOMS NEVER CONTRIBUTE — §8.8's floor, and the reason the first
-    // version of this function silenced CAST's analogy gate (test/29 C1).  An
-    // atom carries no containment rows BY CONSTRUCTION, so the hub test below
-    // reads 0 containers and passes it as maximally discriminative — the
-    // exact inversion §8.8 exists to forbid.  A short partner ("cold") folds
-    // FLAT, so its constituents ARE its byte leaves: every profile then
-    // absorbed a handful of alphabet signatures, which are shared by
-    // everything in the store.  That both polluted the null model and pushed
-    // the genuine analog's halo evidence off its tier (measured: analogy
-    // strength 0.3636 -> 0.2004, "no halo-tier company evidence").  An atom's
-    // commonality is unmeasurable, so it takes the honest floor: hub.
-    const atomsAreHubs = atomIsHub(ctx, corpusN(ctx));
+  const bound = hubBound(ctx);
+  const W = ctx.space.maxGroup;
+  const whole = Math.max(1, ctx.store.contentLen(id));
+  const frontier: number[] = [];
+  const seen = new Set<number>([id]);
+  const descend = (n: number) => {
+    const kids = ctx.store.get(n)?.kids;
+    if (!kids) return;
+    for (const kid of kids) if (!seen.has(kid)) frontier.push(kid);
+  };
+  descend(id);
+  for (let visits = 0; visits < PROFILE_VISITS && frontier.length > 0;) {
+    const n = frontier.shift()!;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    visits++;
+    // Atoms in both representations — negative id, or a stored kid-less node.
+    if (n < 0 || ctx.store.get(n)?.kids == null) continue;
+    descend(n);
+    const len = ctx.store.contentLen(n, whole);
+    if (len < W || dominates(len, whole)) continue;
+    // MINIMAL units only: a constituent that still has a constituent of its
+    // own at or above W is a composite, and superposing it as well as its
+    // parts would count the same content twice.  Nested partners — an
+    // accumulated conversation, where turn k's context is a prefix of turn
+    // k+1's — share their large chunks structurally rather than
+    // distributionally, so those composites are exactly the terms that make
+    // adjacent turns read as synonyms (measured: consecutive turns at 0.809
+    // and 0.740 against a 0.516 concept threshold).  The smallest units at or
+    // above the fold's own window are the word-sized types company should be
+    // keyed at.
+    const kids = ctx.store.get(n)!.kids!;
+    let composite = false;
     for (const kid of kids) {
-      if (kid === id) continue;
-      if (kid < 0 || atomsAreHubs && ctx.store.get(kid)?.kids === null) {
-        continue;
-      }
-      if (ctx.store.containersSlice(kid, 0, bound + 1).length > bound) continue;
-      addInto(acc, companySignature(ctx.space, kid));
+      if (kid >= 0 && ctx.store.contentLen(kid, W) >= W) composite = true;
     }
+    if (composite) continue;
+    if (ctx.store.parentsFirst(n, bound + 1).length > bound) continue;
+    addInto(acc, companySignature(ctx.space, n));
   }
   return normalize(acc);
 }

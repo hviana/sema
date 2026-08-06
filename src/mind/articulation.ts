@@ -7,7 +7,7 @@ import { Vec } from "../vec.js";
 import type { MindContext } from "./types.js";
 import { spliceAll } from "./types.js";
 import { recognise } from "./recognition.js";
-import { contains } from "./traverse.js";
+import { answers, contains } from "./traverse.js";
 import { bestHaloMate } from "./match.js";
 import type { Site } from "./graph-search.js";
 import type { CandidateSpan } from "../derive/src/index.js";
@@ -75,9 +75,23 @@ export async function articulate(
     const found = bestHaloMate(ctx, h, voices, (v) => v.halo);
     if (!found) continue;
     const voice = found.item;
-    if (voice.node === s.payload || contains(ctx, voice.node, s.payload)) {
+    if (
+      voice.node === s.payload || contains(ctx, voice.node, s.payload) ||
+      answers(ctx, voice.node, s.payload)
+    ) {
       continue;
     }
+    // A form spanning the WHOLE answer is not a concept inside the answer to
+    // revoice — substituting it discards the answer and emits the asker's own
+    // words back, which is what a conversational store makes tempting: an
+    // answer and the question it answers keep maximal company, so the whole
+    // answer resonates with the whole query above any concept threshold
+    // (measured on the CONV fixture at 0.809 against 0.516).  Articulation
+    // splices the asker's wording INTO an answer where the same concept
+    // appears; when the "concept" is the entire answer there is nothing left
+    // of it, and "where is it kept now" comes back in place of "it hangs in
+    // madrid".  §5's contract is re-voicing, never replacement.
+    if (s.start === 0 && s.end === answer.length) continue;
     substitutions.set(s.payload, voice.bytes);
   }
   if (substitutions.size === 0) {
