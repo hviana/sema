@@ -1011,10 +1011,21 @@ export class Mind implements MindContext {
     input: Input | (Input | [Input, Input])[],
     second?: Input,
     onDeposit?: (report: import("./learning.js").DepositReport) => void,
+    /** Witness the DEPOSIT path the way {@link respond}'s callback witnesses
+     *  inference — `companyProfile` reports its saturation diagnostics here.
+     *  Without it the tracer is never constructed and the emit sites cost
+     *  nothing (§ rationale.ts), exactly as on the inference path. */
+    inspectRationale?: InspectRationale,
   ): Promise<(Sema & { id: number }) | undefined> {
     invalidateStructuralCaches(this);
     invalidateJunctionCache(this);
-    return ingest(this, input, second, onDeposit);
+    const prevTrace = this.trace;
+    this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
+    try {
+      return await ingest(this, input, second, onDeposit);
+    } finally {
+      this.trace = prevTrace;
+    }
   }
 
   // ── Extension Surface ────────────────────────────────────────────────────

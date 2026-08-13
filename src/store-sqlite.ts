@@ -146,6 +146,20 @@ CREATE TABLE IF NOT EXISTS canon (
   id INTEGER NOT NULL,
   PRIMARY KEY (h, id)
 ) WITHOUT ROWID;
+-- CONSTITUENT SKETCH (Store.sketchGet/sketchPut): the bottom-k minimal
+-- constituents of a node's subtree, k = √D, chosen by identity hash.  The blob is
+-- a packed int32 little-endian run, already in hash order; an EMPTY blob is a
+-- real answer (a minimal unit has no constituents) and a MISSING ROW means
+-- "not yet computed" — the two must stay distinguishable, which is why absence
+-- is a missing row rather than an empty blob sentinel.  (node:sqlite binds a
+-- zero-length Uint8Array as NULL, so the column is nullable and a NULL blob
+-- reads back as the empty sketch — the ROW is what records "computed".)
+-- Measured on the trained
+-- store: 80.8% of nodes sketch EMPTY, mean 1.14 ids, ~72 MB over 15.7M nodes.
+CREATE TABLE IF NOT EXISTS sketch (
+  id  INTEGER PRIMARY KEY,
+  ids BLOB
+);
 CREATE TABLE IF NOT EXISTS snapshot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   data BLOB NOT NULL
@@ -256,6 +270,8 @@ export class SQliteStore extends AbstractStore implements Store {
   private _insCanon: any = null;
   private _selCanon: any = null;
   private _cntCanon: any = null;
+  private _insSketch: any = null;
+  private _selSketch: any = null;
   private _selContentFrom: any = null;
   private _delMeta: any = null;
   private _insSnapshot: any = null;
@@ -1027,6 +1043,43 @@ export class SQliteStore extends AbstractStore implements Store {
       );
     }
     return (this._selCanon.all(h) as Array<{ id: number }>).map((r) => r.id);
+  }
+
+  // -- Constituent sketch (Store optional capability) --
+
+  sketchGet(id: number): number[] | null {
+    if (!this._selSketch) {
+      this._selSketch = this.sqlite!.prepare(
+        "SELECT ids FROM sketch WHERE id = ?",
+      );
+    }
+    const row = this._selSketch.get(id) as
+      | { ids: Uint8Array | null }
+      | undefined;
+    if (row === undefined) return null; // never computed — NOT the same as []
+    const b = row.ids;
+    if (b === null || b.byteLength === 0) return []; // computed, no constituents
+    const out: number[] = [];
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    for (let i = 0; i + 4 <= b.byteLength; i += 4) {
+      out.push(dv.getInt32(i, true));
+    }
+    return out;
+  }
+
+  sketchPut(id: number, ids: readonly number[]): void {
+    if (!this._insSketch) {
+      this._insSketch = this.sqlite!.prepare(
+        "INSERT OR REPLACE INTO sketch (id, ids) VALUES (?, ?)",
+      );
+    }
+    const b = new Uint8Array(ids.length * 4);
+    const dv = new DataView(b.buffer);
+    for (let i = 0; i < ids.length; i++) dv.setInt32(i * 4, ids[i], true);
+    // Join the deferred write transaction (committed by flush/commit), like
+    // canonAdd — a training run writes these in bulk.
+    this._dbBeginTx();
+    this._insSketch.run(id, b);
   }
 
   canonCount(): number {

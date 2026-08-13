@@ -524,6 +524,34 @@ export interface Store {
     fromId?: NodeId,
   ): void;
 
+  // ── constituent sketch (optional capability) ───────────────────────────
+  // The bottom-k MINIMAL CONSTITUENTS of a node's subtree, k derived from the
+  // representation's own capacity (√D — see companyProfile in mind/learning.ts),
+  // selected by identity hash so the choice is a property of each constituent
+  // and never of where it sits in the fold.
+  //
+  // DURABLE DERIVED STATE, NOT A CACHE.  §2.12 permits a cache to cost only
+  // speed; this decides which terms enter a halo — a learned relation — so an
+  // eviction would change the geometry rather than slow it down.  It is
+  // therefore written like the canon index: computed once, kept, never
+  // budgeted.  Soundness rests on the set being INTRINSIC — minimality,
+  // `len ≥ W` and non-domination are properties of the node's own subtree and
+  // do not move as the corpus grows.  The one corpus-dependent reading, the
+  // hub exclusion, is deliberately NOT stored: it is applied by the caller at
+  // pour time over the ≤ k candidates, which is the drift companyProfile
+  // already documents as benign and one-directional.
+  //
+  // Backends that do not implement the pair leave both absent; companyProfile
+  // then recomputes the sketch per pour and simply loses the amortisation.
+
+  /** The stored sketch of `id`, or null when it has never been computed.
+   *  An empty array is a REAL answer (a minimal unit has no constituents) and
+   *  must be distinguished from null. */
+  sketchGet?(id: NodeId): NodeId[] | null;
+  /** Record `ids` as the sketch of `id`.  Idempotent; ids are already sorted
+   *  by the caller's identity hash. */
+  sketchPut?(id: NodeId, ids: readonly NodeId[]): void;
+
   // ── lifecycle ──────────────────────────────────────────────────────────
   size(): Promise<number>;
   saveSnapshot(bytes: Uint8Array): Promise<void>;

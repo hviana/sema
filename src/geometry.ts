@@ -132,6 +132,29 @@ export function dominates(partLen: number, wholeLen: number): boolean {
  *  recallByResonance trusting a climb anchor, and commitVotes admitting a
  *  further point of attention.  Defined once here so the two can never
  *  drift apart.  Derived from N, never tuned. */
+/** SUPERPOSITION CAPACITY — how many quasi-orthogonal terms one vector can
+ *  carry before an individual term stops being readable.  `√D`.
+ *
+ *  A superposition of m unit signatures has ‖acc‖² ≈ m, so one term's
+ *  contribution to any cosine taken against that vector is ≈ 1/m.  Setting
+ *  that against the representation's own floor {@link estimatorNoise} = 1/√D:
+ *
+ *      1/m < 1/√D   ⟺   m > √D
+ *
+ *  Past √D terms a single shared constituent can no longer move a halo cosine
+ *  above quantisation noise — and because the result is normalized, each extra
+ *  term also shrinks every ALREADY-accepted term toward that floor.  So this is
+ *  not a budget that trades accuracy for time: beyond capacity, more evidence
+ *  makes the representation strictly worse.  It composes with
+ *  {@link significanceBar} (3/√D) as it should — three shared units of √D is
+ *  exactly the significance bar.
+ *
+ *  Consumer: `companyProfile` (mind/learning.ts), which sizes its constituent
+ *  sketch at this capacity instead of a visit budget. */
+export function profileCapacity(D: number): number {
+  return Math.max(1, Math.floor(Math.sqrt(D)));
+}
+
 export function consensusFloor(N: number): number {
   return Math.log(N) + 1 / 2;
 }

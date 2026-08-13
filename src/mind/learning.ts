@@ -15,8 +15,9 @@ import {
   resolve,
 } from "./primitives.js";
 import { canonicalWindows, leafIdPrefix } from "./canonical.js";
+import { rItem, rNode } from "./trace.js";
 import { hubBound } from "./traverse.js";
-import { dominates } from "../geometry.js";
+import { dominates, estimatorNoise, profileCapacity } from "../geometry.js";
 import { fold as foldVecs } from "../sema.js";
 
 /** Intern a perceived tree into node ids, bottom-up, sharing equal subtrees.
@@ -235,14 +236,90 @@ export interface DepositReport {
   continuationId?: number;
 }
 
-/** How many constituents one profile may VISIT.  A partner's constituent tree
- *  is O(len/W) nodes, so an uncapped descent would make a pour cost grow with
- *  the partner's LENGTH — and a partner is a whole deposit, which may be a
- *  paragraph.  The budget is what keeps a pour O(1) in the input, the property
- *  that lets {@link companyProfile} claim no new cost class.  It binds only on
- *  long partners whose constituents are all corpus-unique; the descent's own
- *  stop rule (below) reaches recurring units far sooner on a trained store. */
-const PROFILE_VISITS = 64;
+/** Deterministic priority of a node for bottom-k selection — a fixed integer
+ *  mix of the node id, NOT a function of the config seed.
+ *
+ *  Seed-independence is the point: the sketch is a property of the STORE, so
+ *  two Minds over one store must agree on it, and a rebuilt sketch must match
+ *  a stored one.  (Contrast {@link companySignature}, which is seeded — that is
+ *  the VECTOR, this is only the CHOICE of which vectors to superpose.)
+ *
+ *  Selecting the k smallest priorities makes the sketch a bottom-k sample keyed
+ *  on each constituent's own identity, so a unit shared by two partners is kept
+ *  by BOTH or neither, whatever its depth or position in either fold.  That is
+ *  what removes the traversal-order dependence a visit budget necessarily had. */
+function unitPriority(id: number): number {
+  let h = (id ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** Whether `n` is a MINIMAL UNIT: a stored branch, at least one fold window
+ *  wide, no constituent of its own at or above W.  Every clause is INTRINSIC —
+ *  a property of the node's own subtree — which is what lets a sketch be stored
+ *  once and stay valid as the corpus grows.  The two corpus-relative readings
+ *  (half-dominance of the PARTNER, and the hub test) are deliberately excluded
+ *  and applied by {@link companyProfile} at pour time. */
+function isMinimalUnit(ctx: MindContext, n: number, W: number): boolean {
+  if (n < 0) return false; // byte atom — fan-in is the alphabet's
+  const kids = ctx.store.get(n)?.kids;
+  if (kids == null) return false; // stored kid-less node: also an atom
+  if (ctx.store.contentLen(n, W) < W) return false;
+  for (const kid of kids) {
+    if (kid >= 0 && ctx.store.contentLen(kid, W) >= W) return false; // composite
+  }
+  return true;
+}
+
+/** The BOTTOM-K CONSTITUENT SKETCH of a node: the `k = profileCapacity(D)`
+ *  minimal units of its subtree with the smallest {@link unitPriority}.
+ *
+ *  COMPOSABLE, WHICH IS WHY IT COSTS NOTHING TWICE.  Bottom-k of a union is
+ *  the bottom-k of the children's bottom-k sets, so a node's sketch is built
+ *  from its kids' sketches and each recursive result is stored on the way out.
+ *  A partner met again reads O(k); an accumulated conversation, where turn k's
+ *  context is a prefix of turn k+1's, reuses every unchanged child and pays
+ *  O(changed) instead of O(context) — the quadratic that made a visit budget
+ *  look necessary in the first place.
+ *
+ *  It is DURABLE DERIVED STATE, not a cache (see Store.sketchGet): a miss must
+ *  cost time only, and this decides which terms enter a halo.  A backend
+ *  without the capability recomputes per pour and loses only the amortisation.
+ *
+ *  Recursion depth is the fold's, O(log_W len), and each level does O(k·arity)
+ *  work, so construction is one pass over the subtree — the same pass the
+ *  deposit that interned it already performed. */
+function constituentSketch(ctx: MindContext, id: number, k: number): number[] {
+  const stored = ctx.store.sketchGet?.(id);
+  if (stored != null) return stored; // [] is a real answer; null is "unknown"
+  const W = ctx.space.maxGroup;
+  const kids = id < 0 ? null : ctx.store.get(id)?.kids;
+  let out: number[];
+  if (kids == null) {
+    out = [];
+  } else {
+    const pool: number[] = [];
+    for (const kid of kids) {
+      if (isMinimalUnit(ctx, kid, W)) pool.push(kid);
+      else if (kid >= 0) {
+        for (const g of constituentSketch(ctx, kid, k)) pool.push(g);
+      }
+    }
+    // Bottom-k by identity, then by id so ties are corpus-determined (§2.1).
+    pool.sort((a, b) => (unitPriority(a) - unitPriority(b)) || (a - b));
+    const seen = new Set<number>();
+    out = [];
+    for (const n of pool) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+      if (out.length >= k) break;
+    }
+  }
+  ctx.store.sketchPut?.(id, out);
+  return out;
+}
 
 /** The COMPANY PROFILE of a partner: its own identity signature superposed
  *  with the signatures of its RECURRING content-defined constituents.
@@ -343,45 +420,62 @@ function companyProfile(ctx: MindContext, id: number): Vec {
   const acc = zeros(ctx.space.D);
   addInto(acc, companySignature(ctx.space, id));
   const bound = hubBound(ctx);
-  const W = ctx.space.maxGroup;
+  const k = profileCapacity(ctx.space.D);
   const whole = Math.max(1, ctx.store.contentLen(id));
-  const frontier: number[] = [];
-  const seen = new Set<number>([id]);
-  const descend = (n: number) => {
-    const kids = ctx.store.get(n)?.kids;
-    if (!kids) return;
-    for (const kid of kids) if (!seen.has(kid)) frontier.push(kid);
-  };
-  descend(id);
-  for (let visits = 0; visits < PROFILE_VISITS && frontier.length > 0;) {
-    const n = frontier.shift()!;
-    if (seen.has(n)) continue;
-    seen.add(n);
-    visits++;
-    // Atoms in both representations — negative id, or a stored kid-less node.
-    if (n < 0 || ctx.store.get(n)?.kids == null) continue;
-    descend(n);
+  const sketch = constituentSketch(ctx, id, k);
+
+  // The two CORPUS-RELATIVE readings, applied here and never stored: which
+  // terms count as scaffolding moves as N grows, which is the drift documented
+  // above, while the sketch itself must stay intrinsic to remain valid.
+  let accepted = 0, hubDropped = 0, dominating = 0;
+  for (const n of sketch) {
     const len = ctx.store.contentLen(n, whole);
-    if (len < W || dominates(len, whole)) continue;
-    // MINIMAL units only: a constituent that still has a constituent of its
-    // own at or above W is a composite, and superposing it as well as its
-    // parts would count the same content twice.  Nested partners — an
-    // accumulated conversation, where turn k's context is a prefix of turn
-    // k+1's — share their large chunks structurally rather than
-    // distributionally, so those composites are exactly the terms that make
-    // adjacent turns read as synonyms (measured: consecutive turns at 0.809
-    // and 0.740 against a 0.516 concept threshold).  The smallest units at or
-    // above the fold's own window are the word-sized types company should be
-    // keyed at.
-    const kids = ctx.store.get(n)!.kids!;
-    let composite = false;
-    for (const kid of kids) {
-      if (kid >= 0 && ctx.store.contentLen(kid, W) >= W) composite = true;
+    if (dominates(len, whole)) {
+      dominating++;
+      continue;
     }
-    if (composite) continue;
-    if (ctx.store.parentsFirst(n, bound + 1).length > bound) continue;
+    if (ctx.store.parentsFirst(n, bound + 1).length > bound) {
+      hubDropped++;
+      continue;
+    }
     addInto(acc, companySignature(ctx.space, n));
+    accepted++;
   }
+
+  // FALSIFIABILITY.  The claim this function makes is that it stops because the
+  // representation is FULL, never because a budget ran out — so the diagnostics
+  // report the capacity, the mass actually reached, and what the frontier still
+  // held.  `residual` is the evidence NOT superposed; `marginal` is what one
+  // more term would have contributed to a downstream cosine (1/mass), and
+  // `saturated` says whether that had fallen to or below `noiseFloor`.  A run
+  // that reports `saturated: false` with `residual > 0` is this design being
+  // WRONG, not tuning: it would mean readable evidence was dropped.
+  const mass = accepted + 1; // the node's own signature counts
+  const marginal = 1 / mass;
+  const noiseFloor = estimatorNoise(ctx.space.D);
+  ctx.trace?.step(
+    "companyProfile",
+    [rNode(ctx, id, "partner")],
+    [rItem(new Uint8Array(0), "profile", id)],
+    `superposed ${accepted} of ${sketch.length} sketched constituents ` +
+      `(capacity ${k}); marginal ${marginal.toFixed(4)} vs noise floor ` +
+      `${noiseFloor.toFixed(4)}`,
+    undefined,
+    {
+      capacity: k,
+      sketched: sketch.length,
+      accepted,
+      hubDropped,
+      dominating,
+      residual: sketch.length - accepted,
+      mass,
+      marginal,
+      noiseFloor,
+      saturated: sketch.length >= k,
+      stopReason: sketch.length >= k ? "capacity" : "constituents-exhausted",
+      wholeLen: whole,
+    },
+  );
   return normalize(acc);
 }
 
