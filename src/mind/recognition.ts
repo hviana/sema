@@ -15,7 +15,7 @@ import {
   perceive,
   resolve,
 } from "./primitives.js";
-import { atomIsHub, corpusN, leadsSomewhere } from "./traverse.js";
+import { atomIsHub, bearsEdge, corpusN, leadsSomewhere } from "./traverse.js";
 import { chainReach, leafIdAt, leafIdRun } from "./canonical.js";
 import { canonHash } from "../canon.js";
 import { isChunk, type Sema } from "../sema.js";
@@ -594,6 +594,31 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // "Eiffel Tower" site vanished with it).  The premise is wrong but the
   // trust it stood in for is real; a replacement signal is still open work.
   // See bench/README.md.
+  //
+  // THE REPLACEMENT SIGNAL (2026-08-13): `leadsSomewhere` on the BYTE-EXACT
+  // branch the chain already found.  The blanket off-boundary suppression is
+  // a decision that CHANGES WITH CORPUS SIZE — `atomsAreHubs` flips at
+  // N = 4096 (atomReach = ⌈N·W/256⌉ exceeds √N there) — so a store crossing
+  // that point silently loses interior sites it used to have.  Measured: with
+  // the two-hop chain deposited, `recognise("The country of Eiffel Tower is
+  // France.")` yields 4 sites including `France` at N = 3920 and 2 sites
+  // without it at N = 4227; the pivot dies with the site and multi-hop goes
+  // silent from there up (the trained store is N = 325,615).
+  //
+  // The honest gate is the one `emit` already applies, moved EARLIER and paid
+  // for with existence probes instead of a fold: `findBranch` has already
+  // proved these bytes are a stored branch, so the only remaining question is
+  // whether that branch is a deposited whole (bears an edge or a halo) or an
+  // interned fragment.  "hi" out of "W[hi]ch" leads nowhere and is still
+  // suppressed; `France` bears both and is admitted.  Structural, not scalar
+  // — no constant enters and nothing reads N, so the verdict no longer moves
+  // when the corpus grows.
+  //
+  // COST: `bearsEdge` is the response-MEMOISED edge probe, not the full
+  // `leadsSomewhere` — its uncached `hasHalo` tier took haloProbes from 922 to
+  // 9,144 on a nine-query battery over the trained store, which is not a price
+  // this pass may charge.  `emit` still applies the full predicate, so this is
+  // a pre-filter that never widens what is admitted.
   const tryChain = (
     p: number,
     maxIds: number,
@@ -610,8 +635,9 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       if (!nx) break;
       ids.push(nx.id);
       pos = nx.end;
-      if (store.findBranch(ids) === null) continue;
-      if (!boundary && atomsAreHubs) continue;
+      const branch = store.findBranch(ids);
+      if (branch === null) continue;
+      if (!boundary && atomsAreHubs && !bearsEdge(ctx, branch)) continue;
       const id = resolveSpan(p, pos);
       if (id === null || id === prevId) continue;
       prevId = id;

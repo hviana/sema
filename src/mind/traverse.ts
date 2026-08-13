@@ -461,6 +461,25 @@ export function atomIsHub(ctx: MindContext, contextCount: number): boolean {
   return atomReach(ctx, contextCount) > boundFor(contextCount);
 }
 
+/** Cached "does this node bear a continuation edge?" — the CHEAP half of
+ *  {@link leadsSomewhere}, exported for hot paths that must PRE-FILTER a
+ *  candidate before paying for a fold and cannot afford the halo tier.
+ *
+ *  `leadsSomewhere`'s second tier (`hasHalo`) is deliberately uncached — one
+ *  indexed point probe per candidate, which is right where candidates are
+ *  already few.  On recognition's off-boundary chain pass they are not few:
+ *  using the full predicate there took haloProbes from 922 to 9,144 on a
+ *  nine-query battery over the trained store.  The edge tier alone is memoised
+ *  for the response, so it is ~free, and a node bearing an edge is exactly the
+ *  "deposited whole, not an interned fragment" claim that pass needs.
+ *
+ *  Strictly NARROWER than `leadsSomewhere` — a halo-only node reads false — so
+ *  it is sound as a pre-filter before a consumer that applies the full
+ *  predicate, and never as a replacement for it. */
+export function bearsEdge(ctx: MindContext, id: number): boolean {
+  return cachedHasNext(ctx, id, getStructCache(ctx));
+}
+
 /** Whether a node LEADS SOMEWHERE — it bears a continuation edge or a halo.
  *  The admission predicate recognition filters sites with (HOW_IT_WORKS
  *  §15.3): a form that leads nowhere contributes nothing to any derivation.
