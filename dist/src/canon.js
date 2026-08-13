@@ -1,0 +1,85 @@
+// canon.ts — content canonicalization for equivalence-class resolution.
+//
+// The store is content-addressed on RAW bytes: "What", "WHAT" and "what" are
+// three different hashes, so a query whose surface form varies from the
+// trained form resolves to nothing even though the CONTENT is the same.  A
+// CANONICALIZER maps every surface variant of the same content onto one
+// canonical byte string; the store keeps a small hash index from canonical
+// keys to node ids (see Store.canonAdd/canonFind), and resolution falls back
+// to that index when the exact content-addressed lookup misses.
+//
+// The canonicalizer is MODALITY-SPECIFIC and always INJECTED — nothing in the
+// store or the mind's core knows what "case" or "whitespace" is.  The text
+// canonicalizer below is the one `respondText`/`respondTurnText` pass down;
+// a grid or audio modality would supply its own (or none).
+//
+// Canonical keys are equivalence-class LABELS, never content: they are hashed
+// and verified (canon(stored bytes) must equal canon(query bytes) before an
+// id is accepted), so a hash collision costs a read, never a wrong id — the
+// same discipline as the node table's own `h` index.
+const dec = new TextDecoder("utf-8", { fatal: false });
+const enc = new TextEncoder();
+/** The TEXT canonicalizer: Unicode-aware equivalence over every character
+ *  variation that does not change what the text SAYS —
+ *
+ *   • compatibility normalization (NFKC): full-width forms, ligatures,
+ *     composed vs decomposed accents collapse to one representation;
+ *   • case folding (locale-independent lowercase after NFKC — the standard
+ *     simple fold);
+ *   • whitespace: every INTERIOR run of Unicode whitespace becomes one plain
+ *     space.  EDGE whitespace is preserved verbatim: a span's leading or
+ *     trailing separator belongs BETWEEN forms, not to the form — trimming
+ *     it would let a recognised span swallow the boundary byte that
+ *     separates it from its neighbour (observed: "ice fire" composing to
+ *     "coldhot" because the span "ice " matched the stored "ice").
+ *
+ *  "WHAT  IS", "What is" and "ｗｈａｔ is" share one canonical form.  This is
+ *  deliberately conservative: punctuation, digits and word order are content
+ *  and pass through untouched. */
+export function textCanon(bytes) {
+    const s = dec
+        .decode(bytes)
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/(\S)\s+(?=\S)/g, "$1 ");
+    return enc.encode(s);
+}
+/** 32-bit FNV-1a over a canonical key — the integer the store's canon index
+ *  is keyed on.  Same construction as the node table's content hash; a
+ *  collision is resolved by verifying canon(stored) === key, never trusted. */
+export function canonHash(key) {
+    let h = 0x811c9dc5 >>> 0;
+    for (let i = 0; i < key.length; i++) {
+        h ^= key[i];
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h >>> 0;
+}
+/** The span of `bytes` between its first and last non-whitespace byte — the
+ *  QUESTION, with the caller's edge spacing dropped.  Returns a subarray (no
+ *  copy), and the original when there is nothing to trim.
+ *
+ *  THIS LIVES HERE, not in the core byte utilities, for the reason stated at
+ *  the top of this file: "nothing in the store or the mind's core knows what
+ *  'case' or 'whitespace' is".  Edge spacing is a TEXT fact — for a binary or
+ *  grid modality 0x20 is content, not presentation — so it belongs beside the
+ *  text canonicalizer, is injected on the same modality test, and never leaks
+ *  into a mechanism.  A modality that supplies its own canon supplies its own
+ *  reading of "edge" too, or none.
+ *
+ *  Why trimming is sound HERE when {@link textCanon} deliberately refuses it:
+ *  canon preserves edge whitespace because the hazard is a recognised SUB-span
+ *  swallowing the boundary byte that separates it from its neighbour (observed:
+ *  "ice " matching the stored "ice").  At the outer edges of a WHOLE input
+ *  there is no neighbour — nothing precedes byte 0, nothing follows the last
+ *  byte — so that hazard cannot arise, and only there. */
+export function textEdgeTrim(bytes) {
+    const space = (b) => b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d;
+    let from = 0;
+    let to = bytes.length;
+    while (from < to && space(bytes[from]))
+        from++;
+    while (to > from && space(bytes[to - 1]))
+        to--;
+    return from === 0 && to === bytes.length ? bytes : bytes.subarray(from, to);
+}

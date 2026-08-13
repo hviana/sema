@@ -1,0 +1,333 @@
+// primitives.ts — Address + Read primitives (Section 1 of the mind).
+//
+//   Address  — bytes → node   (perceive, foldTree, resolve)
+//   Read     — node → bytes   (read)
+import { bytesToTree, contentFoldIncremental, gridToTree, hilbertBytes, stackGrids, } from "../geometry.js";
+import { canonHash } from "../canon.js";
+import { bytesEqual } from "../bytes.js";
+import { ALL } from "./types.js";
+// ── Address: bytes → node ──────────────────────────────────────────────
+/** The content key of a byte span — one latin1 char per byte, an exact,
+ *  collision-free encoding.  Spans on the perception path are query-scale
+ *  (windows, regions, candidate spans), so key construction is far cheaper
+ *  than the river fold it deduplicates. */
+export function latin1Key(bytes) {
+    // Batched String.fromCharCode — avoids the O(n²) cost of repeated += on
+    // potentially-large query spans, and stays well under the ~65536 arg limit.
+    const n = bytes.length;
+    let s = "";
+    for (let i = 0; i < n; i += 4096) {
+        s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 4096, n)));
+    }
+    return s;
+}
+/** The {@link perceive} memo key: the span's content PLUS the boundary set it
+ *  was folded under.  The tree is a function of BOTH — the same bytes fold
+ *  plainly with no boundaries and into a left-nested stable-prefix shape with
+ *  them — so a content-only key returns whichever shape was computed first.
+ *  That is exactly what happened: a conversation seeded its cumulative context
+ *  under the content key, and every later plain `perceive` of those bytes was
+ *  served the boundary tree instead (measured: respondTurn answered where
+ *  respond() on byte-identical input did not).  NUL separates the two parts —
+ *  the boundary rendering is digits and commas, so no content byte can forge
+ *  the split. */
+export function perceiveKey(bytes, boundaries) {
+    const k = latin1Key(bytes);
+    return boundaries === undefined || boundaries.length === 0
+        ? k
+        : k + "\u0000" + boundaries.join(",");
+}
+/** Perceive input into a content-defined tree (the river fold).
+ *  Deterministic — identical bytes always produce an identical tree.
+ *
+ *  `boundaries` is an optional sorted list of proper byte offsets where the
+ *  fold must split so that each prefix segment folds identically to how it
+ *  folded when it was learned (§10.3 stable-prefix contract).  Only the
+ *  CALLER — who assembled the multi-turn context — knows where those
+ *  boundaries are; the geometry never guesses them from the bytes. */
+export function perceive(ctx, input, leafAt, lookup, boundaries) {
+    if (typeof input === "string" || input instanceof Uint8Array) {
+        const bytes = typeof input === "string"
+            ? new TextEncoder().encode(input)
+            : input;
+        if (leafAt === undefined && lookup === undefined) {
+            // Per-response memo (see MindContext.perceiveMemo): only the plain
+            // inference shape — raw bytes, no store capabilities — is memoised,
+            // keyed by CONTENT so byte-identical spans in fresh arrays still hit.
+            // The tree is shared by reference; Sema nodes are never mutated.
+            const memo = ctx.perceiveMemo;
+            if (memo) {
+                const key = perceiveKey(bytes, boundaries);
+                const hit = memo.get(key);
+                if (hit !== undefined) {
+                    if (ctx.meter)
+                        ctx.meter.perceiveHits++;
+                    return hit;
+                }
+                if (ctx.meter) {
+                    ctx.meter.perceptions++;
+                    ctx.meter.perceivedBytes += bytes.length;
+                }
+                const tree = bytesToTree(ctx.space, ctx.alphabet, bytes, undefined, undefined, boundaries);
+                memo.set(key, tree);
+                return tree;
+            }
+            if (ctx.meter) {
+                ctx.meter.perceptions++;
+                ctx.meter.perceivedBytes += bytes.length;
+            }
+            return bytesToTree(ctx.space, ctx.alphabet, bytes, undefined, undefined, boundaries);
+        }
+        return bytesToTree(ctx.space, ctx.alphabet, bytes, leafAt, lookup);
+    }
+    if (Array.isArray(input)) {
+        return gridToTree(ctx.space, ctx.alphabet, stackGrids(input));
+    }
+    return gridToTree(ctx.space, ctx.alphabet, input);
+}
+/** The DEPOSIT-shaped perceive.  Folds over the stream's own content cuts —
+ *  bit-identical to what inference computes for the same bytes.  That
+ *  train/inference agreement is the whole contract: the trained context node
+ *  and the node `resolve(query)` reaches must be the SAME node, and the only
+ *  way to guarantee it is to give this function nothing extra to say.  It
+ *  imposes no boundaries, knows nothing about turns, and reads no convention
+ *  out of the bytes.
+ *
+ *  An input that EXTENDS a previously deposited one — a conversation context
+ *  grown by a turn, or a resumed replay — reuses that deposit's already-folded
+ *  content segments ({@link contentFoldIncremental}), so it costs O(new bytes)
+ *  instead of O(context).  The reuse is TRANSPARENT by construction: a segment
+ *  is a pure function of its own bytes, so a reused one is bit-identical to a
+ *  refolded one.  Nothing has to prove that the extending deposit is "really"
+ *  a next turn — a coincidental byte prefix reuses the same segments and gets
+ *  the same tree it would have got anyway.  (It used to matter: while this
+ *  path imposed turn BOUNDARIES, a wrong guess changed the tree, so the cache
+ *  needed a continuation-bytes proof to gate it.  Nothing is imposed now, so
+ *  there is nothing to gate.) */
+export function perceiveDeposit(ctx, bytes, conversational = false) {
+    // Longest cached PROPER prefix first — the most segments to reuse.
+    let prev;
+    const lens = [...ctx._depositLens]
+        .filter((L) => L >= 2 && L < bytes.length)
+        .sort((a, b) => b - a);
+    for (const L of lens) {
+        const hit = ctx._depositTrees.get(latin1Key(bytes.subarray(0, L)));
+        if (hit !== undefined) {
+            prev = hit.content;
+            break;
+        }
+    }
+    const folded = contentFoldIncremental(ctx.space, ctx.alphabet, bytes, prev);
+    // Only a CONVERSATIONAL deposit writes the cache: reuse is sound for any
+    // deposit, but the budget is 8 entries and a corpus of unrelated facts would
+    // evict the live chains for nothing.  Purely a cost decision now, not a
+    // correctness one.
+    if (conversational && bytes.length >= 2) {
+        // The lengths set drifts as the map evicts; past the probe budget the
+        // drift itself becomes the cost (each stale length is an O(len) key
+        // build), so both reset together — losing only warm-up on live chains.
+        if (ctx._depositLens.size > 64) {
+            ctx._depositLens.clear();
+            ctx._depositTrees.clear();
+        }
+        ctx._depositTrees.set(latin1Key(bytes), { content: folded.fold });
+        ctx._depositLens.add(bytes.length);
+    }
+    return folded.tree;
+}
+/** The raw bytes of an input — modality-neutral conversion. */
+export function inputBytes(ctx, input) {
+    if (typeof input === "string")
+        return new TextEncoder().encode(input);
+    if (input instanceof Uint8Array)
+        return input;
+    if (Array.isArray(input))
+        return hilbertBytes(stackGrids(input));
+    return hilbertBytes(input);
+}
+/** Convenience: the gist vector of a byte span. */
+export function gistOf(ctx, bytes) {
+    return perceive(ctx, bytes).v;
+}
+/** Fold a perceived tree bottom-up against the store's content-addressed maps:
+ *  every leaf is named by findLeaf, every branch by findBranch over its kids'
+ *  ids (null the moment any child is unknown).  `visit`, when given, sees each
+ *  node with its byte span and resolved id.  Returns the node's byte end and
+ *  resolved id. */
+export function foldTree(ctx, n, start, visit) {
+    // Subtree already resolved (from a previous conversation turn or an earlier
+    // recognition pass).  The pyramid reuses prefix subtrees as identical Sema
+    // objects, so a conversation's prefix is warm from its second turn on.
+    // Without a visitor that makes foldTree O(suffix) instead of O(context);
+    // with one it stays O(context) and saves the per-node store probes instead
+    // (see below for why the distinction is not negotiable).
+    //
+    // WHAT THE CACHE KNOWS, AND WHAT IT DOES NOT.  An entry records this
+    // subtree's id and byte length — nothing about its DESCENDANTS' spans.
+    // Returning here therefore emits ONE visit() where a cold walk emits one per
+    // node, and `visit` is not instrumentation: recognise() emits its sites from
+    // it (recognition.ts) and attention's collectRegions votes over what it
+    // yields (attention.ts).  Skipping the descent silently shrinks the evidence
+    // those mechanisms see, purely because the cache happened to be warm.
+    //
+    // That is not hypothetical and not an edge case — it is every conversation
+    // turn after the first.  `contentFoldIncremental` deliberately shares prefix
+    // segment OBJECTS across turns (~99% reuse), so by turn 2 the prefix is
+    // warm; meanwhile recogniseMemo/climbMemo are keyed on exact query BYTES,
+    // which a growing context never repeats.  Warm subtrees + missed memos is
+    // the unprotected quadrant.  Measured over real trained conversations,
+    // recognising the same context with a warm prefix lost 67-92% of its leaves
+    // (772->204, 589->47, 872->291, 377->37) with `sites` unchanged, so the loss
+    // is invisible to the coarse counts; a direct foldTree probe on identical
+    // bytes and an identical tree object fired visit() 661 times cold and 37
+    // warm.  respond() is immune only because it never sets _resolvedSubtrees
+    // (mind.ts) — the degradation was unique to the multi-turn API.
+    //
+    // So the fast path is taken only when NOBODY IS WATCHING.  With a visitor
+    // present we still walk, and the cache degrades to the thing it soundly is:
+    // an elision of the store probes (findLeaf/findBranch) at each node, not an
+    // elision of the traversal.  Ids still come from the cache, so a warm walk
+    // is cheaper than a cold one; it is no longer *different* from one.
+    const cached = ctx._resolvedSubtrees?.get(n);
+    if (cached !== undefined && visit === undefined) {
+        return { end: start + cached.len, node: cached.id };
+    }
+    if (n.kids === null) {
+        const b = n.leaf ?? new Uint8Array(0);
+        const end = start + b.length;
+        const node = cached !== undefined ? cached.id : ctx.store.findLeaf(b);
+        visit?.(n, start, end, node);
+        if (node !== null && ctx._resolvedSubtrees) {
+            ctx._resolvedSubtrees.set(n, { id: node, len: b.length });
+        }
+        return { end, node };
+    }
+    let pos = start;
+    let known = true;
+    const kids = [];
+    for (const k of n.kids) {
+        const r = foldTree(ctx, k, pos, visit);
+        if (r.node === null)
+            known = false;
+        else if (known)
+            kids.push(r.node);
+        pos = r.end;
+    }
+    // Same store-probe elision as the leaf case: a cached entry already names
+    // this subtree, so the descent above was for `visit`'s benefit alone and the
+    // id need not be re-derived.  Using it also keeps a warm walk's ids
+    // bit-identical to a cold walk's rather than re-deriving them from children
+    // that may themselves have come from cache.
+    const node = cached !== undefined
+        ? cached.id
+        : known
+            ? ctx.store.findBranch(kids)
+            : null;
+    visit?.(n, start, pos, node);
+    if (node !== null && ctx._resolvedSubtrees) {
+        ctx._resolvedSubtrees.set(n, { id: node, len: pos - start });
+    }
+    return { end: pos, node };
+}
+/** The canonical node id of a byte span: perceive it in isolation — the way
+ *  training did — and recover its root bottom-up.  Returns null if any part is
+ *  unknown. */
+export function resolve(ctx, bytes) {
+    if (bytes.length === 0)
+        return null;
+    if (ctx.meter)
+        ctx.meter.resolves++;
+    const exact = foldTree(ctx, perceive(ctx, bytes), 0).node;
+    if (exact !== null)
+        return exact;
+    return canonResolve(ctx, bytes);
+}
+/** Equivalence-class resolution: when the exact content-addressed lookup
+ *  misses, find a stored node whose CANONICAL key equals the span's — the
+ *  store's canon index proposes candidates by key hash, and each is verified
+ *  by re-canonicalizing its bytes (hash-then-verify, like every content
+ *  lookup).  Among verified candidates, one that leads somewhere (has a
+ *  continuation edge) is preferred; ties break to the lowest id — a corpus
+ *  property, not a seed property.  Null when the response carries no
+ *  canonicalizer, the store has no canon index, or nothing verifies. */
+export function canonResolve(ctx, bytes) {
+    const canon = ctx.canon;
+    const store = ctx.store;
+    if (canon === null || !store.canonFind)
+        return null;
+    if (bytes.length < 2)
+        return null;
+    const memo = ctx.canonMemo;
+    const memoKey = memo ? latin1Key(bytes) : "";
+    if (memo) {
+        const hit = memo.get(memoKey);
+        if (hit !== undefined)
+            return hit;
+    }
+    const set = (v) => {
+        memo?.set(memoKey, v);
+        return v;
+    };
+    const key = canon(bytes);
+    if (key.length === 0)
+        return set(null);
+    // A stored form that IS canonical is not in the index (buildCanonIndex
+    // skips identity rows) — the exact content-addressed lookup of the
+    // canonical bytes finds it directly.
+    if (key.length !== bytes.length || !bytesEqual(key, bytes)) {
+        const direct = foldTree(ctx, perceive(ctx, key), 0).node;
+        if (direct !== null)
+            return set(direct);
+    }
+    if (ctx.meter)
+        ctx.meter.canonLookups++;
+    const candidates = store.canonFind(canonHash(key));
+    if (candidates.length === 0)
+        return set(null);
+    let best = null;
+    let bestLeads = false;
+    for (const id of candidates) {
+        const bytesOf = read(ctx, id);
+        const stored = canon(bytesOf);
+        if (stored.length !== key.length || !bytesEqual(stored, key))
+            continue;
+        // The index stores FLAT content twins; the id the exact path would have
+        // resolved for these bytes is their FOLD — the deposit-shaped node that
+        // carries the edges and halos.  Re-folding the candidate's bytes lands
+        // on exactly the node the canonical-case query would have found.
+        const folded = foldTree(ctx, perceive(ctx, bytesOf), 0).node;
+        const use = folded ?? id;
+        const leads = store.hasNext(use) || store.haloMass(use) > 0;
+        if (best === null || (leads && !bestLeads) ||
+            (leads === bestLeads && use < best)) {
+            best = use;
+            bestLeads = leads;
+        }
+    }
+    return set(best);
+}
+/** Walk a perceived tree in POST-ORDER with byte offsets — children before
+ *  their parent, `visit(node, start, end)` for every node including leaves.
+ *  Returns the byte end.  The one shared traversal the offset-carrying tree
+ *  readers (recognition via foldTree's richer variant, attention's region
+ *  collection, resonance's branch counting) build on, so each does not
+ *  re-derive the offset bookkeeping.  (recognition.segment keeps its own
+ *  walk: its flush semantics need PRE-order decisions at leaf-parents, which
+ *  a post-order visitor cannot express.) */
+export function walkTree(n, start, visit) {
+    if (n.kids === null) {
+        const end = start + (n.leaf?.length ?? 0);
+        visit(n, start, end);
+        return end;
+    }
+    let pos = start;
+    for (const k of n.kids)
+        pos = walkTree(k, pos, visit);
+    visit(n, start, pos);
+    return pos;
+}
+// ── Read: node → bytes ──────────────────────────────────────────────────
+/** Reconstruct a node's byte content from the DAG, up to `maxLen` bytes. */
+export function read(ctx, id, maxLen = ALL) {
+    return ctx.store.bytesPrefix(id, maxLen);
+}

@@ -146,34 +146,51 @@ test("T3: a long partner reports capacity as the stop reason", async () => {
   }
 });
 
-// ── 4. position in the fold must not decide membership ───────────────────
-test("T4: a shared unit is kept or dropped by identity, not by position", async () => {
+// ── 4. a unit shared at DIFFERENT depths must not be systematically lost ──
+test("T4: a unit shared at different fold depths enters both sketches", async () => {
+  // The motivating fixture. Content-defined cuts put " Paris" at a different
+  // depth in each sentence — "The Eiffel Tower is in Paris" folds to
+  // "The Eiffel " + "Tower is in Paris", "Tour Eiffel dia any Paris" to
+  // "Tour Eiffel " + "dia any Paris" — so the shared unit is a child of
+  // NEITHER. A selection keyed on traversal position reaches it in one partner
+  // and not the other; one keyed on the unit's own identity keeps it in both.
+  //
+  // NOTE the earlier version of this test compared "zzmarker " at the head
+  // against " zzmarker" at the tail. Those are DIFFERENT BYTES, hence different
+  // node identities, so the comparison could never have been about position.
+  const { store, mind } = mk();
+  const A = "The Eiffel Tower is in Paris";
+  const B = "Tour Eiffel dia any Paris";
+  await mind.ingest([[A, B]]);
+
   const dec = new TextDecoder();
-  // The SAME distinctive unit, once near the start and once near the end of an
-  // otherwise identical long partner. A BFS budget systematically favours the
-  // early one; a bottom-k sketch keyed on identity must not.
-  const build = async (text) => {
-    const { store, mind } = mk();
-    await mind.ingest([[text, "continuation"]]);
-    const hits = new Set();
+  const enc = new TextEncoder();
+  const nodeOf = (text) => {
+    const want = enc.encode(text);
     for (let i = 0; i < store.nodeCount(); i++) {
-      const s = store.sketchGet?.(i);
-      if (!s) continue;
-      for (const n of s) {
-        hits.add(dec.decode(store.bytes(n).filter((x) => x !== 0)));
+      if (store.contentLen(i, want.length + 1) !== want.length) continue;
+      const b = store.bytes(i);
+      if (b.length === want.length && b.every((x, j) => x === want[j])) {
+        return i;
       }
     }
-    return hits;
+    return null;
   };
-  const body = longText(20);
-  const early = await build("zzmarker " + body);
-  const late = await build(body + " zzmarker");
-  const inEarly = [...early].some((t) => t.includes("zzmarker"));
-  const inLate = [...late].some((t) => t.includes("zzmarker"));
-  assert.equal(
-    inEarly,
-    inLate,
-    `membership changed with position (early=${inEarly} late=${inLate}) — selection is position-dependent`,
+  const a = nodeOf(A), b = nodeOf(B);
+  assert.ok(a !== null && b !== null, "both partners must be interned");
+  const sa = store.sketchGet(a) ?? [];
+  const sb = store.sketchGet(b) ?? [];
+  assert.ok(
+    sa.length > 0 && sb.length > 0,
+    "both partners must sketch something",
+  );
+  const shared = sa.filter((n) => sb.includes(n));
+  assert.ok(
+    shared.length > 0,
+    `no shared constituent: A=${
+      JSON.stringify(sa.map((n) => dec.decode(store.bytes(n))))
+    } ` +
+      `B=${JSON.stringify(sb.map((n) => dec.decode(store.bytes(n))))}`,
   );
 });
 

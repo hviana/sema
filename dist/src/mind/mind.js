@@ -1,0 +1,766 @@
+// mind/mind.ts — perceive, deposit, recall, think, express.
+//
+// Memory is a content-addressed node graph (see store.ts). Learning is
+// DEPOSITION: perceive a stream into a tree and intern every node, so equal —
+// and, by resonance, similar — subtrees collapse to one shared node. A fact is
+// an EDGE between node ids; recall traverses edges; thinking completes the
+// query's OWN tree, node by node, to a fixed point. No whole, no weights.
+//
+// Architecture: 4 primitives × 2 patterns = all inference.
+// Implementation split across src/mind/*.ts — this file assembles the Mind class.
+import { makeKeyring, rng, setVecConfig } from "../vec.js";
+import { Alphabet } from "../alphabet.js";
+import { contentFoldIncremental, reachThreshold, } from "../geometry.js";
+import { BoundedMap } from "../store.js";
+import { SQliteStore } from "../store-sqlite.js";
+import { resolveConfig } from "../config.js";
+import { canonHash, textCanon, textEdgeTrim } from "../canon.js";
+import { bytesEqual, concat2 } from "../bytes.js";
+import { GraphSearch, } from "./graph-search.js";
+import { Alu } from "../alu/src/index.js";
+import { decodeText, Rationale, } from "./rationale.js";
+import { gistOf, inputBytes, perceive as perceiveImpl, perceiveKey, resolve as resolveImpl, } from "./primitives.js";
+import { chooseNext, edgeAncestors as edgeAncestorsFn, invalidateStructuralCaches, } from "./traverse.js";
+import { invalidateJunctionCache } from "./junction.js";
+import { follow } from "./match.js";
+import { recognise, segment } from "./recognition.js";
+import { meaningOf } from "./resonance.js";
+import { climbAttention as climbAttentionFn, naturalBreak as naturalBreakFn, } from "./attention.js";
+import { aluToMechanism, defaultMechanisms, think } from "./pipeline.js";
+import { articulate } from "./articulation.js";
+import { ingest } from "./learning.js";
+import { rItem } from "./trace.js";
+// The work meter is exported from src/index.ts (via src/meter.ts) — the one
+// definition; the Mind only consumes it.
+import { Meter } from "../meter.js";
+// ═══════════════════════════════════════════════════════════════════════════
+// THE MIND
+// ═══════════════════════════════════════════════════════════════════════════
+export class Mind {
+    space;
+    alphabet;
+    store;
+    cfg;
+    /** The lightest-derivation engine over the Sema graph. */
+    search;
+    /** The grounding mechanisms iterated by {@link think}. */
+    mechanisms = [];
+    /** The live rationale tracer for the inference currently in flight, or null. */
+    trace = null;
+    /** The content canonicalizer for the response in flight — see
+     *  {@link MindContext.canon}.  Injected per response by the modality entry
+     *  point; null when the response carries no equivalence. */
+    canon = null;
+    /** Per-response canonical-resolution memo — see {@link MindContext.canonMemo}. */
+    canonMemo = null;
+    /** The Mind-level canon option: a canonicalizer to use for EVERY response,
+     *  `false` to disable canonical resolution, or null to let each entry
+     *  point decide (text entry points inject {@link textCanon}). */
+    _canonOpt = null;
+    /** The work accumulator for the inference call in flight — see
+     *  {@link MindContext.meter}.  Non-null only between beginResponse and
+     *  endResponse, and only when the Mind was constructed with
+     *  `{ profile: true }`. */
+    meter = null;
+    /** Whether {@link MindOptions.profile} was set. */
+    _profile = false;
+    /** The computational-usage report of the LAST completed inference call, or
+     *  null when profiling is off (or nothing has been asked yet).  Overwritten
+     *  by every `respond`/`respondTurn`; copy it if you are aggregating.  See
+     *  {@link import("../meter.js").CostReport} and `sumReports`/`formatReport`
+     *  for battery-level aggregation. */
+    lastCost = null;
+    /** Memo of the consensus climb — content-keyed.  See {@link MindContext.climbMemo}. */
+    climbMemo = null;
+    _structMemoKey = {};
+    /** Memo of recognise() — content-keyed.  See {@link MindContext.recogniseMemo}. */
+    recogniseMemo = null;
+    /** Memo of perceive() — content-keyed.  See {@link MindContext.perceiveMemo}. */
+    perceiveMemo = null;
+    /** Subtree-resolution cache.  See {@link MindContext._resolvedSubtrees}. */
+    _resolvedSubtrees = null;
+    answeredSpans = [];
+    currentTurnStart = 0;
+    /** The perceived gist of the query currently being answered.  Set by `think`
+     *  before the graph search runs; `chooseNext` consults it as a gate (a null
+     *  guide means no query is in flight, so structural walkers keep plain
+     *  first-edge behaviour) and the reverse projection uses it for
+     *  reverse-recall disambiguation via `chooseAmong`. */
+    _edgeGuide = null;
+    /** Per-response memo of {@link chooseNext} picks — ensures every mechanism
+     *  of a single response follows the SAME continuation for each ambiguous
+     *  context node. */
+    _edgeChoice = new Map();
+    /** Previous deposit's seen node ids for incremental change detection. */
+    _prevSeen = null;
+    /** Session cache of node-id → perceived gist for candidate scoring — see
+     *  {@link MindContext._gistCache}.  32 MB ≈ 8K gists at D=1024; hub
+     *  candidate sets (√N at most) fit comfortably and recur across queries. */
+    _gistCache = new BoundedMap(32_000_000, (v) => v.byteLength);
+    // Deposit-path fold-pyramid cache (see MindContext) — ENTRY-count
+    // bounded: a pyramid costs ~KB per content byte (one D-float gist per
+    // interior node), and only the few live conversation chains need to stay
+    // warm, so 8 entries is the honest budget.
+    _depositTrees = new BoundedMap(8);
+    _depositLens = new Set();
+    _internIds = new WeakMap();
+    // ── Conversation state ──────────────────────────────────────────────────
+    _nextConvId = 1;
+    _conversations = new Map();
+    // ── GraphSearchHost implementation ─────────────────────────────────────
+    /** Canonical node id of a byte span.  Required by GraphSearchHost & MindContext. */
+    resolve(bytes) {
+        return resolveImpl(this, bytes);
+    }
+    // recogniseSpan wraps recognise
+    recogniseSpan(bytes) {
+        const r = recognise(this, bytes);
+        return {
+            sites: r.sites,
+            leaves: r.leaves,
+            splits: r.splits,
+            starts: r.starts,
+        };
+    }
+    /** Disambiguate among multiple learnt continuations of the same context node.
+     *  Required by {@link GraphSearchHost} — the graph search calls this through the
+     *  host interface when a recognised form has more than one outgoing edge.
+     *  Delegates to the standalone {@link chooseNext} which picks the candidate
+     *  with the most distributional evidence (highest `prevOf` count — the
+     *  structural manifestation of its halo).  When evidence is equal the
+     *  first-inserted edge wins. */
+    chooseNext(node) {
+        return chooseNext(this, node, this._edgeGuide);
+    }
+    constructor(optsOrCfg, storeArg, _fromStore) {
+        let userMechanisms = [];
+        let userFactories = [];
+        if (_fromStore !== undefined) {
+            this.cfg = resolveConfig(optsOrCfg);
+            this.store = storeArg;
+        }
+        else {
+            const { store: optsStore, mechanisms: userMechs, mechanismFactories: userFacts, canon: optsCanon, profile: optsProfile, ...rest } = (optsOrCfg ?? {});
+            this._canonOpt = optsCanon ?? null;
+            this._profile = optsProfile === true;
+            this.cfg = resolveConfig(rest);
+            this.store = optsStore ?? new SQliteStore({
+                maxGroup: this.cfg.geometry.maxGroup,
+            });
+            userMechanisms = userMechs ?? [];
+            userFactories = userFacts ?? [];
+        }
+        setVecConfig({
+            normalizeEpsilon: this.cfg.normalizeEpsilon,
+            cosineEpsilon: this.cfg.cosineEpsilon,
+        });
+        const seedRand = rng((this.cfg.seed ^ 0x9e3779) >>> 0);
+        const seats = makeKeyring(this.store.D, Math.max(8, this.cfg.geometry.maxGroup), seedRand);
+        this.space = {
+            D: this.store.D,
+            seats,
+            rand: rng((this.cfg.seed ^ 0x51f15e) >>> 0),
+            maxGroup: this.cfg.geometry.maxGroup,
+        };
+        this.alphabet = new Alphabet(this.cfg.seed, this.store.D, this.cfg.alphabet);
+        this.search = new GraphSearch(this.store, this.space.maxGroup, this);
+        // Build the mechanism list: default grounding + ALU + user mechanisms.
+        for (const m of defaultMechanisms)
+            this.mechanisms.push(m);
+        const host = this.extensionHost();
+        if (this.cfg.alu.enabled) {
+            const alu = new Alu({
+                tol: this.cfg.alu.tol,
+                maxIter: this.cfg.alu.maxIter,
+                precision: this.cfg.alu.precision,
+            }, host);
+            this.mechanisms.push(aluToMechanism(alu));
+        }
+        for (const m of userMechanisms)
+            this.mechanisms.push(m);
+        for (const f of userFactories)
+            this.mechanisms.push(f(host));
+    }
+    // ── Public API ───────────────────────────────────────────────────────────
+    /** Exposed for tests: the consensus climb over query sub-regions. */
+    climbAttention(query, k, mode = "inverse") {
+        return climbAttentionFn(this, query, k, mode);
+    }
+    /** Exposed for tests: climb the structural DAG from a node to its
+     *  edge-bearing ancestor contexts. */
+    edgeAncestors(id, contextCount) {
+        return edgeAncestorsFn(this, id, contextCount);
+    }
+    /** Exposed for tests: find the natural break point in a sorted vote list. */
+    naturalBreak(votes) {
+        return naturalBreakFn(votes);
+    }
+    // ── respond ───────────────────────────────────────────────────────────
+    /** Perceive input into a content-defined tree.  Deterministic — identical
+     *  bytes always produce an identical tree.  Public for ingest-cache. */
+    perceive(input, leafAt, lookup) {
+        return perceiveImpl(this, input, leafAt, lookup);
+    }
+    /** Open one response's transient state — the tracer, the per-response
+     *  memos, the work meter.  The ONE place this state is created, and it
+     *  serves BOTH entry points: `respond` takes fresh per-response memos,
+     *  `respondTurn` passes its conversation, whose memos persist across turns
+     *  (content-keyed, so the previous turn's results are found by this turn's
+     *  sub-span calls) and whose `resolvedSubtrees` spares foldTree the store
+     *  probes for every prefix subtree — and, for walks that pass no visitor,
+     *  the descent as well.  respondTurn used to inline its own copy of this
+     *  and of {@link endResponse}; the two drifted (a memo added to one was
+     *  silently absent from the other), so there is exactly one pair now. */
+    beginResponse(inspectRationale, canon, conv) {
+        this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
+        this.climbMemo = conv ? conv.climbMemo : new Map();
+        this.recogniseMemo = conv ? conv.recogniseMemo : new Map();
+        this.perceiveMemo = conv ? conv.perceiveMemo : new Map();
+        this._resolvedSubtrees = conv ? conv.resolvedSubtrees : null;
+        // Inference is a pure function of cumulative bytes. Conversation
+        // boundaries remain persistence/API metadata and must not select a
+        // different mechanism path than respond() on the identical byte stream.
+        // answeredSpans and currentTurnStart ARE restored from the conversation,
+        // however — they are pure functions of the cumulative byte stream (the
+        // assistant's own prior replies, and where the current user turn starts,
+        // are deterministic given the full transcript).  Without them confluence,
+        // cover, the weave, and the consensus climb treat prior assistant turns
+        // as fresh query content — re-deriving them as constraints, voting
+        // anchors, and alignment points.
+        this.answeredSpans = conv ? conv.answeredSpans : [];
+        this.currentTurnStart = conv && conv.boundaries.length > 0
+            ? conv.boundaries[conv.boundaries.length - 1]
+            : 0;
+        this.canon = canon ?? null;
+        this.canonMemo = canon ? new Map() : null;
+        this._beginMeter();
+    }
+    /** Open (or leave closed) the response's work accumulator.  Separate from
+     *  {@link beginResponse} because {@link respondTurn} keeps its own
+     *  conversation-scoped lifecycle and must not create fresh per-response
+     *  memos — but it DOES meter, through this same pair. */
+    _beginMeter() {
+        if (!this._profile)
+            return;
+        this.meter = new Meter();
+        this.store.meter = this.meter;
+    }
+    /** Close the accumulator and publish its report.  Detaching from the store
+     *  matters: a Mind that shares a store with another Mind must not keep
+     *  charging that store's reads to a finished response. */
+    _endMeter(queryBytes) {
+        if (this.meter === null)
+            return;
+        this.lastCost = this.meter.report(queryBytes);
+        this.store.meter = null;
+        this.meter = null;
+    }
+    /** The canonicalizer a response should carry: the Mind-level option when
+     *  set (or none when explicitly disabled), else the entry point's own
+     *  default — text entry points pass {@link textCanon}, binary ones null. */
+    _canonFor(entryDefault) {
+        if (this._canonOpt === false)
+            return null;
+        return this._canonOpt ?? entryDefault;
+    }
+    /** Close one response's transient state — every per-response field, incl.
+     *  the edge guide/choices `think` sets mid-flight, and the meter's report.
+     *
+     *  A conversation's memo MAPS were mutated in place, so `data.*` still
+     *  points at them and there is nothing to save back.  Clearing the Mind's
+     *  references is what matters: a concurrently-started `respond()` swaps its
+     *  own fresh maps into these pointers, and copying back from them here
+     *  would inject a foreign response's memos into the conversation. */
+    endResponse(queryBytes) {
+        this._endMeter(queryBytes);
+        this.trace = null;
+        this.climbMemo = null;
+        this.recogniseMemo = null;
+        this.perceiveMemo = null;
+        this._resolvedSubtrees = null;
+        this.answeredSpans = [];
+        this.currentTurnStart = 0;
+        this.canon = null;
+        this.canonMemo = null;
+        this._edgeGuide = null;
+        this._edgeChoice.clear();
+    }
+    /** Shared response core — the one path from bytes to voiced answer.
+     *  `respond` calls this directly; `respondTurn` has its own path
+     *  with conversation-persistent memos and incremental perception. */
+    async _respondImpl(queryBytes, inspectRationale, traceLabel = "respond", canon = null) {
+        this.beginResponse(inspectRationale, canon);
+        try {
+            return await this._groundAndVoice(queryBytes, traceLabel);
+        }
+        finally {
+            this.endResponse(queryBytes.length);
+        }
+    }
+    /** The ONE path from query bytes to a voiced answer: ground (think), then
+     *  re-voice in the asker's words (articulate).  Both entry points run
+     *  exactly this — they differ only in the LIFECYCLE around it (fresh
+     *  per-response memos vs. a conversation's persistent ones) and in what
+     *  they do with the answer afterwards.  It must be called between
+     *  {@link beginResponse} and {@link endResponse}. */
+    async _groundAndVoice(queryBytes, traceLabel) {
+        const top = this.trace?.enter(traceLabel, [rItem(queryBytes, "query")]);
+        const meter = this.meter;
+        const thought = meter
+            ? await meter.time("think", () => think(this, queryBytes, this.mechanisms))
+            : await think(this, queryBytes, this.mechanisms);
+        if (thought === null) {
+            top?.done([], "nothing to perceive or an empty store — no answer");
+            return { v: null, bytes: new Uint8Array(0) };
+        }
+        const voiced = meter
+            ? await meter.time("articulate", () => articulate(this, thought.bytes, queryBytes))
+            : await articulate(this, thought.bytes, queryBytes);
+        top?.done([rItem(voiced, "answer", resolveImpl(this, voiced) ?? undefined)], "the answer, re-voiced in the asker's words");
+        return {
+            v: gistOf(this, voiced),
+            bytes: voiced,
+            provenance: thought.provenance,
+        };
+    }
+    /** Answer ONE self-contained input.
+     *
+     *  A MULTI-TURN context is not that, and this is the wrong entry point for
+     *  it.  `respond` folds the bytes it is handed with no boundary set, because
+     *  nothing in a flat byte string says where one turn ended — only the caller
+     *  who assembled it knows, which is the whole reason `boundaries` is a
+     *  parameter of {@link perceiveImpl} and never inferred from content.  A
+     *  conversation deposited through {@link ingest} folds its contexts over
+     *  those turn boundaries, so a hand-concatenated transcript passed here
+     *  folds differently from the way it was learnt and reaches the trained
+     *  context node only by luck (measured on a 7-turn conversation: 5/7 here
+     *  against 7/7 through {@link respondTurn}, same bytes).  Use
+     *  {@link beginConversation} + {@link respondTurn}, or {@link addTurn} to
+     *  replay turns the Mind should hear but not answer. */
+    async respond(input, inspectRationale) {
+        // A STRING input is text by nature: it carries the text equivalence even
+        // through the generic entry point.  Raw bytes / grids carry only the
+        // Mind-level canon option, if any.
+        const canon = this._canonFor(typeof input === "string" ? textCanon : null);
+        // EDGE WHITESPACE IS NOT PART OF THE QUESTION — trim it once, here, so
+        // every mechanism downstream sees the same question regardless of how the
+        // caller spaced it.  See canon.ts's textEdgeTrim for why the outer edges of a
+        // whole input are exactly where canon.ts's no-trimming hazard cannot arise.
+        // Gated on the SAME modality test as the canonicalizer above: for bytes and
+        // grids 0x20 is content, and nothing is trimmed.
+        //
+        // Measured on the 15.7M-node store: without this, one leading space took
+        // `Who wrote Romeo and Juliet?` and `What is the chemical symbol for
+        // water?` from answered to silent, because a shift re-seats every fold
+        // boundary — the whole of analyze_training.ts's K2 phase-robustness gap.
+        // The caller's EXACT bytes are tried first and the trim is a RETRY, not a
+        // pre-filter.  Trimming up front is asymmetric — it normalises the query but
+        // not the stored forms — so it breaks byte-exact identity for a form trained
+        // WITH edge whitespace: test/04 deposits ["  ice  ", "cold"] and asks
+        // "  ice  ", which must keep answering.  Retrying preserves that (the raw
+        // query resolves on the first pass) while still reaching the padded case
+        // (the raw query grounds nothing, the trimmed one does).
+        //
+        // COST: nothing on any answering path.  The retry needs BOTH silence AND
+        // edge whitespace on the query, the same "only on the already-failed path"
+        // discipline test/44 and the bridge's own trim retry use.  The conversation
+        // entry point (respondTurn) is deliberately NOT trimmed — it tracks
+        // turn-boundary offsets into its accumulated context, and shifting the bytes
+        // under those offsets would desync them.
+        const bytes = inputBytes(this, input);
+        const first = await this._respondImpl(bytes, inspectRationale, "respond", canon);
+        if (first.bytes.length > 0 || typeof input !== "string")
+            return first;
+        const trimmed = textEdgeTrim(bytes);
+        if (trimmed.length === bytes.length || trimmed.length === 0)
+            return first;
+        return this._respondImpl(trimmed, inspectRationale, "respond", canon);
+    }
+    /** Text view of {@link respond}.  NUL bytes (0x00) are stripped before
+     *  decoding — they are structural padding in text answers.  LOSSY for a
+     *  binary answer that legitimately contains NULs: use {@link respond} and
+     *  read `bytes` directly for binary/grid modalities.
+     *
+     *  Injects the TEXT canonicalizer (src/canon.ts) so resolution treats
+     *  every character variation of the same text — case, width, whitespace —
+     *  as one form, provided the store's canon index is built
+     *  ({@link buildCanonIndex}). */
+    async respondText(input, inspectRationale) {
+        const r = await this.respond(input, inspectRationale);
+        return decodeText(r.bytes);
+    }
+    // ── Conversation API ────────────────────────────────────────────────────
+    /** Begin a new conversation, optionally restoring from a previously-saved
+     *  {@link ConversationState}.  The returned handle is required for
+     *  {@link respondTurn} and {@link endConversation}.
+     *
+     *  Conversations are independent — a Mind can manage several concurrently.
+     *  Each tracks the fold pyramid (accumulated internal processing) and
+     *  turn-boundary offsets; the geometry never inspects content to guess
+     *  where one turn ends and the next begins. */
+    beginConversation(state) {
+        const id = this._nextConvId++;
+        const initBytes = state?.context ?? new Uint8Array(0);
+        // NORMALISE CALLER-SUPPLIED BOUNDARIES.  `boundaries` is documented
+        // strictly increasing and every boundary this class produces is (they are
+        // appended as the context grows), but a restored {@link ConversationState}
+        // comes from OUTSIDE — hand-built, migrated, or round-tripped through a
+        // store that did not preserve order.  The folds consume boundaries with a
+        // sequential `b > prev` filter, so an out-of-order entry is silently
+        // DROPPED rather than rejected, and the conversation would then fold over
+        // a different cut set than the one the caller believes it restored.
+        // `bytesToTree` used to sort on the way in and absorbed this; the
+        // incremental fold this now calls does not, so the normalisation belongs
+        // here, at the one public door untrusted boundaries come through.
+        const initBoundaries = state?.boundaries
+            ? [...new Set(state.boundaries)]
+                .filter((b) => b > 0 && b < initBytes.length)
+                .sort((a, b) => a - b)
+            : [];
+        const initAnswered = state?.answeredSpans
+            ? state.answeredSpans.map(([start, end]) => [start, end])
+            : initBoundaries.flatMap((start, i, cuts) => i % 2 === 0 && i + 1 < cuts.length
+                ? [[start, cuts[i + 1]]]
+                : []);
+        // The same incremental fold `_growContext` uses, so a RESTORED
+        // conversation starts with segment state its next turn can reuse — a
+        // resumed conversation is otherwise identical to a live one and must not
+        // pay a full re-fold on every turn for the rest of its life.
+        const restored = contentFoldIncremental(this.space, this.alphabet, initBytes);
+        this._conversations.set(id, {
+            tree: restored.tree,
+            content: restored.fold,
+            bytes: initBytes,
+            boundaries: initBoundaries,
+            answeredSpans: initAnswered,
+            perceiveMemo: new Map(),
+            recogniseMemo: new Map(),
+            climbMemo: new Map(),
+            resolvedSubtrees: new WeakMap(),
+        });
+        return { id };
+    }
+    /** End a conversation, releasing its internal resources (accumulated
+     *  context, boundary offsets, and the fold-pyramid cache).  Idempotent. */
+    endConversation(conv) {
+        this._conversations.delete(conv.id);
+    }
+    /** The current serialisable state of an active conversation.  Save this
+     *  to resume the conversation later via {@link beginConversation}. */
+    conversationState(conv) {
+        const data = this._conversations.get(conv.id);
+        if (!data)
+            return null;
+        return {
+            context: data.bytes,
+            boundaries: [...data.boundaries],
+            answeredSpans: data.answeredSpans.map(([start, end]) => [start, end]),
+        };
+    }
+    /** Append a turn to a conversation's accumulated context WITHOUT
+     *  responding — raw byte append plus a boundary offset, never a
+     *  separator; the fold pyramid advances by O(turn).
+     *
+     *  This is the primitive for turns the Mind should hear but not answer:
+     *  replaying a transcript, feeding the OTHER speaker's line in a
+     *  prediction harness, or restoring context piecewise.  {@link
+     *  respondTurn} = addTurn + think + its own reply appended the same way.
+     *
+     *  ── ON SEPARATORS: THERE IS NO SEPARATOR QUESTION ────────────────────
+     *
+     *  "Never a separator" above says what this method DOES — it appends the
+     *  bytes you give it and records an OFFSET — not that separator bytes are
+     *  forbidden, unsupported, or something the engine must be taught about.
+     *  Sema is agnostic to them, and reviewers keep mistaking that agnosticism
+     *  for a constraint.  To be explicit, because the mistake is easy:
+     *
+     *  1. A turn boundary is an OFFSET, held here, in `boundaries`.  It is
+     *     never a character the geometry scans for.  Nothing downstream asks
+     *     "what byte separates two turns?" because nothing downstream finds
+     *     boundaries by looking at content at all.
+     *  2. A separator in a CORPUS is ordinary content.  If a trainer joins
+     *     turns with "\n" (example/train_base.ts does), those newlines are
+     *     simply bytes inside the stream, folded like every other byte.  They
+     *     are a property of that corpus, not of this API and not of the fold.
+     *  3. This API can therefore reproduce ANY corpus exactly, with no
+     *     convention to agree on: replaying a "\n"-joined corpus means passing
+     *     `"\n" + turnText` as the turn.  The separator rides along IN the
+     *     turn bytes, where it belongs.  There is nothing to configure and no
+     *     mode to select.
+     *  4. Inference is not exact-match anyway.  Recognition works over
+     *     sub-spans, canonical equivalence and resonance, so a query that
+     *     differs from the trained bytes by punctuation or whitespace still
+     *     reaches the trained forms; it degrades, it does not fail closed.
+     *
+     *  What follows from 1–4: differing separator bytes between a corpus and a
+     *  query is an ordinary CONTENT difference — the same kind as any other
+     *  wording difference — and it is measured the same way.  It is NOT an
+     *  incompatibility between the trainer and this API, and it does NOT
+     *  require choosing a project-wide separator convention.  A review that
+     *  concludes otherwise (this one did, before being corrected) has mistaken
+     *  its own harness feeding untrained bytes for an architectural defect. */
+    addTurn(conv, turn) {
+        const data = this._conversations.get(conv.id);
+        if (!data)
+            throw new Error(`Conversation ${conv.id} not found`);
+        const turnBytes = inputBytes(this, turn);
+        this._growContext(data, turnBytes);
+        return this.conversationState(conv);
+    }
+    /** Grow a conversation's accumulated context by one turn's bytes — raw
+     *  append plus a boundary offset, pyramid advanced by O(turn), the grown
+     *  context's tree seeded into the conversation's perceive memo.  The ONE
+     *  place a context grows ({@link addTurn} and {@link respondTurn} both
+     *  come through here), so the append semantics cannot drift. */
+    _growContext(data, turnBytes) {
+        const prevLen = data.bytes.length;
+        // An empty turn neither grows the context nor marks a boundary —
+        // boundaries are documented strictly increasing, and a zero-length
+        // "turn" is no turn.  Nothing changed, so the existing tree stands.
+        const grow = turnBytes.length > 0;
+        if (!grow)
+            return data.tree;
+        const grown = prevLen > 0 ? concat2(data.bytes, turnBytes) : turnBytes;
+        if (prevLen > 0)
+            data.boundaries.push(prevLen);
+        // THE PLAIN FOLD, INCREMENTALLY.  No boundary set is imposed here: the
+        // tree is exactly the tree `perceive(grown)` builds for these bytes, which
+        // is exactly the tree the DEPOSIT path folded when it learnt them.  That
+        // agreement is the whole point — it is what lets a cumulative context
+        // resolve to its trained node, and when it was absent the alignment family
+        // went quadratic (measured: 5.2M cells on a 476-byte context, against 0
+        // when the two sides agree).
+        //
+        // The optimisation is unaffected by dropping the boundaries, because it
+        // never came from them: content cuts are stable under append, so the
+        // incremental fold reuses every segment left of the new turn as the SAME
+        // object (see contentFoldIncremental).  That object identity is what
+        // `resolvedSubtrees` — a WeakMap keyed by node identity — needs in order
+        // to hit at all.  Measured against the stable-prefix fold it replaces:
+        // ~40 rebuilt nodes per turn either way, flat as the context grows
+        // sevenfold, and ~92% of nodes reused by identity in both.
+        //
+        // `data.boundaries` is still tracked, and is still exact — it is API
+        // metadata (ConversationState, answeredSpans, currentTurnStart), not a
+        // fold instruction.
+        const folded = contentFoldIncremental(this.space, this.alphabet, grown, data.content);
+        const tree = folded.tree;
+        data.content = folded.fold;
+        data.tree = tree;
+        data.bytes = grown;
+        // Seeded under the PLAIN content key, and that is now the only key there
+        // is: with no boundary set imposed, this tree IS what `perceive(grown)`
+        // computes, so the memo entry is an ordinary cache hit rather than the
+        // deliberate alias it had to be while the two folds differed.  The entry
+        // saves the pipeline re-folding the context it was just handed.
+        data.perceiveMemo.set(perceiveKey(grown), tree);
+        return tree;
+    }
+    /** Process one turn of a conversation.
+     *
+     *  `turn` is the raw input for the latest turn — its bytes are appended
+     *  to the accumulated context directly (raw concatenation).  The Mind
+     *  tracks the byte offset where each turn ends; no separator is ever
+     *  inserted or inspected.
+     *
+     *  Returns the response AND the updated {@link ConversationState} so the
+     *  caller can persist it.  The conversation handle's internal state is
+     *  updated in place — the returned state is a snapshot for storage.
+     *
+     *  SINGLE FLIGHT: at most one respondTurn may be in flight per Mind.  The
+     *  conversation's memo caches are swapped into the Mind-level per-response
+     *  pointers for the duration of the turn, so a concurrently-running
+     *  respond()/respondTurn() on the SAME Mind would interleave state.
+     *  Different Minds (or sequential awaits, as in every test) are safe. */
+    async respondTurn(conv, turn, inspectRationale) {
+        const data = this._conversations.get(conv.id);
+        if (!data)
+            throw new Error(`Conversation ${conv.id} not found`);
+        const turnBytes = inputBytes(this, turn);
+        // Incremental perception — O(turn) instead of O(context).
+        this._growContext(data, turnBytes);
+        const newContext = data.bytes;
+        // The conversation's persistent memos and subtree cache are swapped in
+        // by beginResponse (see there) — the SAME lifecycle respond() uses, so a
+        // memo added in one place can never be missing from the other.  A string
+        // turn is text by nature and carries the text equivalence, same as
+        // respond() (see _canonFor).
+        //
+        // No recognise-memo pre-seeding here: that used to be necessary because
+        // the flat/positional fold lost visibility into an earlier turn's own
+        // structure once later bytes shifted its position (foldTree no longer
+        // visited the turn's root node).  The STABLE-PREFIX fold (see {@link
+        // ConversationData}) makes every turn's subtree independent of what
+        // follows it by construction, so recognise() finds it correctly on its
+        // own, first-touch, exactly once per turn.
+        this.beginResponse(inspectRationale, this._canonFor(typeof turn === "string" ? textCanon : null), data);
+        try {
+            const response = await this._groundAndVoice(newContext, "respondTurn");
+            // The REPLY joins the accumulated context the same way a turn does
+            // ({@link addTurn}): raw byte append plus a boundary offset — never a
+            // separator.  A conversation's context is the full exchange, exactly
+            // the cumulative continuous shape multi-turn training deposits, so a
+            // later turn can refer to what was ANSWERED ("which of those two…"),
+            // not only to what was asked.
+            if (response.bytes.length > 0) {
+                const start = data.bytes.length;
+                this.addTurn(conv, response.bytes);
+                data.answeredSpans.push([start, data.bytes.length]);
+            }
+            return { response, state: this.conversationState(conv) };
+        }
+        finally {
+            this.endResponse(newContext.length);
+        }
+    }
+    /** Text view of {@link respondTurn}.  See {@link respondText} for the
+     *  NUL-stripping caveat.  For binary or grid turns use {@link respondTurn}
+     *  directly — this is a text-only convenience, like {@link respondText}. */
+    async respondTurnText(conv, turn, inspectRationale) {
+        const { response, state } = await this.respondTurn(conv, turn, inspectRationale);
+        return { response: decodeText(response.bytes), state };
+    }
+    async embedding(input) {
+        return (await this.respond(input)).v;
+    }
+    /** Kinship note: the vector arm below is a miniature of recall's tier 3
+     *  (resonate → reach gate → read out the nearest form's bytes) — the
+     *  read-out direction of the same operation, without recall's grounding
+     *  ladder.  If either side's acceptance rule changes, revisit the other. */
+    async express(idOrV) {
+        if (typeof idOrV === "number")
+            return this.store.bytes(idOrV);
+        const [hit] = await this.store.resonate(idOrV, 1);
+        // The same confidence floor recall uses: a vector whose nearest stored
+        // form sits below the reach threshold relates to NOTHING in the store —
+        // returning that form's bytes anyway would fabricate an answer from an
+        // unrelated neighbour.  Silence is the honest read-out.
+        if (hit && hit.score >= reachThreshold(this.space.maxGroup)) {
+            return this.store.bytes(hit.id);
+        }
+        return new Uint8Array(0);
+    }
+    // ── Learning ─────────────────────────────────────────────────────────────
+    /** See {@link import("./learning.js").ingest} — `onDeposit`, when given,
+     *  reports each ingested item's deposited root node ids
+     *  ({@link DepositReport}); purely observational. */
+    async ingest(input, second, onDeposit, 
+    /** Witness the DEPOSIT path the way {@link respond}'s callback witnesses
+     *  inference — `companyProfile` reports its saturation diagnostics here.
+     *  Without it the tracer is never constructed and the emit sites cost
+     *  nothing (§ rationale.ts), exactly as on the inference path. */
+    inspectRationale) {
+        invalidateStructuralCaches(this);
+        invalidateJunctionCache(this);
+        const prevTrace = this.trace;
+        this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
+        try {
+            return await ingest(this, input, second, onDeposit);
+        }
+        finally {
+            this.trace = prevTrace;
+        }
+    }
+    // ── Extension Surface ────────────────────────────────────────────────────
+    extensionHost() {
+        const mind = this;
+        return {
+            meaningOf: (bytes, anchors) => meaningOf(this, bytes, anchors),
+            continuation: (bytes) => this.groundedContinuation(bytes),
+            segment: (bytes) => segment(this, bytes).map((s) => ({ i: s.start, j: s.end })),
+            get reach() {
+                return mind.space.maxGroup;
+            },
+        };
+    }
+    async groundedContinuation(bytes) {
+        const id = resolveImpl(this, bytes);
+        if (id === null)
+            return null;
+        const grounded = await follow(this, id);
+        if (grounded !== null && !bytesEqual(grounded, bytes))
+            return grounded;
+        return null;
+    }
+    // ── Content-index repair ───────────────────────────────────────────────
+    /** Re-index structurally-important nodes whose gists were evicted from the
+     *  pending cache before they reached the content index.  See {@link
+     *  Store.repairContentIndex} for the contract; this method wires the
+     *  Mind's perception into the store's repair walk.
+     *
+     *  Run this after training or at checkpoints to restore recall reach for
+     *  nodes that bridge experiences but were never indexed.  A pure interior
+     *  node (no edges, no halo) is deliberately skipped — it is scaffolding,
+     *  not an experience root or bridge, and regenerating its gist would waste
+     *  I/O and index space for no recall benefit.
+     *
+     *  @param minParents  only repair nodes with ≥ this many structural parents
+     *                     (default 2 — structural bridges)
+     *  @returns number of nodes added to the content index */
+    async repairContentIndex(minParents = 2) {
+        return this.store.repairContentIndex(async (id) => {
+            const bytes = this.store.bytes(id);
+            if (bytes.length === 0)
+                return null;
+            return gistOf(this, bytes);
+        }, minParents);
+    }
+    // ── Canonical-form index ───────────────────────────────────────────────
+    /** Build (or incrementally refresh) the store's canonical-form index: for
+     *  every content-bearing node, record the hash of its CANONICAL key so
+     *  resolution can find stored forms across surface variation (case, width,
+     *  whitespace — whatever `canon` equates; see src/canon.ts).
+     *
+     *  Incremental and idempotent: the last indexed node id is remembered in
+     *  store meta (`canon.upto`), so a refresh after further training scans
+     *  only the new rows.  Run once after training, and again after ingests —
+     *  the same operational shape as {@link repairContentIndex}.
+     *
+     *  @param canon  the canonicalizer to index under — MUST be the same one
+     *                queries will carry (text queries carry {@link textCanon}
+     *                unless the Mind was constructed with its own)
+     *  @returns number of index rows added */
+    async buildCanonIndex(canon) {
+        const c = canon ?? this._canonFor(textCanon);
+        const store = this.store;
+        if (c === null || !store.canonAdd || !store.eachContent)
+            return 0;
+        const from = Number(await store.getMeta("canon.upto") ?? 0);
+        let added = 0;
+        let maxId = from - 1;
+        store.eachContent((id, bytes) => {
+            if (id > maxId)
+                maxId = id;
+            const key = c(bytes);
+            if (key.length === 0)
+                return;
+            // Only index content whose canonical key DIFFERS from its raw bytes —
+            // an already-canonical span is found by the exact lookup (and by the
+            // fallback's own exact probe of the canonical bytes), so indexing it
+            // would only add rows.
+            if (bytesEqual(key, bytes))
+                return;
+            store.canonAdd(canonHash(key), id);
+            added++;
+        }, from);
+        await store.setMeta("canon.upto", String(maxId + 1));
+        store.commit();
+        return added;
+    }
+    // ── Persistence ──────────────────────────────────────────────────────────
+    async save() {
+        const meta = new TextEncoder().encode(JSON.stringify(this.cfg));
+        await this.store.saveSnapshot(meta);
+        return meta;
+    }
+    static async load(snapshot, store) {
+        const cfg = JSON.parse(new TextDecoder().decode(snapshot));
+        return new Mind(cfg, store, true);
+    }
+    static async loadFromStore(store) {
+        const meta = await store.loadSnapshot();
+        if (!meta)
+            throw new Error("no snapshot in store");
+        return Mind.load(meta, store);
+    }
+}
