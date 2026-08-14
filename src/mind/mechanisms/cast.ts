@@ -358,6 +358,38 @@ export async function counterfactualTransfer(
     }
   }
   const isRoot = (id: number) => roots.some((r) => r.anchor === id);
+  // VOICEABLE — a structure whose own learnt content a schema may SPEAK.
+  //
+  // The gate below asks only that the weave TOUCH a committed point.  That is
+  // the right question for MEMBERSHIP — a weave needs uncommitted structure to
+  // compare against; that is what an analogy IS — and the wrong one for
+  // VOICING: satisfied by any committed bystander, it lets every OTHER aligned
+  // point put its own learnt content into the answer while a root that
+  // contributed nothing holds the door open.  The refusal note below already
+  // states the principle — "CAST refuses to transfer through content the climb
+  // itself never settled on" — it was simply never asked of the structure a
+  // schema actually transfers THROUGH.
+  //
+  // Measured on a two-hop question over dialogue filler (N ~ 103,
+  // consensusFloor 5.13): the climb committed ONE root at vote 8.13, and
+  // substitution then voiced a filler deposit at vote 0.15 together with a
+  // second structure at 0.57 — neither committed, both an order of magnitude
+  // below the floor, while the licensing root supplied no bytes at all.
+  //
+  // OR THE QUERY NAMED IT.  Commitment is not the only warrant: a structure the
+  // asker QUOTED is content the query did ask about, whoever the climb settled
+  // on.  The naming test is the one redirection's own `named` list uses — an
+  // aligned run starting at the structure's OPENING bytes (`cs === 0`) — and
+  // NOT merely "has an aligned run", which every weave point has by
+  // construction.  Without this disjunct the gate refuses test/29 B3 ("what if
+  // the capital of France were Lyon?" must answer about Lyon), where the
+  // substitute is named outright and the climb never commits it.  This mirrors
+  // the pairing the comparison gate already makes with
+  // `!rootTrusted && !namedByQuery`.
+  const namedFromOpening = (p: Point): boolean =>
+    p.runs.some((r) => r.cs === 0 && usable(r.qs, r.qe));
+  const voiceable = (p: Point): boolean =>
+    isRoot(p.anchor) || namedFromOpening(p);
   // The weave must touch a COMMITTED point of attention: the dominant
   // structure itself, or another aligned point the climb committed to.
   if (!points.some((p) => isRoot(p.anchor))) {
@@ -540,6 +572,14 @@ export async function counterfactualTransfer(
       if (r.cs < quantum || !usable(r.qs, r.qe)) {
         return null;
       }
+      // The DISPLACED STRUCTURE is what this schema speaks — the answer is its
+      // tail past the seat plus its own continuation — so it must be
+      // voiceable.  Filtered HERE rather than after the argmax so an eligible
+      // structure with less depth still fires the schema, instead of an
+      // ineligible deepest candidate suppressing it outright.  The SUBJECT is
+      // deliberately not gated: `fillerOf` reads the QUERY's own bytes for it,
+      // so it contributes what the asker already said, not learnt content.
+      if (!voiceable(p)) return null;
       const before = beforeOf(p, r);
       if (before === undefined) return null;
       if (r.cs > fillerOf(before.point, before.run).length + quantum) {
@@ -640,7 +680,14 @@ export async function counterfactualTransfer(
   const domNext = ctx.store.nextFirst(dominant.anchor, hubBound(ctx));
   const displaced = domNext
     .every((n) => indexOf(query, read(ctx, n), 0) < 0);
-  if (last !== undefined && last.point !== dominant && displaced) {
+  // The SUBSTITUTE is what redirection speaks — the answer IS `project(last)`,
+  // its own fact — so the same bar applies.  The displaced structure is only
+  // recognised as the slot being overridden and is never voiced, so it is
+  // deliberately not gated here.
+  if (
+    last !== undefined && last.point !== dominant && displaced &&
+    voiceable(last.point)
+  ) {
     const g = await project(ctx, last.point.anchor, qv);
     if (g !== null) {
       ctx.trace?.step(

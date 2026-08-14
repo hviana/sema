@@ -193,6 +193,12 @@ export interface ConsensusAnchorTrace {
     passesNaturalBreak?: boolean;
     passesConsensusFloor?: boolean;
     pastLeadingSaturation?: boolean;
+    /** Committed because its margin from the dominant is inside the estimator's
+     *  own resolution — the co-dominant band in {@link commitVotes}.  Recorded
+     *  because commit decisions are kept in the exact shape the gates applied
+     *  them: a root admitted this way must never read, in the trace, as one
+     *  that cleared the two vote gates. */
+    tiedWithDominant?: boolean;
     rejectionReasons: AnchorRejectionReason[];
   };
 }
@@ -1703,6 +1709,7 @@ export function commitVotes(
     passesNaturalBreak: boolean | undefined,
     passesConsensusFloor: boolean | undefined,
     pastLeadingSaturation: boolean | undefined,
+    tiedWithDominant: boolean | undefined,
     rejectionReasons: AnchorRejectionReason[],
   ) => {
     if (!td) return;
@@ -1723,6 +1730,7 @@ export function commitVotes(
         passesNaturalBreak,
         passesConsensusFloor,
         pastLeadingSaturation,
+        tiedWithDominant,
         rejectionReasons,
       },
     });
@@ -1738,6 +1746,7 @@ export function commitVotes(
     let passesNaturalBreak: boolean | undefined;
     let passesConsensusFloor: boolean | undefined;
     let pastLeadingSaturation: boolean | undefined;
+    let tiedWithDominant: boolean | undefined;
     const rejectionReasons: AnchorRejectionReason[] = [];
     if (absorbed) {
       status = "overlap";
@@ -1760,7 +1769,49 @@ export function commitVotes(
       } else {
         passesNaturalBreak = vote >= rootCut;
         passesConsensusFloor = vote >= floor;
-        if (passesNaturalBreak && passesConsensusFloor && pastLeading) {
+        // CO-DOMINANT — an anchor the estimator cannot separate from the
+        // dominant inherits the dominant's exemption, because that exemption's
+        // only warrant is being TOP, and "top" is not a fact about the corpus
+        // when the ordering moves with the seed.
+        //
+        // The dominant bypasses both vote gates ("it always grounds"); the
+        // runner-up is held to an absolute ln(N)+1/2 floor the dominant never
+        // had to clear.  Which of them gets the exemption is then decided by a
+        // sort over ESTIMATED quantities.  Measured on test/29 D1's corpus,
+        // 60 seeds per D — true separation 0.54s / 0.75s / 1.04s:
+        //
+        //     D      s=1/sqrt(D)   vote SD (estimated anchor)  SD/s   flips
+        //     256    0.0625        0.0561                      0.90   19/60
+        //    1024    0.0313        0.0268                      0.86   12/60
+        //    4096    0.0156        0.0074                      0.48    2/60
+        //
+        // The SD tracks 1/sqrt(D) and the flip rate collapses with it, so the
+        // reordering is the ESTIMATOR's, not the corpus's.  The loser was then
+        // refused by a floor at 1.599 that neither anchor could ever reach
+        // (corpusN 3) — a coin flip decided which single structure the query
+        // was allowed to have settled on.
+        //
+        // THE BAND IS sqrt(k)*s, NOT s.  A vote is a SUM over the anchor's own
+        // contributing regions, so its noise grows as sqrt(k); pricing a summed
+        // margin against one s would be the category error chooseNext's comment
+        // warns about.  k is `regionAxioms`, already in hand; s is
+        // `estimatorNoise(D)`, already derived.  No constant is introduced.
+        // Verified conservative: measured SD/(sqrt(k)*s) never exceeded 0.72.
+        //
+        // BOUNDED BY CONSTRUCTION: admission requires indistinguishability from
+        // an anchor ALREADY admitted, so it can only admit what the ordinary
+        // rule would have admitted had the noise fallen the other way.  It is
+        // N-independent for the same reason — a statement about the estimator,
+        // not about corpus size.
+        const tieBand = Math.sqrt(
+          Math.max(1, regionAxioms.get(point.anchor) ?? 1),
+        ) * estimatorNoise(ctx.store.D);
+        const dominantVote = votesIdf.get(roots[0].anchor) ?? 0;
+        tiedWithDominant = dominantVote - vote < tieBand;
+        if (
+          ((passesNaturalBreak && passesConsensusFloor) || tiedWithDominant) &&
+          pastLeading
+        ) {
           status = "root";
         } else {
           status = "rejected";
@@ -1782,6 +1833,7 @@ export function commitVotes(
           passesNaturalBreak,
           passesConsensusFloor,
           pastLeadingSaturation,
+          tiedWithDominant,
           rejectionReasons,
         );
         continue;
@@ -1795,6 +1847,7 @@ export function commitVotes(
       passesNaturalBreak,
       passesConsensusFloor,
       pastLeadingSaturation,
+      tiedWithDominant,
       rejectionReasons,
     );
     placed.push(point);

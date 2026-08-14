@@ -52,7 +52,6 @@ export async function reason(
   const qId = pre.queryResolved;
   if (qId !== null && ctx.store.prevCount(qId) > 0) return answer;
 
-  const consumed = new Set<number>();
   // Consume a node and its neighbours for pivot-cycle prevention — CAPPED at
   // the hub bound, via the store's LIMITed edge reads: a common continuation's
   // reverse fan-in (and a hub context's forward fan-out) is corpus-sized, and
@@ -61,6 +60,54 @@ export async function reason(
   // read order); a pivot suppressed only by a beyond-cap neighbour may now
   // fire — the same visibility trade chooseNext documents.
   const bound = hubBound(ctx);
+
+  // ANSWERED DIRECTLY — the echo guard's other half, and the same principle:
+  // the QUERY's own position in the graph, not the answer's content, says the
+  // read-out is complete.  Above: the query is itself a learnt CONTINUATION.
+  // Here: the query is a learnt CONTEXT and the grounded answer is one of ITS
+  // OWN continuations.  Either way the question was answered directly and there
+  // is nothing left to chain for.
+  //
+  // Every stopping condition in the loop below judges the ANSWER (`consumed` /
+  // `restatesQuery` / `bytesEqual`); none asks whether the QUESTION was
+  // satisfied.  So a single-hop question whose answer happens to name another
+  // learnt context extends past a correct answer and REPLACES it:
+  //
+  //   asked  "<subj> father"
+  //   hop 1  "The father of <subj> is Ernest I of Anhalt-Dessau."   <- correct
+  //   pivot  "Ernest I of Anhalt-Dessau"                <- a learnt context too
+  //   got    "The date of death of Ernest I of Anhalt-Dessau is 12 June 1516."
+  //
+  // Any store holding a bare-entity context alongside a relation fact has that
+  // shape; it is not exotic.
+  //
+  // Checked ONCE, before the loop, and ahead of BOTH extension branches:
+  // `absorbForward` extends the answer too, and nothing about the defect is
+  // specific to pivoting, so a guard between them would gate one arbitrary half
+  // of the same step.  Hop 0 is also the only hop at which the question can be
+  // answered directly at all — after a hop, `cur` is no longer the query's own
+  // continuation, so re-testing per hop could only cost reads.
+  //
+  // Read from the ANSWER's side (`prevFirst`) rather than the query's
+  // (`nextFirst`).  Same relation, but a CONTEXT's fan-out is hub-sized while
+  // this is one answer's establishing-context fan-in — and it is the very read
+  // `consumeNode` performs on this node anyway, so the guard adds no store
+  // traffic.  The √N cap carries the file-wide visibility trade, and fails SAFE
+  // in the direction that matters: a missed guard costs an over-extended
+  // answer, never a suppressed chain.
+  //
+  // A genuine multi-hop query is not a deposited context at all ("What is the
+  // capital of the country of Eiffel Tower?" resolves to nothing), so this can
+  // never gate a real chain.
+  const groundedId = resolve(ctx, answer);
+  if (
+    qId !== null && groundedId !== null &&
+    ctx.store.prevFirst(groundedId, bound).includes(qId)
+  ) {
+    return answer;
+  }
+
+  const consumed = new Set<number>();
   const consumeNode = (id: number | null) => {
     if (id === null) return;
     consumed.add(id);
