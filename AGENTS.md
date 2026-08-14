@@ -768,10 +768,12 @@ memoises perceive+intern of repeated inputs and routes through the same
 `store.commit()` at checkpoints; run `compactContentIndex` /
 `repairContentIndex` post-training if eviction was heavy, and
 `mind.buildCanonIndex()` if queries will carry a canonicalizer (2.9). See
-`example/train_base.ts`. Profiling note: the first `resonate` after a big ingest
-pays the pending index flush; the dominant query-side ANN cost is connector
-pre-resolution (bounded by recognised-site count — don't add another loop over
-site pairs).
+`example/train_base/` — a folder, entry `main.ts`: the run context lives in
+`runtime.ts`, the one per-corpus loop in `stage.ts`, and each corpus (knobs, row
+adapter, stage descriptor) in `corpora/<name>.ts`. Profiling note: the first
+`resonate` after a big ingest pays the pending index flush; the dominant
+query-side ANN cost is connector pre-resolution (bounded by recognised-site
+count — don't add another loop over site pairs).
 
 ---
 
@@ -810,6 +812,20 @@ PolyForm Noncommercial 1.0.0 with separate commercial licensing (see
 vendor code under licenses incompatible with dual distribution, and do not add
 runtime dependencies casually — the near-zero-dependency footprint is a product
 feature.
+
+**The library has NO runtime dependencies at all**, and that is now pinned by
+`test/88-dependency-footprint.test.mjs`: the built `dist/src` may import only
+`node:` builtins and relative paths, `package.json` may declare no
+`dependencies`, and the published entry points may not reach outside `dist/src`.
+The rule an EXAMPLE follows is different and looser — it may use what it needs,
+as a **dev** dependency, loaded **lazily** so it is a requirement only of the
+code path that uses it. `example/train_base` is the reference: `hyparquet` (+
+its Snappy codec) is the sole third-party package in this repository, it is
+dev-only, and `readers.ts` resolves it by dynamic import the first time a
+Parquet corpus is actually read — so a curriculum with no Parquet stage runs
+with the package absent. It used to sit in `dependencies`, which installed a
+Parquet reader on every consumer of Sema for the sake of one example; that is
+the mistake the suite exists to catch.
 
 **Training corpora are governed by the same rule, and more strictly.** Sema is
 non-parametric: a trained store retains its training text VERBATIM (read any

@@ -31,7 +31,8 @@
 // fabricate at low N, this goes red. It does NOT cover the real-text ceiling.
 //
 // TO REPRODUCE THE REAL FAILURE: build the same chain, then ingest ~6,000
-// deposits produced by the Taskmaster adapter (example/train_base.ts §6e′) from
+// deposits produced by the Taskmaster adapter (example/train_base/corpora/
+// taskmaster.ts) from
 // TM-2/TM-3/TM-4, and ask the two-hop question. See FINDINGS.md §A1/§A4.
 
 import { test } from "node:test";

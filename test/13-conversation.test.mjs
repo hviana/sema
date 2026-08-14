@@ -20,7 +20,7 @@
 // inspects content to find turn boundaries.
 //
 // "NO SEPARATOR IS NEEDED" ≠ "A SEPARATOR IS A PROBLEM".  This file joins its
-// turns with nothing; example/train_base.ts joins its oasst2 turns with "\n".
+// turns with nothing; example/train_base joins its oasst2 turns with "\n".
 // Both are correct, and neither is a convention the other has to match: a
 // separator is CORPUS CONTENT, folded like any other byte, while a turn
 // boundary is an OFFSET the API carries beside the bytes.  A harness replaying

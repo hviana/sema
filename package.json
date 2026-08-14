@@ -19,9 +19,7 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "devDependencies": {
     "@types/node": "^25.9.3",
-    "typescript": "^5.5.0"
-  },
-  "dependencies": {
+    "typescript": "^5.5.0",
     "hyparquet": "^1.26.2",
     "hyparquet-compressors": "^1.1.1"
   },

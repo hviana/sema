@@ -815,7 +815,7 @@ export class Mind implements MindContext {
    *     "what byte separates two turns?" because nothing downstream finds
    *     boundaries by looking at content at all.
    *  2. A separator in a CORPUS is ordinary content.  If a trainer joins
-   *     turns with "\n" (example/train_base.ts does), those newlines are
+   *     turns with "\n" (example/train_base does), those newlines are
    *     simply bytes inside the stream, folded like every other byte.  They
    *     are a property of that corpus, not of this API and not of the fold.
    *  3. This API can therefore reproduce ANY corpus exactly, with no
