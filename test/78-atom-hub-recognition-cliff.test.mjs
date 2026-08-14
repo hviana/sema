@@ -41,12 +41,13 @@ const ANSWER = "The country of Eiffel Tower is France.";
 // was enough to let the two-hop chain compose even with the gate in place —
 // i.e. a templated corpus makes the behavioural test non-discriminating. Real
 // corpora are lexically diverse, so the filler must be too.
-const WORDS = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet " +
-  "kilo lima mike november oscar papa quebec romeo sierra tango uniform " +
-  "victor whiskey xray yankee zulu amber bronze copper dahlia ember fjord " +
-  "gossamer harbour indigo jasmine kestrel lantern marigold nectar opal " +
-  "pewter quartz ripple saffron thistle umber violet willow xenon yarrow")
-  .split(" ");
+const WORDS =
+  ("alpha bravo charlie delta echo foxtrot golf hotel india juliet " +
+    "kilo lima mike november oscar papa quebec romeo sierra tango uniform " +
+    "victor whiskey xray yankee zulu amber bronze copper dahlia ember fjord " +
+    "gossamer harbour indigo jasmine kestrel lantern marigold nectar opal " +
+    "pewter quartz ripple saffron thistle umber violet willow xenon yarrow")
+    .split(" ");
 const filler = (i) => {
   const w = (n) => WORDS[(i * 7 + n * 13) % WORDS.length];
   return [
@@ -87,7 +88,9 @@ test("an edge-bearing interior form is still recognised past the flip", async ()
   const texts = rec.sites.map((s) => textOf(store, s.payload));
   assert.ok(
     texts.includes("France"),
-    `interior form "France" was not recognised past the flip; sites = ${JSON.stringify(texts)}`,
+    `interior form "France" was not recognised past the flip; sites = ${
+      JSON.stringify(texts)
+    }`,
   );
 });
 

@@ -810,3 +810,26 @@ PolyForm Noncommercial 1.0.0 with separate commercial licensing (see
 vendor code under licenses incompatible with dual distribution, and do not add
 runtime dependencies casually — the near-zero-dependency footprint is a product
 feature.
+
+**Training corpora are governed by the same rule, and more strictly.** Sema is
+non-parametric: a trained store retains its training text VERBATIM (read any
+content node back and the original sentence comes out). A store is therefore a
+redistribution of its corpora, not a derived model, and every upstream licence
+applies to it in full. Two consequences:
+
+- A corpus carrying a **NonCommercial** term cannot enter a trainer — it
+  conflicts with the commercial licence tier.
+- A corpus carrying a **ShareAlike** term cannot enter a trainer — its copyleft
+  would attach to the distributed store.
+
+Check both against **what the corpus was built from**, not only the repository's
+license tag: a dataset assembled out of Wikipedia prose and published under
+Apache-2.0 still carries CC BY-SA on that prose. Where a corpus has a clean
+layer and a contaminated one, ingest only the clean layer.
+
+Sema's own license does **not** extend over corpus content inside a store, and
+cannot: CC BY 4.0 §2(a)(5)(B) forbids applying terms that restrict what the
+license permits. The engine is what PolyForm protects. Per-corpus attribution,
+the required modification statement, and the current allow/deny list live in
+[DATASETS.md](DATASETS.md) — update it in the same change that touches a
+trainer's corpus set.

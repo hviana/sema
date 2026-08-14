@@ -1,6 +1,13 @@
 //This file uses the Google SMOL dataset, made available under the CC BY 4.0 license.
 //This file uses Aya and oasst2 datasets, made available under the apache-2.0 license.
-//This file uses MuskumPillerum/General-Knowledge dataset, made available under the MIT license.
+//
+//A trained Sema store retains its training text VERBATIM, so distributing a
+//store distributes these corpora and every upstream licence applies to it in
+//full. Read DATASETS.md before adding a corpus here or publishing a store:
+//it carries the per-corpus attribution a distributed store is required to
+//travel with, and the two rules a candidate corpus must pass (no NonCommercial
+//term, no ShareAlike term — checked against what the corpus was BUILT FROM,
+//not merely against the repository's licence tag).
 
 //This file is a more appropriate training example for Sema.
 //Sema does not learn through repetition;
@@ -21,23 +28,42 @@
 //
 // Every source here is commercially licensable (cc-by-4.0 / apache-2.0).
 //
-// The curriculum runs in four stages, into ONE store:
+// The curriculum runs in eight stages, into ONE store:
 //   1. SmolSent (google/smol) — sentence-level TRANSLATION pairs across 100+
 //      low-resource languages; see §6c. Each pair is "two names for one meaning"
-//      → bidirectional translation FACTS, the cross-language concept SEMA fuses
-//      (cf. test/05-concepts.test.mjs).
+//      → a foreign→English translation FACT, so every language's rendering of a
+//      meaning converges on ONE English node — the cross-language concept SEMA
+//      fuses (cf. test/05-concepts.test.mjs). The reverse binding is NOT
+//      deposited by default; see SMOLSENT_DIRECTIONS for why.
 //   2. Aya Dataset — ~204k human prompt→completion pairs, 70+ languages; see §6d
 //      → one (question → answer) FACT each.
 //   3. oasst2 — MULTI-TURN human↔assistant conversation trees; see §6e → the
 //      accumulated-context walk (single-turn trees are skipped, by design).
-//   4. General-Knowledge (MuskumPillerum) — ~37.6k {Question, Answer} pairs; see
-//      §6f → one (question → answer) FACT each.
+//   4. Taskmaster 1–4 (google-research-datasets) — task-oriented DIALOGUE, the
+//      best-scoring corpora on the fold-unit recurrence benchmark that predicts
+//      halo health; see §6e′ → the accumulated-context walk, over turns merged
+//      per speaker.
+//   5. 2WikiMultihopQA — the `evidences` (subject, relation, object) TRIPLES,
+//      the one stage aimed at COMPOSITION; see §6e″ → a relation fact plus a
+//      bare-subject PIVOT fact each. Its Wikipedia passages and its composed
+//      questions are deliberately NOT read.
+//   6. SODA — social/commonsense DIALOGUE; see §6e‴ → the accumulated-context
+//      walk. Budgeted: its train split alone would otherwise contribute ~8M
+//      episodes against 662k for the whole current corpus.
+//   7. MASSIVE — short intent utterances in 51 locales; see §6e⁗ → ONE bare
+//      experience each. Contributes recurring fold units, nothing relational.
+//      DISABLED BY DEFAULT — edge-less content was measured to manufacture
+//      answers where the store should stay silent.
+//   8. General-Knowledge (MuskumPillerum) — ~37.6k {Question, Answer} pairs; see
+//      §6f → one (question → answer) FACT each. DISABLED BY DEFAULT on licence
+//      grounds; see DATASETS.md §3.2.
 // Each stage runs only after the previous one finishes, and is recorded in the
 // same completed-files set, so a single store resumes the whole curriculum.
 //
 // Every source is DOWNLOADED as a file and streamed from disk (never paged
 // row-by-row over an HTTP API — that was slow and rate-limited): SmolSent as
-// per-pair JSONL, oasst2 as a gzipped JSONL, General-Knowledge as a JSON array,
+// per-pair JSONL, oasst2 as a gzipped JSONL, Taskmaster and General-Knowledge as
+// JSON arrays,
 // and Aya as Snappy-Parquet read row-group by row-group with hyparquet (the one
 // case the web platform can't decode alone). Resume is per-file: a fully-
 // consumed file is marked complete; an interrupted one re-reads from the top
@@ -86,12 +112,21 @@
 //   MAX_MB=500 node dist/example/train_base.js
 //   CHECKPOINT_MB=250 node dist/example/train_base.js
 //   SMOLSENT_PAIRS=ha_en,zu_en node dist/example/train_base.js  # a subset of pairs
+//   SMOLSENT_DIRECTIONS=both node dist/example/train_base.js  # also English->foreign
 //   SMOLSENT=0 node dist/example/train_base.js           # skip SmolSent stage
 //   AYA=0 node dist/example/train_base.js                # skip Aya stage
 //   AYA_SPLIT=test node dist/example/train_base.js       # small Aya slice
 //   OASST=0 node dist/example/train_base.js              # skip oasst2 stage
 //   OASST_MIN_TURNS=6 node dist/example/train_base.js    # deeper multi-turn only
-//   GENKNOW=0 node dist/example/train_base.js            # skip General-Knowledge
+//   GENKNOW=1 node dist/example/train_base.js            # General-Knowledge (see DATASETS.md §3.2)
+//   PARQUET_BATCH_MB=8 node dist/example/train_base.js   # smaller Parquet reads on a tight host
+//   TASKMASTER=0 node dist/example/train_base.js         # skip Taskmaster stage
+//   TASKMASTER_SETS=TM-3-2020 node dist/example/train_base.js  # one Taskmaster set
+//   WIKI2=0 node dist/example/train_base.js               # skip 2Wiki triples stage
+//   SODA=0 node dist/example/train_base.js                # skip the SODA stage
+//   MASSIVE=1 node dist/example/train_base.js             # enable MASSIVE (off by default)
+//   SODA_MAX_DIALOGS=0 node dist/example/train_base.js    # lift the SODA budget
+//   WIKI2_MAX_ROWS=50000 node dist/example/train_base.js  # budget the 2Wiki stage
 //   LOCAL_PATH=./base node dist/example/train_base.js    # offline: *.jsonl/.parquet/.jsonl.gz/.json
 //   DB_PATH=./data/sema node dist/example/train_base.js
 
@@ -153,6 +188,40 @@ const SMOLSENT_PAIRS = (process.env.SMOLSENT_PAIRS ?? "")
 // The resume id PREFIX for the SmolSent stage; one completed-files entry per
 // file (e.g. "smolsent::ha_en.jsonl").
 const SMOLSENT_ID = "smolsent";
+// Which direction(s) of a translation pair to deposit. Was effectively "both",
+// and that is now the default NO longer, for a reason measured rather than
+// assumed.
+//
+// SmolSent's English side is a SHARED POOL translated into every language: row
+// id 0 of smolsent/ha_en.jsonl, zu_en.jsonl and am_en.jsonl all carry the SAME
+// `trg` ("It allows me to work by following my vibes and ..."). The two
+// directions are therefore not symmetric at all:
+//
+//   src2trg  (foreign -> English)  many distinct contexts -> ONE shared
+//                                  continuation. Every language's rendering of
+//                                  a meaning converges on the same English
+//                                  node — the cross-language concept fusion
+//                                  this stage exists for.
+//   trg2src  (English -> foreign)  ONE context -> 100+ DIFFERENT continuations,
+//                                  one per language file. The same English
+//                                  sentence is deposited over and over with a
+//                                  different answer each time.
+//
+// So dropping trg2src is not merely a corpus-size economy (it halves the
+// largest stage, which was 60.9% of all examples in the last trained store); it
+// removes a genuine ambiguity pathology. Set SMOLSENT_DIRECTIONS=both to
+// restore the old behaviour, or trg2src for English->foreign only.
+//
+// WHAT THE CUT DOES NOT DO, measured on a three-pair store: asking the English
+// sentence still ANSWERS with a foreign rendering, because the engine can reach
+// a shared continuation's predecessors on its own. What is removed is the
+// DEPOSITED forward ambiguity — one context carrying ~100 competing
+// continuations — not every reverse association.
+const SMOLSENT_DIRECTIONS = env("SMOLSENT_DIRECTIONS", "src2trg")
+  .trim().toLowerCase();
+const SMOLSENT_SRC2TRG = SMOLSENT_DIRECTIONS !== "trg2src";
+const SMOLSENT_TRG2SRC = SMOLSENT_DIRECTIONS === "trg2src" ||
+  SMOLSENT_DIRECTIONS === "both";
 // A SmolSent side longer than this is skipped (a sentence pair is short; a huge
 // value is corruption, not a sentence).
 const MAX_SMOLSENT_CHARS = Math.max(
@@ -172,6 +241,18 @@ const SEED = Number(env("SEED", "7"));
 const CHECKPOINT_BYTES = Math.max(
   1_000_000,
   Math.floor(Number(env("CHECKPOINT_MB", "100")) * 1_000_000) || 100_000_000,
+);
+// Target size of ONE materialised Parquet read, in uncompressed source bytes.
+// A row-GROUP is a layout choice made by whoever wrote the file, not a memory
+// budget: Aya ships 203 groups of 1,000 rows (~1 MB each), while SODA ships ONE
+// group of 1,191,582 rows (1.19 GB uncompressed) and 2Wiki ONE of 167,454
+// (666 MB). Reading "exactly one row-group" is therefore safe for the first and
+// fatal for the others, so reads are sized in BYTES instead — see
+// `parquetBatchRows`. Materialised JS objects cost several times their source
+// bytes, hence a default well under available memory.
+const PARQUET_BATCH_BYTES = Math.max(
+  1_000_000,
+  Math.floor(Number(env("PARQUET_BATCH_MB", "32")) * 1_000_000) || 32_000_000,
 );
 const LOCAL_PATH = env("LOCAL_PATH", ""); // train from a local dir of *.zip
 const CACHE_DIR = env("CACHE_DIR", join(process.cwd(), "cache"));
@@ -276,13 +357,187 @@ const MAX_OASST_LINE_CHARS = Math.max(
   Math.floor(Number(env("MAX_OASST_LINE_MB", "8")) * 1_000_000) || 8_000_000,
 );
 
+// ── google-research-datasets/Taskmaster 1–4 (the dialogue stages) ──
+// Four corpora of task-oriented dialogue, one shape between them: each file is a
+// JSON ARRAY of conversations and each conversation carries
+// `utterances: [{speaker, text, …}]`. TM-1 ships two files directly under its
+// directory (self-dialogs, woz-dialogs); TM-2/3/4 ship theirs under `<set>/data`.
+// They are the best-scoring corpora on the fold-unit recurrence benchmark that
+// selects for halo health (TM-3 85.1%, TM-4 78.8%, TM-2 68.7%, TM-1 51.8%,
+// against 23.2% for the incumbent SmolSent), and they are genuinely multi-turn
+// where the incumbent multi-turn stage is not (TM-3 median 20 turns of ~43 B,
+// against oasst2's median turn of 529 B).
+//
+// Served from GitHub raw, not Hugging Face: the HF mirrors are loading-script
+// repos with no data files, and the official copies carry the CC BY 4.0 notice.
+const TASKMASTER = env("TASKMASTER", "1") !== "0";
+// Which sets to train, in order. Each is a directory in the Taskmaster repo.
+const TASKMASTER_SETS = env(
+  "TASKMASTER_SETS",
+  "TM-1-2019,TM-2-2020,TM-3-2020,TM-4-2024",
+).split(",").map((s) => s.trim()).filter(Boolean);
+const TASKMASTER_REPO = env(
+  "TASKMASTER_REPO",
+  "google-research-datasets/Taskmaster",
+);
+const TASKMASTER_RAW =
+  `https://raw.githubusercontent.com/${TASKMASTER_REPO}/master`;
+// A conversation must have at least this many turns AFTER same-speaker merging.
+// The default of 2 keeps every real exchange: unlike oasst2 — where a lone Q→A
+// tree merely replicates the Aya stage's shape and is dropped — a two-turn
+// task-oriented exchange is still task-oriented dialogue, and TM-4's dialogues
+// are short by design (median 3.7 turns), so a higher bar would discard most of
+// that set.
+const TASKMASTER_MIN_TURNS = Math.max(
+  2,
+  Math.floor(Number(env("TASKMASTER_MIN_TURNS", "2"))) || 2,
+);
+// Skip a conversation carrying an implausibly long utterance (corruption). The
+// measured maximum across TM-1/2/3/4 is 1,897 bytes, so this only guards.
+const MAX_TASKMASTER_TURN_CHARS = Math.max(
+  1_000,
+  Math.floor(Number(env("MAX_TASKMASTER_TURN_KB", "32")) * 1000) || 32_000,
+);
+
+// ── 2WikiMultihopQA — the `evidences` TRIPLES only (the composition stage) ──
+// Each row carries `evidences`: a JSON string of (subject, relation, object)
+// triples that CHAIN — one triple's object is the next's subject. 72.5% of rows
+// carry such a chain (measured over 4,000 rows), and those triples are the only
+// representation measured to make Sema compose a two-hop answer at all.
+//
+// TWO COLUMNS ARE DELIBERATELY NOT READ, one for licence reasons and one for
+// capability reasons:
+//   • `context` holds Wikipedia PROSE. The repo is Apache-2.0 but Wikipedia text
+//     is CC BY-SA, and a Sema store keeps text verbatim, so ingesting the
+//     passages would attach ShareAlike to every distributed store. The triples
+//     originate in Wikidata (CC0). See DATASETS.md §3.2/§4.
+//   • `question`/`answer` are the composed multi-hop QUESTION. Depositing those
+//     teaches the answer to that exact question and nothing else — it memorises
+//     rather than composes. They are used to EVALUATE this adapter, never as
+//     training input.
+//
+// Read from Hugging Face's auto-converted `refs/convert/parquet` branch, not
+// from main: the main-branch train.parquet is written as ONE 167,454-row
+// group (666 MB uncompressed) and a Parquet column chunk is per-group, so any
+// read of it materialises the whole file. The converted branch uses uniform
+// 10,000-row groups. See test/79-parquet-batching.test.mjs.
+const WIKI2 = env("WIKI2", "1") !== "0";
+const WIKI2_DATASET = env("WIKI2_DATASET", "xanhho/2WikiMultihopQA");
+// Splits to train, in order. Only `train` by default: `validation`/`test` are
+// the dataset's held-out sets and are what an honest evaluation of this
+// adapter's composition rate has to be measured on.
+const WIKI2_SPLITS = env("WIKI2_SPLITS", "train")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+// Reject a triple with an implausibly long field (corruption); real subjects and
+// objects are entity names, and relations are Wikidata property labels.
+// 0 = every row. The train split holds 167,454 rows at ~4.95 deposits each
+// (~830k facts), so this is the knob that keeps 2Wiki proportionate to the rest
+// of the curriculum in the same way SODA_MAX_DIALOGS does.
+const WIKI2_MAX_ROWS = Math.max(
+  0,
+  Math.floor(Number(env("WIKI2_MAX_ROWS", "0"))) || 0,
+);
+const MAX_WIKI2_FIELD_CHARS = Math.max(
+  100,
+  Math.floor(Number(env("MAX_WIKI2_FIELD_KB", "2")) * 1000) || 2_000,
+);
+
+// ── allenai/soda (social dialogue) and AmazonScience/massive (short intents) ──
+// Both are read from Hugging Face's auto-converted `refs/convert/parquet`
+// branch. For SODA that is mandatory, not cosmetic: its main-branch
+// train.parquet is ONE 1,191,582-row group (1.19 GB uncompressed), and a
+// Parquet column chunk is per-group, so any read of it materialises the whole
+// file — measured at 100% of a 689 MB file and 2 GB of heap for a 500-row read.
+// The converted branch uses uniform 10,000-row groups.
+//
+// BOTH STAGES ARE BUDGETED, and that is a curriculum decision rather than an
+// algorithmic cap. SODA's train split holds 1,191,582 dialogues which the
+// cumulative walk would turn into ~8 MILLION episodes — against the 662,221
+// deposits of the entire current corpus. Trained whole it would not join the
+// mix, it would BE the mix, and corpus size is the quantity every scale problem
+// in this engine is measured against. The default takes the first
+// SODA_MAX_DIALOGS of them; set it to 0 to lift the budget.
+const SODA = env("SODA", "1") !== "0";
+const SODA_DATASET = env("SODA_DATASET", "allenai/soda");
+const SODA_SPLITS = env("SODA_SPLITS", "train")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+// ~6.3 episodes per dialogue, so this budgets ~750k episodes — comparable to
+// the Taskmaster stage and to Aya, which is the intended balance. 0 = no budget.
+const SODA_MAX_DIALOGS = Math.max(
+  0,
+  Math.floor(Number(env("SODA_MAX_DIALOGS", "120000"))) || 0,
+);
+const MAX_SODA_TURN_CHARS = Math.max(
+  1_000,
+  Math.floor(Number(env("MAX_SODA_TURN_KB", "32")) * 1000) || 32_000,
+);
+
+// MASSIVE deposits BARE UTTERANCES — an experience, not an episode — and that
+// is the only shape its data supports. Two richer shapes were considered and
+// rejected on evidence:
+//   • Same-intent pairs as paraphrases. 49.1% of consecutive rows share
+//     (locale, intent), but they are NOT meaning-equivalent: intent 48 in mn-MN
+//     runs "wake me at nine on the fifth" next to "set an alarm two hours from
+//     now". Depositing that pair as an episode teaches a continuation that does
+//     not exist.
+//   • Same-id rows across locales. Those ARE translations of one another —
+//     which is exactly SmolSent's relation, and SmolSent scores worst of every
+//     corpus measured on fold-unit recurrence (23.2%) because cross-lingual
+//     pairs share no units.
+// So the stage contributes recurring fold units and lexical coverage (65.1%
+// recurring unit mass, median 29 B) and nothing relational. `annot_utt` carries
+// slot markup ("[date : tavdahad] ...") and is never read.
+// DISABLED BY DEFAULT, on evidence gathered after the stage was written. A bare
+// experience deposits content with NO EDGE, and that cuts both ways. Measured on
+// a three-pair dialogue store with and without six MASSIVE-style utterances:
+//
+//   "set an alarm"            without: "Sure, what size would you like?"  (wrong)
+//                             with:    "set an alarm for seven"           (better)
+//   "play music"              without: ""                                 (correct silence)
+//                             with:    "Yes, sweetened or unsweetened?"   (wrong)
+//
+// So it displaces some wrong answers and manufactures others, INCLUDING turning
+// a correct silence into a wrong answer — and honest silence is a stated
+// property of this engine (AGENTS §2.13). On the mixed-curriculum store the
+// same shape produced the fragment "nus" for "wake me up at nine am".
+//
+// That evidence is four probes on toy stores and is NOT conclusive; it is,
+// however, the only evidence there is, and it points the wrong way. The stage
+// stays implemented and one env var away. Turn it on (MASSIVE=1) once there is
+// a real measurement showing the recurring fold units it contributes (72.3% of
+// deposited unit mass) buy more than the spurious answers cost.
+const MASSIVE = env("MASSIVE", "0") !== "0";
+const MASSIVE_DATASET = env("MASSIVE_DATASET", "AmazonScience/massive");
+// "all" is the config covering every locale in one set of shards.
+const MASSIVE_CONFIG = env("MASSIVE_CONFIG", "all");
+const MASSIVE_SPLITS = env("MASSIVE_SPLITS", "train")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+// 0 = every row (587,214 in `all`/train, ~17 MB of content).
+const MASSIVE_MAX_ROWS = Math.max(
+  0,
+  Math.floor(Number(env("MASSIVE_MAX_ROWS", "0"))) || 0,
+);
+const MAX_MASSIVE_UTT_CHARS = Math.max(
+  100,
+  Math.floor(Number(env("MAX_MASSIVE_UTT_KB", "2")) * 1000) || 2_000,
+);
+
 // ── MuskumPillerum/General-Knowledge (the fourth training stage, after oasst2) ──
 // A ~37.6k-row general-knowledge Q&A set: each row is a single {Question, Answer}
 // pair. A row is a pure RELATION (question → answer), so it becomes exactly ONE
 // FACT, identical in shape to the Aya stage. It ships as a single JSON array
-// file (output.json); we DOWNLOAD it and stream the array. GENKNOW=0 disables
-// the stage; GENKNOW_URL overrides the source.
-const GENKNOW = env("GENKNOW", "1") !== "0";
+// file (output.json); we DOWNLOAD it and stream the array. GENKNOW_URL overrides
+// the source.
+//
+// DISABLED BY DEFAULT ON LICENCE GROUNDS (2026-08-13). The HF repo carries NO
+// licence tag and no licence in its card — an earlier header in this file
+// claimed MIT without support — and its own dataset card states it "contains a
+// subset of the alpaca dataset". Alpaca is CC BY-NC 4.0: NonCommercial, which
+// conflicts with Sema's commercial licence. Because a Sema store retains its
+// training text VERBATIM, an unlicensed corpus inside it makes the whole
+// artifact undistributable. See DATASETS.md §3.2. GENKNOW=1 re-enables the
+// stage for local, non-distributed experiments only.
+const GENKNOW = env("GENKNOW", "0") !== "0";
 const GENKNOW_URL = env(
   "GENKNOW_URL",
   "https://huggingface.co/datasets/MuskumPillerum/General-Knowledge/resolve/main/output.json",
@@ -535,6 +790,13 @@ async function getJson(url: string, label: string): Promise<any> {
 
 /** A cheap HEAD to learn a download's size (for the cache ceiling and a real
  *  ETA). Rate-limits wait; other 4xx is fatal; total failure → 0. */
+/** Advertised transfer size of `url`, used only to reserve cache room. Like any
+ *  `content-length` this is the ON-THE-WIRE size, so for a content-coded source
+ *  (GitHub raw gzips JSON ~14x) it UNDER-estimates the file that lands on disk.
+ *  That is tolerable here because the cache ceiling is a budget, not a
+ *  correctness property — a run may overshoot MAX_CACHE_GB by the compression
+ *  ratio of one in-flight file, and each file is deleted as soon as it is
+ *  consumed. It must NOT be reused as an integrity check; see downloadFile. */
 async function headSize(url: string): Promise<number> {
   return retry(`HEAD ${url}`, async () => {
     const res = await fetch(url, { method: "HEAD", signal: shutdown.signal });
@@ -606,7 +868,21 @@ async function downloadFile(
       if (!res.ok) throw httpError(res);
       if (!res.body) throw new Error("empty response body");
 
-      const total = Number(res.headers.get("content-length")) || 0;
+      // `content-length` describes the bytes ON THE WIRE. When the server
+      // applied a content-coding, fetch hands us the DECODED body, so the
+      // header no longer describes what gets written to disk and the integrity
+      // guard below must not use it. Measured: raw.githubusercontent.com sends
+      // `content-encoding: gzip` with content-length 110,928 for a file that
+      // decodes to 1,607,931 bytes — a size check against that rejects every
+      // healthy download. (The bug stayed latent because Hugging Face sends
+      // `content-encoding: br` and NO content-length, leaving total = 0, which
+      // already disables the guard.)
+      const encoding = (res.headers.get("content-encoding") ?? "").trim()
+        .toLowerCase();
+      const decoded = encoding !== "" && encoding !== "identity";
+      const total = decoded
+        ? 0
+        : Number(res.headers.get("content-length")) || 0;
       let done = 0;
 
       // Stream straight to a ".part" sibling using pure WHATWG streams. A
@@ -667,9 +943,11 @@ async function downloadFile(
         throw e;
       }
 
-      // Optional integrity guard: when the server advertised a size, a complete
-      // file must match it. A short read (silent truncation) is retried rather
-      // than promoted, so the parser never sees a partial ZIP.
+      // Optional integrity guard: when the server advertised a size FOR THE
+      // BYTES WE WRITE (see the content-encoding note above — `total` is 0 for
+      // a decoded body, which disables this), a complete file must match it. A
+      // short read (silent truncation) is retried rather than promoted, so the
+      // parser never sees a partial file.
       try {
         const got = statSync(partPath).size;
         if (total > 0 && got !== total) {
@@ -795,15 +1073,18 @@ export function toSmolSentRow(row: unknown): SmolSentRow | null {
   return { src, trg, sl, tl };
 }
 
-/** Translate ONE SmolSent pair into SEMA facts: the two sentences are one
- *  meaning in two languages, so bind them BOTH ways. refineItems drops the
- *  degenerate case where src === trg. */
+/** Translate ONE SmolSent pair into SEMA facts. The two sentences are one
+ *  meaning in two languages, but the two BINDINGS are not equally sound —
+ *  SmolSent's English side is a shared pool translated into every language, so
+ *  `trg -> src` gives one English context a different answer in every language
+ *  file. See SMOLSENT_DIRECTIONS. refineItems drops the degenerate case where
+ *  src === trg. */
 export function smolSentRowToItems(row: SmolSentRow): TrainingItem[] {
   const { src, trg } = row;
-  return refineItems([
-    { context: src, continuation: trg },
-    { context: trg, continuation: src },
-  ]);
+  const items: TrainingItem[] = [];
+  if (SMOLSENT_SRC2TRG) items.push({ context: src, continuation: trg });
+  if (SMOLSENT_TRG2SRC) items.push({ context: trg, continuation: src });
+  return refineItems(items);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -924,6 +1205,268 @@ export function bestOasstPath(root: OasstNode): OasstTurn[] {
 export function oasstConversationToItems(turns: OasstTurn[]): TrainingItem[] {
   if (turns.length < OASST_MIN_TURNS) return []; // not multi-turn — skip
   return refineItems(accumulate(turns.map((t) => t.text)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// §6e′  Taskmaster 1–4 parsing — a conversation ARRAY ELEMENT → SEMA items
+//
+// One adapter serves all four sets: every Taskmaster conversation, in every
+// set, is `{conversation_id, …, utterances: [{speaker, text, …}]}`.
+//
+// ONLY `utterances[].text` IS READ, and that is a licence-adjacent correctness
+// property, not a stylistic one. TM-3 and TM-4 also carry an `instructions`
+// field holding the crowd-worker's task template — page after page of
+// `{{HIDE movie_1 name.movie No Time To Die}}`, `{{CHECK confirm_natural …}}`
+// and `var_theater_1` placeholders. That is authoring scaffolding, not
+// dialogue, and depositing it would teach the store template noise as prose.
+// Reading only `utterances[].text` excludes it structurally. Verified against
+// the real files: across TM-2 (13,953 turns), TM-3 (24,059) and TM-4 (786),
+// utterance text contains ZERO `var_*` placeholders and ZERO `{{ }}` markers —
+// the scaffolding never leaks out of `instructions`.
+//
+// CONSECUTIVE SAME-SPEAKER TURNS ARE MERGED. Taskmaster splits one speaker's
+// contribution across several indexed utterances ("I can help you with your
+// movie search." / "Where are you located?" are two ASSISTANT rows), which is
+// an artifact of the collection UI. Left unmerged, the cumulative walk deposits
+// a turn boundary in the middle of one speaker's contribution and teaches it as
+// a hand-off. Measured share of turns absorbed by merging: TM-1 17.7%,
+// TM-2 11.9%, TM-3 0.8%, TM-4 0.0% — so this is load-bearing for the older sets
+// and a no-op for the newer ones. Speaker names are compared case-insensitively
+// because TM-1/2 use USER/ASSISTANT and TM-3/4 use user/assistant.
+//
+// The deposit shape is the cumulative walk (§6e's `accumulate`), identical to
+// oasst2: each turn is the continuation of ALL prior turns, bare text, no role
+// labels. It is the right shape here for the same reason and at a far healthier
+// size — merged turns run p50 34–45 B (p90 ~100 B) and the accumulated context
+// p50 301–532 B (p90 ~1.1 KB), against oasst2's median SINGLE turn of 529 B.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** One utterance of a Taskmaster conversation. */
+export interface TaskmasterTurn {
+  speaker: string; // upper-cased, so TM-1/2 and TM-3/4 compare equal
+  text: string;
+}
+
+/** Normalize ONE element of a Taskmaster data file into its turns, or null when
+ *  it carries no usable utterance. Empty/whitespace-only utterances are dropped
+ *  (TM-3 has a few); a single implausibly long utterance rejects the whole
+ *  conversation as corrupt rather than depositing a dump. */
+export function toTaskmasterTurns(row: unknown): TaskmasterTurn[] | null {
+  if (!row || typeof row !== "object") return null;
+  const utterances = (row as Record<string, unknown>).utterances;
+  if (!Array.isArray(utterances)) return null;
+  const turns: TaskmasterTurn[] = [];
+  for (const u of utterances) {
+    if (!u || typeof u !== "object") continue;
+    const r = u as Record<string, unknown>;
+    const text = typeof r.text === "string" ? r.text.trim() : "";
+    if (!text) continue;
+    if (text.length > MAX_TASKMASTER_TURN_CHARS) return null;
+    turns.push({
+      speaker: String(r.speaker ?? "").trim().toUpperCase(),
+      text,
+    });
+  }
+  return turns.length ? turns : null;
+}
+
+/** Collapse consecutive same-speaker turns into one, joining with a space, and
+ *  return the bare texts in order. A turn with no speaker never merges with its
+ *  neighbour: an unlabelled row is of unknown origin, and joining two of them
+ *  would invent a contribution that may span two speakers. */
+export function mergeTaskmasterTurns(turns: TaskmasterTurn[]): string[] {
+  const out: string[] = [];
+  let prev = "";
+  for (const t of turns) {
+    if (out.length > 0 && t.speaker !== "" && t.speaker === prev) {
+      out[out.length - 1] += " " + t.text;
+    } else {
+      out.push(t.text);
+    }
+    prev = t.speaker;
+  }
+  return out;
+}
+
+/** Translate ONE Taskmaster conversation into SEMA training items: the
+ *  cumulative walk over its merged turns. Returns [] for a conversation below
+ *  TASKMASTER_MIN_TURNS, so callers can simply skip empties. */
+export function taskmasterConversationToItems(
+  turns: TaskmasterTurn[],
+): TrainingItem[] {
+  const texts = mergeTaskmasterTurns(turns);
+  if (texts.length < TASKMASTER_MIN_TURNS) return [];
+  return refineItems(accumulate(texts));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// §6e″  2WikiMultihopQA parsing — `evidences` TRIPLES → SEMA facts
+//
+// This is the only stage whose purpose is COMPOSITION: answering a question
+// whose answer no single deposited fact contains. Sema composes by grounding
+// hop 1, then pivoting on the longest unconsumed learnt context that the
+// grounded answer CONTAINS (`reason`/`pivotStep`), so the pivot target must
+// itself be a deposited context. Each triple therefore deposits TWO facts:
+//
+//     "<subject> <relation>"  →  "The <relation> of <subject> is <object>."
+//     "<subject>"             →  "The <relation> of <subject> is <object>."
+//
+// The second is the PIVOT FACT. Without it the bare entity naming hop 2's
+// subject is not a learnt context, so the chain is structurally unreachable no
+// matter what the rest of the pipeline does.
+//
+// MEASURED on 200 real chained dev rows, depositing triples only and asking the
+// dataset's own composed questions (D = 1024, seed 7):
+//
+//   relation fact only          240 deposits    5/120 ( 4%)   pivotStep  0
+//   relation + pivot fact       800 deposits   44/200 (22%)   pivotStep 31
+//
+// A 5x improvement, and the only variant where the second hop fires at all.
+//
+// REJECTED ALTERNATIVE, so it is not re-tried blind: depositing the pivot fact
+// only for subjects that also appear as an OBJECT within the same row's
+// evidences (a row-local "something can pivot into this" test) cut deposits 25%
+// (800 → 600) but cost composition — 41/200 (20.5%) with pivotStep down to 21,
+// because real chains also run BETWEEN rows. Composition is this stage's entire
+// justification, so the deposits are worth keeping.
+//
+// The residual ~78% is a KNOWN, previously-recorded limitation and not a defect
+// in this adapter: the climb elects a topic rather than a relation, so a
+// question phrased "When did X's father die?" does not align with the Wikidata
+// property label "date of death". Failure is dominated by hop 2 never firing,
+// not by a wrong hop 2. Answer-shape breakdown at N = 120: entity answers
+// 23/106, date answers 2/14 — dates are worse, but not the cliff an earlier
+// note suggested, which is why no object-shape filter is applied here.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** One (subject, relation, object) triple from a 2Wiki `evidences` cell. */
+export interface WikiTriple {
+  subject: string;
+  relation: string;
+  object: string;
+}
+
+/** Normalize a 2Wiki row into its evidence triples, or null when it carries
+ *  none usable. `evidences` is a JSON STRING holding an array of 3-element
+ *  arrays; a row whose cell is absent, unparseable, or empty yields null.
+ *  Individual malformed or oversized triples are dropped without discarding the
+ *  row — one bad triple should not cost the others. */
+export function toWikiTriples(row: unknown): WikiTriple[] | null {
+  if (!row || typeof row !== "object") return null;
+  const cell = (row as Record<string, unknown>).evidences;
+  let parsed: unknown = cell;
+  if (typeof cell === "string") {
+    try {
+      parsed = JSON.parse(cell);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) return null;
+  const out: WikiTriple[] = [];
+  for (const e of parsed) {
+    if (!Array.isArray(e) || e.length < 3) continue;
+    const subject = typeof e[0] === "string" ? e[0].trim() : "";
+    const relation = typeof e[1] === "string" ? e[1].trim() : "";
+    const object = typeof e[2] === "string" ? e[2].trim() : "";
+    if (!subject || !relation || !object) continue;
+    if (
+      subject.length > MAX_WIKI2_FIELD_CHARS ||
+      relation.length > MAX_WIKI2_FIELD_CHARS ||
+      object.length > MAX_WIKI2_FIELD_CHARS
+    ) continue;
+    out.push({ subject, relation, object });
+  }
+  return out.length ? out : null;
+}
+
+/** Render ONE triple as the prose fact Sema stores. Kept separate so the two
+ *  deposits below are guaranteed to share a byte-identical continuation: the
+ *  pivot fact only works if it leads to the SAME node the relation fact does. */
+export function wikiTripleSentence(t: WikiTriple): string {
+  return `The ${t.relation} of ${t.subject} is ${t.object}.`;
+}
+
+/** Translate a row's triples into SEMA items: per triple, the relation fact and
+ *  the bare-subject PIVOT fact (see the section note above). refineItems drops
+ *  the duplicates this produces when a row states the same triple twice. */
+export function wikiTriplesToItems(triples: WikiTriple[]): TrainingItem[] {
+  const items: TrainingItem[] = [];
+  for (const t of triples) {
+    const fact = wikiTripleSentence(t);
+    items.push({ context: `${t.subject} ${t.relation}`, continuation: fact });
+    items.push({ context: t.subject, continuation: fact });
+  }
+  return refineItems(items);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// §6e‴  SODA parsing — a social dialogue row → SEMA items
+//
+// Each row carries `dialogue` (an array of turn strings) and `speakers` (the
+// speaker name per turn). The deposit is the cumulative walk over speaker-merged
+// turns, identical in shape to Taskmaster and oasst2 — turns are short (mean
+// 87 B) and dialogues average 7.3 turns, so the accumulated context stays well
+// inside the healthy range.
+//
+// `narrative`, `literal` and the ATOMIC-style `head`/`relation`/`tail` columns
+// are NOT deposited: they are the generation scaffolding SODA was distilled
+// from, they restate the dialogue in the third person, and depositing both a
+// dialogue and its paraphrased summary gives one meaning two shapes — which is
+// measured to SUPPRESS composition rather than help it.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Normalize a SODA row into its turns, or null when it carries no usable
+ *  dialogue. Speakers are optional (they only drive merging); an implausibly
+ *  long turn rejects the dialogue as corrupt. */
+export function toSodaTurns(row: unknown): TaskmasterTurn[] | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const dialogue = r.dialogue;
+  if (!Array.isArray(dialogue)) return null;
+  const speakers = Array.isArray(r.speakers) ? r.speakers : [];
+  const turns: TaskmasterTurn[] = [];
+  for (let i = 0; i < dialogue.length; i++) {
+    const text = typeof dialogue[i] === "string"
+      ? (dialogue[i] as string).trim()
+      : "";
+    if (!text) continue;
+    if (text.length > MAX_SODA_TURN_CHARS) return null;
+    turns.push({
+      speaker: String(speakers[i] ?? "").trim().toUpperCase(),
+      text,
+    });
+  }
+  return turns.length ? turns : null;
+}
+
+/** Translate ONE SODA dialogue into SEMA items: the cumulative walk over its
+ *  speaker-merged turns. Shares `mergeTaskmasterTurns` because the rule is the
+ *  same one — consecutive turns by one speaker are one contribution. */
+export function sodaDialogueToItems(turns: TaskmasterTurn[]): TrainingItem[] {
+  const texts = mergeTaskmasterTurns(turns);
+  if (texts.length < 2) return []; // not an exchange
+  return refineItems(accumulate(texts));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// §6e⁗  MASSIVE parsing — one short utterance → ONE SEMA experience
+//
+// See the constants note for why this deposits a bare experience and not a
+// relation: the two relational shapes this corpus appears to offer are both
+// false (same-intent rows are not paraphrases; same-id rows across locales are
+// translations, SmolSent's worst-scoring relation).
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Translate ONE MASSIVE row into SEMA items: its bare utterance, as an
+ *  experience. `annot_utt` (slot-annotated) is deliberately not used — its
+ *  "[date : ...]" markup is not prose. Returns [] for an unusable row. */
+export function massiveRowToItems(row: unknown): TrainingItem[] {
+  if (!row || typeof row !== "object") return [];
+  const utt = (row as Record<string, unknown>).utt;
+  const text = typeof utt === "string" ? utt.trim() : "";
+  if (!text || text.length > MAX_MASSIVE_UTT_CHARS) return [];
+  return refineItems([text]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1142,6 +1685,77 @@ async function listSmolSentFiles(): Promise<string[]> {
   return paths.filter((p) => want.has(basename(p).replace(/\.jsonl$/i, "")));
 }
 
+/** List the Taskmaster data files to train, in TASKMASTER_SETS order. Returns
+ *  repo-relative paths, e.g. "TM-3-2020/data/data_00.json".
+ *
+ *  TM-2/3/4 keep their dialogue files under `<set>/data`, so everything there is
+ *  fair game. TM-1 has no `data` directory: its two dialogue files sit at the
+ *  set root NEXT TO `ontology.json` (a slot schema) and `sample.json` (a small
+ *  excerpt of self-dialogs). Neither is an array of conversations, and training
+ *  the excerpt would deposit a subset of TM-1 twice, so TM-1 is filtered to the
+ *  `*-dialogs.json` pair (self-dialogs, woz-dialogs). */
+async function listTaskmasterFiles(): Promise<
+  Array<{ set: string; path: string }>
+> {
+  const out: Array<{ set: string; path: string }> = [];
+  for (const set of TASKMASTER_SETS) {
+    const rootOnly = /^TM-1\b/i.test(set);
+    const dir = rootOnly ? set : `${set}/data`;
+    const body = await getJson(
+      `https://api.github.com/repos/${TASKMASTER_REPO}/contents/${dir}`,
+      `GET Taskmaster ${dir}`,
+    );
+    const names: string[] = Array.isArray(body)
+      ? body
+        .filter((e: any) => e?.type === "file" && /\.json$/i.test(e?.name))
+        .map((e: any) => String(e.name))
+      : [];
+    names.sort();
+    for (const name of names) {
+      if (rootOnly && !/-dialogs\.json$/i.test(name)) continue;
+      out.push({ set, path: `${dir}/${name}` });
+    }
+  }
+  return out;
+}
+
+/** List a dataset's Parquet shards on Hugging Face's auto-converted
+ *  `refs/convert/parquet` branch, restricted to `config` and to `splits`.
+ *
+ *  Shared by 2Wiki, SODA and MASSIVE. The converted branch is used rather than
+ *  `main` because a dataset's own Parquet may be written as ONE giant row-group
+ *  (SODA's is 1,191,582 rows), and a column chunk is per-group, so reading any
+ *  part of it materialises all of it. The converted branch is uniformly
+ *  10,000-row groups. See test/79-parquet-batching.test.mjs.
+ *
+ *  Paths look like "<config>/<split>/0000.parquet". The BRANCH name is a single
+ *  path SEGMENT here, so its "/" is percent-encoded — unlike a dataset id,
+ *  whose "/" must not be. */
+async function listConvertedParquet(
+  dataset: string,
+  config: string,
+  splits: string[],
+  label: string,
+): Promise<string[]> {
+  const body = await getJson(
+    `https://huggingface.co/api/datasets/${dataset}` +
+      `/tree/refs%2Fconvert%2Fparquet/${config}?recursive=true`,
+    `GET ${label} tree`,
+  );
+  const paths: string[] = Array.isArray(body)
+    ? body
+      .filter((e: any) => e?.type === "file" && /\.parquet$/i.test(e?.path))
+      .map((e: any) => String(e.path))
+    : [];
+  paths.sort();
+  const want = new Set(splits);
+  return paths.filter((p) => {
+    const parts = p.split("/");
+    // The tree is rooted at `config`, so the split is the second-to-last part.
+    return want.has(parts[parts.length - 2] ?? "");
+  });
+}
+
 /** Stream a plain-JSONL file from disk, deposit each parsed row via `toItems`.
  *  Lines are split without buffering the whole file; an oversize/malformed line
  *  is counted skipped and the stream continues. Shared by SmolSent (and any
@@ -1227,16 +1841,59 @@ async function processJsonl(
   }
 }
 
-/** Read a downloaded Parquet file row-group by row-group with hyparquet (+Snappy
+/** How many rows to materialise in one read from a row-group of `rgRows` rows
+ *  occupying `groupBytes` uncompressed bytes, under a `budgetBytes` target.
+ *
+ *  The group's own footer statistics give the mean row width, so the batch
+ *  follows the CORPUS's row size rather than the writer's layout: wide rows
+ *  (SODA carries a whole dialogue per row) batch smaller than narrow ones at
+ *  the same memory cost. Never exceeds the group — a batch is a subdivision of
+ *  a group, never a span across two, because `parquetReadObjects` is given an
+ *  absolute row range and column chunks are per-group. Never returns 0, or the
+ *  read loop could not advance.
+ *
+ *  A writer that omits `total_byte_size` yields `groupBytes <= 0`; the batch is
+ *  then the whole group, which is exactly the behaviour this replaced. That
+ *  fallback is safe for every file we read today (all three report it) and
+ *  degrades to the old memory profile rather than to a wrong result. */
+export function parquetBatchRows(
+  rgRows: number,
+  groupBytes: number,
+  budgetBytes: number,
+): number {
+  if (!(rgRows > 0)) return 0; // empty group — the caller skips it
+  if (!(groupBytes > 0) || !Number.isFinite(groupBytes)) return rgRows;
+  const perRow = groupBytes / rgRows;
+  const fit = Math.floor(budgetBytes / perRow);
+  return Math.min(rgRows, Math.max(1, fit));
+}
+
+/** Read a downloaded Parquet file in bounded row batches with hyparquet (+Snappy
  *  from hyparquet-compressors) over a web-standard Blob byte source, depositing
- *  each row via `toItems`. Only one row-group is materialised at a time, so a
- *  multi-hundred-MB file never loads whole into memory. */
+ *  each row via `toItems`. At most `PARQUET_BATCH_BYTES` of source rows are
+ *  materialised at a time, so neither a multi-hundred-MB file nor a file written
+ *  as ONE giant row-group loads whole into memory.
+ *
+ *  Batching also makes a single-group file INTERRUPTIBLE: the abort check runs
+ *  per batch, where before a 1.19M-row group could not be cancelled at all. */
 async function processParquet(
   filePath: string,
   toItems: (row: unknown) => TrainingItem[] | null,
   ci: CachedIngest,
   onExample: (contentBytes: number) => Promise<boolean>,
   sample: (it: TrainingItem) => void,
+  // Optional stage-level stop, checked per row and before each batch is
+  // decoded. A stage BUDGET must stop the read rather than reject rows: left to
+  // reject, a budgeted stage still DECODES every remaining row-group — 143,346
+  // rows of one 86.7 MB SODA shard — and reports them as "unusable" when
+  // nothing was wrong with them, which is a lie in the run log.
+  //
+  // Measured honestly: on that shard the wall time did NOT improve (2m 35s ->
+  // 2m 37s), because a budgeted run is dominated by depositing the rows it DID
+  // take, not by scanning past the ones it did not. The win here is a truthful
+  // log and the CPU/allocation of ~143k skipped row decodes, not elapsed time.
+  // A larger shard past a small budget is where the decode cost would show.
+  shouldStop?: () => boolean,
 ): Promise<FileResult> {
   const blob = await openAsBlob(filePath);
   const file = {
@@ -1248,28 +1905,39 @@ async function processParquet(
   let examples = 0, skipped = 0;
   let rowStart = 0;
   for (const rg of meta.row_groups) {
-    if (shutdown.signal.aborted) return { examples, stopped: true, skipped };
     const rgRows = Number(rg.num_rows);
-    const rowEnd = rowStart + rgRows;
-    // Materialise exactly one row-group, then deposit its rows.
-    const rows = await parquetReadObjects({
-      file,
-      compressors,
-      rowStart,
-      rowEnd,
-    });
-    rowStart = rowEnd;
-    for (const row of rows) {
-      const items = toItems(row);
-      if (!items || items.length === 0) {
-        skipped++;
-        continue;
+    const rgEnd = rowStart + rgRows;
+    const batchRows = parquetBatchRows(
+      rgRows,
+      Number(rg.total_byte_size ?? 0),
+      PARQUET_BATCH_BYTES,
+    );
+    if (batchRows <= 0) continue; // empty group
+    // Materialise one bounded batch at a time, then deposit its rows.
+    while (rowStart < rgEnd) {
+      if (shutdown.signal.aborted) return { examples, stopped: true, skipped };
+      if (shouldStop?.()) return { examples, stopped: true, skipped };
+      const rowEnd = Math.min(rowStart + batchRows, rgEnd);
+      const rows = await parquetReadObjects({
+        file,
+        compressors,
+        rowStart,
+        rowEnd,
+      });
+      rowStart = rowEnd;
+      for (const row of rows) {
+        if (shouldStop?.()) return { examples, stopped: true, skipped };
+        const items = toItems(row);
+        if (!items || items.length === 0) {
+          skipped++;
+          continue;
+        }
+        const ok = await ingestItems(ci, items, async (contentBytes) => {
+          examples++;
+          return onExample(contentBytes);
+        }, sample);
+        if (!ok) return { examples, stopped: true, skipped };
       }
-      const ok = await ingestItems(ci, items, async (contentBytes) => {
-        examples++;
-        return onExample(contentBytes);
-      }, sample);
-      if (!ok) return { examples, stopped: true, skipped };
     }
   }
   return { examples, stopped: false, skipped };
@@ -1683,7 +2351,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await store.setMeta("train.dataset", "SmolSent+Aya+oasst2");
+  await store.setMeta(
+    "train.dataset",
+    "SmolSent+Aya+oasst2+Taskmaster+2Wiki+SODA+MASSIVE",
+  );
   await store.setMeta("train.D", String(D));
   await store.setMeta("train.seed", String(SEED));
   await store.setMeta("train.createdAt", new Date().toISOString());
@@ -2581,6 +3252,478 @@ async function main(): Promise<void> {
     const r = toGenKnowRow(row);
     return r ? genKnowRowToItems(r) : null;
   };
+  // ── §10d′  Taskmaster 1–4 stage (task-oriented dialogue; runs AFTER oasst2) ──
+  //
+  // Lists the repo's data files, then for each: download, parse the JSON array,
+  // deposit one cumulative walk per conversation. Per-FILE resume ids, like
+  // SmolSent — an interrupted file is re-read from the top on resume, and
+  // re-deposition is idempotent. LOCAL_PATH/taskmaster/ may hold pre-downloaded
+  // *.json (a subdirectory, because these share the .json extension with the
+  // General-Knowledge source and must not be confused with it).
+  const tmToItems = (row: unknown): TrainingItem[] | null => {
+    const turns = toTaskmasterTurns(row);
+    if (!turns) return null;
+    const items = taskmasterConversationToItems(turns); // [] when too short
+    return items.length ? items : null;
+  };
+
+  const trainTaskmaster = async (): Promise<void> => {
+    if (!TASKMASTER) return;
+    if (trainedContentBytes >= MAX_BYTES || stopRequested) return;
+
+    let files: Array<
+      { id: string; name: string; local?: string; url?: string }
+    >;
+    if (LOCAL_PATH) {
+      const dir = join(LOCAL_PATH, "taskmaster");
+      let names: string[] = [];
+      try {
+        names = readdirSync(dir).filter((f: string) => /\.json$/i.test(f))
+          .sort();
+      } catch { /* no local taskmaster dir */ }
+      if (names.length === 0) {
+        progress.log(
+          `  ${DIM}· no Taskmaster *.json in ${dir} — skipping${R}`,
+        );
+        return;
+      }
+      files = names.map((f: string) => ({
+        id: `taskmaster::${f}`,
+        name: f,
+        local: join(dir, f),
+      }));
+    } else {
+      let listed: Array<{ set: string; path: string }>;
+      try {
+        listed = await listTaskmasterFiles();
+      } catch (e) {
+        if (stopRequested || (e as Error)?.name === "AbortError") return;
+        progress.log(
+          `  ${RED}✗${R} Taskmaster file listing failed: ${
+            (e as Error).message
+          }`,
+        );
+        return;
+      }
+      files = listed.map((f) => ({
+        id: `taskmaster::${f.path}`,
+        name: `${f.set}/${basename(f.path)}`,
+        url: `${TASKMASTER_RAW}/${f.path}`,
+      }));
+    }
+    if (files.length === 0) {
+      progress.log(`  ${DIM}· no Taskmaster files found — skipping${R}`);
+      return;
+    }
+
+    const p = await loadProgress(store);
+    const done = new Set(p.completedFiles);
+    const remaining = files.filter((f) => !done.has(f.id));
+    if (remaining.length === 0) {
+      progress.log(`  ${DIM}· Taskmaster already trained — skipping${R}`);
+      return;
+    }
+    state.fileTotal = files.length;
+    progress.log(
+      `  ${GRN}✓${R} Taskmaster: ${remaining.length}/${files.length} dialogue file(s) to train`,
+    );
+
+    let idx = 0;
+    for (const f of files) {
+      if (trainedContentBytes >= MAX_BYTES || stopRequested) break;
+      idx++;
+      if (done.has(f.id)) continue;
+
+      let path = f.local ?? "";
+      let downloaded = false;
+      if (!path) {
+        const got = await acquire(
+          f.url!,
+          f.id.replace(/[^A-Za-z0-9._-]+/g, "_"),
+          `Taskmaster ${f.name}`,
+        );
+        if (!got) {
+          if (stopRequested) break;
+          continue; // a single failed file never aborts the stage
+        }
+        path = got;
+        downloaded = true;
+      }
+
+      try {
+        totalCorpusBytes += statSync(path).size;
+      } catch { /* best effort */ }
+
+      state.activity = "process";
+      state.fileIndex = idx;
+      state.filePath = `Taskmaster ${f.name}`;
+      state.fileExamples = 0;
+      tick(true);
+      const p0 = Date.now();
+      let res: FileResult;
+      try {
+        res = await processJsonArray(path, tmToItems, ci, onDeposit, sample);
+      } catch (e) {
+        if (stopRequested || (e as Error)?.name === "AbortError") break;
+        progress.log(
+          `  ${RED}✗${R} Taskmaster ${f.name} parse failed: ${
+            (e as Error).message
+          }`,
+        );
+        if (downloaded) {
+          try {
+            unlinkSync(path);
+          } catch { /* best effort */ }
+        }
+        continue;
+      }
+      langTally["taskmaster"] = (langTally["taskmaster"] ?? 0) + res.examples;
+      progress.log(
+        `  ${GRN}✓${R} ${f.name} ${DIM}[task dialogue]${R} → ${
+          int(res.examples)
+        } facts ${DIM}in ${dur((Date.now() - p0) / 1000)}${R}` +
+          (res.skipped
+            ? ` ${YEL}· ${
+              int(res.skipped)
+            } unusable conversation(s) skipped${R}`
+            : "") +
+          (res.stopped ? ` ${YEL}(stopped early)${R}` : ""),
+      );
+
+      if (!res.stopped) {
+        try {
+          totalBytesProcessed += statSync(path).size;
+        } catch { /* best effort */ }
+        if (downloaded) {
+          try {
+            unlinkSync(path);
+          } catch { /* best effort */ }
+        }
+        done.add(f.id);
+        p.completedFiles.push(f.id);
+      }
+      try {
+        await saveProgress(store, {
+          completedFiles: p.completedFiles,
+          depositCount,
+          trainedContentBytes,
+          totalBytesProcessed,
+          totalCorpusBytes,
+        });
+        await store.setMeta("train.langTally", JSON.stringify(langTally));
+      } catch { /* best effort — finish() will retry */ }
+      if (res.stopped) break; // cap/signal — leave file un-completed for resume
+    }
+  };
+
+  // ── §10d″  2WikiMultihopQA stage (composition; runs AFTER Taskmaster) ──
+  //
+  // Only the `evidences` column is ever touched — see §6e″ for why `context`
+  // and `question`/`answer` are not.
+  const wiki2ToItems = (row: unknown): TrainingItem[] | null => {
+    const triples = toWikiTriples(row);
+    if (!triples) return null;
+    const items = wikiTriplesToItems(triples);
+    return items.length ? items : null;
+  };
+
+  const trainWiki2 = (): Promise<void> =>
+    runConvertedParquetStage({
+      enabled: WIKI2,
+      label: "2Wiki",
+      tally: "2wiki",
+      kind: "relation triples",
+      dataset: WIKI2_DATASET,
+      config: "default",
+      splits: WIKI2_SPLITS,
+      localDir: "2wiki",
+      maxRows: WIKI2_MAX_ROWS,
+      toItems: wiki2ToItems,
+    });
+
+  // ── §10d‴  Converted-Parquet stage runner (2Wiki, SODA, MASSIVE) ──
+  //
+  // These three differ only in their name, their row adapter and their row
+  // budget, so they share one runner instead of three copies of the per-shard
+  // loop. Resume is per SHARD, as everywhere else.
+  //
+  // The BUDGET is applied here rather than inside an adapter because it is a
+  // curriculum decision about corpus MIX, not a property of a row: SODA's train
+  // split would otherwise contribute ~8M episodes against the 662,221 deposits
+  // of the whole current corpus. A budgeted stage never marks its remaining
+  // shards complete, so raising the budget later resumes rather than restarts.
+  const runConvertedParquetStage = async (opts: {
+    enabled: boolean;
+    label: string; // human name, e.g. "SODA"
+    tally: string; // langTally key
+    kind: string; // dim tag in the log line, e.g. "social dialogue"
+    dataset: string;
+    config: string;
+    splits: string[];
+    localDir: string; // subdirectory of LOCAL_PATH
+    maxRows: number; // 0 = no budget
+    toItems: (row: unknown) => TrainingItem[] | null;
+  }): Promise<void> => {
+    if (!opts.enabled) return;
+    if (trainedContentBytes >= MAX_BYTES || stopRequested) return;
+
+    let files: Array<
+      { id: string; name: string; local?: string; url?: string }
+    >;
+    if (LOCAL_PATH) {
+      const dir = join(LOCAL_PATH, opts.localDir);
+      let names: string[] = [];
+      try {
+        names = readdirSync(dir).filter((f: string) => /\.parquet$/i.test(f))
+          .sort();
+      } catch { /* no local dir for this stage */ }
+      if (names.length === 0) {
+        progress.log(
+          `  ${DIM}· no ${opts.label} *.parquet in ${dir} — skipping${R}`,
+        );
+        return;
+      }
+      files = names.map((f: string) => ({
+        id: `${opts.tally}::${f}`,
+        name: f,
+        local: join(dir, f),
+      }));
+    } else {
+      let paths: string[];
+      try {
+        paths = await listConvertedParquet(
+          opts.dataset,
+          opts.config,
+          opts.splits,
+          opts.label,
+        );
+      } catch (e) {
+        if (stopRequested || (e as Error)?.name === "AbortError") return;
+        progress.log(
+          `  ${RED}✗${R} ${opts.label} file listing failed: ${
+            (e as Error).message
+          }`,
+        );
+        return;
+      }
+      files = paths.map((path) => ({
+        id: `${opts.tally}::${path}`,
+        name: path,
+        url: `https://huggingface.co/datasets/${opts.dataset}` +
+          `/resolve/refs%2Fconvert%2Fparquet/${path}`,
+      }));
+    }
+    if (files.length === 0) {
+      progress.log(`  ${DIM}· no ${opts.label} files found — skipping${R}`);
+      return;
+    }
+
+    const p = await loadProgress(store);
+    const done = new Set(p.completedFiles);
+    // A budget-limited stage never marks its later shards complete — that is
+    // what lets a raised budget resume instead of restarting. But it also means
+    // "every shard complete" is NOT how such a stage finishes, so without a
+    // marker of its own a satisfied budget would re-read and re-deposit its
+    // rows on every subsequent run: harmless to the store (deposition is
+    // idempotent) but it repeats the work and double-counts langTally.
+    //
+    // The marker carries the budget it was satisfied AT, so raising the budget
+    // still resumes: a bigger budget does not match the marker and the stage
+    // runs again, re-reading rows it already holds (idempotent) and adding the
+    // new ones.
+    const budgetMark = opts.maxRows > 0
+      ? `${opts.tally}::budget=${opts.maxRows}`
+      : "";
+    if (budgetMark && done.has(budgetMark)) {
+      progress.log(
+        `  ${DIM}· ${opts.label} budget of ${
+          int(opts.maxRows)
+        } row(s) already met — skipping${R}`,
+      );
+      return;
+    }
+    const remaining = files.filter((f) => !done.has(f.id));
+    if (remaining.length === 0) {
+      progress.log(`  ${DIM}· ${opts.label} already trained — skipping${R}`);
+      return;
+    }
+    state.fileTotal = files.length;
+    progress.log(
+      `  ${GRN}✓${R} ${opts.label}: ${remaining.length}/${files.length} shard(s) to train` +
+        (opts.maxRows > 0
+          ? ` ${DIM}(budget ${int(opts.maxRows)} rows)${R}`
+          : ""),
+    );
+
+    // The budget spans the whole stage, not one shard, so it is counted here.
+    let rowsTaken = 0;
+    const spent = () => opts.maxRows > 0 && rowsTaken >= opts.maxRows;
+    const budgeted = (row: unknown): TrainingItem[] | null => {
+      const items = opts.toItems(row);
+      if (!items || items.length === 0) return null;
+      rowsTaken++;
+      return items;
+    };
+
+    let idx = 0;
+    for (const f of files) {
+      if (trainedContentBytes >= MAX_BYTES || stopRequested) break;
+      if (opts.maxRows > 0 && rowsTaken >= opts.maxRows) break;
+      idx++;
+      if (done.has(f.id)) continue;
+
+      let path = f.local ?? "";
+      let downloaded = false;
+      if (!path) {
+        const got = await acquire(
+          f.url!,
+          f.id.replace(/[^A-Za-z0-9._-]+/g, "_"),
+          `${opts.label} ${f.name}`,
+        );
+        if (!got) {
+          if (stopRequested) break;
+          continue; // a single failed shard never aborts the stage
+        }
+        path = got;
+        downloaded = true;
+      }
+
+      try {
+        totalCorpusBytes += statSync(path).size;
+      } catch { /* best effort */ }
+
+      state.activity = "process";
+      state.fileIndex = idx;
+      state.filePath = `${opts.label} ${f.name}`;
+      state.fileExamples = 0;
+      tick(true);
+      const p0 = Date.now();
+      const before = rowsTaken;
+      let res: FileResult;
+      try {
+        res = await processParquet(
+          path,
+          budgeted,
+          ci,
+          onDeposit,
+          sample,
+          spent,
+        );
+      } catch (e) {
+        if (stopRequested || (e as Error)?.name === "AbortError") break;
+        progress.log(
+          `  ${RED}✗${R} ${opts.label} ${f.name} parse failed: ${
+            (e as Error).message
+          }`,
+        );
+        if (downloaded) {
+          try {
+            unlinkSync(path);
+          } catch { /* best effort */ }
+        }
+        continue;
+      }
+      // A shard cut short by the BUDGET is not "done" — leave it resumable so a
+      // later run with a bigger budget continues instead of starting over.
+      const hitBudget = spent();
+      langTally[opts.tally] = (langTally[opts.tally] ?? 0) + res.examples;
+      progress.log(
+        `  ${GRN}✓${R} ${f.name} ${DIM}[${opts.kind}]${R} → ${
+          int(res.examples)
+        } facts ${DIM}from ${int(rowsTaken - before)} row(s) in ${
+          dur((Date.now() - p0) / 1000)
+        }${R}` +
+          (res.skipped
+            ? ` ${YEL}· ${int(res.skipped)} unusable row(s) skipped${R}`
+            : "") +
+          (hitBudget
+            ? ` ${YEL}(budget reached)${R}`
+            : res.stopped
+            ? ` ${YEL}(stopped early)${R}`
+            : ""),
+      );
+
+      if (!res.stopped && !hitBudget) {
+        try {
+          totalBytesProcessed += statSync(path).size;
+        } catch { /* best effort */ }
+        if (downloaded) {
+          try {
+            unlinkSync(path);
+          } catch { /* best effort */ }
+        }
+        done.add(f.id);
+        p.completedFiles.push(f.id);
+      }
+      try {
+        await saveProgress(store, {
+          completedFiles: p.completedFiles,
+          depositCount,
+          trainedContentBytes,
+          totalBytesProcessed,
+          totalCorpusBytes,
+        });
+        await store.setMeta("train.langTally", JSON.stringify(langTally));
+      } catch { /* best effort — finish() will retry */ }
+      // A budget stop is not a cap/signal stop: the stage is finished, so fall
+      // out of the loop rather than treating it as an interruption.
+      if (res.stopped && !hitBudget) break;
+    }
+
+    // Record a satisfied budget so the next run skips this stage instead of
+    // re-reading it. Only when the budget was actually reached: a stage that
+    // ran out of shards first is complete by the normal per-shard rule, and a
+    // stage cut short by MAX_MB or Ctrl+C must stay resumable.
+    if (budgetMark && spent() && !stopRequested && !done.has(budgetMark)) {
+      p.completedFiles.push(budgetMark);
+      try {
+        await saveProgress(store, {
+          completedFiles: p.completedFiles,
+          depositCount,
+          trainedContentBytes,
+          totalBytesProcessed,
+          totalCorpusBytes,
+        });
+      } catch { /* best effort — finish() will retry */ }
+    }
+  };
+
+  const trainSoda = (): Promise<void> =>
+    runConvertedParquetStage({
+      enabled: SODA,
+      label: "SODA",
+      tally: "soda",
+      kind: "social dialogue",
+      dataset: SODA_DATASET,
+      config: "default",
+      splits: SODA_SPLITS,
+      localDir: "soda",
+      maxRows: SODA_MAX_DIALOGS,
+      toItems: (row) => {
+        const turns = toSodaTurns(row);
+        if (!turns) return null;
+        const items = sodaDialogueToItems(turns);
+        return items.length ? items : null;
+      },
+    });
+
+  const trainMassive = (): Promise<void> =>
+    runConvertedParquetStage({
+      enabled: MASSIVE,
+      label: "MASSIVE",
+      tally: "massive",
+      kind: "short intents",
+      dataset: MASSIVE_DATASET,
+      config: MASSIVE_CONFIG,
+      splits: MASSIVE_SPLITS,
+      localDir: "massive",
+      maxRows: MASSIVE_MAX_ROWS,
+      toItems: (row) => {
+        const items = massiveRowToItems(row);
+        return items.length ? items : null;
+      },
+    });
+
   const trainGenKnow = async (): Promise<void> => {
     if (!GENKNOW) return;
     if (trainedContentBytes >= MAX_BYTES || stopRequested) return;
@@ -2714,6 +3857,10 @@ async function main(): Promise<void> {
   if (!stopRequested) await trainSmolSent();
   if (!stopRequested) await trainAya();
   if (!stopRequested) await trainOasst();
+  if (!stopRequested) await trainTaskmaster();
+  if (!stopRequested) await trainWiki2();
+  if (!stopRequested) await trainSoda();
+  if (!stopRequested) await trainMassive();
   if (!stopRequested) await trainGenKnow();
 
   await finish(stopRequested ? stopReason : "done");

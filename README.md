@@ -320,6 +320,7 @@ start talking — no install, no runtime, no API key.
 | 🛠️ **[AGENTS.md](AGENTS.md)**                                                        | The development manual: repo layout, build/test, internals, invariants, and recipes for extending the system.                                            |
 | 🎓 **[CITATION.cff](CITATION.cff)**                                                  | How to cite Sema in academic work.                                                                                                                       |
 | ⚖️ **[LICENSE.md](LICENSE.md)**                                                      | PolyForm Noncommercial License 1.0.0.                                                                                                                    |
+| 📚 **[DATASETS.md](DATASETS.md)**                                                    | Training corpora: provenance, per-corpus attribution, and how a trained memory file is licensed.                                                         |
 | 💼 **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**                                | Commercial licensing terms and contact.                                                                                                                  |
 | 🤗 **[Trained examples](https://huggingface.co/buckets/hviana/sema-trained-v1)**     | Pre-trained memory files you can download and use directly.                                                                                              |
 | 💿 **[Binary examples](https://huggingface.co/buckets/hviana/sema-binary-examples)** | Ready-to-run web chat apps for Windows, Mac, and Linux — one file, no install.                                                                           |
@@ -349,6 +350,17 @@ start talking — no install, no runtime, no API key.
 > **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)** to obtain one, and
 > **[TRADEMARKS.md](TRADEMARKS.md)** — the **Sema** name, logos, and brand are
 > _not_ covered by the source license.
+
+> [!NOTE]
+> **Trained memory files are licensed in two layers.** Sema is non-parametric,
+> so a trained store retains its training text verbatim — it is a database that
+> contains its corpora, not a weight file. The **engine** (algorithms, geometry,
+> deduction, indexes, formats, and all code) is under PolyForm Noncommercial
+> with a separate commercial license. The **corpus content inside a store**
+> stays under each corpus's own upstream license, and Sema's license is not
+> extended over it. If you distribute a store, ship
+> **[DATASETS.md](DATASETS.md)** with it — it carries the attribution and
+> modification statement those licenses require.
 
 <div align="center">
 
