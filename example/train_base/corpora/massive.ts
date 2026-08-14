@@ -2,12 +2,13 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env } from "../config.js";
 import { refineItems, type TrainingItem } from "../items.js";
 import { parquet } from "../readers.js";
-import type { Corpus } from "../stage.js";
+import type { Corpus } from "../corpus.js";
 import { convertedParquetUnits } from "./converted-parquet.js";
 
 // MASSIVE deposits BARE UTTERANCES — an experience, not an episode — and that
@@ -89,7 +90,10 @@ export const massive: Corpus = {
   kind: "short intents",
   enabled: MASSIVE,
   maxRows: MASSIVE_MAX_ROWS,
-  read: parquet(),
+  // One of ten columns — `annot_utt`, whose slot markup the note above rejects,
+  // is not decoded either. Measured on the converted train shard: 92 MB
+  // uncompressed across all ten, 36 MB for `utt` (38.7%).
+  read: parquet({ columns: ["utt"] }),
   toItems: (row) => {
     const items = massiveRowToItems(row);
     return items.length ? items : null;

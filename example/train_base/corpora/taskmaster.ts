@@ -2,7 +2,8 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env, LOCAL_PATH } from "../config.js";
 import {
@@ -14,7 +15,7 @@ import {
 } from "../items.js";
 import { githubContents, localFiles } from "../discovery.js";
 import { jsonArray } from "../readers.js";
-import { type Corpus, localDir, type Unit } from "../stage.js";
+import { type Corpus, localDir, type Unit } from "../corpus.js";
 import type { TrainCtx } from "../runtime.js";
 import { DIM, R } from "../ui.js";
 import { basename, join } from "node:path";
@@ -148,8 +149,8 @@ export function taskmasterConversationToItems(
  *  `*-dialogs.json` pair (self-dialogs, woz-dialogs). */
 async function listFiles(
   ctx: TrainCtx,
-): Promise<Array<{ set: string; path: string }>> {
-  const out: Array<{ set: string; path: string }> = [];
+): Promise<Array<{ set: string; path: string; size: number }>> {
+  const out: Array<{ set: string; path: string; size: number }> = [];
   for (const set of TASKMASTER_SETS) {
     const rootOnly = /^TM-1\b/i.test(set);
     const dir = rootOnly ? set : `${set}/data`;
@@ -160,9 +161,9 @@ async function listFiles(
       `GET Taskmaster ${dir}`,
       ctx.http,
     );
-    for (const name of names) {
+    for (const { path: name, size } of names) {
       if (rootOnly && !/-dialogs\.json$/i.test(name)) continue;
-      out.push({ set, path: `${dir}/${name}` });
+      out.push({ set, path: `${dir}/${name}`, size });
     }
   }
   return out;
@@ -201,11 +202,16 @@ export const taskmaster: Corpus = {
         );
         return null;
       }
-      return names.map((n) => ({ ...unit(n, n), local: join(dir, n) }));
+      return names.map((n) => ({
+        ...unit(n.path, n.path),
+        local: join(dir, n.path),
+        bytes: n.size,
+      }));
     }
     return (await listFiles(ctx)).map((f) => ({
       ...unit(f.path, `${f.set}/${basename(f.path)}`),
       url: `${TASKMASTER_RAW}/${f.path}`,
+      bytes: f.size,
     }));
   },
 };

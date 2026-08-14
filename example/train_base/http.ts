@@ -202,6 +202,62 @@ export async function getJson(
   );
 }
 
+/** The `rel="next"` URL of an RFC 5988 Link header, or null. */
+export function nextLink(header: string | null): string | null {
+  if (!header) return null;
+  for (const part of header.split(",")) {
+    const m = part.match(/<([^>]+)>\s*;\s*rel\s*=\s*"?next"?/i);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** GET a paginated JSON ARRAY, following `Link: rel="next"` to the end.
+ *
+ *  A LISTING THAT STOPS EARLY IS INVISIBLE, and that is why this exists.
+ *  Hugging Face caps a tree listing at 1,000 entries and hands back a next
+ *  link (verified: allenai/c4 returns exactly 1,000 plus a link). A caller that
+ *  ignores it gets a work-list silently missing everything past the first page,
+ *  trains it, marks those units complete, and thereafter reports the corpus
+ *  "already trained". No error at any point. Following the links is the only
+ *  way the work-list can be trusted to be the whole work-list.
+ *
+ *  `maxPages` is a runaway guard, not a limit anyone should hit; exceeding it
+ *  throws rather than returning a partial list, for exactly the reason above. */
+export async function getJsonPaged(
+  url: string,
+  label: string,
+  opts: HttpOptions,
+  maxPages = 500,
+): Promise<unknown[]> {
+  const out: unknown[] = [];
+  let next: string | null = url;
+  let pages = 0;
+  while (next !== null) {
+    const at: string = next;
+    const { body, link } = await retry(
+      label,
+      async () => {
+        const res = await fetch(at, { signal: opts.signal });
+        if (!res.ok) throw httpError(res);
+        return { body: await res.json(), link: res.headers.get("link") };
+      },
+      DOWNLOAD_TRIES,
+      opts,
+    );
+    if (!Array.isArray(body)) break; // not a listing — nothing to page through
+    out.push(...body);
+    next = nextLink(link);
+    if (++pages >= maxPages && next) {
+      throw new Error(
+        `${label}: more than ${maxPages} pages of listing — refusing to ` +
+          `continue with a work-list that may be incomplete`,
+      );
+    }
+  }
+  return out;
+}
+
 /** Advertised transfer size of `url`, used only to reserve cache room. Like any
  *  `content-length` this is the ON-THE-WIRE size, so for a content-coded source
  *  (GitHub raw gzips JSON ~14x) it UNDER-estimates the file that lands on disk.

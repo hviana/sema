@@ -4,84 +4,17 @@
 // work-list, acquire each unit, read it, tally it, mark it complete, persist —
 // differing only in where the work-list comes from, what container the bytes
 // are in, and how a row becomes deposits. Those three are now DATA (a
-// `Corpus`), and this file is the loop they are fed to.
+// `Corpus`, declared in corpus.ts), and this file is the loop they are fed to.
 //
-// THE RESUME IDS ARE A COMPATIBILITY SURFACE. A store records the units it has
-// finished as strings, and a store trained by an earlier version must keep
-// resuming, so `unitIdOf` below reproduces the original ids exactly — including
-// their irregularities (a fixed `aya::dataset` beside a derived
-// `smolsent::ha_en.jsonl`). Tidying them would silently re-train everything.
+// Nothing but the loop lives here, so no corpus file needs to import it.
 
-import { LOCAL_PATH, MAX_BYTES } from "./config.js";
-import type { FileResult, Reader, RowAdapter } from "./readers.js";
+import { MAX_BYTES } from "./config.js";
+import { type Corpus, type LogStyle, type Unit, unitIdOf } from "./corpus.js";
+import type { FileResult, RowAdapter } from "./readers.js";
 import { loadProgress } from "./progress.js";
 import type { TrainCtx } from "./runtime.js";
-import { localFind } from "./discovery.js";
 import { DIM, dur, GRN, int, R, RED, YEL } from "./ui.js";
 import { statSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-
-/** One file to train: a shard, a per-language file, or a whole single-file
- *  corpus. Exactly one of `url` / `local` is set. */
-export interface Unit {
-  /** Resume-id suffix — the corpus id and this form `${id}::${key}`. Part of
-   *  the store's compatibility surface; see the file header. */
-  key: string;
-  /** How the run log names this unit once it is read. */
-  name: string;
-  /** How the live panel names it, and (unless `acquireLabel` overrides) how the
-   *  download is labelled. Conventionally `${corpus.label} ${name}`. */
-  display: string;
-  url?: string;
-  local?: string;
-  /** Cache filename. Defaults to the resume id with unsafe characters folded. */
-  dest?: string;
-  /** Download label, when it differs from `display`. */
-  acquireLabel?: string;
-}
-
-/** How one unit's outcome reads in the run log. All optional: the defaults are
- *  what every fact-shaped corpus prints. */
-export interface LogStyle {
-  /** What one deposit is called. Default "facts". */
-  deposits?: string;
-  /** When set, the line reports "from N <rows>" — the count of rows that
-   *  actually produced deposits. */
-  rows?: string;
-  /** What an unusable record is called. Default "unusable row(s)". */
-  bad?: string;
-  /** Report only the reader's `skipped` (malformed records), not the rows the
-   *  adapter declined. For a corpus that DECLINES records by design — oasst2
-   *  drops every single-turn tree — counting those as damage would be a lie. */
-  malformedOnly?: boolean;
-}
-
-export interface Corpus {
-  /** langTally key AND resume-id prefix. Compatibility surface. */
-  id: string;
-  /** Human name: the panel, the skip notices, the listing-failure message. */
-  label: string;
-  /** The dim tag in the log line, e.g. "translation", "social dialogue". */
-  kind: string;
-  enabled: boolean;
-  /** A FIXED resume id, for a corpus that is one unit and has always recorded
-   *  itself under a name of its own ("aya::dataset"). Absent ⇒ `${id}::${key}`. */
-  unitId?: string;
-  /** The work-list. Return [] for "nothing found" (the runner says so), or
-   *  null when the corpus has already logged a more specific reason. */
-  discover(ctx: TrainCtx): Promise<Unit[] | null>;
-  read: Reader;
-  toItems: RowAdapter;
-  /** Stage-wide row budget; 0/absent = unbounded. See the budget notes below. */
-  maxRows?: number;
-  /** Noun for the "N/M ___ to train" announcement. Absent ⇒ no announcement,
-   *  which is what a single-unit corpus has always done. */
-  unitNoun?: string;
-  /** Keep a file that came from the CACHE after a complete read. Only oasst2
-   *  does this: every other corpus deletes whatever acquire() handed it. */
-  keepCached?: boolean;
-  log?: LogStyle;
-}
 
 /** Rows a read could not use, as the log has always reported them: one number.
  *  The reader keeps malformed records and adapter-declined rows apart (see
@@ -90,18 +23,23 @@ export interface Corpus {
 const unusedRows = (r: FileResult, style?: LogStyle): number =>
   style?.malformedOnly ? r.skipped : r.skipped + r.unusable;
 
-/** Local files live under `LOCAL_PATH/<sub>`, or directly in LOCAL_PATH when
- *  `sub` is empty. Kept here because the layout is a user-facing convention:
- *  the corpora that share an extension (.json, .parquet) are kept apart by a
- *  subdirectory so a local run cannot feed one corpus's files to another. */
-export const localDir = (sub: string): string =>
-  sub ? join(LOCAL_PATH, sub) : LOCAL_PATH;
-
 export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
   const { progress, state, store, tick } = ctx;
   const c = ctx.counters;
   if (!corpus.enabled) return;
   if (c.trainedContentBytes >= MAX_BYTES || ctx.stopRequested) return;
+
+  // Say what is actually happening. Discovery is a network call that can wait
+  // out a rate limit for minutes, and until it is announced the panel keeps
+  // displaying the PREVIOUS stage's file as though it were still processing.
+  state.activity = "list";
+  state.filePath = corpus.label;
+  state.fileExamples = 0;
+  // The unit counter belongs to the stage that is running, so it is cleared
+  // here rather than left showing the previous stage's totals through this one.
+  state.fileIndex = 0;
+  state.fileTotal = 0;
+  tick(true);
 
   let units: Unit[] | null;
   try {
@@ -121,7 +59,7 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     return;
   }
 
-  const unitIdOf = (u: Unit) => corpus.unitId ?? `${corpus.id}::${u.key}`;
+  const idOf = (u: Unit) => unitIdOf(corpus, u);
   const maxRows = corpus.maxRows ?? 0;
 
   const p = await loadProgress(store);
@@ -136,8 +74,8 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
   //
   // The marker carries the budget it was satisfied AT, so raising the budget
   // still resumes: a bigger budget does not match the marker and the stage
-  // runs again, re-reading rows it already holds (idempotent) and adding the
-  // new ones.
+  // runs again, picking up from the rows it has already taken (below) rather
+  // than from zero.
   const budgetMark = maxRows > 0 ? `${corpus.id}::budget=${maxRows}` : "";
   if (budgetMark && done.has(budgetMark)) {
     progress.log(
@@ -148,21 +86,49 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     return;
   }
 
-  const remaining = units.filter((u) => !done.has(unitIdOf(u)));
+  const remaining = units.filter((u) => !done.has(idOf(u)));
   if (remaining.length === 0) {
     progress.log(`  ${DIM}· ${corpus.label} already trained — skipping${R}`);
     return;
   }
   state.fileTotal = units.length;
+  state.unitNoun = corpus.unitNoun ?? "unit(s)";
+
+  // Fix the corpus denominator BEFORE reading anything. It used to grow as each
+  // file was opened, so the bar ran to 100% at the end of every file and fell
+  // back when the next was added — 100%, 50%, 100%, 66%. Both listings report
+  // sizes, so the pending work is knowable up front. Units of unknown size
+  // (a single-file corpus, whose size arrives with its HEAD) contribute 0 here
+  // and are added when they are opened, as before.
+  const pendingBytes = units
+    .filter((u) => !done.has(idOf(u)))
+    .reduce((n, u) => n + (u.bytes ?? 0), 0);
+  c.totalCorpusBytes = c.totalBytesProcessed + pendingBytes;
+
   if (corpus.unitNoun) {
+    const taken = c.rowsTaken[corpus.id] ?? 0;
     progress.log(
       `  ${GRN}✓${R} ${corpus.label}: ${remaining.length}/${units.length} ${corpus.unitNoun} to train` +
-        (maxRows > 0 ? ` ${DIM}(budget ${int(maxRows)} rows)${R}` : ""),
+        (maxRows > 0
+          ? ` ${DIM}(budget ${int(maxRows)} rows` +
+            (taken > 0 ? `, ${int(taken)} already taken` : "") + `)${R}`
+          : ""),
     );
   }
 
-  // The budget spans the whole stage, not one shard, so it is counted here.
-  let rowsTaken = 0;
+  // The budget spans the whole stage AND the whole STORE, not one shard and not
+  // one run. It starts from the rows already taken by units this store has
+  // finished, so an interrupted run resumes into the same budget instead of
+  // being granted a fresh one — without that, every Ctrl+C between two shards
+  // let a budgeted corpus deposit up to a full budget more than asked for, and
+  // for SODA the budget IS the curriculum balance (see corpora/soda.ts).
+  //
+  // The persisted figure counts FINISHED units only. Rows read from a unit that
+  // was cut short are deliberately not committed, because a resume re-reads
+  // that unit from the top and re-deposits exactly those rows (idempotent); had
+  // they been committed, the re-read would count them twice and the stage would
+  // stop short of its budget.
+  let rowsTaken = c.rowsTaken[corpus.id] ?? 0;
   const spent = () => maxRows > 0 && rowsTaken >= maxRows;
   const adapt: RowAdapter = maxRows > 0
     ? (row) => {
@@ -178,7 +144,7 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     if (c.trainedContentBytes >= MAX_BYTES || ctx.stopRequested) break;
     if (spent()) break;
     idx++;
-    if (done.has(unitIdOf(u))) continue;
+    if (done.has(idOf(u))) continue;
 
     // Acquire (download or reuse), then read.
     let path = u.local ?? "";
@@ -186,7 +152,7 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     if (!path) {
       const got = await ctx.acquire(
         u.url!,
-        u.dest ?? unitIdOf(u).replace(/[^A-Za-z0-9._-]+/g, "_"),
+        u.dest ?? idOf(u).replace(/[^A-Za-z0-9._-]+/g, "_"),
         u.acquireLabel ?? u.display,
       );
       if (!got) {
@@ -199,11 +165,14 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
       downloaded = corpus.keepCached ? !got.cached : true;
     }
 
-    // Accumulate known corpus bytes so the progress bar shows a
-    // meaningful ETA — grows as each file's size is discovered.
-    try {
-      c.totalCorpusBytes += statSync(path).size;
-    } catch { /* best effort */ }
+    // Only for a unit the listing could not size (a single-file corpus). One
+    // whose size was declared is already in the denominator set above, and
+    // adding it again is exactly the drift that made the bar bounce.
+    if (!u.bytes) {
+      try {
+        c.totalCorpusBytes += statSync(path).size;
+      } catch { /* best effort */ }
+    }
 
     state.activity = "process";
     state.fileIndex = idx;
@@ -212,11 +181,26 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     tick(true);
     const p0 = Date.now();
     let res: FileResult;
+    // Pick up inside this unit if the last run stopped inside THIS one. A
+    // cursor is never applied to a different unit: the row count means whatever
+    // that unit's reader counts, and only there.
+    const cur = ctx.resumeCursor;
+    const startRow = cur && cur.unitId === idOf(u) ? cur.rows : 0;
     try {
       res = await corpus.read(
         path,
         adapt,
-        ctx.readCtx(maxRows > 0 ? spent : undefined),
+        ctx.readCtx({
+          unitId: idOf(u),
+          corpusId: corpus.id,
+          startRow,
+          shouldStop: maxRows > 0 ? spent : undefined,
+          // The LIVE count, for the cursor snapshot only. It must not be
+          // written into ctx.counters: those are what persist() records, and
+          // recording a budget figure for a unit that has not finished would
+          // charge the store for rows a resume is about to re-read.
+          rowsTakenNow: maxRows > 0 ? () => rowsTaken : undefined,
+        }),
       );
     } catch (e) {
       if (ctx.stopRequested || (e as Error)?.name === "AbortError") break;
@@ -233,7 +217,9 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     // A shard cut short by the BUDGET is not "done" — leave it resumable so a
     // later run with a bigger budget continues instead of starting over.
     const hitBudget = spent();
-    c.langTally[corpus.id] = (c.langTally[corpus.id] ?? 0) + res.examples;
+    // The tally is accrued per deposit by the runtime now (see onDeposit), so
+    // that a cursor taken mid-unit carries a true one. Adding res.examples here
+    // as well would count this unit twice.
 
     const style = corpus.log;
     const bad = unusedRows(res, style);
@@ -266,10 +252,14 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
           unlinkSync(path);
         } catch { /* best effort */ }
       }
-      done.add(unitIdOf(u));
-      p.completedFiles.push(unitIdOf(u));
+      done.add(idOf(u));
+      p.completedFiles.push(idOf(u));
+      // Commit this unit's rows against the budget — see the note above: only
+      // a FINISHED unit's rows are committed, so a resume never counts a
+      // re-read prefix twice.
+      if (maxRows > 0) c.rowsTaken[corpus.id] = rowsTaken;
     }
-    await ctx.persist(p.completedFiles);
+    await ctx.persist(p.completedFiles, !res.stopped && !hitBudget);
     // A budget stop is not a cap/signal stop: the stage is finished, so fall
     // out of the loop rather than treating it as an interruption.
     if (res.stopped && !hitBudget) break;
@@ -283,46 +273,4 @@ export async function runStage(ctx: TrainCtx, corpus: Corpus): Promise<void> {
     p.completedFiles.push(budgetMark);
     await ctx.persist(p.completedFiles);
   }
-}
-
-/** A single-unit corpus: one fixed URL, or one local file matched by pattern.
- *  Factored out because the three corpora that are ONE file resolve it the
- *  same way — and their resume id is fixed (Corpus.unitId), so the empty `key`
- *  below is never read. */
-export function singleUnit(opts: {
-  label: string;
-  display: string;
-  url: string;
-  dest: string;
-  acquireLabel?: string;
-  /** Patterns tried, in order, against LOCAL_PATH. */
-  localMatch: RegExp[];
-  /** How the "no local copy" notice describes what it looked for. */
-  localWhat: string;
-}): (ctx: TrainCtx) => Promise<Unit[] | null> {
-  return async (ctx: TrainCtx) => {
-    if (LOCAL_PATH) {
-      const hit = localFind(LOCAL_PATH, ...opts.localMatch);
-      if (!hit) {
-        ctx.progress.log(
-          `  ${DIM}· no ${opts.localWhat} in ${LOCAL_PATH} — skipping${R}`,
-        );
-        return null;
-      }
-      return [{
-        key: "",
-        name: opts.label,
-        display: opts.display,
-        local: join(LOCAL_PATH, hit),
-      }];
-    }
-    return [{
-      key: "",
-      name: opts.label,
-      display: opts.display,
-      url: opts.url,
-      dest: opts.dest,
-      acquireLabel: opts.acquireLabel,
-    }];
-  };
 }

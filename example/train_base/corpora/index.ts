@@ -25,7 +25,7 @@
 //   8. GenKnow     ~37.6k {Question, Answer} pairs → one FACT each. DISABLED
 //                  BY DEFAULT on licence grounds; see DATASETS.md §3.2.
 
-import type { Corpus } from "../stage.js";
+import type { Corpus } from "../corpus.js";
 import { smolsent } from "./smolsent.js";
 import { aya } from "./aya.js";
 import { oasst2 } from "./oasst2.js";
@@ -46,13 +46,38 @@ export const CURRICULUM: Corpus[] = [
   genknow,
 ];
 
-/** The corpora this run will actually train, for the panel header and the
- *  `train.dataset` meta — derived, so it can never go stale the way the
- *  hand-written string it replaces had. */
+/** The corpora this RUN will train, for the panel header — derived, so it can
+ *  never go stale the way the hand-written string it replaces had. */
 export const enabledLabels = (): string =>
   CURRICULUM.filter((c) => c.enabled).map((c) => c.label).join("+");
 
-export { aya, genknow, massive, oasst2, smolsent, soda, taskmaster, wiki2 };
+/** The corpora a STORE contains: everything this run will train PLUS everything
+ *  an earlier run already did, in curriculum order.
+ *
+ *  Not the same question as `enabledLabels`, and conflating them wrote a false
+ *  statement into every store that was ever resumed with a different set of
+ *  stages enabled. Observed on a real store: `train.dataset` read
+ *  "SmolSent+Aya+oasst2" while the tally recorded 37,623 General-Knowledge
+ *  deposits sitting in it. That is not cosmetic — a Sema store retains its
+ *  training text VERBATIM, so `train.dataset` is the record of whose licence
+ *  terms travel with the artifact, and General-Knowledge is precisely the
+ *  corpus DATASETS.md §3.2 disables on NonCommercial grounds.
+ *
+ *  `trainedIds` are the corpus ids an earlier run deposited under (the keys of
+ *  the per-corpus tally). An id no longer in the curriculum cannot be named and
+ *  is dropped — the tally still carries it, which is where that evidence lives. */
+export const storedLabels = (trainedIds: Iterable<string>): string => {
+  const trained = new Set(trainedIds);
+  return CURRICULUM
+    .filter((c) => c.enabled || trained.has(c.id))
+    .map((c) => c.label)
+    .join("+");
+};
+
+// One re-export per corpus, carrying the descriptor AND its adapters. The
+// explicit `export { aya, genknow, … }` list that used to sit here named the
+// eight descriptors a second time; the star exports below already provide them,
+// and a hand-kept list of everything is exactly the thing that goes stale.
 export * from "./smolsent.js";
 export * from "./aya.js";
 export * from "./oasst2.js";

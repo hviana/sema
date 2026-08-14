@@ -76,10 +76,18 @@ export interface ProgState {
   bytesRate: number; // rolling source bytes/s (drives the corpus ETA)
   fileIndex: number; // 1-based
   fileTotal: number;
+  /** What this stage's units ARE ("translation file(s)", "shard(s)"). The panel
+   *  used to say "languages" for every corpus — true only of SmolSent, and
+   *  plainly wrong while reading Parquet shards or dialogue files. */
+  unitNoun: string;
   filePath: string; // language display name
   fileSize: number; // bytes of current file
   fileExamples: number; // examples ingested from the current file
-  activity: "download" | "process" | "idle";
+  /** "list" is the work-list call — an HF/GitHub tree fetch, which can wait
+   *  minutes behind a rate limit and had no way to say so: the panel simply
+   *  kept showing the PREVIOUS stage's file as though it were still being
+   *  processed. */
+  activity: "download" | "process" | "list" | "idle";
   dlSpeed: number; // bytes/s, or 0
   dlDone: number; // bytes downloaded so far for the current download (live)
   dlTotal: number; // total bytes of the current download (0 if unknown)
@@ -205,6 +213,9 @@ export function renderPanel(s: ProgState, title: string): string {
     actText = `processing ${s.filePath} · ${
       int(s.fileExamples)
     } examples so far`;
+  } else if (s.activity === "list") {
+    actIcon = `${CYAN}⋯${R}`;
+    actText = `listing ${s.filePath} files…`;
   }
 
   const targetStr = targetKnown ? bytes(s.target) : "∞";
@@ -219,8 +230,10 @@ export function renderPanel(s: ProgState, title: string): string {
     })`
     : `${B}📦${R} ${bytes(s.bytesDone)} processed`;
   const fileInfo = s.fileTotal > 0
-    ? `${B}🌐${R} ${s.fileIndex}/${s.fileTotal} (${pct(fileFrac)})`
-    : `${B}🌐${R} ${s.fileIndex} languages`;
+    ? `${B}🌐${R} ${s.fileIndex}/${s.fileTotal} ${s.unitNoun} (${
+      pct(fileFrac)
+    })`
+    : `${B}🌐${R} ${s.unitNoun}`;
 
   const panel = [
     `${B}╭${R}${B} sema train${R} ${DIM}·${R} ${title} ${DIM}·${R} ` +
@@ -285,7 +298,7 @@ export class Progress {
           } learned · ${int(s.exampleCount)} examples · ` +
             `${
               bytes(s.trainedRate)
-            }/s · lang ${s.fileIndex}/${s.fileTotal}${where} · ` +
+            }/s · ${s.fileIndex}/${s.fileTotal} ${s.unitNoun}${where} · ` +
             `${num(s.storeEntries)} entries\n`,
         );
       }

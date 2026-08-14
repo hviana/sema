@@ -2,7 +2,8 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env } from "../config.js";
 import {
@@ -12,7 +13,7 @@ import {
   type TrainingItem,
 } from "../items.js";
 import { parquet } from "../readers.js";
-import type { Corpus } from "../stage.js";
+import type { Corpus } from "../corpus.js";
 import { convertedParquetUnits } from "./converted-parquet.js";
 // SODA turns are the same shape as Taskmaster's, and merge by the same rule.
 import type { TaskmasterTurn } from "./taskmaster.js";
@@ -105,7 +106,11 @@ export const soda: Corpus = {
   kind: "social dialogue",
   enabled: SODA,
   maxRows: SODA_MAX_DIALOGS,
-  read: parquet(),
+  // Two of sixteen columns. The `narrative`/`literal`/`head`/`relation`/`tail`
+  // scaffolding the note above declines to deposit is now also never decoded:
+  // measured on the converted train shard, 449 MB uncompressed across all
+  // sixteen against 306 MB for these two (68.1%).
+  read: parquet({ columns: ["dialogue", "speakers"] }),
   toItems: (row) => {
     const turns = toSodaTurns(row);
     if (!turns) return null;

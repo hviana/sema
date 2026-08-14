@@ -2,12 +2,13 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env } from "../config.js";
 import { refineItems, type TrainingItem } from "../items.js";
 import { jsonArray } from "../readers.js";
-import { type Corpus, singleUnit } from "../stage.js";
+import { type Corpus, singleUnit } from "../corpus.js";
 
 // ── MuskumPillerum/General-Knowledge (the fourth training stage, after oasst2) ──
 // A ~37.6k-row general-knowledge Q&A set: each row is a single {Question, Answer}
@@ -29,9 +30,6 @@ const GENKNOW_URL = env(
   "GENKNOW_URL",
   "https://huggingface.co/datasets/MuskumPillerum/General-Knowledge/resolve/main/output.json",
 );
-// The resume id of the General-Knowledge stage, in the same completed-files set
-// as the other stages, so one store records the whole curriculum.
-const GENKNOW_ID = "genknow::qa";
 // A Question/Answer longer than this is skipped (answers run to a few hundred
 // chars; this only guards against a corrupt/runaway field).
 const MAX_GENKNOW_CHARS = Math.max(
@@ -98,13 +96,14 @@ export const genknow: Corpus = {
   label: "General-Knowledge",
   kind: "Q&A facts",
   enabled: GENKNOW,
-  unitId: GENKNOW_ID,
   read: jsonArray(),
   toItems: (row) => {
     const r = toGenKnowRow(row);
     return r ? genKnowRowToItems(r) : null;
   },
   discover: singleUnit({
+    // Resume id "genknow::qa" — the string this store already records.
+    key: "qa",
     label: "General-Knowledge",
     display: "General-Knowledge",
     url: GENKNOW_URL,

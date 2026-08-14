@@ -9,9 +9,9 @@
 
 import { LOCAL_PATH } from "../config.js";
 import { hfConvertedParquet, localFiles } from "../discovery.js";
-import { localDir, type Unit } from "../stage.js";
+import { localDir, type Unit } from "../corpus.js";
 import type { TrainCtx } from "../runtime.js";
-import { DIM, R } from "../ui.js";
+import { DIM, R, YEL } from "../ui.js";
 import { join } from "node:path";
 
 /** The work-list of a corpus read from Hugging Face's auto-converted
@@ -37,10 +37,11 @@ export function convertedParquetUnits(opts: {
         return null;
       }
       return names.map((n) => ({
-        key: n,
-        name: n,
-        display: `${opts.label} ${n}`,
-        local: join(dir, n),
+        key: n.path,
+        name: n.path,
+        display: `${opts.label} ${n.path}`,
+        local: join(dir, n.path),
+        bytes: n.size,
       }));
     }
     const paths = await hfConvertedParquet(
@@ -49,13 +50,15 @@ export function convertedParquetUnits(opts: {
       opts.splits,
       opts.label,
       ctx.http,
+      (m) => ctx.progress.log(`  ${YEL}⚠${R} ${m}`),
     );
-    return paths.map((path) => ({
+    return paths.map(({ path, size }) => ({
       key: path,
       name: path,
       display: `${opts.label} ${path}`,
       url: `https://huggingface.co/datasets/${opts.dataset}` +
         `/resolve/refs%2Fconvert%2Fparquet/${path}`,
+      bytes: size,
     }));
   };
 }

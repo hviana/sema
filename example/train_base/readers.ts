@@ -66,6 +66,30 @@ export interface ReadContext {
    *  log and the CPU/allocation of ~143k skipped row decodes, not elapsed time.
    *  A larger shard past a small budget is where the decode cost would show. */
   shouldStop?: () => boolean;
+
+  /** Rows to SKIP before depositing anything — the position a previous run
+   *  reached, taken from the durable cursor (see runtime.ts). Resume used to
+   *  mean "re-read this unit from the top", which was safe but re-deposited
+   *  everything already stored and counted it a second time; the store then
+   *  reported up to 77% more examples than it held.
+   *
+   *  Skipping is only sound because the cursor is written in the SAME COMMIT
+   *  that flushes the deposits it counts, so a row before the cursor is
+   *  necessarily durable. A skipped row is neither parsed nor counted, so a
+   *  resumed read's log line describes what THIS read did and nothing else. */
+  startRow?: number;
+
+  /** "Row `rows` is FULLY dealt with" — every item it produced is deposited, or
+   *  it produced none. Called at ROW BOUNDARIES ONLY, and never for a row the
+   *  read stopped in the middle of.
+   *
+   *  That boundary is the whole point. A checkpoint fires per DEPOSIT, and a row
+   *  can produce many (2Wiki emits ~5 facts per row, a dialogue one per turn),
+   *  so a position recorded when a row STARTS would mark it consumed while some
+   *  of its items were still unwritten — and the resume would skip them. Data
+   *  loss, silently. Advancing only here means the worst case is re-depositing
+   *  one row, which is idempotent and counted once. */
+  onRowDone?: (rows: number) => void;
 }
 
 /** A reader: read `filePath`, deposit every row `toItems` accepts. */
@@ -149,17 +173,33 @@ async (filePath, toItems, rc) => {
       .pipeThrough(new TextDecoderStream())).getReader();
   let leftover = "", dropping = false;
 
+  // A "row" here is a non-blank line, counted whether or not it parses — so the
+  // position is a property of the FILE, reproducible on a later run.
+  const skip = rc.startRow ?? 0;
+  let rowIndex = 0;
+
   const processLine = async (line: string): Promise<boolean> => {
     if (!line.trim()) return true;
+    rowIndex++;
+    // Already deposited by an earlier run: advance the position, touch nothing
+    // else. Not parsed and not counted, so this read's numbers describe only
+    // the rows it actually trained.
+    if (rowIndex <= skip) {
+      rc.onRowDone?.(rowIndex);
+      return true;
+    }
     if (rc.shouldStop?.()) return false;
     let row: unknown;
     try {
       row = JSON.parse(line);
     } catch {
       res.skipped++;
+      rc.onRowDone?.(rowIndex); // nothing to deposit — the row is dealt with
       return true;
     }
-    return depositRow(row, toItems, rc, res);
+    const ok = await depositRow(row, toItems, rc, res);
+    if (ok) rc.onRowDone?.(rowIndex); // every item landed
+    return ok;
   };
 
   try {
@@ -204,9 +244,15 @@ async (filePath, toItems, rc) => {
     }
     return res;
   } finally {
+    // CANCEL, not releaseLock: a read that returns early (a budget, the MAX_MB
+    // cap, a signal) leaves the file source open otherwise, to be closed
+    // whenever the collector gets to it. Measured, that is tidiness rather than
+    // a leak — 300 abandoned reads peaked at 42 open descriptors against 38
+    // with cancel — but "closed when we are done with it" is the cheaper thing
+    // to reason about, and cancel releases the lock too.
     try {
-      reader.releaseLock();
-    } catch { /* best effort */ }
+      await reader.cancel();
+    } catch { /* already closed */ }
   }
 };
 
@@ -222,16 +268,36 @@ export const jsonArray = (): Reader => async (filePath, toItems, rc) => {
   } catch (e) {
     throw new Error(`invalid JSON: ${(e as Error).message}`);
   }
-  const rows: unknown[] = Array.isArray(arr) ? arr : [];
-  for (const row of rows) {
+  // A file that parses but is not an array is a DIFFERENT CONTAINER, not an
+  // empty one, so it is an error rather than zero rows. Silently reading it as
+  // empty marked the unit complete, logged "0 facts", and never looked again —
+  // and the live path to that is a LOCAL_PATH run, where the Taskmaster stage
+  // takes every *.json in the directory while the remote listing filters out
+  // exactly the two files (ontology.json, sample.json) that are not arrays of
+  // conversations. Throwing leaves the unit un-completed and says which file.
+  if (!Array.isArray(arr)) {
+    throw new Error(
+      `expected a JSON array of rows, got ${
+        arr === null ? "null" : Array.isArray(arr) ? "array" : typeof arr
+      }`,
+    );
+  }
+  const rows: unknown[] = arr;
+  const skip = rc.startRow ?? 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (i < skip) { // deposited by an earlier run — see ReadContext
+      rc.onRowDone?.(i + 1);
+      continue;
+    }
     if (rc.signal.aborted || rc.shouldStop?.()) {
       res.stopped = true;
       return res;
     }
-    if (!(await depositRow(row, toItems, rc, res))) {
+    if (!(await depositRow(rows[i], toItems, rc, res))) {
       res.stopped = true;
       return res;
     }
+    rc.onRowDone?.(i + 1);
   }
   return res;
 };
@@ -306,6 +372,44 @@ const loadParquet = () => (parquetLib ??= (async () => {
   }
 })());
 
+/** The top-level column names a Parquet file actually carries, taken from the
+ *  chunk metadata (`path_in_schema[0]` is the top-level name, which is exactly
+ *  what hyparquet matches a `columns` request against). */
+const columnsOf = (
+  meta: {
+    row_groups: Array<
+      { columns: Array<{ meta_data?: { path_in_schema: string[] } }> }
+    >;
+  },
+): Set<string> => {
+  const out = new Set<string>();
+  for (const rg of meta.row_groups) {
+    for (const c of rg.columns) {
+      const top = c.meta_data?.path_in_schema?.[0];
+      if (top) out.add(top);
+    }
+  }
+  return out;
+};
+
+/** Reject a column projection that names a column the file does not have.
+ *
+ *  hyparquet ignores an unknown name in `columns` rather than complaining, so a
+ *  typo would read NO columns, hand every adapter an empty row, and finish with
+ *  "0 facts" and no error at all. A projection is a claim about the file, so a
+ *  wrong claim is worth stopping for — and the message names both what is
+ *  missing and what is there, which is what you need to fix it. */
+function checkColumns(available: Set<string>, want: string[]): string[] {
+  const missing = want.filter((c) => !available.has(c));
+  if (missing.length > 0) {
+    throw new Error(
+      `column(s) not in this file: ${missing.join(", ")} — ` +
+        `it carries ${[...available].join(", ")}`,
+    );
+  }
+  return want;
+}
+
 /** Parquet, read in bounded row batches with hyparquet (+Snappy from
  *  hyparquet-compressors) over a web-standard Blob byte source. At most
  *  `batchBytes` of source rows are materialised at a time, so neither a
@@ -313,9 +417,16 @@ const loadParquet = () => (parquetLib ??= (async () => {
  *  into memory.
  *
  *  Batching also makes a single-group file INTERRUPTIBLE: the abort check runs
- *  per batch, where before a 1.19M-row group could not be cancelled at all. */
+ *  per batch, where before a 1.19M-row group could not be cancelled at all.
+ *
+ *  `columns` PROJECTS the read down to the columns the adapter actually uses.
+ *  That is not only a memory economy: 2Wiki's `context` column holds the
+ *  Wikipedia prose the adapter exists to avoid depositing, and naming the
+ *  columns makes that exclusion structural — the bytes are never decoded at
+ *  all — in the same way reading only `utterances[].text` structurally excludes
+ *  Taskmaster's `instructions` scaffolding. Absent ⇒ every column, as before. */
 export const parquet = (
-  opts: { batchBytes?: number } = {},
+  opts: { batchBytes?: number; columns?: string[] } = {},
 ): Reader =>
 async (filePath, toItems, rc) => {
   const { metadata, readObjects, compressors } = await loadParquet();
@@ -328,39 +439,65 @@ async (filePath, toItems, rc) => {
       await blob.slice(start, end ?? blob.size).arrayBuffer(),
   };
   const meta = await metadata(file);
+  const columns = opts.columns
+    ? checkColumns(columnsOf(meta), opts.columns)
+    : undefined;
+  // A "row" here is the file's ABSOLUTE row index, which is what hyparquet's
+  // rowStart/rowEnd already speak in — so resuming is not merely cheaper than
+  // re-reading, it decodes nothing at all before the cursor.
+  const skip = rc.startRow ?? 0;
   let rowStart = 0;
   for (const rg of meta.row_groups) {
     const rgRows = Number(rg.num_rows);
     const rgEnd = rowStart + rgRows;
+    if (rgEnd <= skip) {
+      // Entirely behind the cursor: never fetched, never decompressed.
+      rowStart = rgEnd;
+      rc.onRowDone?.(rowStart);
+      continue;
+    }
+    // `total_byte_size` covers EVERY column, including ones a projection skips,
+    // so a projected read materialises less than the budget rather than more.
+    // Erring small is the safe direction for a memory budget, and correcting it
+    // per-column would tie the batch size to a layout detail for no gain.
     const batchRows = parquetBatchRows(
       rgRows,
       Number(rg.total_byte_size ?? 0),
       budget,
     );
     if (batchRows <= 0) continue; // empty group
+    // Resume inside a group: begin at the cursor, not at the group's first row.
+    if (rowStart < skip) rowStart = skip;
     // Materialise one bounded batch at a time, then deposit its rows.
     while (rowStart < rgEnd) {
       if (rc.signal.aborted || rc.shouldStop?.()) {
         res.stopped = true;
         return res;
       }
+      const batchStart = rowStart;
       const rowEnd = Math.min(rowStart + batchRows, rgEnd);
       const rows = await readObjects({
         file,
+        // Hand back the footer we already parsed: without it every batch
+        // re-reads and re-parses the file's metadata, which on a large shard
+        // means dozens of redundant footer parses per file.
+        metadata: meta,
         compressors,
+        columns,
         rowStart,
         rowEnd,
       });
       rowStart = rowEnd;
-      for (const row of rows) {
+      for (let i = 0; i < rows.length; i++) {
         if (rc.shouldStop?.()) {
           res.stopped = true;
           return res;
         }
-        if (!(await depositRow(row, toItems, rc, res))) {
+        if (!(await depositRow(rows[i], toItems, rc, res))) {
           res.stopped = true;
           return res;
         }
+        rc.onRowDone?.(batchStart + i + 1);
       }
     }
   }

@@ -2,12 +2,13 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env } from "../config.js";
 import { accumulate, refineItems, type TrainingItem } from "../items.js";
 import { lines } from "../readers.js";
-import { type Corpus, singleUnit } from "../stage.js";
+import { type Corpus, singleUnit } from "../corpus.js";
 
 // ── OpenAssistant/oasst2 (the fourth training stage, after Aya) ──
 // oasst2 is a corpus of human↔assistant conversation TREES. Its richest, most
@@ -25,9 +26,6 @@ const OASST_URL = env(
   "OASST_URL",
   "https://huggingface.co/datasets/OpenAssistant/oasst2/resolve/main/2023-11-05_oasst2_ready.trees.jsonl.gz",
 );
-// The resume id of the oasst2 stage, in the same completed-files set as the
-// other stages, so one store records the whole curriculum.
-const OASST_ID = "oasst2::trees";
 // Multi-turn threshold: a conversation must have at least this many turns to be
 // trained (4 = user→assistant→user→assistant, the smallest real multi-turn).
 const OASST_MIN_TURNS = Math.max(
@@ -138,7 +136,6 @@ export const oasst2: Corpus = {
   label: "oasst2",
   kind: "multi-turn chat",
   enabled: OASST,
-  unitId: OASST_ID,
   read: lines({ gzip: true, maxLineChars: MAX_OASST_LINE_CHARS }),
   toItems: oasstTreeToItems,
   // The one corpus that KEEPS a cached file after a complete read: a copy left
@@ -153,6 +150,8 @@ export const oasst2: Corpus = {
     malformedOnly: true,
   },
   discover: singleUnit({
+    // Resume id "oasst2::trees" — the string this store already records.
+    key: "trees",
     label: "oasst2",
     display: "oasst2 (multi-turn)",
     url: OASST_URL,

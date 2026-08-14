@@ -2,12 +2,13 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env } from "../config.js";
 import { refineItems, type TrainingItem } from "../items.js";
 import { parquet } from "../readers.js";
-import type { Corpus } from "../stage.js";
+import type { Corpus } from "../corpus.js";
 import { convertedParquetUnits } from "./converted-parquet.js";
 
 // ── 2WikiMultihopQA — the `evidences` TRIPLES only (the composition stage) ──
@@ -31,7 +32,7 @@ import { convertedParquetUnits } from "./converted-parquet.js";
 // from main: the main-branch train.parquet is written as ONE 167,454-row
 // group (666 MB uncompressed) and a Parquet column chunk is per-group, so any
 // read of it materialises the whole file. The converted branch uses uniform
-// 10,000-row groups. See test/79-parquet-batching.test.mjs.
+// 10,000-row groups, which `parquetBatchRows` then subdivides by BYTES.
 const WIKI2 = env("WIKI2", "1") !== "0";
 const WIKI2_DATASET = env("WIKI2_DATASET", "xanhho/2WikiMultihopQA");
 // Splits to train, in order. Only `train` by default: `validation`/`test` are
@@ -163,7 +164,13 @@ export const wiki2: Corpus = {
   kind: "relation triples",
   enabled: WIKI2,
   maxRows: WIKI2_MAX_ROWS,
-  read: parquet(),
+  // Read ONE of the file's seven columns. This is where the "context is not
+  // read" rule above stops being a property of the adapter and becomes a
+  // property of the read: the Wikipedia prose is never decoded at all. It is
+  // also almost the whole file — measured on the converted train shard, the
+  // seven columns hold 518 MB uncompressed and `evidences` is 18 MB of it
+  // (3.5%), so the projection cuts the decode work by ~28x.
+  read: parquet({ columns: ["evidences"] }),
   toItems: (row) => {
     const triples = toWikiTriples(row);
     if (!triples) return null;

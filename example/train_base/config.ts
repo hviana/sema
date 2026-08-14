@@ -57,12 +57,42 @@ export const DOWNLOAD_TRIES = 5;
 // renamed into place only after the bytes are fully flushed to disk. The cache
 // invariant is therefore absolute: a file at its final path is, by definition,
 // complete. Partial transfers (a crash, a kill, a dropped socket) leave only a
-// .part file, which is swept at startup and never fed to the parser.
+// .part file, which is never fed to the parser and is swept at startup by
+// cache.ts's sweepPartials() — without which the debris would consume cache
+// ceiling that nothing frees.
 export const PART_SUFFIX = ".part";
 
 // The checkpoint recall is a best-effort diagnostic — it must NEVER stall
 // training. We bound it so a slow/large store cannot freeze the deposit loop.
 export const INFER_TIMEOUT_MS = Number(env("INFER_TIMEOUT_MS", "15000"));
+
+// How long the run may make NO progress before it gives up and exits non-zero.
+//
+// A long training run's worst failure is not a crash — a crash resumes. It is a
+// HANG: the uncaught-exception handler deliberately swallows dropped-connection
+// errors so a long run survives them, and the keep-alive timer deliberately
+// holds the process open; together, an error that escapes and leaves an await
+// unsettled produces a live process that will never do anything again. No error,
+// no exit, and a supervisor that sees a healthy pid. Exiting instead turns that
+// into a resume, which costs at most the work since the last checkpoint.
+//
+// "Progress" is any deposit, downloaded chunk, or rate-limit wait; time inside
+// index maintenance and the checkpoint recall does not count against it, since
+// those legitimately deposit nothing. Generous by default — this is a
+// last-resort backstop, not a latency budget. 0 disables it.
+export const STALL_MS = Math.max(
+  0,
+  Math.floor(Number(env("STALL_MIN", "15")) * 60_000) || 900_000,
+);
+
+// How long a download may wait for room under the cache ceiling before failing
+// the unit instead of waiting forever. The wait exists so a bounded cache can
+// throttle a fast source; it is not meant to outlast the run. The unit stays
+// resumable, so a genuine ceiling problem costs a retry, not the corpus.
+export const CACHE_WAIT_MS = Math.max(
+  60_000,
+  Math.floor(Number(env("CACHE_WAIT_MIN", "10")) * 60_000) || 600_000,
+);
 
 // The vector indices' memory knob (MiB) — each index's SQLite page cache.
 // The IVF index routes inserts through a RAM-resident pivot table and

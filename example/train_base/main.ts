@@ -47,13 +47,16 @@
 //   ui.ts         the live panel, the formatters, the recall box.
 //   runtime.ts    the RUN: counters, the deposit gate, file acquisition,
 //                 checkpointing, shutdown.
+//   corpus.ts     WHAT A CORPUS IS — the contract a corpus declares, and the
+//                 one rule that turns it into a resume id.
 //   stage.ts      ONE loop, run once per corpus.
 //   corpora/      ONE FILE PER CORPUS: its knobs, its row adapter, its stage
 //                 descriptor, and the evidence that fixed each default.
 //                 corpora/index.ts is the curriculum, in order.
 //
-// Adding a corpus is therefore one new file in corpora/ and one line in
-// corpora/index.ts — no change to the loop, the readers, or the run.
+// Adding a corpus is therefore one new file in corpora/ plus its import, its
+// place in CURRICULUM and its re-export in corpora/index.ts — and no change at
+// all to the loop, the readers, or the run.
 //
 // Every source is DOWNLOADED as a file and streamed from disk (never paged
 // row-by-row over an HTTP API — that was slow and rate-limited). Resume is
@@ -117,8 +120,9 @@ import {
 } from "./config.js";
 import { createRuntime } from "./runtime.js";
 import { runStage } from "./stage.js";
-import { CURRICULUM, enabledLabels } from "./corpora/index.js";
-import { dur, num, R, RED, SHOW } from "./ui.js";
+import { sweepPartials } from "./cache.js";
+import { CURRICULUM, enabledLabels, storedLabels } from "./corpora/index.js";
+import { bytes, DIM, dur, num, R, RED, SHOW } from "./ui.js";
 
 // The parser/representation surface this module used to define itself. Kept
 // exported from here so importing `example/train_base/main.js` still reaches every
@@ -174,16 +178,41 @@ async function main(): Promise<void> {
   }
 
   const dataset = enabledLabels();
-  await store.setMeta("train.dataset", dataset);
   await store.setMeta("train.D", String(D));
   await store.setMeta("train.seed", String(SEED));
-  await store.setMeta("train.createdAt", new Date().toISOString());
+  // createdAt is when this STORE was first trained into, so a resume must not
+  // overwrite it — the previous behaviour left every store claiming it was
+  // created at its most recent resume. When the current run started is a
+  // separate, also-useful fact, so it gets its own key rather than displacing
+  // this one.
+  if ((await store.getMeta("train.createdAt")) === null) {
+    await store.setMeta("train.createdAt", new Date().toISOString());
+  }
+  await store.setMeta("train.startedAt", new Date().toISOString());
 
   const ctx = createRuntime({ store, mind, ci, title: dataset });
   ctx.tick(true);
 
+  // Reclaim the debris of any download killed mid-transfer. It occupies cache
+  // ceiling that nothing else would ever free (see cache.ts sweepPartials).
+  const swept = sweepPartials();
+  if (swept.files > 0) {
+    ctx.progress.log(
+      `  ${DIM}· swept ${swept.files} interrupted download(s), ` +
+        `${bytes(swept.bytes)} reclaimed${R}`,
+    );
+  }
+
   // ── resume — restore counters and the per-source tally from the store ──
   await ctx.restore();
+
+  // What the STORE contains, which is only knowable after the resume: this
+  // run's stages plus whatever earlier runs deposited. The panel header above
+  // names this RUN's stages, which is a different and also-true fact.
+  await store.setMeta(
+    "train.dataset",
+    storedLabels(Object.keys(ctx.counters.langTally)),
+  );
 
   // Walk the curriculum. Each stage skips itself on a resume that already
   // finished it, and the walk stops at the first requested stop.
@@ -192,6 +221,9 @@ async function main(): Promise<void> {
     await runStage(ctx, corpus);
   }
 
+  // Nothing is in flight any more; each stage announces itself as it starts, so
+  // this is the one transition that has no next stage to correct it.
+  ctx.state.activity = "idle";
   await ctx.finish(ctx.stopRequested ? ctx.stopReason : "done");
 }
 

@@ -2,13 +2,14 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env, LOCAL_PATH } from "../config.js";
 import { refineItems, type TrainingItem } from "../items.js";
-import { hfTree, localFiles } from "../discovery.js";
+import { hfTree, type Listed, localFiles } from "../discovery.js";
 import { lines } from "../readers.js";
-import type { Corpus, Unit } from "../stage.js";
+import type { Corpus, Unit } from "../corpus.js";
 import type { TrainCtx } from "../runtime.js";
 import { basename, join } from "node:path";
 
@@ -140,7 +141,7 @@ export function smolSentRowToItems(
 /** Discover the SmolSent per-pair JSONL files from the HF repo tree, restricted
  *  to SMOLSENT_PAIRS (basenames without .jsonl) when set. Each entry is the
  *  repo-relative path, e.g. "smolsent/ha_en.jsonl". */
-async function listFiles(ctx: TrainCtx): Promise<string[]> {
+async function listFiles(ctx: TrainCtx): Promise<Listed[]> {
   const paths = await hfTree(
     SMOLSENT_DATASET,
     "smolsent",
@@ -150,7 +151,9 @@ async function listFiles(ctx: TrainCtx): Promise<string[]> {
   );
   if (!SMOLSENT_PAIRS.length) return paths;
   const want = new Set(SMOLSENT_PAIRS.map((p) => p.replace(/\.jsonl$/i, "")));
-  return paths.filter((p) => want.has(basename(p).replace(/\.jsonl$/i, "")));
+  return paths.filter((p) =>
+    want.has(basename(p.path).replace(/\.jsonl$/i, ""))
+  );
 }
 
 const unit = (name: string): Unit => ({
@@ -181,15 +184,20 @@ export const smolsent: Corpus = {
         const want = new Set(
           SMOLSENT_PAIRS.map((p) => p.replace(/\.jsonl$/i, "")),
         );
-        names = names.filter((n) => want.has(n.replace(/\.jsonl$/i, "")));
+        names = names.filter((n) => want.has(n.path.replace(/\.jsonl$/i, "")));
       }
-      return names.map((n) => ({ ...unit(n), local: join(LOCAL_PATH, n) }));
+      return names.map((n) => ({
+        ...unit(n.path),
+        local: join(LOCAL_PATH, n.path),
+        bytes: n.size,
+      }));
     }
-    return (await listFiles(ctx)).map((path) => ({
+    return (await listFiles(ctx)).map(({ path, size }) => ({
       ...unit(basename(path)),
       // owner/name and the file path are URL PATH segments — do not encode "/".
       url:
         `https://huggingface.co/datasets/${SMOLSENT_DATASET}/resolve/main/${path}`,
+      bytes: size,
     }));
   },
 };

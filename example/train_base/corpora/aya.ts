@@ -2,12 +2,13 @@
 //
 // Knobs, the row adapter, and the stage descriptor for ONE corpus, together
 // with the evidence that fixed each default. A corpus file owns everything
-// source-specific; the loop that runs it is in ../stage.ts.
+// source-specific; the contract it fills is ../corpus.ts and the loop that runs
+// it is ../stage.ts.
 
 import { env } from "../config.js";
 import { refineItems, type TrainingItem } from "../items.js";
 import { parquet } from "../readers.js";
-import { type Corpus, singleUnit } from "../stage.js";
+import { type Corpus, singleUnit } from "../corpus.js";
 
 // ── CohereLabs/aya_dataset (the second training stage, after SmolSent) ──
 // The Aya Dataset is ~204k HUMAN-annotated prompt→completion pairs across 70+
@@ -22,9 +23,6 @@ const AYA_URL = env(
   "AYA_URL",
   "https://huggingface.co/datasets/CohereLabs/aya_dataset/resolve/main/data/train-00000-of-00001.parquet",
 );
-// The resume id of the Aya stage, kept in the same completed-files set as the
-// other stages, so one store records the whole curriculum.
-const AYA_ID = "aya::dataset";
 // A single Aya field this many chars or longer is skipped: inputs/targets range
 // up to ~3.3M chars, and a multi-MB "pair" is documentation/dump noise, not a
 // cognitive example.
@@ -84,13 +82,20 @@ export const aya: Corpus = {
   label: "Aya Dataset",
   kind: "multilingual chat",
   enabled: AYA,
-  unitId: AYA_ID,
-  read: parquet(),
+  // The three columns toAyaRow reads, out of six. Kept for the same reason as
+  // the other Parquet stages — the read states what the adapter uses — though
+  // here it is nearly free rather than a saving: measured on the train file,
+  // 238 MB uncompressed across all six and 233 MB for these three (98.2%). The
+  // dropped columns are ids and annotation metadata, so there is little to
+  // drop.
+  read: parquet({ columns: ["inputs", "targets", "language"] }),
   toItems: (row) => {
     const r = toAyaRow(row);
     return r ? ayaRowToItems(r) : null;
   },
   discover: singleUnit({
+    // Resume id "aya::dataset" — the string this store already records.
+    key: "dataset",
     label: "Aya Dataset",
     display: "Aya Dataset",
     url: AYA_URL,

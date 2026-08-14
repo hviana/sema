@@ -13,7 +13,12 @@
 //   • BOUNDED — a download blocks under the MAX_CACHE_GB ceiling, and a fully
 //     processed file is deleted by its caller immediately.
 
-import { CACHE_DIR, MAX_CACHE_BYTES, PART_SUFFIX } from "./config.js";
+import {
+  CACHE_DIR,
+  CACHE_WAIT_MS,
+  MAX_CACHE_BYTES,
+  PART_SUFFIX,
+} from "./config.js";
 import { httpError, retry, waitMs } from "./http.js";
 import {
   closeSync,
@@ -29,7 +34,40 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
-/** Total bytes currently held in the cache directory. */
+/** Delete every orphaned "<file>.part" in the cache, returning how many were
+ *  removed and the bytes they held.
+ *
+ *  A .part file at rest is by definition the debris of a download that never
+ *  finished — the rename that promotes one is the last step of `downloadFile`,
+ *  so a live .part exists only while THIS process is writing it. Sweeping at
+ *  startup is therefore safe, and it is load-bearing rather than cosmetic:
+ *  `cacheSize` deliberately counts .part files (an in-flight download really
+ *  does occupy the disk), so debris left by a killed run consumes ceiling
+ *  budget that nothing would ever free, and `ensureCacheRoom` would wait for
+ *  room that cannot appear.
+ *
+ *  The one assumption is that a cache directory belongs to ONE run at a time.
+ *  That was already true — two trainers sharing CACHE_DIR would write the same
+ *  .part path — so this adds no constraint that did not exist. */
+export function sweepPartials(): { files: number; bytes: number } {
+  const out = { files: 0, bytes: 0 };
+  if (!existsSync(CACHE_DIR)) return out;
+  for (const name of readdirSync(CACHE_DIR)) {
+    if (!name.endsWith(PART_SUFFIX)) continue;
+    const p = join(CACHE_DIR, name);
+    try {
+      const size = statSync(p).size;
+      unlinkSync(p);
+      out.files++;
+      out.bytes += size;
+    } catch { /* raced with another delete — nothing to reclaim */ }
+  }
+  return out;
+}
+
+/** Total bytes currently held in the cache directory — INCLUDING any .part
+ *  file, because an in-flight download occupies the disk like any other file.
+ *  Orphaned ones are removed by {@link sweepPartials} at startup. */
 export function cacheSize(): number {
   if (!existsSync(CACHE_DIR)) return 0;
   let total = 0;
@@ -48,13 +86,27 @@ export async function ensureCacheRoom(
   fileBytes: number,
   signal: AbortSignal,
   warn?: (msg: string) => void,
+  maxWaitMs = CACHE_WAIT_MS,
 ): Promise<void> {
   mkdirSync(CACHE_DIR, { recursive: true });
   if (fileBytes >= MAX_CACHE_BYTES) return;
   let warned = false;
+  const until = Date.now() + maxWaitMs;
   // Stop waiting the moment a shutdown is requested — the abort signal unblocks
   // a long cache-full wait so Ctrl+C is never swallowed by the ceiling.
   while (!signal.aborted && cacheSize() + fileBytes > MAX_CACHE_BYTES) {
+    // BOUNDED. Room appears when this run consumes and deletes a file, so a
+    // cache already over the ceiling with nothing left to consume — stale files
+    // from another run, a ceiling set below one corpus — would otherwise wait
+    // for room that cannot arrive, forever, after a single warning line.
+    if (Date.now() >= until) {
+      throw new Error(
+        `cache still full after ${Math.round(maxWaitMs / 60_000)} min ` +
+          `(${(cacheSize() / 1e9).toFixed(1)} GB of a ` +
+          `${(MAX_CACHE_BYTES / 1e9).toFixed(0)} GB ceiling) — raise ` +
+          `MAX_CACHE_GB or clear ${CACHE_DIR}`,
+      );
+    }
     if (!warned) {
       warn?.(
         `cache at ${
