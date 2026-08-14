@@ -90,28 +90,38 @@ export async function reason(
   //
   // Read from the ANSWER's side (`prevFirst`) rather than the query's
   // (`nextFirst`).  Same relation, but a CONTEXT's fan-out is hub-sized while
-  // this is one answer's establishing-context fan-in — and it is the very read
-  // `consumeNode` performs on this node anyway, so the guard adds no store
-  // traffic.  The √N cap carries the file-wide visibility trade, and fails SAFE
-  // in the direction that matters: a missed guard costs an over-extended
-  // answer, never a suppressed chain.
+  // this is one answer's establishing-context fan-in.  Both the resolve and the
+  // reverse read are exactly what hop 0 of the loop below would perform, so
+  // they are computed ONCE here and handed down (`groundedId`, `groundedPrev`)
+  // — the guard then costs nothing when it does not fire.  Stated because the
+  // naive placement does NOT: `resolve` re-folds the answer bytes on every call
+  // (no memo) and `prevFirst` is a direct read (no memo), so a guard that
+  // recomputed them would add one fold plus one √N-bounded read per ask.
+  // The √N cap carries the file-wide visibility trade, and fails SAFE in the
+  // direction that matters: a missed guard costs an over-extended answer, never
+  // a suppressed chain.
   //
   // A genuine multi-hop query is not a deposited context at all ("What is the
   // capital of the country of Eiffel Tower?" resolves to nothing), so this can
   // never gate a real chain.
   const groundedId = resolve(ctx, answer);
-  if (
-    qId !== null && groundedId !== null &&
-    ctx.store.prevFirst(groundedId, bound).includes(qId)
-  ) {
+  const groundedPrev = groundedId === null
+    ? null
+    : ctx.store.prevFirst(groundedId, bound);
+  if (qId !== null && groundedPrev !== null && groundedPrev.includes(qId)) {
     return answer;
   }
 
   const consumed = new Set<number>();
-  const consumeNode = (id: number | null) => {
+  /** `prev` lets a caller hand in an already-read reverse-edge list — hop 0
+   *  reuses the guard's, above, instead of re-reading it. */
+  const consumeNode = (
+    id: number | null,
+    prev?: readonly number[],
+  ) => {
     if (id === null) return;
     consumed.add(id);
-    for (const p of ctx.store.prevFirst(id, bound)) consumed.add(p);
+    for (const p of prev ?? ctx.store.prevFirst(id, bound)) consumed.add(p);
   };
   const consumeAll = (id: number | null) => {
     if (id === null) return;
@@ -146,8 +156,10 @@ export async function reason(
   let t: ReturnType<Rationale["enter"]> | undefined;
   const startedFrom = answer;
   for (let hop = 0; hop < ctx.cfg.recallQueryK; hop++) {
-    const curId = resolve(ctx, cur);
-    consumeNode(curId);
+    // Hop 0's `cur` IS `answer`, so the guard above already resolved it and
+    // read its reverse edges — reuse both rather than repeat them.
+    const curId = hop === 0 ? groundedId : resolve(ctx, cur);
+    consumeNode(curId, hop === 0 ? groundedPrev ?? undefined : undefined);
 
     // Forward-absorb: follow only UNCONSUMED continuations.  The gate below
     // checks an unconsumed edge EXISTS, but follow()'s chooseNext knows

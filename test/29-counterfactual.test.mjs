@@ -521,8 +521,27 @@ test("D1 — site-aware climb finds diverse anchors for CAST weave", async () =>
   await m.store.close();
 });
 
+// D2 asserted `provenance === "cast"` — a PROXY, and it hid the very thing this
+// test is named for.  The climb here elects between two anchors whose votes sit
+// 0.54σ–1.04σ apart, i.e. inside the estimator's own resolution: `steel is hard
+// so steel is strong` scores 0.897–1.013 depending on the seed while `water is
+// frigid so water is freezing` holds ~0.983, so the TOP FLIPS on 6 of 24 seeds
+// (measured; the SD tracks 1/√D and the flip rate collapses 19/60 → 12/60 →
+// 2/60 as D goes 256 → 1024 → 4096).  CAST voiced the runner-up regardless of
+// which anchor the climb had committed, so the proxy stayed green while the
+// climb was demonstrably seed-dependent.  See `test/87-codominant-commitment`.
+//
+// The strong form asserts the property in the title: every seed must produce
+// the SAME OUTCOME — same provenance and same bytes.  Uniformity alone is not
+// enough (all seeds could agree on a wrong answer), so correctness is asserted
+// too: the property transfer must still land on "freezing" via CAST.
+//
+// The seed set deliberately includes 1, 8, 18, 20, 22 and 23 — the seeds whose
+// noise puts the OTHER anchor on top.  A seed set that never flips would not
+// exercise the defect at all.
 test("D2 — site-aware climb is seed-independent", async () => {
-  for (const seed of [1, 7, 42, 99]) {
+  const outcomes = new Map();
+  for (const seed of [1, 7, 8, 18, 20, 22, 23, 42, 99]) {
     const m = mk(seed);
     await m.ingest([
       ["ice is cold so ice is brittle", "brittle"],
@@ -530,11 +549,29 @@ test("D2 — site-aware climb is seed-independent", async () => {
       ["water is frigid so water is freezing", "freezing"],
     ]);
     const r = await m.respond("steel is frigid");
-    assert.equal(
-      r.provenance,
-      "cast",
-      `seed ${seed}: CAST must fire — got ${r.provenance}`,
-    );
+    const text = new TextDecoder().decode(r.bytes ?? new Uint8Array());
+    outcomes.set(seed, `${r.provenance}|${text}`);
     await m.store.close();
   }
+  const distinct = new Set(outcomes.values());
+  assert.equal(
+    distinct.size,
+    1,
+    `the outcome depends on the seed — ${
+      [...outcomes].map(([s, o]) => `seed ${s}: ${JSON.stringify(o)}`).join(
+        "; ",
+      )
+    }`,
+  );
+  const [only] = distinct;
+  assert.ok(
+    only.startsWith("cast|"),
+    `seed-independent, but not through CAST: ${JSON.stringify(only)}`,
+  );
+  assert.ok(
+    /freezing/i.test(only),
+    `seed-independent, but the property transfer was lost: ${
+      JSON.stringify(only)
+    }`,
+  );
 });

@@ -140,6 +140,79 @@ test("a band-admitted root is genuinely inside its own sqrt(k)*sigma", async () 
   );
 });
 
+test("band admissions are bounded by the QUERY, not by the corpus", async () => {
+  // THE COST CONTRACT. The band's direct cost is O(1) per anchor, but admitting
+  // a root is not free downstream: the weave, the schemas and fusion all read
+  // `roots`. So the question that matters is whether the number of admissions
+  // can grow with the corpus. It cannot, and the bound is structural rather
+  // than a cap: an anchor overlapping one already placed is ABSORBED before any
+  // vote gate is consulted, so rivals elected from the same query span can
+  // never all commit — the ceiling is the query's own count of pairwise
+  // non-overlapping spans.
+  //
+  // Adversarial fixture: K structures made near-identical with respect to the
+  // query, so their votes cluster inside each other's bands. Measured at
+  // K = 1, 2, 4, 8, 16 over seeds 1/7/42 — committed roots never exceeded 2 and
+  // did not rise with K; the extra candidates came back `overlap`, or never
+  // entered the ranked list at all.
+  const SUBJ = [
+    "water",
+    "juice",
+    "milk",
+    "cider",
+    "broth",
+    "syrup",
+    "cream",
+    "nectar",
+    "brine",
+    "tonic",
+    "lager",
+    "cocoa",
+    "gravy",
+    "toddy",
+    "mead",
+    "punch",
+  ];
+  const PROP = [
+    "freezing",
+    "icy",
+    "cold",
+    "chilled",
+    "frosty",
+    "numbing",
+    "glacial",
+    "bitter",
+    "raw",
+    "biting",
+    "harsh",
+    "sharp",
+    "stinging",
+    "crisp",
+    "keen",
+    "brisk",
+  ];
+  const rootsAt = async (K) => {
+    const train = [["steel is hard so steel is strong", "strong"]];
+    for (let i = 0; i < K; i++) {
+      train.push([
+        `${SUBJ[i]} is frigid so ${SUBJ[i]} is ${PROP[i]}`,
+        PROP[i],
+      ]);
+    }
+    const anchors = await commitRecord(7, train, "steel is frigid");
+    return anchors.filter((a) => a.commit?.status === "root").length;
+  };
+  const small = await rootsAt(1);
+  for (const K of [2, 4, 8, 16]) {
+    const n = await rootsAt(K);
+    assert.ok(
+      n <= Math.max(small, 2),
+      `${K} near-tied rivals produced ${n} committed roots — admissions are ` +
+        `growing with the corpus, not with the query`,
+    );
+  }
+});
+
 test("the band does not admit a clearly separated anchor", async () => {
   // OVER-CORRECTION GUARD. The band is about indistinguishability, not
   // generosity. Measured on this fixture the climb commits ONE root at vote
