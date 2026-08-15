@@ -72,9 +72,27 @@ export async function resolveConnectors(
       if (span && span[0] <= s.start && s.end <= span[1]) return false;
       if (query === undefined || ctx.answeredSpans.length === 0) return true;
       const continuations = ctx.store.nextFirst(s.payload, hubBound(ctx));
-      return !continuations.some((answer) =>
-        indexOf(query, read(ctx, answer), 0) >= 0
-      );
+      return !continuations.some((answer) => {
+        // PREFIX-CAPPED (AGENTS §2.8): a candidate longer than the query cannot
+        // occur INSIDE it, so read one byte past the query's length — enough to
+        // detect the overflow — and reject without reconstructing the rest.
+        // The `+ 1` is what makes the test exact rather than a truncation: a
+        // result of exactly `query.length + 1` bytes is known to be too long,
+        // and anything shorter is the candidate's COMPLETE content, so the
+        // substring test below is the same test as before.  (The same overflow
+        // probe bridge.ts:256 already uses.)
+        //
+        // This loop runs hubBound(ctx) = √N reads PER SITE, which is where a
+        // cumulative-dialogue query spends most of its time on a large store:
+        // 88,581 reconstructions and 20.5 MB for one 1,314-byte prompt at
+        // N=18.9M.  The cap cannot reduce that COUNT — only a semantic change
+        // to the "already answered" test could — but it bounds each read by the
+        // query instead of by the corpus, which is what §2.8 asks for and what
+        // rescues a SHORT query: at 3 bytes this reads 4 bytes per candidate
+        // instead of the ~231 it averaged before.
+        const bytes = read(ctx, answer, query.length + 1);
+        return bytes.length <= query.length && indexOf(query, bytes, 0) >= 0;
+      });
     });
   const bridgePair = async (l: number, r: number) => {
     if (l === r || links.has(l + "," + r)) return;

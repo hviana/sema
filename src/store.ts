@@ -1269,7 +1269,27 @@ export abstract class AbstractStore implements Store {
       parts.push(child);
       got += child.length;
     }
-    return concat(parts);
+    const out = concat(parts);
+    // Cache the BRANCH too, not just the leaf above.  Reconstruction is a pure
+    // function of the store, so this is a transparent cache in the strict sense
+    // — an eviction costs a re-walk and nothing else — which is exactly what
+    // `_bytesCache`'s "smallest"/"clock" configuration is for.
+    //
+    // Caching only leaves made every branch re-walk its whole subtree on every
+    // request, and the DAG is hash-consed, so the same children recur under many
+    // parents.  Measured on the 18.9M-node store, ONE 1,314-byte query:
+    // 20,021,474 `_prefix` calls over 469,083 distinct ids (42.7x reuse) to
+    // produce 87,789 results — 97.7% of the work re-derived bytes it had already
+    // built.  One single-byte leaf was reconstructed 2,599,984 times.  Measuring
+    // reuse at the TOP level only shows 1.1x and hides all of it.
+    //
+    // Only a COMPLETE reconstruction may be cached: `_prefix` is also called
+    // with a cap, and a truncated prefix stored under `id` would be served as
+    // if it were the node's whole content by the `_bytesCache` hit above.
+    // `got < maxLen` is that proof — the walk ran out of children before it ran
+    // out of budget, so nothing below was truncated either.
+    if (got < maxLen) this._bytesCache.set(id, out);
+    return out;
   }
 
   contentLen(id: NodeId, cap = Infinity): number {

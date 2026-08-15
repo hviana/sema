@@ -108,6 +108,13 @@ export type GItem =
      *  because subtraction is more "the point" of its query).  See
      *  {@link liftAnswer}. */
     computed?: boolean;
+    /** Set on the out emitted at a chain's GENUINE FIXPOINT — the one span kind a
+     *  recursive re-cover ({@link GraphSearch.recompleteNode}) may deepen.  The
+     *  re-cover does NOT run here: this marks the span as eligible, and
+     *  {@link GraphSearch.deepen} runs it afterwards on the spans the lightest
+     *  derivation actually CHOSE.  Part of {@link key}, because it decides
+     *  whether the span's final bytes may still change. */
+    fix?: boolean;
   };
 type OutItem = Extract<GItem, { kind: "out" }>;
 
@@ -153,6 +160,10 @@ export interface Seg {
   /** See the `computed` field of the "out" {@link GItem} — set only for an
    *  extension's derived value, never a genuinely recognised learned form. */
   computed?: boolean;
+  /** See the `fix` field of the "out" {@link GItem} — this span ended a chain at
+   *  a genuine fixpoint, so it is the one span kind a recursive re-cover may
+   *  still deepen.  Consumed by {@link GraphSearch.deepen}. */
+  fix?: boolean;
 }
 
 /** Read the chosen spans back off a derivation: the goal is a chain of bridge
@@ -171,6 +182,7 @@ function readCover(derivation: Derivation<GItem>): Seg[] {
         rec: out.rec,
         node: out.node,
         computed: out.computed,
+        fix: out.fix,
       });
     }
     node = node.premises[0];
@@ -472,8 +484,30 @@ export class GraphSearch {
       onDerivation(readDerivation(derivation, substitutions !== undefined));
     }
     return derivation
-      ? { segs: readCover(derivation), cost: derivation.cost }
+      ? { segs: this.deepen(readCover(derivation)), cost: derivation.cost }
       : null;
+  }
+
+  /** Re-cover the CHOSEN fixpoint spans, in place.
+   *
+   *  Completion is still "cover, recursively" — it just runs on the answer
+   *  instead of on the exploration.  A cover chooses O(segs) spans, so a level
+   *  pays O(answer) re-covers however densely the corpus interconnects the forms
+   *  the search passed through on the way.  That is the bound
+   *  {@link recompleteNode}'s contract always claimed and, running per fixpoint
+   *  REACHED, never had.
+   *
+   *  Deepening cannot change which cover won: the derivation is already final
+   *  and every span keeps its i..j and its cost.  It only replaces a chosen
+   *  span's bytes with the deeper learnt form they rewrite to — what the
+   *  recursion was always for. */
+  private deepen(segs: Seg[]): Seg[] {
+    for (const s of segs) {
+      if (!s.fix || s.node === undefined) continue;
+      const deeper = this.recompleteNode(s.node);
+      if (deeper !== null) s.bytes = deeper;
+    }
+    return segs;
   }
 
   /** The weighted deduction system the graph exploration solves (the four
@@ -541,8 +575,8 @@ export class GraphSearch {
           }`;
         }
         return `o${it.i}.${it.j}.${it.cover ? 1 : 0}.${it.rec ? 1 : 0}.${
-          it.node ?? -1
-        }.${latin1(it.bytes)}`;
+          it.fix ? 1 : 0
+        }.${it.node ?? -1}.${latin1(it.bytes)}`;
       },
       *axioms() {
         yield { item: { kind: "cover", p: 0 }, cost: 0 };
@@ -855,17 +889,29 @@ export class GraphSearch {
       // actual end, never per intermediate stop — so its cost tracks the
       // ANSWER's own structure, not how densely the corpus interconnects
       // the nodes passed through on the way there.
-      const deeper = this.recompleteNode(it.node);
+      // MARK the fixpoint; do not re-cover it here.  Re-covering at this point
+      // pays a full {@link recompleteNode} — a recognition of the node's whole
+      // bytes — for every fixpoint the exploration REACHES, and how many it
+      // reaches is set by how densely the corpus interconnects the forms passed
+      // through.  Measured on an 18.9M-node store, a 2-byte query: 12,000
+      // re-covers inside ONE cover, folding 95,258 distinct spans, ~2.4 GB and
+      // climbing to a V8 fatal.  The answer needs a handful.
+      //
+      // {@link deepen} runs it instead on the spans the lightest derivation
+      // CHOSE.  The ladder is untouched — this out still costs 0, so a genuine
+      // fixpoint still beats any premature stop at the same depth, exactly as
+      // the ordering above states.
       yield {
         premises: [it],
         conclusion: {
           kind: "out",
           i: it.i,
           j: it.j,
-          bytes: deeper ?? nodeBytes(it.node),
+          bytes: nodeBytes(it.node),
           cover: true,
           rec: true,
           node: it.node,
+          fix: true,
         },
         cost: 0,
       };
@@ -936,18 +982,45 @@ export class GraphSearch {
    *  ({@link resolve}) — the graph itself gates against re-expanding a contained
    *  form ("ice is cold" ⊅→ "ice is cold is cold").
    *
-   *  Termination is INTRINSIC, not a depth limit: a node already on the
-   *  completion stack ({@link recompleteOpen}) is not re-entered — a self-
-   *  referential recomposition is a cycle that can yield nothing new, so it
-   *  stops there, exactly as {@link completeForward} stops on a revisited edge.
-   *  Distinct node ids are finite and each finished completion is memoised, so a
-   *  legitimate chain runs as deep as the graph licenses and no further. */
+   *  Termination is STRUCTURAL: a produced node is re-covered once, never inside
+   *  another re-cover (see the guard below), so one cover pays at most one
+   *  nested {@link solve} per distinct produced node it actually reaches, and
+   *  {@link recompleteMemo} collapses a repeat to nothing.
+   *
+   *  This comment used to argue termination from "distinct node ids are finite
+   *  and each finished completion is memoised".  That is a bound of N — the one
+   *  AGENTS §2.8 forbids — and it was load-bearing, not pedantic: nested, the
+   *  recursion reached depth 331 and 9.1 GB on an 18.9M-node store for a 2-byte
+   *  query and did not terminate, which is what killed a 5 h training run at its
+   *  checkpoint recall.  Guard: test/89-completion-recursion.test.mjs. */
   private recompleteNode(node: number): Uint8Array | null {
     if (!this.host.recogniseSpan) return null;
     const memo = this.recompleteMemo;
     if (memo.has(node)) return memo.get(node) ?? null;
-    // Cycle guard: a node being completed must not recurse back into itself.
-    if (this.recompleteOpen.has(node)) return null;
+    // ONE re-cover per produced node — never a re-cover inside a re-cover.
+    //
+    // Re-covering is how a PRODUCED node's bytes enter the search at all: the
+    // cover machinery otherwise only ever sees the QUERY's spans.  That is
+    // needed once.  The alternation of decomposition and recomposition that
+    // follows — parts rewriting several times, siblings fusing, a recomposition
+    // feeding another — is the main search's own fuse/`rcmp` work, not this
+    // recursion's: 15-decomposition-gap §9–§12 all pass with this method
+    // disabled outright, and only §6 (the produced composite "p1 p2", whose
+    // bytes nothing else brings in) needs it.
+    //
+    // Nesting it was the defect.  Each level is a full {@link solve} with its
+    // own agenda and chart, exploring from a node the answer never asked about,
+    // so per-query cost tracked how densely the corpus interconnects the forms
+    // passed through — the growth AGENTS §2.8 forbids.  Measured on an
+    // 18.9M-node store: depth 331 and 9.1 GB for a 2-byte query, not
+    // terminating; and on the guard corpus every one of 125 nested re-covers
+    // was REJECTED by the resolve() gate below, expanding a 70-byte node into a
+    // 374-byte concatenation that names nothing.  All of it was waste.
+    //
+    // `recompleteOpen` is that stack, so a non-empty stack means we are already
+    // inside one.  This subsumes the old cycle guard: a node cannot recurse
+    // back into itself when nothing recurses at all.
+    if (this.recompleteOpen.size > 0) return null;
 
     // A leaf or single-child node has no parts to recompose; skip before the
     // costly recognition so a plain terminal answer pays nothing.
@@ -985,9 +1058,13 @@ export class GraphSearch {
    *  outs of a long query re-cover each distinct node at most once); reset at the
    *  top of {@link cover}. */
   private recompleteMemo = new Map<number, Uint8Array | null>();
-  /** The nodes currently being re-completed — the recursion stack.  A node in
-   *  this set is not re-entered, so a cyclic recomposition terminates naturally
-   *  (the same cycle guard {@link completeForward} uses), with no depth cap. */
+  /** The node currently being re-completed — the recursion stack, and so also
+   *  the nesting depth.  {@link recompleteNode} refuses to start while it is
+   *  non-empty (one re-cover per produced node, never one inside another), which
+   *  is what keeps a query's cost proportional to its answer rather than to the
+   *  corpus; it therefore holds at most one id.  A Set, not a flag, because it
+   *  states WHICH node is open — the invariant a reader needs to check the
+   *  guard, and what makes the old cycle-guard reading still hold. */
   private recompleteOpen = new Set<number>();
 
   /** out(i,j,bytes,…): index it for the binary rules, then offer splicing a
