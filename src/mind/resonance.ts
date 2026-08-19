@@ -445,9 +445,7 @@ export async function pivotInto(
     if (c.len > answer.length) continue;
     const bytes = read(ctx, id);
     if (indexOf(answer, bytes, 0) < 0) continue;
-    let voicedBy = false;
-    for (const v of voiced) if (indexOf(v, bytes, 0) >= 0) voicedBy = true;
-    if (voicedBy) continue;
+    if (voiced.some((v) => indexOf(v, bytes, 0) >= 0)) continue;
     pivotId = id;
     break;
   }

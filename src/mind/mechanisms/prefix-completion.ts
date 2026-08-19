@@ -251,9 +251,9 @@ export const prefixMechanism: PipelineMechanism = {
   provenance: "prefix",
   async floor(ctx, query, _pre, worthRunning) {
     // One projection: the form is voiced whole, nothing is substituted.
-    // INVESTMENT DISCIPLINE — the supplies below are the response's wide
-    // candidate list and a bounded √N walk, so neither is touched until the
-    // bound can still beat the incumbent.
+    // INVESTMENT DISCIPLINE — the supplies below are a bounded √N window walk
+    // and the response's memoised top-k resonance read, so neither is touched
+    // until the bound can still beat the incumbent.
     if (!worthRunning(STEP)) return STEP;
     // A query with no room for a perceivable continuation inside the phrase
     // cap cannot clear guard 2, so it is not worth a single read.

@@ -10,7 +10,7 @@
 // (pipeline-mechanism.ts).
 
 import type { MindContext } from "./types.js";
-import { CONCEPT, PASS, STEP } from "./graph-search.js";
+import { PASS, STEP } from "./graph-search.js";
 import type { ComputedSpan } from "../extension.js";
 import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
@@ -132,10 +132,13 @@ export interface NarrowDecisionData {
 /** Structured payload of the "regimePrediction" rationale step — the R8
  *  observation exposed as data.  After the first mechanism (cover, which §2.6
  *  runs first) grounds or abstains, the market's whole outcome is already
- *  determined by the one cost ladder: `worthRunning(CONCEPT + STEP)` is false
- *  exactly when every remaining floor prunes (retrieval), and true when the
- *  full market — the consensus climb — must run (composition).  Purely
- *  observational; never read by inference. */
+ *  determined by the one cost ladder: the consensus climb runs exactly when
+ *  `worthRunning(2 * STEP)` is true — CAST (floor 2·STEP) is the cheapest
+ *  mechanism that first-touches it, and confluence (3·STEP) / extraction
+ *  (CONCEPT+STEP) are only reached after CAST is.  An incumbent at or below
+ *  that floor prunes CAST and, with it, the climb (retrieval); anything above
+ *  — or no incumbent — runs the full market and the climb (composition).
+ *  Purely observational; never read by inference. */
 export interface RegimePredictionData {
   version: 1;
   /** retrieval | composition — the two regimes R1 measured as a ~100× cost
@@ -144,10 +147,10 @@ export interface RegimePredictionData {
   /** The incumbent's grade right after the first mechanism ran, or null when
    *  it grounded nothing (best === null — composition, with no incumbent). */
   incumbentGrade: number | null;
-  /** The market's maximum floor in grade units (⌊(CONCEPT + STEP)/STEP⌋) — the
-   *  bar no remaining mechanism can clear once the incumbent sits at or below
-   *  it. */
-  maxFloorGrade: number;
+  /** The cheapest composition floor in grade units (`grade(2 * STEP)` = 2,
+   *  CAST's floor) — the bar the incumbent must sit at or below for the
+   *  consensus climb to be skipped. */
+  climbFloorGrade: number;
 }
 
 /** Think: a single lightest-derivation exploration of the Sema graph.
@@ -345,16 +348,19 @@ export async function think(
       });
     }
     // REGIME PREDICTION (R8) — observational only.  After the FIRST mechanism
-    // runs (cover, which §2.6 places first and floors at 0), the market's whole
-    // outcome is already determined: if the most expensive remaining floor
-    // (CONCEPT + STEP) can no longer beat the incumbent, every mechanism prunes
-    // and the climb never runs (retrieval); otherwise the full market and the
-    // consensus climb run (composition).  The predicate is `worthRunning`, the
-    // same function the loop just used — nothing is computed here that the
-    // engine had not already computed, and nothing is read back by inference.
+    // runs (cover, which §2.6 places first and floors at 0), the market's
+    // outcome is already determined: the consensus climb runs exactly when
+    // `worthRunning(2 * STEP)` is true — CAST (floor 2·STEP) is the cheapest
+    // mechanism that first-touches it, so an incumbent at or below grade 2
+    // prunes CAST and, with it, confluence (3·STEP) and extraction
+    // (CONCEPT+STEP) (retrieval); anything above — or no incumbent — runs the
+    // full market and the climb (composition).  The predicate is
+    // `worthRunning`, the same function the loop just used — nothing is
+    // computed here that the engine had not already computed, and nothing is
+    // read back by inference.
     if (!regimeReported) {
       regimeReported = true;
-      const maxFloorGrade = grade(CONCEPT + STEP);
+      const climbFloorGrade = grade(2 * STEP);
       // TS narrows `best` to null in the outer flow (it cannot see the closure
       // assignments in `consider`) — cast back, the same read-back as `decided`
       // below.
@@ -362,7 +368,7 @@ export async function think(
       const incumbentGrade = incumbent === null
         ? null
         : grade(incumbent.weight);
-      const regime: "retrieval" | "composition" = worthRunning(CONCEPT + STEP)
+      const regime: "retrieval" | "composition" = worthRunning(2 * STEP)
         ? "composition"
         : "retrieval";
       ctx.trace?.step(
@@ -370,19 +376,19 @@ export async function think(
         [rItem(query, "query")],
         [],
         regime === "retrieval"
-          ? `retrieval regime — incumbent grade ${incumbentGrade} ≤ max floor ${maxFloorGrade}, so every remaining mechanism prunes; ` +
+          ? `retrieval regime — incumbent grade ${incumbentGrade} ≤ climb floor ${climbFloorGrade}, so no composition mechanism runs; ` +
             `the consensus climb will not run`
           : `composition regime — ${
             incumbentGrade === null
               ? "no incumbent (nothing grounded)"
               : `incumbent grade ${incumbentGrade}`
-          } above max floor ${maxFloorGrade}, so the full market and climb run`,
+          } above climb floor ${climbFloorGrade}, so the full market and climb run`,
         undefined,
         {
           version: 1,
           regime,
           incumbentGrade,
-          maxFloorGrade,
+          climbFloorGrade,
         } satisfies RegimePredictionData,
       );
     }
