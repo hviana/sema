@@ -32,7 +32,7 @@
  *  PHASES NEST, AND ARE NOT DISJOINT.  `think` contains every mechanism
  *  phase; a mechanism's `floor` contains whatever shared analysis it
  *  first-touched (`attention`, `weave`); `recall.run` contains
- *  `substitutionBridge`, which contains `recall.exhaustiveResonate`.  Read a
+ *  `substitutionBridge`.  Read a
  *  phase as "wall-clock spent inside this, inclusive" — never sum them and
  *  expect the total.  `CostReport.elapsedMs` is the only whole.
  *

@@ -463,10 +463,13 @@ cached **by promise**, so a second caller awaits the first computation rather
 than starting another.
 
 Mind-level memos (`climbMemo`, `recogniseMemo`, `perceiveMemo`, `canonMemo`,
-`_resolvedSubtrees`, `_edgeChoice`, `_gistCache`) are created in
-`beginResponse()` and torn down in `endResponse()` — a new memo must be added to
-both. A conversation supplies its own maps for the first four, so they persist
-across turns.
+`_resolvedSubtrees`) are assigned in `beginResponse()` and nulled in
+`endResponse()` — a new per-response memo must be added to both. A conversation
+supplies its own maps for the first four, so they persist across turns.
+`_edgeChoice` is a Mind field CLEARED in `endResponse()` (not re-created).
+`_gistCache` is a SESSION-lifetime Mind field (32 MB, `mind.ts`) never touched
+by begin/endResponse: a node's bytes are immutable and perception is pure, so a
+cached gist is valid for the store's lifetime.
 
 **Which memos a trace bypasses, and why the answer is "almost none".** Only
 `_edgeChoice` (via `guidedNext`) and `sharedReachMemo` are trace-bypassed —
@@ -545,9 +548,9 @@ answer was chosen, the meter says what it cost. Four contracts:
    so two runs are diffable and a work regression is visible without a
    stopwatch. Only `elapsedMs` and the phase millisecond totals are not.
 3. **Phases nest, and carry their own counter deltas.** `think` ⊃ `<mech>.run` ⊃
-   `substitutionBridge` ⊃ `recall.exhaustiveResonate`. Inclusive, never summed —
-   but each phase reports the work done inside it (`PhaseCost.counters`), which
-   is what makes "which phase did those byte reads?" answerable at all.
+   `substitutionBridge`. Inclusive, never summed — but each phase reports the
+   work done inside it (`PhaseCost.counters`), which is what makes "which phase
+   did those byte reads?" answerable at all.
 4. **Count a logical operation once.** A recursive read (`bytesPrefix`
    descending a branch) is charged at the public entry point only — the private
    `_prefix` body is uncharged. Counting the recursion made one read of an
