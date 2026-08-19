@@ -608,6 +608,30 @@ corruption via phrase-interior chunks) and the `couldGrow` liveness rule (O(N²)
 chart growth). When you fix a subtle bug, leave the constraint behind, not the
 story of the fix.
 
+### 2.17 Saturation — every walk decides, none drifts
+
+Saturation is a first-class control, not a secondary nicety. Each part of the
+mind is governed by its OWN saturation: the climb's cone (five named stops), the
+junction walk's `√N·W` budget, the alignment family's cell count. A bounded read
+(§2.8) caps ONE read at √N; saturation is the stronger discipline a walk must
+ALSO hold — a named, derived stop that decides the walk's question
+("discriminative or common") and terminates the moment the answer is decided.
+The two are not the same: a walk can keep every read under √N and still drift
+across the corpus, re-deriving work the answer no longer needs.
+
+`edgeAncestors` is the model (EXPAND-UNTIL-DECIDED): a reach is consumed either
+as a VOTE (needs `contextsReached` exactly, only while ≤ √N) or as an ABSTENTION
+(`saturated`), so it stops at the FIRST of its five named stops and no consumer
+reads a saturated reach's roots or counts. Saturation is a DECISION about the
+answer — never a cache, never a budget.
+
+_Follow it:_ when a new walk measures commonality against the corpus, name its
+saturation condition — the answer it may stop producing — beside its read cap.
+No code may traverse the inference uncontrolled from the corpus, nor lack the
+saturation its question admits. A cap without a saturation is a drift, and a
+drifting walk is a bug, not a tuning choice; do not mask it with a cache (§2.12)
+— a cache hides a drift on a warm store, saturation removes it.
+
 ---
 
 ## 3. Where things live

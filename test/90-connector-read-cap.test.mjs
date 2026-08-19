@@ -13,10 +13,14 @@
 // a large store."  This probe was the exception, and it runs hubBound(ctx) = √N
 // times PER SITE.
 //
-// MEASURED on the trained store (18,938,834 nodes, hubBound 893), one 1,314-byte
-// cumulative-dialogue prompt: 88,581 byte reconstructions ≈ sites × 893,
-// 3,655,800 node reads, 20.5 MB — and `cover.resolveConnectors` was 10,072 ms of
-// the 10,592 ms query (95%).  Reads were 86.2% distinct, so no cache helps.
+// The probe's corpus-scale cost was once claimed from a trained-store
+// measurement — "88,581 byte reconstructions / 20.5 MB for one 1,314-byte
+// prompt" — but that number was measured on a `respond()` query, where the
+// probe does NOT execute (`answeredSpans` is empty there, so the enclosing
+// guard returns first).  It is therefore not attributable to the probe and is
+// not repeated here (§2.16: a comment asserting a measurement inherits Gate 1).
+// The probe runs only on a multi-turn `respondTurn` response; its benefit there
+// is still unmeasured.
 //
 // WHAT THIS PINS.  The cap cannot reduce the read COUNT — only a semantic change
 // could (see below).  It bounds each read by the QUERY, which is what §2.8 asks

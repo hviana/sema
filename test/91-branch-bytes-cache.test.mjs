@@ -25,15 +25,24 @@
 //
 // WHAT THIS FILE ACTUALLY GUARDS — read this before trusting it.
 //
-// The re-walk assertion below does NOT discriminate: it passes with the branch
-// caching removed.  A node record can carry `flat` bytes, and loading it
-// populates `_bytesCache` (store.ts, `get`), so in a small store the second
-// request hits at the root and never descends — with or without the fix.  That
-// holds even against a file store closed and reopened for cold caches.  The
-// trained store's nodes evidently lack `flat` (hence 20M descents there), so
-// reproducing the re-walk at test scale needs a node past whatever size drops
-// `flat`, which is not yet pinned down.  It is kept as a regression floor, not
-// presented as proof.
+// The re-walk assertion routes through `_prefix` (a CAPPED read), because that
+// is where the fix lives.  `bytesPrefix(id, ALL)` short-circuits to `bytes()`
+// (store.ts `bytesPrefix`: `maxLen >= 0x7fffffff → this.bytes(id)`), and
+// `bytes()` has its OWN, pre-existing branch cache — so a re-walk assertion
+// built on the ALL sentinel stays green when the `_prefix` fix is reverted and
+// guards nothing (this file once did exactly that, and its header claimed the
+// cause was "the node carries `flat` bytes", which is false: `flat` is
+// STRUCTURAL — a branch stores its bytes flat iff every kid is an implicit
+// single-byte leaf (store.ts `flatKidsBytes`) — and the fixture's node is
+// non-flat, kids of real chunk nodes.  There is no size threshold that drops
+// `flat`).
+//
+// With the fix, a capped read that completes the node caches the BRANCH
+// (`got < maxLen` guard), so a second capped read is a full-cache hit and costs
+// 0 node reads; with the fix reverted it re-reads the root (1 node read) because
+// only the LEAVES are cached.  The signal is small at fixture scale precisely
+// because the fixture's tree is shallow (root → flat chunks → leaves); the real
+// 5.4–7.7× nodeRecords reduction is verified on the trained store instead.
 //
 // The TRUNCATION assertion at the end IS a real guard, verified red: with the
 // `got < maxLen` condition removed, it fails with "a capped read poisoned the
@@ -75,10 +84,18 @@ test("a branch's bytes are reconstructed once, not re-walked", async () => {
   assert.ok(id !== null, "the deposited form resolves to a stored node");
   assert.ok(tree.kids && tree.kids.length > 1, "and it has interior structure");
 
+  // Route through `_prefix`, not `bytes()`: the ALL sentinel short-circuits to
+  // `bytes()`, whose branch cache is pre-existing and would keep the assertion
+  // green even with the `_prefix` fix reverted.  A capped read past the node's
+  // full length completes the walk (so the branch gets cached, `got < maxLen`)
+  // while staying off the ALL fast path.  `contentLen` warms `_recCache`/`_lenCache`
+  // only, never `_bytesCache`, so the first read below starts cold.
+  const fullLen = store.contentLen(id);
   store.meter = new Meter();
+  const capped = fullLen + 1;
 
   // FIRST reconstruction — this one legitimately walks the subtree.
-  const first = store.bytesPrefix(id, ALL);
+  const first = store.bytesPrefix(id, capped);
   const walked = store.meter.nodeRecords;
   assert.ok(
     first.length > 0,
@@ -94,7 +111,7 @@ test("a branch's bytes are reconstructed once, not re-walked", async () => {
 
   // SECOND reconstruction of the SAME node — must be free.
   const before = store.meter.nodeRecords;
-  const second = store.bytesPrefix(id, ALL);
+  const second = store.bytesPrefix(id, capped);
   const again = store.meter.nodeRecords - before;
 
   console.log(

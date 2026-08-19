@@ -33,7 +33,16 @@ import type { Leaf, Site } from "./graph-search.js";
  *     query's own cut cannot, and records sub-leaf boundaries as `splits`.
  *
  *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus. */
-export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
+/** Decompose `bytes` into the learnt forms it contains.  `trimmed` skips the
+ *  edge-trim fallbacks (which recover misaligned FRAGMENTS) — for callers whose
+ *  own gate rejects fragments anyway (the pivot), so the O(n·W²) trim search is
+ *  paid only where its output can be used.  Byte-identical for every caller
+ *  that keeps only top-level forms. */
+export function recognise(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  trimmed = false,
+): Recognition {
   // Content-keyed memo — works for both single-turn respond() and multi-turn
   // respondTurn() (where the map persists across calls).  ALWAYS consulted,
   // regardless of tracing — matching perceive()'s own memo, which carries no
@@ -73,7 +82,7 @@ export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
   // not silent), so it is emitted here directly rather than only inside
   // recogniseImpl.
   if (ctx.recogniseMemo) {
-    const key = latin1Key(bytes);
+    const key = (trimmed ? "t" : "f") + latin1Key(bytes);
     const hit = ctx.recogniseMemo.get(key);
     if (hit !== undefined) {
       if (ctx.meter) ctx.meter.recogniseHits++;
@@ -91,14 +100,18 @@ export function recognise(ctx: MindContext, bytes: Uint8Array): Recognition {
       );
       return hit;
     }
-    const fresh = recogniseImpl(ctx, bytes);
+    const fresh = recogniseImpl(ctx, bytes, trimmed);
     ctx.recogniseMemo.set(key, fresh);
     return fresh;
   }
-  return recogniseImpl(ctx, bytes);
+  return recogniseImpl(ctx, bytes, trimmed);
 }
 
-function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
+function recogniseImpl(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  trimmed = false,
+): Recognition {
   if (ctx.meter) {
     ctx.meter.recognitions++;
     ctx.meter.recognisedBytes += bytes.length;
@@ -211,7 +224,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       // n.kids !== null enforces above) rather than degenerate into
       // single-byte-atom territory, which atomIsHub already governs
       // separately.
-      else if (end - start - 1 >= 2) {
+      else if (!trimmed && end - start - 1 >= 2) {
         // The chunk's own boundary is drawn by content geometry, not by
         // any notion of "form" — it can include one edge byte the query's
         // fold happened to attach here that the trained span never had

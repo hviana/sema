@@ -59,7 +59,9 @@ export async function resolveConnectors(
   // transcript evidence: cover still needs the site for structural context,
   // but liftAnswer will trim that continuation as already answered. Building
   // pairwise/n-ary bridges for it can only create connectors that are later
-  // discarded, and on cumulative dialogue that dominated the whole search.
+  // discarded — a semantically neutral gate (it removes work whose product
+  // liftAnswer throws away), and a cumulative (multi-turn) query is exactly
+  // where such already-answered continuations recur.
   let answered = 0;
   const ordered = [...sites]
     .sort((a, b) => a.start - b.start)
@@ -82,14 +84,13 @@ export async function resolveConnectors(
         // substring test below is the same test as before.  (The same overflow
         // probe bridge.ts:256 already uses.)
         //
-        // This loop runs hubBound(ctx) = √N reads PER SITE, which is where a
-        // cumulative-dialogue query spends most of its time on a large store:
-        // 88,581 reconstructions and 20.5 MB for one 1,314-byte prompt at
-        // N=18.9M.  The cap cannot reduce that COUNT — only a semantic change
-        // to the "already answered" test could — but it bounds each read by the
-        // query instead of by the corpus, which is what §2.8 asks for and what
-        // rescues a SHORT query: at 3 bytes this reads 4 bytes per candidate
-        // instead of the ~231 it averaged before.
+        // This loop runs up to hubBound(ctx) = √N reads PER SITE, and only on a
+        // multi-turn response — `answeredSpans` is empty for a plain respond(),
+        // so the probe does not execute there.  The cap cannot reduce the read
+        // COUNT — only a semantic change to the "already answered" test could —
+        // but it bounds each read by the query instead of by the corpus, which
+        // is what §2.8 asks for and what rescues a SHORT query: at 3 bytes this
+        // reads 4 bytes per candidate instead of the ~231 it averaged before.
         const bytes = read(ctx, answer, query.length + 1);
         return bytes.length <= query.length && indexOf(query, bytes, 0) >= 0;
       });

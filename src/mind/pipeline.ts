@@ -10,7 +10,7 @@
 // (pipeline-mechanism.ts).
 
 import type { MindContext } from "./types.js";
-import { PASS, STEP } from "./graph-search.js";
+import { CONCEPT, PASS, STEP } from "./graph-search.js";
 import type { ComputedSpan } from "../extension.js";
 import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
@@ -129,6 +129,27 @@ export interface NarrowDecisionData {
   margin: number;
 }
 
+/** Structured payload of the "regimePrediction" rationale step — the R8
+ *  observation exposed as data.  After the first mechanism (cover, which §2.6
+ *  runs first) grounds or abstains, the market's whole outcome is already
+ *  determined by the one cost ladder: `worthRunning(CONCEPT + STEP)` is false
+ *  exactly when every remaining floor prunes (retrieval), and true when the
+ *  full market — the consensus climb — must run (composition).  Purely
+ *  observational; never read by inference. */
+export interface RegimePredictionData {
+  version: 1;
+  /** retrieval | composition — the two regimes R1 measured as a ~100× cost
+   *  step. */
+  regime: "retrieval" | "composition";
+  /** The incumbent's grade right after the first mechanism ran, or null when
+   *  it grounded nothing (best === null — composition, with no incumbent). */
+  incumbentGrade: number | null;
+  /** The market's maximum floor in grade units (⌊(CONCEPT + STEP)/STEP⌋) — the
+   *  bar no remaining mechanism can clear once the incumbent sits at or below
+   *  it. */
+  maxFloorGrade: number;
+}
+
 /** Think: a single lightest-derivation exploration of the Sema graph.
  *
  *  Every answer travels the same path:
@@ -161,10 +182,22 @@ export async function think(
 
   // ── Pre-computation ──────────────────────────────────────────────────
   const mechanisms = mechs ?? defaultMechanisms;
-  const rec = recognise(ctx, query);
+  const meter = ctx.meter;
+  // recognition is a shared analysis (§2.14 contract 5): it does the query's
+  // own store work (perceive → foldTree → resolve), which used to land in
+  // `think` and in nothing narrower — the meter's one accounting surface must
+  // charge it to itself, exactly as attention/weave/resonance are charged.
+  const rec = meter
+    ? await meter.time("recognise", async () => recognise(ctx, query))
+    : recognise(ctx, query);
 
   // Phase 1: collect computed spans from mechanisms that implement parse()
-  const computed = await collectComputed(ctx, mechanisms, query);
+  const computed = meter
+    ? await meter.time(
+      "collectComputed",
+      () => collectComputed(ctx, mechanisms, query),
+    )
+    : await collectComputed(ctx, mechanisms, query);
 
   if (computed.length > 0) {
     ctx.trace?.step(
@@ -191,6 +224,9 @@ export async function think(
   // method on Precomputed, first-touched by whichever mechanism's floor
   // survives its cheap gates and the worthRunning check.  A query no
   // mechanism climbs for (e.g. one an extension decided) never climbs.
+  // NOT phased: the constructor itself is trivial (it only derives `k`), so a
+  // phase here would add a zero-work entry to every profiled report — the meter
+  // attributes WORK (§2.14); the trace already represents structure.
   const pre = new Precomputed(ctx, query, rec, computed, ctx._edgeGuide);
 
   // ── Grounding: ONE lightest-derivation choice among the mechanisms ────
@@ -259,7 +295,7 @@ export async function think(
   // Per-mechanism accounting (src/meter.ts).  The market's whole premise is
   // that mechanisms compete on one cost scale — so the profiling read-out is
   // also per-mechanism, uniformly: the loop never asks which one it holds.
-  const meter = ctx.meter;
+  let regimeReported = false;
   for (const mech of mechanisms) {
     const floor = meter
       ? await meter.time(
@@ -307,6 +343,48 @@ export async function think(
         complete: r.complete,
         scaffolding: r.scaffolding,
       });
+    }
+    // REGIME PREDICTION (R8) — observational only.  After the FIRST mechanism
+    // runs (cover, which §2.6 places first and floors at 0), the market's whole
+    // outcome is already determined: if the most expensive remaining floor
+    // (CONCEPT + STEP) can no longer beat the incumbent, every mechanism prunes
+    // and the climb never runs (retrieval); otherwise the full market and the
+    // consensus climb run (composition).  The predicate is `worthRunning`, the
+    // same function the loop just used — nothing is computed here that the
+    // engine had not already computed, and nothing is read back by inference.
+    if (!regimeReported) {
+      regimeReported = true;
+      const maxFloorGrade = grade(CONCEPT + STEP);
+      // TS narrows `best` to null in the outer flow (it cannot see the closure
+      // assignments in `consider`) — cast back, the same read-back as `decided`
+      // below.
+      const incumbent = best as Candidate | null;
+      const incumbentGrade = incumbent === null
+        ? null
+        : grade(incumbent.weight);
+      const regime: "retrieval" | "composition" = worthRunning(CONCEPT + STEP)
+        ? "composition"
+        : "retrieval";
+      ctx.trace?.step(
+        "regimePrediction",
+        [rItem(query, "query")],
+        [],
+        regime === "retrieval"
+          ? `retrieval regime — incumbent grade ${incumbentGrade} ≤ max floor ${maxFloorGrade}, so every remaining mechanism prunes; ` +
+            `the consensus climb will not run`
+          : `composition regime — ${
+            incumbentGrade === null
+              ? "no incumbent (nothing grounded)"
+              : `incumbent grade ${incumbentGrade}`
+          } above max floor ${maxFloorGrade}, so the full market and climb run`,
+        undefined,
+        {
+          version: 1,
+          regime,
+          incumbentGrade,
+          maxFloorGrade,
+        } satisfies RegimePredictionData,
+      );
     }
   }
 

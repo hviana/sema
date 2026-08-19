@@ -365,7 +365,13 @@ export async function pivotInto(
     }
     for (const c of n.kids) queue.push(c); // breadth-first: larger regions first
   }
-  const rec = recognise(ctx, answer);
+  // TRIMMED recognition: the pivot's own filter below rejects fragments
+  // (`hasParents || hasContainers → -Infinity`), and recognition's edge-trim
+  // fallbacks exist to find exactly those misaligned FRAGMENTS.  Skipping them
+  // (the structural pass + canonResolve still run) is byte-identical for every
+  // pivot — the fallbacks' output is discarded by the filter — and halves the
+  // O(n·W²) recognition of a long answer (measured: 36KB recognise 4.0s → 2.0s).
+  const rec = recognise(ctx, answer, true);
   for (const s of rec.sites) {
     if (!consumed.has(s.payload) && ctx.store.hasNext(s.payload)) {
       scored.set(s.payload, Math.max(scored.get(s.payload) ?? 0, 1));
@@ -410,6 +416,18 @@ export async function pivotInto(
       // a span that was never a fact on its own is not one to step through.
       // No constant enters — it is a structural predicate, not a threshold.
       if (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) {
+        return -Infinity;
+      }
+      // A candidate whose bytes are LONGER than the answer cannot be a
+      // substring of it — `indexOf` would return −1 regardless.  Prune by
+      // length BEFORE reconstructing the bytes: `read` is an UNCAPPED read
+      // (AGENTS §2.8), and a resonated context far longer than the answer is
+      // exactly the candidate that makes it cost a whole deposit's worth of
+      // reconstruction for a containment test that must fail.  `contentLen`
+      // with the `answer.length + 1` cap is the prefix-capped length read the
+      // same contract prescribes; the prune is byte-identical to the old
+      // `indexOf` miss (it returns −1 for a needle longer than the haystack).
+      if (ctx.store.contentLen(id, answer.length + 1) > answer.length) {
         return -Infinity;
       }
       const bytes = read(ctx, id);

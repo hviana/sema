@@ -198,9 +198,6 @@ export class Meter {
   mechanismRuns = 0;
   /** Candidates the decider weighed. */
   candidates = 0;
-  /** Candidates refused before the competition for explaining less than 1/W
-   *  of the query — the honesty-density floor (see pipeline.ts `consider`). */
-  thinRejects = 0;
 
   // ── Phases ──────────────────────────────────────────────────────────────
 
