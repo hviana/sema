@@ -19,7 +19,7 @@ import type { ComputedSpan } from "../extension.js";
 import type { Hit } from "../store.js";
 import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
-import { conceptThreshold, dominates } from "../geometry.js";
+import { dominates } from "../geometry.js";
 import { windowIds } from "./canonical.js";
 import { read, resolve } from "./primitives.js";
 import {
@@ -30,7 +30,7 @@ import {
   skillExemplar,
 } from "./match.js";
 import { climbAttentionAll } from "./attention.js";
-import { hubBound, sharedReachMemo } from "./traverse.js";
+import { sharedReachMemo } from "./traverse.js";
 
 // ── Precomputed ──────────────────────────────────────────────────────────────
 //
@@ -148,46 +148,17 @@ export class Precomputed {
     );
   }
 
-  private _wide?: Promise<ReadonlyArray<number>>;
-  /** The response's WIDE candidate list — the top-k when the query's gist has
-   *  no concept-level match anywhere, and an exhaustive √N read when it does.
-   *
-   *  Every mechanism that has to look PAST the top-k reads this one list: the
-   *  substitution bridge, prefix completion and the frame filler all did, and
-   *  it was memoised inside recall for exactly that reason (measured: 490 ms
-   *  median re-issued against 13 ms non-exhaustive, 36x).  A memo inside one
-   *  mechanism only serves that mechanism's own tiers, so it lives here now —
-   *  the same move `resonance` made for the top-k.
-   *
-   *  THE CONDITION IS THE TOP HIT'S SCORE, NOT THE CORPUS SIZE.  When nothing
-   *  ranks at concept level, an exhaustive ANN only scores more vectors below
-   *  the bar (profiled at 38K–40K annVectorReads per refusing query on a 325K-
-   *  context store); the structural channels — junction walks, anchor climbs,
-   *  the write side's window index — are the correct proposal source there,
-   *  because the ANN cannot propose what the gist cannot rank.  This was once
-   *  spelled `corpusN(ctx) <= (k · W)³`, which asks a different question and
-   *  answers it wrongly at exactly the scale it was written from: at N =
-   *  325,608 with k = 24 and W = 4 the cube is 884,736, so that store took the
-   *  exhaustive branch — the very branch measured above.  Measured cost of the
-   *  mismatch: substitutionBridge 8,544 ms of a 19,548 ms think (44%), against
-   *  1,248 ms and 14,218 ms without it, every answer byte-identical. */
-  wideResonance(): Promise<ReadonlyArray<number>> {
-    return this._wide ??= this.shared("wideResonance", async () => {
-      const hits = await this.resonance();
-      if (
-        hits.length > 0 &&
-        hits[0].score >= conceptThreshold(this.ctx.store.D)
-      ) {
-        const exhaustive = await this.ctx.store.resonate(
-          this.guide,
-          hubBound(this.ctx),
-          true,
-        );
-        return exhaustive.map((h) => h.id);
-      }
-      return hits.map((h) => h.id);
-    });
-  }
+  // REMOVED — the WIDE exhaustive-√N resonance list (`wideResonance`).  It ran
+  // `resonate(guide, √N, exhaustive=true)` whenever the top hit cleared
+  // conceptThreshold, so consumers could look "past the top-k".  Every consumer
+  // only ever needed ≤ 2·recallQueryK proposals (the substitution bridge's own
+  // candidate cap) or a content-addressed answer (prefix completion's
+  // formsOpenedBy), and every proposal is byte-verified downstream (§2.3), so
+  // the exhaustive scan bought recall at O(index) cost for an O(k) need —
+  // measured: 244K annVectorReads per refusing query, ~1.5 s, every answer
+  // byte-identical to a top-k read.  The two consumers now read `resonance()`
+  // (the one top-k read) and the write side's window index respectively — see
+  // recall.ts and prefix-completion.ts.
 
   private _frames?: Promise<ReadonlyArray<FrameInstance>>;
   /** THE FRAME INVENTORY — every ranked candidate that reads as an instance of

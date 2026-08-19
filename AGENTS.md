@@ -455,8 +455,7 @@ Asking never writes, which is the only reason per-response memos are sound.
 eager fields (recognition, computed spans, guide, the evidence-breadth constant
 `k`) plus **lazily-cached methods** for expensive analyses (`attention()` — the
 consensus climb, `weave()`, `resonance()` — the response's ONE top-k
-content-index read, `wideResonance()` — the one WIDE candidate list every
-past-the-top-k mechanism reads, `frames()` — the frame/slot inventory,
+content-index read, `frames()` — the frame/slot inventory,
 `spanShapedOf`/`spanShapedAll`, `queryWindows`, `queryResolved`, `windowsOf`,
 `reachMemo`) — each computed at most once, shared by mechanisms and
 post-grounding stages, and never computed if nobody asks. The async ones are

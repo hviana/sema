@@ -264,14 +264,16 @@ export const prefixMechanism: PipelineMechanism = {
     return STEP;
   },
   async run(ctx, query, pre) {
-    // The response's shared wide list first; only when it supplies nothing does
-    // the write side's window index propose.  That ordering is the whole cost
-    // story: a query the ranked list can already explain pays not one extra
-    // read, and the bounded walk is spent only where the alternative is an
-    // empty answer.  A second SUPPLY, not a second mechanism — the same three
-    // guards decide either way.
-    const completed = prefixCompletion(ctx, query, await pre.wideResonance()) ??
-      prefixCompletion(ctx, query, formsOpenedBy(ctx, query));
+    // The write side's window index proposes FIRST: a proper prefix's gist
+    // cannot rank its own continuation (cos falls below reachThreshold at a
+    // few bytes of truncation), so the content-addressed window walk is the
+    // correct measure for this question (§2.3), and it is a bounded √N walk —
+    // cheaper than an exhaustive ANN.  The top-k resonance list is the SECOND
+    // supply, for prefixes long enough that the gist still ranks the form.  A
+    // second SUPPLY, not a second mechanism — the same three guards decide
+    // either way.
+    const completed = prefixCompletion(ctx, query, formsOpenedBy(ctx, query)) ??
+      prefixCompletion(ctx, query, (await pre.resonance()).map((h) => h.id));
     if (completed === null) return [];
     return [{
       bytes: completed.form,

@@ -412,10 +412,14 @@ export async function recallByResonance(
     }
   }
   // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts).
-  // The WIDE candidate list every past-the-top-k mechanism reads lives on
-  // Precomputed (see wideResonance): shared across the whole response, so the
-  // exhaustive branch runs at most once whoever first-touches it.
-  const wideIds = () => pre.wideResonance();
+  // The bridge's proposal source is the response's ONE top-k read — the same
+  // list recall already ranked above — never an exhaustive √N scan.  The
+  // bridge's own candidate cap is 2·recallQueryK, so top-k proposals are
+  // exactly the budget it can consume, and every proposal is byte-verified
+  // downstream (§2.3).  Reuse the memoised `resonance()`; scanning every IVF
+  // cluster here once made every honest refusal cost hundreds of ms regardless
+  // of k.
+  const wideIds = async () => (await pre.resonance()).map((h) => h.id);
 
   // Every gist-based tier has failed; before refusing, align the query
   // byte-for-byte against the trained contexts its own stored windows
