@@ -207,6 +207,19 @@ function cachedContainers(
  *     edgeAncestors' question and wrong for this one: a junction container
  *     is legitimately reached across many containing structures.  Half the
  *     successful junctions would be lost.
+ *
+ *     REFUTED EARLY-STOP (side-cone exhaustion, §2.17's "real saturation"):
+ *     stopping the walk the moment ONE side's upward cone is emptied is wrong,
+ *     in both a hub-guarded form and a hub-flagged form.  The junction test is
+ *     a BYTE containment over the UNION of the two cones, and a junction can be
+ *     structurally reachable from only ONE side — the side whose seed is a
+ *     FOLD sub-node of the container (test/16: "cold or hot" is reached from
+ *     the window "cold", but the 3-byte answer "hot" is not a 4-byte window of
+ *     it, so "hot"'s cone is empty while the junction still lies ahead in
+ *     "cold"'s cone; test/34's n-ary binding fails the hub-guarded form the
+ *     same way).  "One cone exhausted" therefore never proves "no junction
+ *     left", and the walk must keep the √N·W budget as its NET after the
+ *     per-node saturations below.
  *   • per-node hub guards — parent fan-outs beyond √N are hubs (not
  *     expanded); each node contributes at most one √N page of containers;
  *     √N collected candidates decide. */

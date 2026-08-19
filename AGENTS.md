@@ -610,20 +610,38 @@ story of the fix.
 
 ### 2.17 Saturation — every walk decides, none drifts
 
-Saturation is a first-class control, not a secondary nicety. Each part of the
-mind is governed by its OWN saturation: the climb's cone (five named stops), the
-junction walk's `√N·W` budget, the alignment family's cell count. A bounded read
-(§2.8) caps ONE read at √N; saturation is the stronger discipline a walk must
-ALSO hold — a named, derived stop that decides the walk's question
-("discriminative or common") and terminates the moment the answer is decided.
-The two are not the same: a walk can keep every read under √N and still drift
-across the corpus, re-deriving work the answer no longer needs.
+Saturation is a first-class control, not a secondary nicety — and it is TWO
+things, distinguished deliberately:
+
+- a CAP — a derived bound (√N per read, √N·W per walk) that exists only to stop
+  magic constants (§2.2) — is a SAFETY NET. It bounds the walk when its question
+  never decides (a side too common to ever settle). Derived, never tuned; but it
+  is not itself a decision.
+- a REAL saturation — a named, derived stop that DECIDES the walk's question and
+  terminates the moment it is decided. The cap remains as the backstop; the
+  saturation ends the walk. A walk with only a cap drifts to the cap every time;
+  a walk with a real saturation stops where the answer is already known.
 
 `edgeAncestors` is the model (EXPAND-UNTIL-DECIDED): a reach is consumed either
 as a VOTE (needs `contextsReached` exactly, only while ≤ √N) or as an ABSTENTION
 (`saturated`), so it stops at the FIRST of its five named stops and no consumer
-reads a saturated reach's roots or counts. Saturation is a DECISION about the
-answer — never a cache, never a budget.
+reads a saturated reach's roots or counts. `pivotInto`'s candidate scan is the
+second: "longest valid wins" is DECIDED at the first valid candidate in
+descending length, so it reads one winner's bytes, never every shorter
+candidate. Saturation is a DECISION about the answer — never a cache, never a
+budget.
+
+The junction walk's per-node hub guards are real per-node saturations; its
+`√N·W` budget is the NET, not a saturation. REFUTED (test/16 bridge synthesis,
+test/34 n-ary binding): a "stop once one side's cone is exhausted" early stop is
+WRONG, in both a hub-guarded and a hub-flagged form. The junction test is a BYTE
+containment over the UNION of the two cones, and a junction can be structurally
+reachable from only ONE side — the side whose seed is a FOLD sub-node of the
+container. test/16: "cold or hot" is reached from the window "cold", but the
+3-byte answer "hot" is not a 4-byte window of it, so "hot"'s cone empties after
+one pop while the junction still lies ahead in "cold"'s cone. "One cone
+exhausted" therefore never proves "no junction left", and the budget stays the
+net that backs the per-node saturations.
 
 _Follow it:_ when a new walk measures commonality against the corpus, name its
 saturation condition — the answer it may stop producing — beside its read cap.

@@ -12,7 +12,7 @@ import { concat2, concatBytes, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { gistOf, read, resolve, walkTree } from "./primitives.js";
 import { perceive } from "./primitives.js";
-import { argmaxBy, argmaxCosine, candidateGist, hubBound } from "./traverse.js";
+import { argmaxCosine, candidateGist, hubBound } from "./traverse.js";
 import {
   cachedRead,
   type Junction,
@@ -379,66 +379,79 @@ export async function pivotInto(
   }
   // Byte containment, longest wins — the answer literally contains the
   // pivot's bytes, and the biggest well-evidenced span is the real pivot.
-  const found = argmaxBy(
-    scored.keys(),
-    (id) => {
-      // A PIVOT MUST BE A THING THE CORPUS DEPOSITED, NOT A PIECE OF ONE.
-      // "Longest wins" ranks candidates but never asks whether the winner is
-      // an entity at all, and by the time a chain reaches here `consumeAll`
-      // has taken the answer's real contexts — so on a corpus of
-      // near-identical records the field is left to whatever interned
-      // fragments remain.  Measured on a 200-line templated log corpus, query
-      // "what happened to request_id=1042 and request_id=1077?": CAST
-      // produced the correct comparison and one `pivotStep` replaced it
-      // wholesale, pivoting through `s=70` — a four-byte tail of
-      // `latency_ms=70` — onto an unrelated record (`handled 1130`).
-      //
-      // The separator is NOT length.  Measured against the multi-hop tests'
-      // own pivots: `Paris` (5 bytes), `Jupiter` (7), `lithium` (7), `Mona
-      // Lisa` (9) against junk `s=70` (4) — a two-quantum floor, which
-      // confluence.ts applies to a meet for the same "one window is not an
-      // entity" reason, discards three of the four legitimate pivots.
-      // Entities are simply short.
-      //
-      // What separates them is STRUCTURAL, and the store already holds it:
-      //
-      //   s=70       parents 2  containers 1  prevCount 0  halo no
-      //   Paris      parents 0  containers 0  prevCount 1  halo yes
-      //   Jupiter    parents 0  containers 0  prevCount 1  halo yes
-      //   lithium    parents 0  containers 0  prevCount 1  halo yes
-      //   Mona Lisa  parents 0  containers 0  prevCount 1  halo yes
-      //
-      // A deposited whole — a context or an answer — is interned in its own
-      // right and has neither structural parents nor containment links.  A
-      // fragment is addressable ONLY because window interning made its span
-      // addressable inside something bigger, and that containment is exactly
-      // what `parents`/`containers` record.  Reasoning steps THROUGH a fact;
-      // a span that was never a fact on its own is not one to step through.
-      // No constant enters — it is a structural predicate, not a threshold.
-      if (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) {
-        return -Infinity;
-      }
-      // A candidate whose bytes are LONGER than the answer cannot be a
-      // substring of it — `indexOf` would return −1 regardless.  Prune by
-      // length BEFORE reconstructing the bytes: `read` is an UNCAPPED read
-      // (AGENTS §2.8), and a resonated context far longer than the answer is
-      // exactly the candidate that makes it cost a whole deposit's worth of
-      // reconstruction for a containment test that must fail.  `contentLen`
-      // with the `answer.length + 1` cap is the prefix-capped length read the
-      // same contract prescribes; the prune is byte-identical to the old
-      // `indexOf` miss (it returns −1 for a needle longer than the haystack).
-      if (ctx.store.contentLen(id, answer.length + 1) > answer.length) {
-        return -Infinity;
-      }
-      const bytes = read(ctx, id);
-      if (indexOf(answer, bytes, 0) < 0) return -Infinity;
-      for (const v of voiced) if (indexOf(v, bytes, 0) >= 0) return -Infinity;
-      return bytes.length;
-    },
-    0,
-    true,
-  );
-  return found?.item ?? null;
+  //
+  // REAL SATURATION, not a hard cap: the score IS the candidate's byte
+  // length, so the scan is DECIDED the moment the first candidate that passes
+  // every filter is found in DESCENDING length order — a shorter candidate can
+  // never outscore it.  `contentLen` (the prefix-capped length read, §2.8) is
+  // the cheap ordering key, and the first-inserted tie-break is made explicit
+  // (`a.index - b.index`) so equal lengths keep `scored`'s insertion order —
+  // exactly the tie argmaxBy(strict) used to keep.  The bytes of at most ONE
+  // winning candidate are read; every shorter candidate the probes proposed is
+  // skipped without reconstruction, where the old argmax read them all.
+  const ranked = [...scored.keys()]
+    .map((id, index) => ({
+      id,
+      index,
+      len: ctx.store.contentLen(id, answer.length + 1),
+    }))
+    .sort((a, b) => b.len - a.len || a.index - b.index);
+  let pivotId: number | null = null;
+  for (const c of ranked) {
+    const id = c.id;
+    // A PIVOT MUST BE A THING THE CORPUS DEPOSITED, NOT A PIECE OF ONE.
+    // "Longest wins" ranks candidates but never asks whether the winner is
+    // an entity at all, and by the time a chain reaches here `consumeAll`
+    // has taken the answer's real contexts — so on a corpus of
+    // near-identical records the field is left to whatever interned
+    // fragments remain.  Measured on a 200-line templated log corpus, query
+    // "what happened to request_id=1042 and request_id=1077?": CAST
+    // produced the correct comparison and one `pivotStep` replaced it
+    // wholesale, pivoting through `s=70` — a four-byte tail of
+    // `latency_ms=70` — onto an unrelated record (`handled 1130`).
+    //
+    // The separator is NOT length.  Measured against the multi-hop tests'
+    // own pivots: `Paris` (5 bytes), `Jupiter` (7), `lithium` (7), `Mona
+    // Lisa` (9) against junk `s=70` (4) — a two-quantum floor, which
+    // confluence.ts applies to a meet for the same "one window is not an
+    // entity" reason, discards three of the four legitimate pivots.
+    // Entities are simply short.
+    //
+    // What separates them is STRUCTURAL, and the store already holds it:
+    //
+    //   s=70       parents 2  containers 1  prevCount 0  halo no
+    //   Paris      parents 0  containers 0  prevCount 1  halo yes
+    //   Jupiter    parents 0  containers 0  prevCount 1  halo yes
+    //   lithium    parents 0  containers 0  prevCount 1  halo yes
+    //   Mona Lisa  parents 0  containers 0  prevCount 1  halo yes
+    //
+    // A deposited whole — a context or an answer — is interned in its own
+    // right and has neither structural parents nor containment links.  A
+    // fragment is addressable ONLY because window interning made its span
+    // addressable inside something bigger, and that containment is exactly
+    // what `parents`/`containers` record.  Reasoning steps THROUGH a fact;
+    // a span that was never a fact on its own is not one to step through.
+    // No constant enters — it is a structural predicate, not a threshold.
+    if (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) continue;
+    // A candidate whose bytes are LONGER than the answer cannot be a
+    // substring of it — `indexOf` would return −1 regardless.  Prune by
+    // length BEFORE reconstructing the bytes: `read` is an UNCAPPED read
+    // (AGENTS §2.8), and a resonated context far longer than the answer is
+    // exactly the candidate that makes it cost a whole deposit's worth of
+    // reconstruction for a containment test that must fail.  `contentLen`
+    // with the `answer.length + 1` cap is the prefix-capped length read the
+    // same contract prescribes; the prune is byte-identical to the old
+    // `indexOf` miss (it returns −1 for a needle longer than the haystack).
+    if (c.len > answer.length) continue;
+    const bytes = read(ctx, id);
+    if (indexOf(answer, bytes, 0) < 0) continue;
+    let voicedBy = false;
+    for (const v of voiced) if (indexOf(v, bytes, 0) >= 0) voicedBy = true;
+    if (voicedBy) continue;
+    pivotId = id;
+    break;
+  }
+  return pivotId;
 }
 
 /** Which of the given labelled forms a span MEANS — generic resonance over

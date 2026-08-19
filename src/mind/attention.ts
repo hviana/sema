@@ -45,6 +45,7 @@ import {
 import { recognise } from "./recognition.js";
 import { leafIdRun } from "./canonical.js";
 import {
+  atomIsHub,
   corpusN,
   edgeAncestors,
   hubBound,
@@ -2647,26 +2648,28 @@ async function crossRegionVotes(
   // the same container (or a sub-container of it) twice.
   const consumed = new Set<number>();
   let probes = 0;
-  // Once atoms themselves are hubs (N > W²), the cross-region analysis gets
-  // one k·W walk allowance per evidence tier. Without a shared allowance,
-  // each of k candidate pairs spends the full corpus-derived budget and a
-  // cumulative dialogue multiplies bounded work into tens of seconds. Small
-  // corpora retain exhaustive exact traversal: below this same scale the
-  // budget would be smaller than the structures the tests deliberately build.
+  // When atoms themselves are hubs (atomIsHub — a single byte reaches ≥ √N
+  // contexts, §2.8's own predicate), the corpus is large enough that the
+  // cross-region junction walks are dominated by the drift through common
+  // content's ancestry.  Each of k candidate pairs otherwise spends its own
+  // √N·W budget (profiled: 160,210 junction pops, 31% of think at
+  // N = 325,608), and a cumulative dialogue multiplies bounded work into tens
+  // of seconds.  The structural walk is therefore given ONE k·W allowance per
+  // evidence tier, shared across every pair — k pairs × W phrase-scale levels,
+  // the minimal exact check; a pair whose container is not reached within it
+  // falls through to the resonance tier (the ANN proposes what the shallow
+  // walk no longer exhaustively scans, §2.3).
   //
-  // MEASURED 2026-07-29, NOT YET RESOLVED.  This gate never engages at real
-  // scale: on the trained store N = 325,608 with k = 24 and W = 4, so the
-  // threshold is 96³ = 884,736 and a third of a million contexts still runs
-  // unbudgeted at hubBound·W = 2,280 pops PER PAIR — 160,210 junction pops,
-  // 5.9s, 31% of think.  Sharing one hubBound·W allowance across all pairs
-  // instead cuts that to 22,418 pops and 2.6s (think −19%), but is measurably
-  // too tight below ~10³ contexts: test/36 (N = 8, budget 8) loses the
-  // `red circle` binding root and test/14 (N = 120, budget 40) recalls 39/40.
-  // The sharing is the right shape; hubBound·W is the wrong size for it, and
-  // fitting a size to those two points would repeat the mistake the cube
-  // already makes — pricing the gate on the synthetic corpora.
-  const marketScale = k * ctx.space.maxGroup;
-  const corpusScale = N > marketScale ** 3;
+  // Below atomIsHub the store is small and atoms still discriminate, so the
+  // walks keep exhaustive exact traversal (per-walk √N·W) — the shared budget
+  // would otherwise be smaller than the structures the tests deliberately
+  // build.  The gate is the SAME derived predicate the climb already uses for
+  // byte atoms, not a separate corpus-size knob: an earlier `N > (k·W)³` cube
+  // never engaged at real scale (96³ = 884,736 > 325,608), and a "share one
+  // √N·W" experiment was too tight below ~10³ contexts (test/36, test/14) —
+  // both are the same mistake of pricing the gate on corpus size instead of on
+  // the atom-hub scale.
+  const corpusScale = atomIsHub(ctx, N);
   const exactBudget = corpusScale ? { n: k * ctx.space.maxGroup } : undefined;
   const synonymBudget = corpusScale ? { n: k * ctx.space.maxGroup } : undefined;
 
