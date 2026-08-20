@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version to release, e.g. 0.6.1
+        type: string
+        required: true
+
+permissions:
+  # Trusted publishing (OIDC): GitHub mints a short-lived identity token that
+  # npm and JSR both exchange against the trusted publisher on the package.
+  # No registry token is stored anywhere.
+  id-token: write
+  # The release path bumps package.json + jsr.json, commits, and pushes the tag.
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bump version and tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          current="$(node -p "require('./package.json').version")"
+          if [ "$current" != "$VERSION" ]; then
+            npm version "$VERSION" --no-git-tag-version
+            node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("jsr.json","utf8"));p.version=process.env.VERSION;fs.writeFileSync("jsr.json",JSON.stringify(p,null,2)+"\n")'
+            git add package.json jsr.json
+            git commit -m "$VERSION"
+            git tag -a "v$VERSION" -m "v$VERSION"
+            git push origin HEAD --follow-tags
+          fi
+
+      # The two manifests must not drift: a dual npm+JSR publish ships the SAME
+      # version to both, so a mismatch here would tag one and ship another.
+      - name: confirm package.json and jsr.json agree on version
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          jsr="$(node -p "require('./jsr.json').version")"
+          if [ "$pkg" != "$jsr" ]; then
+            echo "package.json version $pkg != jsr.json version $jsr" >&2
+            exit 1
+          fi
+          echo "publishing version $pkg"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: install
+        run: npm install
+
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 24 bundles an older npm.
+      - name: update npm for trusted publishing
+        run: npm install -g npm@latest
+
+      # The same run publishes: a tag pushed with GITHUB_TOKEN does NOT
+      # re-trigger workflows, so the publish cannot depend on a second run.
+      # prepublishOnly (npm test) verifies and builds dist/ before packing.
+      # dist/ is gitignored (so it stays off GitHub and JSR) but ships to npm
+      # because .npmignore deliberately omits the `dist/` entry.
+      - name: publish to npm
+        run: npm publish --access public
+
+      # JSR publishes the SOURCE (jsr.json exports → src/index.ts), not dist/.
+      # dist/ is gitignored and JSR honours .gitignore, so it is excluded here
+      # with no --allow-dirty needed (the tree is clean after npm's build).
+      - name: publish to jsr
+        run: npx jsr publish

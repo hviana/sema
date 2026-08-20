@@ -11,3 +11,4 @@ bench
 tsconfig.analyze.json
 FINDINGS.md
 RESIDUALS.md
+dist/

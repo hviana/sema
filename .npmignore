@@ -1,0 +1,18 @@
+# npm's ignore list. Mirrors .gitignore with ONE deliberate difference:
+# `dist/` is gitignored (it must not reach GitHub or JSR) but MUST ship to
+# npm — it is the built library `main`/`exports` point into.  npm falls back
+# to .gitignore when no .npmignore exists, so this file exists solely to let
+# the two tools disagree on that one entry.
+.claude
+package-lock.json
+node_modules
+/sema.*
+cache
+:memory:
+backup
+analyze_training.ts
+sema-article
+bench
+tsconfig.analyze.json
+FINDINGS.md
+RESIDUALS.md
