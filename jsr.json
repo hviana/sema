@@ -1,6 +1,6 @@
 {
   "$schema": "https://jsr.io/schema/config-file.v1.json",
   "name": "@hviana/sema",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "exports": "./src/index.ts"
 }
