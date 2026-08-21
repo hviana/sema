@@ -45,15 +45,23 @@
 //      from `resonate(k)` at k = 24, 256 AND 2048 — while forms scoring LOWER
 //      (Germany 0.5670, Yemen 0.5591) are returned.  `k` only reorders WITHIN
 //      the IVF clusters already probed, exactly as Store.resonate's doc warns,
-//      so no k recovers it.  With `exhaustive` it ranks 8.
+//      so no k recovers it.
 //
-// So this is a RETRIEVABILITY gap, not a semantic one, and it is repaired by
-// reading the candidate list recall's refusal path has ALREADY fetched
-// exhaustively for the substitution bridge — never by resonating on its own.
-// Measured cost of the scan over those 570 candidates: 2.9 ms warm, 20.4 ms
-// cold, against a ~700 ms refusal path.  Issuing a FRESH exhaustive call would
-// cost 490 ms median against 13 ms non-exhaustive (36×), which is why this tier
-// takes the candidate list as an argument and adds nothing to it.
+// So this is a RETRIEVABILITY gap, not a semantic one, and the ANN is the wrong
+// instrument for it: a proper prefix's gist cannot rank its own continuation.
+// The repair is CONTENT-ADDRESSED (§2.3) — `formsOpenedBy` (traverse.ts) reads
+// the leaf-id WINDOW index the write side already maintains and answers "which
+// trained forms does this byte run open?" in a bounded √N walk.  That is this
+// mechanism's first supply.  The response's memoised top-k `resonance()` is the
+// second, for prefixes long enough that the gist still ranks the form; it is
+// read, never re-issued.
+//
+// AN EXHAUSTIVE ANN LIST IS NOT A SUPPLY HERE, AND WAS REMOVED.  This tier once
+// read `Precomputed.wideResonance()` — a full-index `resonate(guide, √N,
+// exhaustive)` — on the argument that the target "ranks 8 with `exhaustive`".
+// It bought an O(k) need at O(index) cost (measured: 244K annVectorReads per
+// refusing query, ~1.5 s) for candidates the window index proposes directly.
+// See pipeline-mechanism.ts's REMOVED note; test/95 pins its absence.
 //
 // THREE GUARDS, each falsified into existence by measurement — do not drop any:
 //
@@ -114,7 +122,8 @@ export interface PrefixCompletion {
  *  it, when the continuation is sub-quantum, when a candidate's continuation
  *  cannot be read through, or when the candidates disagree.
  *
- *  `ranked` must be a list the caller has ALREADY fetched; this mechanism never
+ *  `ranked` must be a list the caller has ALREADY fetched (the write side's
+ *  window index, or the response's memoised top-k); this mechanism never
  *  resonates on its own (see the header's cost note). */
 export function prefixCompletion(
   ctx: MindContext,
@@ -264,16 +273,25 @@ export const prefixMechanism: PipelineMechanism = {
     return STEP;
   },
   async run(ctx, query, pre) {
-    // The write side's window index proposes FIRST: a proper prefix's gist
-    // cannot rank its own continuation (cos falls below reachThreshold at a
-    // few bytes of truncation), so the content-addressed window walk is the
-    // correct measure for this question (§2.3), and it is a bounded √N walk —
-    // cheaper than an exhaustive ANN.  The top-k resonance list is the SECOND
-    // supply, for prefixes long enough that the gist still ranks the form.  A
-    // second SUPPLY, not a second mechanism — the same three guards decide
-    // either way.
-    const completed = prefixCompletion(ctx, query, formsOpenedBy(ctx, query)) ??
-      prefixCompletion(ctx, query, (await pre.resonance()).map((h) => h.id));
+    // ONE SUPPLY PASS, not a two-tier `??`.  The window index (exact,
+    // content-addressed) and the response's memoised top-k (approximate) are
+    // concatenated and the three guards decide ONCE over the union.  A
+    // first-then-fallback chain would let the APPROXIMATE tier override the
+    // EXACT one (§2.3): when formsOpenedBy finds two continuations, guard 3
+    // returns null and the fallback re-runs the guards on resonance's top-k
+    // alone — which, seeing only one of the two forms, would voice it.  That is
+    // precisely the disagreement-suppression guard 3 exists to prevent, and it
+    // is the exact tier's ambiguity being washed away by the approximate tier.
+    // Evaluating the union means a disagreement the window index saw can never
+    // be hidden by what the ANN happens to rank.  The ANN read is the
+    // response's ONE memoised top-k (§2.11), already paid by recall's refusal
+    // path on the queries where this mechanism fires, so reading it here is not
+    // a second index scan.
+    const ids = [
+      ...formsOpenedBy(ctx, query),
+      ...(await pre.resonance()).map((h) => h.id),
+    ];
+    const completed = prefixCompletion(ctx, query, ids);
     if (completed === null) return [];
     return [{
       bytes: completed.form,

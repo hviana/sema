@@ -264,7 +264,18 @@ export function junctionContainersFrom(
     id,
     d: 0,
   }));
-  while (stack.length > 0 && out.length < bound && b.n-- > 0) {
+  while (stack.length > 0 && out.length < bound) {
+    // BUDGET EXHAUSTION IS AN ABSTENTION, AND IT MUST BE VISIBLE (§2.13).  The
+    // walk stops with work still on the stack, the caller reads "no container"
+    // and falls through to a lower ladder rung — indistinguishable, from the
+    // outside, from a walk that looked everywhere and found nothing.  With a
+    // SHARED budget (cross-region's one k·W allowance per tier) an EARLIER
+    // pair can drain it, so a later pair's exact tier may never run at all;
+    // this counter is the only thing that says so.
+    if (b.n-- <= 0) {
+      if (ctx.meter) ctx.meter.junctionBudgetExhausted++;
+      break;
+    }
     const { id: x, d } = stack.pop()!;
     if (ctx.meter) ctx.meter.junctionPops++;
     const f = cachedRead(ctx, cache, x, maxContainer);

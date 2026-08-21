@@ -4434,15 +4434,18 @@ before the conversion. Derived from the existing bars; never tuned.
 ### 21.5 The refusal path — the substitution bridge, before silence
 
 Everything geometric has now failed. One tier remains, making a **structural**
-claim about the query that resonance cannot state. It reads the response's
-**wide candidate list** (`Precomputed.wideResonance`, §14.5) — the ranked hits,
-widened to an exhaustive index scan only when the top hit clears the concept
-threshold. When the query gist has no concept-level match to anything stored, an
-exhaustive scan would only score more vectors below the bar (profiled at 38–40K
-vectors scored per refusing query on a 325K-context store, costing 44% of
-think). Whether the gist ranks _anything_ at concept level is the discriminator
-— corpus size never was. The list is shared response-wide, so whichever
+claim about the query that resonance cannot state. Its proposal source is the
+response's **one top-k read** (`Precomputed.resonance`, §14.5) — the same ranked
+list recall's earlier tiers already consulted, shared response-wide so whichever
 mechanism first-touches it pays once and every later reader is free.
+
+It used to be a **wide** list, widened to an exhaustive index scan whenever the
+top hit cleared the concept threshold. That was removed: the bridge's own
+candidate cap is `2 · recallQueryK`, so the top-k already IS everything it can
+consume, and every proposal is byte-verified downstream (§4.3) — an exhaustive
+scan bought an O(k) need at O(index) cost (profiled: 244K vectors scored per
+refusing query, ~1.5 s, every answer byte-identical to the top-k read). Test/95
+pins its absence.
 
 #### The substitution bridge
 
@@ -5288,16 +5291,14 @@ recallByResonance(query, pre):
             return { bytes: g, accounted: nothing, moves: STEP }
 
     # ── the REFUSAL PATH ─────────────────────────────────────────────
-    # pre.wideResonance() — the response's ONE wide candidate list, shared
-    # by every mechanism that must look past the top-k:
-    #     hits[0].score ≥ CONCEPT_BAR
-    #       ? exhaustive resonate(gistOf(query), hubBound)       # ids only
-    #       : hits                        # the gist ranks nothing at concept
-    #                                     # level, so a wider scan says nothing
+    # pre.resonance() — the response's ONE top-k read, already paid for by
+    # the tiers above.  The bridge caps its own candidates at 2·recallQueryK,
+    # so the top-k is exactly the budget it can consume; there is no wider
+    # list, and every proposal is byte-verified below.
 
     # 3b. substitution / identity bridge
-    bridged ≔ substitutionBridge(query, pre.wideResonance)
-              # anchors: rarest query windows → edgeAncestors, plus wideIds
+    bridged ≔ substitutionBridge(query, ids(pre.resonance))
+              # anchors: rarest query windows → edgeAncestors, plus those ids
               # align byte-for-byte; a mismatch substitutes only under
               # CORROBORATION ∧ GRADED IDENTITY ∧ RAW BALANCE
               # accept when matched+substituted DOMINATES the query, every

@@ -365,13 +365,13 @@ export async function pivotInto(
     }
     for (const c of n.kids) queue.push(c); // breadth-first: larger regions first
   }
-  // TRIMMED recognition: the pivot's own filter below rejects fragments
-  // (`hasParents || hasContainers → -Infinity`), and recognition's edge-trim
-  // fallbacks exist to find exactly those misaligned FRAGMENTS.  Skipping them
-  // (the structural pass + canonResolve still run) is byte-identical for every
-  // pivot — the fallbacks' output is discarded by the filter — and halves the
-  // O(n·W²) recognition of a long answer (measured: 36KB recognise 4.0s → 2.0s).
-  const rec = recognise(ctx, answer, true);
+  // THE FULL recognition, memo-shared with every other reader of these bytes.
+  // A "skip the edge trims here" variant was refuted (see recognise's own
+  // note): those trims are what find a WHOLE trained form embedded at an
+  // offset the answer's fold did not cut, and such a form is parentless,
+  // container-free and edge-bearing — i.e. exactly what the filter below
+  // ADMITS as a pivot, not what it rejects.
+  const rec = recognise(ctx, answer);
   for (const s of rec.sites) {
     if (!consumed.has(s.payload) && ctx.store.hasNext(s.payload)) {
       scored.set(s.payload, Math.max(scored.get(s.payload) ?? 0, 1));
@@ -399,6 +399,12 @@ export async function pivotInto(
   let pivotId: number | null = null;
   for (const c of ranked) {
     const id = c.id;
+    // A ZERO-LENGTH candidate is not a pivot.  `argmaxBy(…, 0, strict)` used to
+    // carry this floor in its threshold argument, and dropping it here would
+    // admit an empty node: `indexOf(answer, <empty>)` returns 0, so every
+    // filter below passes and the chain would hop through nothing (§2.13 —
+    // empty bytes are truthy).
+    if (c.len === 0) continue;
     // A PIVOT MUST BE A THING THE CORPUS DEPOSITED, NOT A PIECE OF ONE.
     // "Longest wins" ranks candidates but never asks whether the winner is
     // an entity at all, and by the time a chain reaches here `consumeAll`

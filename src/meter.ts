@@ -176,6 +176,13 @@ export class Meter {
   /** Nodes popped by those ascents, against their √N·W budget — the counter
    *  that shows whether the walks are deciding early or burning the budget. */
   junctionPops = 0;
+  /** Ascents that ended by EXHAUSTING the expansion budget rather than by
+   *  deciding — the walk abstained and the caller silently fell through to a
+   *  lower tier of the ladder (§2.13: a degradation nothing else reports).
+   *  It rises the moment a SHARED budget is drained by an earlier walk, which
+   *  is what makes "this tier answered nothing" distinguishable from "this
+   *  tier never got to look". */
+  junctionBudgetExhausted = 0;
   /** Arbitrary byte spans whose distributional company was VSA-bundled from
    *  existing episode halos. */
   spanHalos = 0;
@@ -228,6 +235,25 @@ export class Meter {
       for (const [k, v] of Object.entries(delta)) {
         if (v !== 0) p.counters[k] = (p.counters[k] ?? 0) + v;
       }
+    }
+  }
+
+  /** Time one SYNCHRONOUS phase.  The sync/async seam (§2.10) is a real
+   *  contract — perception, recognition and the graph search are synchronous —
+   *  so a synchronous layer must not be wrapped in `time`'s promise just to be
+   *  measured: that would make the profiled path await where the unprofiled
+   *  one does not, and a meter never changes what a layer computes. */
+  timeSync<T>(phase: string, fn: () => T): T {
+    const before = this.snapshot();
+    const t = performance.now();
+    try {
+      return fn();
+    } finally {
+      const ms = performance.now() - t;
+      const after = this.snapshot();
+      const delta: Record<string, number> = {};
+      for (const k of Object.keys(after)) delta[k] = after[k] - before[k];
+      this.charge(phase, ms, delta);
     }
   }
 

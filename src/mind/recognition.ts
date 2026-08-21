@@ -32,16 +32,24 @@ import type { Leaf, Site } from "./graph-search.js";
  *     the longest known leaf, chained into flat branches.  Names forms the
  *     query's own cut cannot, and records sub-leaf boundaries as `splits`.
  *
- *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus. */
-/** Decompose `bytes` into the learnt forms it contains.  `trimmed` skips the
- *  edge-trim fallbacks (which recover misaligned FRAGMENTS) — for callers whose
- *  own gate rejects fragments anyway (the pivot), so the O(n·W²) trim search is
- *  paid only where its output can be used.  Byte-identical for every caller
- *  that keeps only top-level forms. */
+ *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus.
+ *
+ *  ONE READING PER BYTE STREAM, deliberately: there is no "cheap mode" that
+ *  skips the edge-trim fallbacks.  A `trimmed` variant was tried and REFUTED
+ *  twice over.  Its premise — "the trims only recover misaligned FRAGMENTS, so
+ *  a consumer whose gate rejects fragments loses nothing" — is false: the
+ *  left/right trim loops below exist precisely to find WHOLE trained forms
+ *  embedded at an offset the query's own fold did not cut, and such a form has
+ *  no structural parents or containers, so it passes the pivot's fragment gate
+ *  and is exactly the candidate a multi-hop chain steps through.  Skipping them
+ *  narrows the pivot's evidence silently.  And a per-caller variant has to key
+ *  the memo by the variant, which breaks the "computed at most once" property
+ *  (§2.11): the pipeline recognises a grounded answer untrimmed for
+ *  `preConsumed`, and the pivot then recognises the same bytes again — the
+ *  saving inverts into a doubling on the path it was measured for. */
 export function recognise(
   ctx: MindContext,
   bytes: Uint8Array,
-  trimmed = false,
 ): Recognition {
   // Content-keyed memo — works for both single-turn respond() and multi-turn
   // respondTurn() (where the map persists across calls).  ALWAYS consulted,
@@ -82,7 +90,7 @@ export function recognise(
   // not silent), so it is emitted here directly rather than only inside
   // recogniseImpl.
   if (ctx.recogniseMemo) {
-    const key = (trimmed ? "t" : "f") + latin1Key(bytes);
+    const key = latin1Key(bytes);
     const hit = ctx.recogniseMemo.get(key);
     if (hit !== undefined) {
       if (ctx.meter) ctx.meter.recogniseHits++;
@@ -100,18 +108,14 @@ export function recognise(
       );
       return hit;
     }
-    const fresh = recogniseImpl(ctx, bytes, trimmed);
+    const fresh = recogniseImpl(ctx, bytes);
     ctx.recogniseMemo.set(key, fresh);
     return fresh;
   }
-  return recogniseImpl(ctx, bytes, trimmed);
+  return recogniseImpl(ctx, bytes);
 }
 
-function recogniseImpl(
-  ctx: MindContext,
-  bytes: Uint8Array,
-  trimmed = false,
-): Recognition {
+function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   if (ctx.meter) {
     ctx.meter.recognitions++;
     ctx.meter.recognisedBytes += bytes.length;
@@ -224,7 +228,7 @@ function recogniseImpl(
       // n.kids !== null enforces above) rather than degenerate into
       // single-byte-atom territory, which atomIsHub already governs
       // separately.
-      else if (!trimmed && end - start - 1 >= 2) {
+      else if (end - start - 1 >= 2) {
         // The chunk's own boundary is drawn by content geometry, not by
         // any notion of "form" — it can include one edge byte the query's
         // fold happened to attach here that the trained span never had
