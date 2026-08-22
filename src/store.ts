@@ -1133,9 +1133,6 @@ export abstract class AbstractStore implements Store {
     return rec;
   }
 
-  /** Reconstruct the bytes a node spans by traversing the DAG bottom-up.
-   *  Iterative post-order on an explicit stack — the call stack never sees the
-   *  tree depth, so even an adversarial chain of nodes stays safe. */
   /** How many reads hit a MISSING node record this session (a dangling edge
    *  or kid id).  Zero in a healthy store; a growing count means references
    *  outlive their records — the read degrades safely to empty bytes, this
@@ -1147,6 +1144,25 @@ export abstract class AbstractStore implements Store {
    *  unprofiled store pays one null check per read and allocates nothing. */
   meter: Meter | null = null;
 
+  /** Reconstruct the bytes a node spans by traversing the DAG bottom-up.
+   *  Iterative post-order on an explicit stack — the call stack never sees the
+   *  tree depth, so even an adversarial chain of nodes stays safe.
+   *
+   *  TERMINATION.  The walk memoizes into a LOCAL map, and `_bytesCache` is
+   *  consulted only as a warm hint whose hit is immediately promoted into that
+   *  map.  It used to use `_bytesCache` itself as the memo, which is not a
+   *  memo at all: it EVICTS, and its `"smallest"` policy prefers precisely the
+   *  freshly-resolved small children that the pending parents on the stack are
+   *  waiting for.  A parent then finds them uncached again, re-pushes them,
+   *  they are re-resolved, re-inserted, re-evicted — the loop makes no
+   *  progress and never exits.  Latent until the cache saturates, then
+   *  unconditional: observed in the wild at 19.9M nodes with the 20 MB cache
+   *  pinned at 19,999,962/20,000,000 bytes, spinning 8h45m on a node whose
+   *  whole content was 124 bytes (5 kids, 2 of them perpetually re-evicted).
+   *  Because the loop is synchronous, no timer could fire — the trainer's stall
+   *  watchdog never got a turn either.  A local map resolves each node at most
+   *  once per call, so the walk terminates by construction and `_bytesCache`
+   *  goes back to being a pure speed hint. */
   bytes(id: NodeId): Uint8Array {
     if (this.meter) {
       this.meter.byteReads++;
@@ -1162,12 +1178,25 @@ export abstract class AbstractStore implements Store {
 
     const stack: NodeId[] = [id];
     const cache = this._bytesCache;
+    // The walk's own memo.  Entries are the same shared arrays `_bytesCache`
+    // holds (no extra copy), and it lives exactly as long as this call.
+    const done = new Map<NodeId, Uint8Array>();
 
     while (stack.length > 0) {
       const nid = stack[stack.length - 1]; // peek
 
-      // Already resolved by an earlier traversal.
-      if (cache.get(nid)) {
+      // Already resolved by this walk — the ONLY authority the readiness test
+      // below trusts, because it cannot be evicted underneath us.
+      if (done.has(nid)) {
+        stack.pop();
+        continue;
+      }
+
+      // Warm hint: a hit is promoted into `done` in the same step, so from
+      // here on the entry is pinned for the rest of the walk.
+      const warm = cache.get(nid);
+      if (warm !== undefined) {
+        done.set(nid, warm);
         stack.pop();
         continue;
       }
@@ -1180,22 +1209,27 @@ export abstract class AbstractStore implements Store {
         // The cache makes the empty read permanent for the session; the
         // counter survives as the visible trace.
         this.danglingReads++;
+        done.set(nid, _ZERO);
         cache.set(nid, _ZERO);
         stack.pop();
         continue;
       }
       if (rec.leaf) {
-        cache.set(nid, new Uint8Array(rec.leaf));
+        // COPY before caching: rec.leaf is the node record's own buffer, and
+        // handing it out would let one mutating caller corrupt the record.
+        const leaf = new Uint8Array(rec.leaf);
+        done.set(nid, leaf);
+        cache.set(nid, leaf);
         stack.pop();
         continue;
       }
 
-      // Branch — push any uncached children (reverse order so they resolve
-      // left-to-right).  If every child is already cached, concatenate now.
+      // Branch — push any unresolved children (reverse order so they resolve
+      // left-to-right).  If every child is resolved, concatenate now.
       const kids = rec.kids ?? [];
       let ready = true;
       for (let i = kids.length - 1; i >= 0; i--) {
-        if (!cache.get(kids[i])) {
+        if (!done.has(kids[i])) {
           stack.push(kids[i]);
           ready = false;
         }
@@ -1203,11 +1237,12 @@ export abstract class AbstractStore implements Store {
       if (!ready) continue;
 
       stack.pop();
-      const out = concat(kids.map((k) => cache.get(k)!));
+      const out = concat(kids.map((k) => done.get(k)!));
+      done.set(nid, out);
       cache.set(nid, out);
     }
 
-    const out = cache.get(id) ?? _ZERO;
+    const out = done.get(id) ?? _ZERO;
     if (this.meter) this.meter.bytesRead += out.length;
     return out;
   }
@@ -1730,16 +1765,35 @@ export abstract class AbstractStore implements Store {
    *  common-prefix / common-suffix trim: whatever remains after both trims is
    *  the single differing span (substitution, insertion or deletion), and both
    *  remainders must fit the budget.  Scattered differences leave a wide
-   *  middle and are rejected. */
+   *  middle and are rejected.
+   *
+   *  Every read here is CAPPED (§2.8).  It used to open with
+   *  `bytesPrefix(k, Number.MAX_SAFE_INTEGER)` — the ALL sentinel, i.e. the
+   *  full materialising `bytes()` read — on the deposit hot path, and only
+   *  then compare lengths.  So a candidate the length test was about to reject
+   *  had already been reconstructed byte for byte.  The LENGTHS decide first
+   *  instead, from the `contentLen` memo the interning order has already built
+   *  bottom-up, and the target's length is itself read under a cap: a target
+   *  longer than `la + W` is rejected without touching one of its bytes.
+   *  Same semantics — the old capped `b` read would have produced
+   *  `a.length + W + 1` here and failed the very same test — strictly fewer
+   *  byte reads.  The `+ 1` on each byte cap keeps `_prefix`'s
+   *  "complete reconstruction" test true, so the results still cache. */
   private differsByOneWindow(
     kids: NodeId[],
     targetId: NodeId,
     W: number,
   ): boolean {
-    const a = concat(
-      kids.map((k) => this.bytesPrefix(k, Number.MAX_SAFE_INTEGER)),
-    );
-    const b = this.bytesPrefix(targetId, a.length + W + 1);
+    const lens = kids.map((k) => this.contentLen(k));
+    let la = 0;
+    for (const n of lens) la += n;
+    const cap = la + W + 1;
+    // `contentLen` under a cap returns a clamped LOWER BOUND once the partial
+    // sum reaches it, so `>= cap` is exactly "longer than la + W".
+    const lb = this.contentLen(targetId, cap);
+    if (lb >= cap || Math.abs(la - lb) > W) return false;
+    const a = concat(kids.map((k, i) => this.bytesPrefix(k, lens[i] + 1)));
+    const b = this.bytesPrefix(targetId, lb + 1);
     if (Math.abs(a.length - b.length) > W) return false;
     const n = Math.min(a.length, b.length);
     let i = 0;
