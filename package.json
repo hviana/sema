@@ -1,6 +1,6 @@
 {
   "name": "@hviana/sema",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Sema: a non-parametric, instance-based reasoning system.",
   "repository": {
     "type": "git",
