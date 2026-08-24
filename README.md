@@ -41,7 +41,7 @@ No weights. No gradients. No training loop. No neural network. No GPU.
 > Vector Symbolic Architecture (Plate 1995; Kanerva 2009) over a
 > content-addressable memory, with inference by weighted automated deduction
 > (Knuth 1977; Felzenszwalb & McAllester 2007). Each term is grounded in
-> [HOW_IT_WORKS.md](HOW_IT_WORKS.md).
+> [docs/INDEX.md](docs/INDEX.md).
 
 ---
 
@@ -314,16 +314,16 @@ start talking — no install, no runtime, no API key.
 
 ## ✦ Learn more
 
-| Document                                                                             | What's inside                                                                                                                                            |
-| :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 📘 **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)**                                            | The full theory: vector symbolic architectures, the Merkle DAG, distributional halos, weighted deduction — concepts, diagrams, and extensive pseudocode. |
-| 🛠️ **[AGENTS.md](AGENTS.md)**                                                        | The development manual: repo layout, build/test, internals, invariants, and recipes for extending the system.                                            |
-| 🎓 **[CITATION.cff](CITATION.cff)**                                                  | How to cite Sema in academic work.                                                                                                                       |
-| ⚖️ **[LICENSE.md](LICENSE.md)**                                                      | PolyForm Noncommercial License 1.0.0.                                                                                                                    |
-| 📚 **[DATASETS.md](DATASETS.md)**                                                    | Training corpora: provenance, per-corpus attribution, and how a trained memory file is licensed.                                                         |
-| 💼 **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**                                | Commercial licensing terms and contact.                                                                                                                  |
-| 🤗 **[Trained examples](https://huggingface.co/buckets/hviana/sema-trained-v1)**     | Pre-trained memory files you can download and use directly.                                                                                              |
-| 💿 **[Binary examples](https://huggingface.co/buckets/hviana/sema-binary-examples)** | Ready-to-run web chat apps for Windows, Mac, and Linux — one file, no install.                                                                           |
+| Document                                                                             | What's inside                                                                                                                                          |
+| :----------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 📘 **[docs/INDEX.md](docs/INDEX.md)**                                                | Architecture docs: single-system laws (docs/architecture/), mechanisms, invariants, and harness gates — the entry point for theory and implementation. |
+| 🛠️ **[AGENTS.md](AGENTS.md)**                                                        | The development manual: repo layout, build/test, internals, invariants, and recipes for extending the system.                                          |
+| 🎓 **[CITATION.cff](CITATION.cff)**                                                  | How to cite Sema in academic work.                                                                                                                     |
+| ⚖️ **[LICENSE.md](LICENSE.md)**                                                      | PolyForm Noncommercial License 1.0.0.                                                                                                                  |
+| 📚 **[DATASETS.md](DATASETS.md)**                                                    | Training corpora: provenance, per-corpus attribution, and how a trained memory file is licensed.                                                       |
+| 💼 **[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)**                                | Commercial licensing terms and contact.                                                                                                                |
+| 🤗 **[Trained examples](https://huggingface.co/buckets/hviana/sema-trained-v1)**     | Pre-trained memory files you can download and use directly.                                                                                            |
+| 💿 **[Binary examples](https://huggingface.co/buckets/hviana/sema-binary-examples)** | Ready-to-run web chat apps for Windows, Mac, and Linux — one file, no install.                                                                         |
 
 ---
 
