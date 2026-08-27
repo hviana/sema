@@ -2,12 +2,15 @@
 package-lock.json
 node_modules
 /sema.*
+sema-bench.*
 cache
 :memory:
 backup
 analyze_training.ts
 sema-article
-bench
+bench/*
+!bench/README.md
+!bench/sema-vs-gemma.mjs
 tsconfig.analyze.json
 FINDINGS.md
 RESIDUALS.md
