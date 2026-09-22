@@ -34,7 +34,7 @@ One currency (`mind/graph-search.ts`): `STEP=1`, `CONCEPT=10`, `PASS=1000`/byte.
 
 `join` — confluence is the mechanism that OWNS this provenance
 (`src/mind/mechanisms/confluence.ts` sets it when the independent evidence
-streams meet at one anchor).  It is not cover's: cover reports `cover` for every
+streams meet at one anchor). It is not cover's: cover reports `cover` for every
 derivation it wins (see `docs/mechanisms/cover.md`).
 
 ## Pins

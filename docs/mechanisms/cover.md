@@ -46,7 +46,7 @@ by node pair. Bridges (`bridge`) splice connectors between rewrites.
 ## Provenance
 
 `cover` for every cover derivation — including the fusion/recomposition steps
-(`fuse`/`recompose`) that name a deeper learned form.  (`join` is NOT cover's:
+(`fuse`/`recompose`) that name a deeper learned form. (`join` is NOT cover's:
 that provenance belongs to the CONFLUENCE mechanism, which reports it when
 independent evidence streams meet at one anchor — see
 `docs/mechanisms/confluence.md`.)
