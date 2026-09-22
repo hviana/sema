@@ -58,6 +58,11 @@ Floor is `2·STEP`. Before touching the shared expensive analyses
 return the uninvested bound when it already loses. Never compute a shared
 analysis just to discard it.
 
+## Provenance
+
+`cast` — the answer came from counterfactual transfer (substitution,
+redirection, or analogical comparison), not from a literal continuation.
+
 ## Pins
 
 - **test/17 intelligence** — reordered single-fact must not trigger

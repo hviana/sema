@@ -75,8 +75,8 @@ export const MOVE_NOTE: Record<string, string> = {
   "split": "cut a span at a sub-leaf form boundary so a form can be reached",
   "fuse": "fuse adjacent fragments toward a deeper learned form",
   "recompose": "recompose fused parts into a learned whole that leads on",
-  "join-fact":
-    "join a produced fact's own subject with the query's tail — derive through the fact, not alongside it",
+  "derive-through":
+    "derive the answer through a produced fact's own subject and the query's tail, not alongside it",
   "bridge": "advance the cover frontier across this span",
   "pool-vote":
     "pool independent regions' evidence for a shared anchor (sum, not shortest path)",

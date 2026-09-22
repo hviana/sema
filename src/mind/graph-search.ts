@@ -115,12 +115,14 @@ export type GItem =
      *  derivation actually CHOSE.  Part of {@link key}, because it decides
      *  whether the span's final bytes may still change. */
     fix?: boolean;
-    /** Set on the out a JOIN produced: a produced fact's own contained entity
-     *  (the subject the query never named) combined with the query's adjacent
-     *  relation span named a learned key, and that key's continuation is this
-     *  out.  Part of {@link key} so the joined reading is a distinct chart item
-     *  from the plain concatenation of the same bytes. */
-    join?: boolean;
+    /** Set on the out DERIVE-THROUGH produced: a produced fact's own contained
+     *  entity (the subject the query never named) combined with the query's tail
+     *  named a learned key, and that key's continuation is this out.  Part of
+     *  {@link key} so the derived reading is a distinct chart item from the plain
+     *  concatenation of the same bytes.  Named for what it does — derive THROUGH
+     *  a produced fact — because `join` is already the confluence mechanism's
+     *  `Provenance`, a different act at a different layer. */
+    throughFact?: boolean;
   };
 type OutItem = Extract<GItem, { kind: "out" }>;
 
@@ -246,7 +248,7 @@ export type DerivationMove =
   | "split" // out→out cut at a sub-leaf form boundary
   | "fuse" // out+out→out: adjacent fragments recomposed toward a learned form
   | "recompose" // out+out→form: a fused pair that names an edge-bearing node
-  | "join-fact" // out→out: a produced fact's own contained subject + the query's tail names a learned key (the join)
+  | "derive-through" // out→out: a produced fact's own contained subject + the query's tail names a learned key (derive the answer through the fact)
   | "bridge" // cover+out→cover: the cover frontier advanced across a span
   | "pool-vote" // N premises→conclusion, evidence pooled (combine:"sum" — see derive)
   | "step"; // any other single-premise move (fallback)
@@ -286,7 +288,7 @@ function classifyMove(
     if (p.kind === "out" && conclusion.kind === "out") {
       // A JOIN derives through a produced fact's own contained subject; a plain
       // single-premise out→out is the byte-level split.
-      return conclusion.join ? "join-fact" : "split";
+      return conclusion.throughFact ? "derive-through" : "split";
     }
     return "step";
   }
@@ -411,11 +413,12 @@ export class GraphSearch {
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
-    /** When given, receives the lightest derivation's rule applications — the
-     *  full adapted A*LD proof tree as classified {@link DerivationStep}s — for the TOP
-     *  cover only (a recursive recompletion solves its own sub-cover and is not
-     *  reported here, to keep the trace one layer per think).  Off by default,
-     *  so the search pays nothing when no one inspects. */
+    /** When given, receives each solved span's lightest derivation — the full
+     *  adapted A*LD proof tree as classified {@link DerivationStep}s — for the
+     *  TOP cover AND every nested completion the sink is threaded into (see
+     *  {@link recompleteNode}), so a produced form's own recompositions reach
+     *  the rationale instead of stopping at the first layer.  Off by default, so
+     *  the search pays nothing when no one inspects. */
     onDerivation?: (steps: DerivationStep[]) => void,
   ): { segs: Seg[]; cost: number } | null {
     // Top-level entry: reset the per-call recursion state, then run the one
@@ -607,7 +610,7 @@ export class GraphSearch {
         }
         return `o${it.i}.${it.j}.${it.cover ? 1 : 0}.${it.rec ? 1 : 0}.${
           it.fix ? 1 : 0
-        }.${it.join ? 1 : 0}.${it.node ?? -1}.${latin1(it.bytes)}`;
+        }.${it.throughFact ? 1 : 0}.${it.node ?? -1}.${latin1(it.bytes)}`;
       },
       *axioms() {
         yield { item: { kind: "cover", p: 0 }, cost: 0 };
@@ -1133,20 +1136,25 @@ export class GraphSearch {
    *  open — the invariant a reader needs to check the guard. */
   private recompleteOpen = new Set<number>();
 
-  /** JOIN — the move the substrate was missing: derive the answer THROUGH a
-   *  produced fact, without the intermediate key being named in the query.
+  /** DERIVE-THROUGH — a RULE this module's DeductionSystem was missing.  The
+   *  A*LD library is untouched: this is one more `premises → conclusion + cost`
+   *  rule in the system {@link buildSearch} hands to {@link lightestDerivation},
+   *  the same kind of rule as `fuse`/`recompose` — not an extension of
+   *  `src/derive`, and not a grounding mechanism.  It derives the answer THROUGH
+   *  a produced fact, without the intermediate key being named in the query.
    *
    *  A produced fact (`fact.node`) carries the subject the query reached but
    *  never wrote; the query's remaining tail names the relation to follow from
    *  it.  The pair IS a learned key — `"<entity><tail>"` — so the rule asks the
    *  store for that key's continuation and, when it exists, concludes with the
-   *  joined fact.  On the ladder it is one STEP: a direct edge, exactly as
-   *  following a literal continuation is.  Deterministic and point-probed
-   *  (`resolve` + `nextFirst`, no scan), so it adds no read that grows with the
-   *  corpus.  The move is visible in the rationale as its own act
-   *  (`classifyMove` reports `join-fact`), distinct from the byte-concatenating
-   *  `fuse`/`splice`. */
-  private *join(
+   *  fact reached through it.  On the ladder it is one STEP: a direct edge,
+   *  exactly as following a literal continuation is.  Deterministic and
+   *  point-probed (`resolve` + `nextFirst`, no scan), so it adds no read that
+   *  grows with the corpus.  The move is visible in the rationale as its own act
+   *  (`classifyMove` reports `derive-through`), distinct from the
+   *  byte-concatenating `fuse`/`splice` — and named `derive-through` rather than
+   *  `join` so it cannot be read as the confluence mechanism's `Provenance`. */
+  private *deriveThrough(
     fact: OutItem,
     queryBytes: Uint8Array,
     queryLen: number,
@@ -1180,7 +1188,7 @@ export class GraphSearch {
           cover: true,
           rec: true,
           node: nx[0],
-          join: true,
+          throughFact: true,
         },
         cost: STEP,
       };
@@ -1191,7 +1199,7 @@ export class GraphSearch {
    *  learnt connector (the in-search bridge), splitting (at a sub-leaf form
    *  boundary), bridging (cover(i) ∧ this → cover(j)), fusing with an adjacent
    *  finalised out, and — for a produced fact — JOINING the entity it contains
-   *  with the query's tail ({@link join}). */
+   *  with the query's tail ({@link deriveThrough}). */
   private *outRules(
     it: OutItem,
     ctx: {
@@ -1303,16 +1311,17 @@ export class GraphSearch {
     for (const r of outsByStart.get(it.j) ?? []) yield* this.fuse(it, r, ctx);
     for (const l of outsByEnd.get(it.i) ?? []) yield* this.fuse(l, it, ctx);
 
-    // ── JOIN (the A*LD extension) ───────────────────────────────────────
+    // ── DERIVE-THROUGH (one more rule of the DeductionSystem this module builds)
     // A produced fact may CONTAIN the subject the query never named; the query's
     // remaining tail then names the relation to follow FROM that subject.  The
     // pair (contained entity, tail) is itself a learned key, and its
-    // continuation is the derived answer — a genuine two-fact join, not the
+    // continuation is the derived answer — a genuine relational join, distinct
+    // from the confluence mechanism's `join` PROVENANCE — and not the
     // juxtaposition the cover produces when the intermediate key IS named.
     // Fired per finalized out with a node, so it is the search's own rule, on
     // the ladder, memoised by {@link key}, and bounded by the fact's own length.
     if (it.node !== undefined) {
-      yield* this.join(it, ctx.queryBytes, ctx.queryLen);
+      yield* this.deriveThrough(it, ctx.queryBytes, ctx.queryLen);
     }
   }
 

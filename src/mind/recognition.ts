@@ -520,18 +520,18 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       ): void => {
         // Any span at least one river window wide is worth a probe.  This used
         // to stop at `chainReach(W)` — "the chain already covers anything that
-        // short" — and that premise is false for a NESTED form: the chain grows
-        // single-byte leaf ids and gates each step on `findBranch(ids)`, which
-        // is null for a form the write side chunked (measured: "Gustaf
-        // Molander" embedded in "The director of Eva is Gustaf Molander." gains
-        // no branch at any prefix, so `resolveSpan` is never reached), and its
-        // INTERIOR reach is one chunk plus W, which can be shorter than the
-        // form.  The result was a dead zone: a form shorter than `chainReach`
-        // that neither starts on a fold cut nor ends on a node edge was
-        // unreachable by either tier — the exact site whose loss `tryChain`'s
-        // own note records as "the pivot dies with the site and multi-hop goes
-        // silent".  The interior pass below spends the same budget on those
-        // pairs.
+        // short" — and that premise does not hold for every embedded form: the
+        // chain grows single-byte leaf ids and SKIPS a prefix whose
+        // `findBranch(ids)` is null, so a form the write side stored as a nested
+        // tree rather than as a flat leaf-id branch is never `resolveSpan`ned
+        // (measured: "Gustaf Molander" embedded in "The director of Eva is
+        // Gustaf Molander." gains no branch at any prefix), and its INTERIOR
+        // reach is one chunk plus W, which can be shorter than the form.  The
+        // result was a dead zone: a form shorter than `chainReach` that neither
+        // starts on a fold cut nor ends on a node edge was unreachable by either
+        // tier — the exact site whose loss `tryChain`'s own note records as "the
+        // pivot dies with the site and multi-hop goes silent".  The interior
+        // pass below spends the same budget on those pairs.
         if (end - start < W) return;
         if (flatProbe(start, end) === null) {
           if (!canonBudget) return;
@@ -589,13 +589,15 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         if (i < prefixes.length && !spend(0, prefixes[i])) break;
         if (i < suffixes.length && !spend(suffixes[i], bytes.length)) break;
       }
-      // INTERIOR pairs, bounded by the same `chainReach(W)` the chain trusts —
-      // the dead zone the gate above used to leave: a form that neither starts
-      // on a fold cut nor ends on a node edge is exactly the one neither the
-      // chain (nested, `findBranch` misses) nor the two edge scans reach.  The
-      // pair count is `|endpoints| · chainReach(W)`, i.e. LINEAR in the query —
-      // the W² span bound is what keeps this from being the quadratic scan the
-      // budget note above describes (that one had no span bound at all).
+      // INTERIOR pairs within the same `chainReach(W)` span bound the chain
+      // trusts — the dead zone the gate above used to leave: a form that neither
+      // starts on a fold cut nor ends on a node edge is exactly the one neither
+      // the chain (nested, `findBranch` misses) nor the two edge scans reach.
+      // Only pairs whose span lies in [W, chainReach(W)] are PROBED, which is
+      // the O(n · W²) work that matters; the enumeration itself is the all-pairs
+      // scan, each pair a constant-time span check — and the span bound is what
+      // keeps this off the quadratic path the budget note above describes (that
+      // one had no span bound at all).
       {
         const reach = chainReach(W);
         for (const end of ordered) {

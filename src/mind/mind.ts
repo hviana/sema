@@ -410,8 +410,9 @@ export class Mind implements MindContext {
       // `makeKeyring`, `Space.rand` and the `Alphabet` below, so folding a
       // query under config.ts's default (42) against a store trained with
       // another seed (e.g. 7) lands in a DIFFERENT vector space than the one
-      // the artifact's nodes were folded into: recognition and resonance then
-      // read the wrong space and every answer degrades silently.  An explicit
+      // the artifact's nodes were folded into: recognition and resonance read
+      // the wrong space, and answers silently diverge — pinned by test/97,
+      // where only adoption reproduces the artifact's own answer.  An explicit
       // caller seed still wins — this only replaces the unconfigured default.
       if (explicitSeed === undefined && this.store.trainSeed !== null) {
         this.cfg.seed = this.store.trainSeed;

@@ -6,8 +6,9 @@
 // authoritative for the artifact.  The seed feeds `makeKeyring`, `Space.rand`
 // and the `Alphabet` in the Mind constructor: folding a query under any other
 // seed lands in a DIFFERENT vector space than the one the artifact's nodes were
-// folded into, so recognition and resonance read the wrong space and every
-// answer degrades silently.
+// folded into, so recognition and resonance read the wrong space and answers
+// silently diverge — this file pins that only adoption reproduces the
+// artifact's own answer.
 //
 // The store recovers `train.D` and `geometry.maxGroup` from its own metadata at
 // open; `train.seed` must be recovered the same way, and a Mind that did not

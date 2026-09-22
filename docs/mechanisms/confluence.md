@@ -30,6 +30,13 @@ One currency (`mind/graph-search.ts`): `STEP=1`, `CONCEPT=10`, `PASS=1000`/byte.
 `moves = STEP·slots + CONCEPT` (floor `3·STEP`: two constraints + meet). Weight
 `moves + PASS·unaccounted` compared at `STEP` grade (`pipeline.ts:think`).
 
+## Provenance
+
+`join` — confluence is the mechanism that OWNS this provenance
+(`src/mind/mechanisms/confluence.ts` sets it when the independent evidence
+streams meet at one anchor).  It is not cover's: cover reports `cover` for every
+derivation it wins (see `docs/mechanisms/cover.md`).
+
 ## Pins
 
 `test/32-confluence.test.mjs` — two-constraint intersection, order invariance,
