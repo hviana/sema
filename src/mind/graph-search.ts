@@ -23,7 +23,7 @@ import {
   type Rule,
 } from "../derive/src/index.js";
 import type { Store } from "../store.js";
-import { bytesEqual, concat2, concatBytes, latin1 } from "../bytes.js";
+import { bytesEqual, concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { GraphSearchHost } from "./types.js";
 
 import { ALL } from "./types.js";
@@ -1165,22 +1165,40 @@ export class GraphSearch {
     // The entity candidates are the forms the fact's own bytes CONTAIN — the
     // same recogniser the query went through, so the evidence standard is the
     // query's.  A byte atom is never a subject; the fact's own node is the span
-    // itself, not an entity inside it.
-    for (const site of this.host.recogniseSpan(fact.bytes).sites) {
-      if (site.payload < 0 || site.payload === fact.node) continue;
-      // The admission predicate has ONE definition — `traverse.ts`'s
-      // `leadsSomewhere` (edge or halo).  The host LENDS it when it can (Mind
-      // does, with the response-scoped struct cache); a bare host falls back to
-      // the raw-store probe, so the search stays host-based.  Same semantics
-      // either way; the hook spares the repeated probe and keeps the predicate
-      // from being redefined here.
-      const leads = this.host.leadsSomewhere !== undefined
-        ? this.host.leadsSomewhere(site.payload)
-        : this.store.hasNext(site.payload) || this.store.hasHalo(site.payload);
-      if (!leads) continue;
-      const key = this.host.resolve(
-        concat2(this.store.bytesPrefix(site.payload, ALL), tail),
+    // itself, not an entity inside it.  The admission predicate has ONE
+    // definition — `traverse.ts`'s `leadsSomewhere` (edge or halo); the host
+    // LENDS it when it can (Mind does, with the response-scoped struct cache),
+    // and a bare host falls back to the raw-store probe, so the search stays
+    // host-based.
+    const leading = this.host.recogniseSpan(fact.bytes).sites.filter((s) =>
+      s.payload >= 0 && s.payload !== fact.node &&
+      (this.host.leadsSomewhere !== undefined
+        ? this.host.leadsSomewhere(s.payload)
+        : this.store.hasNext(s.payload) || this.store.hasHalo(s.payload))
+    );
+    // …then prefer the entity the query did NOT name, and the MAXIMAL one.  The
+    // join exists to reach the subject the query never wrote, so:
+    //   • a candidate the query already contains is the query's OWN subject, and
+    //     following its fact answers about that subject instead of the inferred
+    //     one (measured: "Gustaf Molander spouse date of death" gave Gustaf's
+    //     date of death, not his spouse's);
+    //   • a candidate contained in a longer one is not the entity the fact
+    //     introduces ("Timur" must not win over "Timur Bekmambetov").
+    // Byte work over bytes already read, and the pruning REMOVES the
+    // resolve()/nextFirst() probes these candidates would have paid.
+    const candidates = leading
+      .map((s) => ({
+        payload: s.payload,
+        bytes: this.store.bytesPrefix(s.payload, ALL),
+      }))
+      .filter((c) => indexOf(queryBytes, c.bytes, 0) < 0)
+      .filter((c, _i, all) =>
+        !all.some((o) =>
+          o.bytes.length > c.bytes.length && indexOf(o.bytes, c.bytes, 0) >= 0
+        )
       );
+    for (const c of candidates) {
+      const key = this.host.resolve(concat2(c.bytes, tail));
       if (key === null) continue;
       const nx = this.store.nextFirst(key, 1);
       if (nx.length === 0) continue;

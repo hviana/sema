@@ -97,3 +97,41 @@ test("naming the intermediate does not need derive-through — the cover reads i
   );
   await store.close();
 });
+
+/** The TRAP fixture: the query's OWN subject carries the asked relation too, so
+ *  a join that follows the subject answers about the subject. */
+const TRAP_CHAIN = [
+  ["Eiffel Tower country", "The country of Eiffel Tower is France."],
+  ["France capital", "The capital of France is Paris."],
+  ["France", "The capital of France is Paris."],
+  ["Eiffel Tower capital", "The capital of Eiffel Tower is Berlin."],
+  ["Eiffel Tower", "The country of Eiffel Tower is France."],
+];
+
+async function trappedFlip() {
+  const store = new SQliteStore({ path: ":memory:", D: 1024 });
+  const mind = new Mind({ seed: 7, store });
+  await mind.ingest(TRAP_CHAIN);
+  await mind.ingest(Array.from({ length: 4300 }, (_, i) => filler(i)));
+  return { store, mind };
+}
+
+test("the join answers about the entity the query did NOT name, not the query's own subject", async () => {
+  // MEASURED on the pre-change tree: the answer was "The capital of Eiffel
+  // Tower country is Berlin." — the join followed the query's OWN subject
+  // (Eiffel Tower), which carries a "capital" fact of its own, instead of the
+  // entity the produced fact introduces (France).  Both candidates are contexts
+  // joined by the same relation, so only the preference decides.
+  const { store, mind } = await trappedFlip();
+  const moves = [];
+  const out = await mind.respondText(
+    "Eiffel Tower country capital",
+    (s) => moves.push(s.mechanism[s.mechanism.length - 1]),
+  );
+  assert.equal(out.trim(), "The capital of France is Paris.");
+  assert.ok(
+    !out.includes("Eiffel Tower"),
+    `the answer must be about the inferred entity, got ${JSON.stringify(out)}`,
+  );
+  await store.close();
+});

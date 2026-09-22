@@ -517,7 +517,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         start: number,
         end: number,
         canonBudget: boolean,
-      ): void => {
+      ): boolean => {
         // Any span at least one river window wide is worth a probe.  This used
         // to stop at `chainReach(W)` — "the chain already covers anything that
         // short" — and that premise does not hold for every embedded form: the
@@ -531,14 +531,17 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         // starts on a fold cut nor ends on a node edge was unreachable by either
         // tier — the exact site whose loss `tryChain`'s own note records as "the
         // pivot dies with the site and multi-hop goes silent".  The interior
-        // pass below spends the same budget on those pairs.
-        if (end - start < W) return;
+        // pass below spends the same budget on those pairs.  Returns whether it
+        // emitted, so a caller can retry a trimmed edge on the miss path only.
+        if (end - start < W) return false;
         if (flatProbe(start, end) === null) {
-          if (!canonBudget) return;
-          if (!canonAdmits(start, end)) return;
+          if (!canonBudget) return false;
+          if (!canonAdmits(start, end)) return false;
         }
         const id = resolveSpan(start, end);
-        if (id !== null) emit(start, end, id);
+        if (id === null) return false;
+        emit(start, end, id);
+        return true;
       };
       // A CUMULATIVE BYTE BUDGET, SPENT SHORTEST-SPAN-FIRST.
       //
@@ -574,10 +577,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         const span = end - start;
         const afford = span <= budget;
         if (afford) budget -= span;
-        probe(start, end, afford);
-        // Always keep walking: the exact route is unbudgeted, so running out
-        // of canon budget must not stop the scan.
-        return true;
+        return probe(start, end, afford);
       };
       const prefixes = ordered.filter((e) => e > 0).sort((a, b) => a - b);
       const suffixes = ordered
@@ -585,9 +585,24 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         .sort((a, b) => b - a);
       for (let i = 0; i < Math.max(prefixes.length, suffixes.length); i++) {
         // Interleaved so neither edge starves the other when the budget runs
-        // out — a query can carry a trained form at either end.
-        if (i < prefixes.length && !spend(0, prefixes[i])) break;
-        if (i < suffixes.length && !spend(suffixes[i], bytes.length)) break;
+        // out — a query can carry a trained form at either end.  The scan never
+        // stops on a miss: the exact route is unbudgeted, so running out of
+        // canon budget must not stop it.
+        if (i < prefixes.length) spend(0, prefixes[i]);
+        if (i < suffixes.length) {
+          const s = suffixes[i];
+          // An edge form can end ONE byte before the edge does: a query often
+          // closes with a separator ("…is Timur Bekmambetov.") that belongs
+          // BETWEEN forms, and the text canonicalizer passes punctuation through,
+          // so the full-edge probe can never match it.  Retry the trimmed edge
+          // ON THE MISS PATH ONLY — self-verifying (resolve decides, so a wrong
+          // trim can never emit), the same ±1 edge-trim discipline the canon-miss
+          // fallback above already trusts, and the hit path pays nothing.  A form
+          // LONGER than `chainReach` at the sentence end (measured: "Timur
+          // Bekmambetov", 17 bytes) is recovered only here — the interior pass is
+          // capped at `chainReach`.
+          if (!spend(s, bytes.length)) spend(s, bytes.length - 1);
+        }
       }
       // INTERIOR pairs within the same `chainReach(W)` span bound the chain
       // trusts — the dead zone the gate above used to leave: a form that neither

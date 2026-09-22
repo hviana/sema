@@ -113,3 +113,36 @@ test("recognise(): an INTERIOR form at a non-cut offset is recovered, not only a
   assert.deepEqual([hit.start, hit.end], [23, 38]);
   await m.store.close();
 });
+
+test("recognise(): a form LONGER than chainReach is recovered past a trailing separator", async () => {
+  // A 17-byte object (17 > chainReach(W) = 16) at the end of a sentence is
+  // outside the interior pass's span bound, and it is not a suffix of the span
+  // because a sentence-final separator (".") follows it — and the text
+  // canonicalizer passes punctuation through, so the full-edge probe can never
+  // match.  MEASURED on the pre-change tree: no site for the object (only the
+  // shorter sub-form "Timur" surfaced); without the period the object WAS a
+  // suffix and was found.  The edge tier now retries the trimmed edge on the
+  // MISS path only, so the hit path pays nothing.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["xavier director", "The director of xavier is averyverylongname."],
+    ["averyverylongname", "The spouse of averyverylongname is zoe."],
+  ]);
+  const expected = resolve(m, enc("averyverylongname"));
+  assert.ok(
+    expected !== null,
+    "sanity: the object must resolve standalone",
+  );
+  assert.ok(
+    "averyverylongname".length > 16,
+    "sanity: the object must be longer than chainReach(W)=16",
+  );
+
+  const rec = recognise(m, enc("The director of xavier is averyverylongname."));
+  assert.ok(
+    rec.sites.some((s) => s.payload === expected),
+    `expected a site for the >chainReach object past the trailing separator, got: ` +
+      JSON.stringify(rec.sites.map((s) => [s.start, s.end])),
+  );
+  await m.store.close();
+});
