@@ -765,7 +765,15 @@ export function chooseNext(
   // for the prevCount calls in the loop above, never for extra rItemShort
   // byte-reads.
   if (ctx.trace) {
-    const others = capped.filter((c) => c !== best);
+    // A BOUNDED SAMPLE, AND THE COUNT.  The step used to carry EVERY candidate
+    // it weighed — measured on the trained store, 1559 out-items in one step
+    // (hubBound's own size) and 1082 in another (the hub's degree).  The
+    // rationale's job is to explain the CHOICE, and the count is what says how
+    // wide the field was; the declared candidate budget (`recallQueryK`) is what
+    // bounds the sample, so no number is invented here.
+    const others = capped
+      .filter((c) => c !== best)
+      .slice(0, ctx.cfg.recallQueryK);
     ctx.trace.step(
       "disambiguate",
       [rItemShort(ctx, best, "halo-evidence", bestSupport)],
