@@ -398,10 +398,24 @@ export class Mind implements MindContext {
       } = (optsOrCfg ?? {}) as MindOptions;
       this._canonOpt = optsCanon ?? null;
       this._profile = optsProfile === true;
+      // `explicitSeed` is read BEFORE resolveConfig folds the default in, so
+      // the store can be consulted only when the caller did not choose.
+      const explicitSeed = (rest as Partial<MindConfig>).seed;
       this.cfg = resolveConfig(rest as Partial<MindConfig>);
       this.store = optsStore ?? new SQliteStore({
         maxGroup: this.cfg.geometry.maxGroup,
       });
+      // THE ARTIFACT'S SEED GOVERNS.  `train.seed` is recovered by the store at
+      // open, exactly like `train.D` and `geometry.maxGroup`.  The seed feeds
+      // `makeKeyring`, `Space.rand` and the `Alphabet` below, so folding a
+      // query under config.ts's default (42) against a store trained with
+      // another seed (e.g. 7) lands in a DIFFERENT vector space than the one
+      // the artifact's nodes were folded into: recognition and resonance then
+      // read the wrong space and every answer degrades silently.  An explicit
+      // caller seed still wins — this only replaces the unconfigured default.
+      if (explicitSeed === undefined && this.store.trainSeed !== null) {
+        this.cfg.seed = this.store.trainSeed;
+      }
       userMechanisms = userMechs ?? [];
       userFactories = userFacts ?? [];
     }

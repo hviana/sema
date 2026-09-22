@@ -401,6 +401,25 @@ export class SQliteStore extends AbstractStore implements Store {
       }
     }
 
+    // Recover the TRAINING seed exactly as D and maxGroup are recovered.  The
+    // seed seeds the alphabet and the seat keyring (mind.ts), so a Mind that
+    // folds a query under any other seed lands in a different vector space
+    // than the one this artifact's nodes were folded into — recognition,
+    // resonance and every mechanism downstream then read the wrong space.  The
+    // trainer persists `train.seed` and refuses to resume against a store
+    // trained with a different one (example/train_base/main.ts), so the value
+    // is authoritative for this artifact.  Absent on a store that was never
+    // trained, where the caller's configured seed stands.
+    {
+      const row = this.sqlite.prepare(
+        "SELECT val FROM meta WHERE key = 'train.seed'",
+      ).get() as { val: string } | undefined;
+      if (row) {
+        const s = Number(row.val);
+        if (Number.isInteger(s) && s >= 0) this._trainSeed = s;
+      }
+    }
+
     // Persist maxGroup to meta when opening a FRESH store (no rows yet) so
     // indexSubtree always sees the training-time value even when the store is
     // accessed without a Mind / full snapshot.

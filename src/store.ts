@@ -285,6 +285,17 @@ export class BoundedMap<K, V> {
 export interface Store {
   readonly D: number;
 
+  /** The seed the artifact was TRAINED with, recovered from the store's own
+   *  `train.seed` metadata, or null for a store that was never trained.
+   *
+   *  This is not decoration: the seed feeds the alphabet and the seat keyring
+   *  (see the Mind constructor), so folding a query under any other seed lands
+   *  in a different vector space than the one the artifact's nodes were folded
+   *  into.  A Mind opening a trained store MUST adopt this seed unless the
+   *  caller explicitly overrides it — the same discipline that recovers
+   *  `train.D` and `geometry.maxGroup` from the metadata. */
+  readonly trainSeed: number | null;
+
   /** The work accumulator for the inference call in flight, or null.  The
    *  Mind attaches one per profiled response and detaches it after (see
    *  src/meter.ts).  A store MUST only ever write to it — no read may reach
@@ -917,6 +928,10 @@ export abstract class AbstractStore implements Store {
 
   protected _D: number;
   protected _maxGroup: number;
+  /** `train.seed` recovered by the backend at open, or null when the store was
+   *  never trained.  A backend that omits it simply reports null, which leaves
+   *  the caller's configured seed in force. */
+  protected _trainSeed: number | null = null;
   protected readonly minHaloMass: number;
   protected readonly efSearch: number;
   protected readonly overfetch: number;
@@ -1089,6 +1104,13 @@ export abstract class AbstractStore implements Store {
 
   get D(): number {
     return this._D;
+  }
+
+  /** The seed the artifact was trained with, recovered from `train.seed` at
+   *  open.  Null for a store that was never trained.  See
+   *  {@link Store.trainSeed} for why this must govern inference. */
+  get trainSeed(): number | null {
+    return this._trainSeed;
   }
 
   /** Await the async initialisation performed by the concrete constructor. */
