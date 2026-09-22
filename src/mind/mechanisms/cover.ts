@@ -98,6 +98,7 @@ export async function resolveConnectors(
     });
   const bridgePair = async (l: number, r: number) => {
     if (l === r || links.has(l + "," + r)) return;
+    if (ctx.meter) ctx.meter.coverBridges++;
     const link = await bridge(ctx, read(ctx, l), read(ctx, r));
     if (link !== null) links.set(l + "," + r, link);
   };
@@ -134,6 +135,10 @@ export async function resolveConnectors(
       // plus one W-quantum of glue per joint — pass that allowance so the
       // bridge's phrase-scale cap admits the whole learnt run.
       const allowance = middleBytes + (m + 1) * W;
+      if (ctx.meter) {
+        ctx.meter.coverBridges++;
+        ctx.meter.coverAllowanceBytes += allowance;
+      }
       const interior = await bridge(
         ctx,
         first.bytes,

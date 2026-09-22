@@ -233,6 +233,20 @@ export class Meter {
    *  across that fact. */
   pivotSteps = 0;
 
+  // ── Mind: the cover's connector assembly (LIMIT) ────────────────────────
+  //
+  // The cover's `run` is 91% of a hub query's time (`"Hello."`: 2.7 s of 3.0 s)
+  // and holds its ~270 MB peak, and none of it was countable: `searchPushes`
+  // and `candidates` do not see the connector assembly.  These two counters are
+  // the untraced view of it.
+  /** `bridge` calls the cover makes assembling connectors (pairwise + n-ary). */
+  coverBridges = 0;
+  /** Σ byte-allowance the n-ary interior passes those bridges.  The allowance
+   *  is `middleBytes + (m + 1) * W` — every intermediate answer's bytes plus
+   *  one window of glue per joint — so it is the quantity that grows with a hub
+   *  query's answers, and the first thing to read when the peak moves. */
+  coverAllowanceBytes = 0;
+
   // ── Phases ──────────────────────────────────────────────────────────────
 
   private readonly _phases = new Map<string, PhaseCost>();
