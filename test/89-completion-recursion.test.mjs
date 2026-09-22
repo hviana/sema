@@ -79,11 +79,27 @@ const mix = (x) => {
 
 /** Four-word windows of the repo's own English prose.  Code fences, inline
  *  code and link targets are stripped so what is left is language, which is
- *  where the fragment overlap lives. */
+ *  where the fragment overlap lives.
+ *
+ *  Reads the WHOLE tree, not just the root: the root prose alone falls below
+ *  the non-vacuity guard below once the top-level documents are reorganised,
+ *  and a release that fails because the documentation moved is a false alarm.
+ *  `.git`/`node_modules` are skipped; the guard still refuses to run on a repo
+ *  whose prose has genuinely gone. */
 function fragments() {
   const out = [];
-  for (const f of readdirSync(REPO).filter((f) => f.endsWith(".md")).sort()) {
-    let t = readFileSync(join(REPO, f), "utf8");
+  const files = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".md")) files.push(p);
+    }
+  };
+  walk(REPO);
+  for (const f of files.sort()) {
+    let t = readFileSync(f, "utf8");
     t = t.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
     t = t.replace(/\[[^\]]*\]\([^)]*\)/g, " ");
     t = t.toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ");
@@ -140,7 +156,7 @@ const SIZES = [750, 1000, 1500];
 test("completion recursion: per-query work does not grow with the corpus", async () => {
   assert.ok(
     FRAG.length > 4000,
-    `only ${FRAG.length} prose fragments found in ${REPO}/*.md — this test ` +
+    `only ${FRAG.length} prose fragments found under ${REPO} — this test ` +
       `draws its corpus from the repo's own documentation; with the prose gone ` +
       `it can no longer exercise the completion recursion at all`,
   );
