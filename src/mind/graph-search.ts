@@ -412,7 +412,11 @@ export class GraphSearch {
     // through (completion is cover, recursively — see {@link recompleteNode}).
     this.recompleteOpen.clear();
     this.recompleteMemo = new Map<number, Uint8Array | null>();
-    return this.solve(
+    // The top cover's derivation sink is threaded into every nested completion
+    // so the recompositions a produced form needs are reported in the same
+    // trace instead of vanishing after the first layer.
+    this.derivationSink = onDerivation;
+    const solved = this.solve(
       queryLen,
       {
         sites,
@@ -426,8 +430,17 @@ export class GraphSearch {
       computedResults,
       onDerivation,
     );
+    // Deepening runs HERE, once, on the derivation the top cover CHOSE — never
+    // inside the nested solve a completion runs.  Nesting the deepening is what
+    // made per-query cost track how densely the corpus interconnects the forms
+    // passed through: every re-cover fanned out into the whole corpus's
+    // continuations instead of following the chain the answer itself licensed.
+    // With deepening only at the top, `recompleteNode` walks the accepted chain
+    // one link at a time (its own memo and stack), so the work is the answer's.
+    return solved === null
+      ? null
+      : { segs: this.deepen(solved.segs), cost: solved.cost };
   }
-
   /** Build the deduction system for one span and return its lightest cover's
    *  chosen spans — the SINGLE routine the query and every produced composite
    *  run through.  `recognition` carries the span's recognised forms; the query
@@ -484,7 +497,7 @@ export class GraphSearch {
       onDerivation(readDerivation(derivation, substitutions !== undefined));
     }
     return derivation
-      ? { segs: this.deepen(readCover(derivation)), cost: derivation.cost }
+      ? { segs: readCover(derivation), cost: derivation.cost }
       : null;
   }
 
@@ -974,53 +987,49 @@ export class GraphSearch {
    *  and recompose into a deeper learnt form (→ FINAL).  This is why a single
    *  edge-target needs no bespoke logic — it routes back through {@link solve}.
    *
-   *  Re-recognition (not the node's tree children) is what surfaces the learnt
-   *  parts: content-defined chunking may cut "p1 p2" as "p1 p"|"2", so only
-   *  recognising the bytes recovers p1 and p2 as the forms the graph knows.
+   *  The produced bytes are decomposed by the machinery that owns their shape:
+   *  the span's LEAVES and SPLITS drive the split rule, which resolves each half
+   *  through findLeaf — so a part that straddles a content-defined cut is still
+   *  recovered even though the node's tree children need not align with the
+   *  learnt parts (the fold cuts "p1 p2" as "p1 p"|"2").  Recognised SITES are
+   *  filtered to the node's own kids: a produced form is completed out of what
+   *  it was built from, never by re-recognising arbitrary forms inside it.  That
+   *  filter is load-bearing — a 37-byte dialogue sentence carries seven hub
+   *  openers, and re-covering them chained through the corpus's whole
+   *  continuation population: 2.5 GB and OOM for `respond("hi.")`.
    *
    *  The recovered answer is accepted only when it MOVED and names a LEARNT node
    *  ({@link resolve}) — the graph itself gates against re-expanding a contained
-   *  form ("ice is cold" ⊅→ "ice is cold is cold").
+   *  form ("ice is cold" ⊅→ "ice is cold is cold").  An ACCEPTED completion is
+   *  then re-covered in turn, so a chain runs as deep as the graph licenses; a
+   *  rejected one ends its branch, so no work is spent past it.
    *
-   *  Termination is STRUCTURAL: a produced node is re-covered once, never inside
-   *  another re-cover (see the guard below), so one cover pays at most one
-   *  nested {@link solve} per distinct produced node it actually reaches, and
-   *  {@link recompleteMemo} collapses a repeat to nothing.
-   *
-   *  This comment used to argue termination from "distinct node ids are finite
-   *  and each finished completion is memoised".  That is a bound of N — the one
-   *  AGENTS §2.8 forbids — and it was load-bearing, not pedantic: nested, the
-   *  recursion reached depth 331 and 9.1 GB on an 18.9M-node store for a 2-byte
-   *  query and did not terminate, which is what killed a 5 h training run at its
-   *  checkpoint recall.  Guard: test/89-completion-recursion.test.mjs. */
+   *  Termination and cost are STRUCTURAL: {@link recompleteOpen} is the chain's
+   *  stack (membership is the cycle guard), {@link recompleteMemo} re-covers each
+   *  node at most once, only accepted completions recurse, and every level
+   *  deepens only the top derivation — so a cover pays for the chain it finds,
+   *  not for how densely the corpus interconnects the forms it passes through.
+   *  Guard: test/89-completion-recursion.test.mjs. */
   private recompleteNode(node: number): Uint8Array | null {
     if (!this.host.recogniseSpan) return null;
     const memo = this.recompleteMemo;
     if (memo.has(node)) return memo.get(node) ?? null;
-    // ONE re-cover per produced node — never a re-cover inside a re-cover.
-    //
     // Re-covering is how a PRODUCED node's bytes enter the search at all: the
-    // cover machinery otherwise only ever sees the QUERY's spans.  That is
-    // needed once.  The alternation of decomposition and recomposition that
-    // follows — parts rewriting several times, siblings fusing, a recomposition
-    // feeding another — is the main search's own fuse/`rcmp` work, not this
-    // recursion's: 15-decomposition-gap §9–§12 all pass with this method
-    // disabled outright, and only §6 (the produced composite "p1 p2", whose
-    // bytes nothing else brings in) needs it.
+    // cover machinery otherwise only ever sees the QUERY's spans.  The recursion
+    // is allowed to nest — a chain IS nested completions — but it is bounded so
+    // the work stays the ANSWER's (AGENTS §2.8): the stack below is the cycle
+    // guard, only ACCEPTED completions recurse, and the nested solve decomposes
+    // the form by its own shape instead of re-recognising the corpus's hub forms
+    // inside it.
     //
-    // Nesting it was the defect.  Each level is a full {@link solve} with its
-    // own agenda and chart, exploring from a node the answer never asked about,
-    // so per-query cost tracked how densely the corpus interconnects the forms
-    // passed through — the growth AGENTS §2.8 forbids.  Measured on an
-    // 18.9M-node store: depth 331 and 9.1 GB for a 2-byte query, not
-    // terminating; and on the guard corpus every one of 125 nested re-covers
-    // was REJECTED by the resolve() gate below, expanding a 70-byte node into a
-    // 374-byte concatenation that names nothing.  All of it was waste.
-    //
-    // `recompleteOpen` is that stack, so a non-empty stack means we are already
-    // inside one.  This subsumes the old cycle guard: a node cannot recurse
-    // back into itself when nothing recurses at all.
-    if (this.recompleteOpen.size > 0) return null;
+    // `recompleteOpen` IS the stack of the chain being built, so MEMBERSHIP is
+    // the cycle guard: a node already open on this chain cannot re-enter it.
+    // Testing the NODE — not the stack's size — is what lets a completion
+    // recurse as deep as the graph licenses, exactly the intrinsic convergence
+    // {@link solve}'s contract states.  Work stays the answer's because the
+    // recursion only ever advances through an ACCEPTED completion (below) and
+    // {@link cover} deepens only the top derivation.
+    if (this.recompleteOpen.has(node)) return null;
 
     // A leaf or single-child node has no parts to recompose; skip before the
     // costly recognition so a plain terminal answer pays nothing.
@@ -1033,20 +1042,51 @@ export class GraphSearch {
     const bytes = this.store.bytesPrefix(node, ALL);
     this.recompleteOpen.add(node);
     try {
-      // Completion is cover: re-cover the produced bytes through the SAME solve
-      // routine, recognising them afresh.  No concepts/connectors (those need the
-      // caller's async pre-resolution) — the recursion explores edges and fusion,
-      // which is what a deeper rewrite chain is made of.
+      // Completion is cover, but the produced form is decomposed by its own
+      // shape.  The LEAVES and SPLITS are kept whole, so the split rule still
+      // recovers a part that straddles a content-defined cut (the fold cuts
+      // "p1 p2" as "p1 p"|"2", and findLeaf still resolves p1 and p2).  The
+      // recognised SITES are filtered to the node's own kids, because
+      // re-recognising arbitrary forms inside the bytes is what let a hub-heavy
+      // utterance explode: a 37-byte dialogue sentence carries seven hub
+      // openers, and re-covering them chained through the corpus's whole
+      // continuation population (2.5 GB and OOM for `"hi."`).  No
+      // concepts/connectors either (those need the caller's async
+      // pre-resolution) — the recursion follows edges and fusion, which is what
+      // a deeper rewrite chain is made of.
+      const rec = this.host.recogniseSpan(bytes);
+      const kids = new Set(nrec.kids);
       const solved = this.solve(
         bytes.length,
-        this.host.recogniseSpan(bytes),
+        {
+          sites: rec.sites.filter((s) => kids.has(s.payload)),
+          leaves: rec.leaves,
+          splits: rec.splits,
+          starts: rec.starts,
+        },
         new Map(),
+        undefined,
+        undefined,
+        undefined,
+        this.derivationSink,
       );
       const answer = solved && concatBytes(solved.segs.map((s) => s.bytes));
-      const out = (answer !== null && !bytesEqual(answer, bytes) &&
-          this.host.resolve(answer) !== null)
-        ? answer
+      // ACCEPT, then CONTINUE THE CHAIN — but only along an accepted
+      // completion.  A re-cover whose result is not itself a learnt node (the
+      // 70→374-byte concatenations that name nothing) ends its branch here
+      // instead of recursing into work the answer never asked for, and an
+      // accepted one names a node that is re-covered in turn.  That is what
+      // keeps a deep chain possible while the work stays proportional to the
+      // chain rather than to the corpus's interconnections.
+      const composed = answer !== null && !bytesEqual(answer, bytes)
+        ? this.host.resolve(answer)
         : null;
+      if (composed === null) {
+        memo.set(node, null);
+        return null;
+      }
+      const deeper = this.recompleteNode(composed);
+      const out = deeper ?? answer!;
       memo.set(node, out);
       return out;
     } finally {
@@ -1058,13 +1098,19 @@ export class GraphSearch {
    *  outs of a long query re-cover each distinct node at most once); reset at the
    *  top of {@link cover}. */
   private recompleteMemo = new Map<number, Uint8Array | null>();
-  /** The node currently being re-completed — the recursion stack, and so also
-   *  the nesting depth.  {@link recompleteNode} refuses to start while it is
-   *  non-empty (one re-cover per produced node, never one inside another), which
-   *  is what keeps a query's cost proportional to its answer rather than to the
-   *  corpus; it therefore holds at most one id.  A Set, not a flag, because it
-   *  states WHICH node is open — the invariant a reader needs to check the
-   *  guard, and what makes the old cycle-guard reading still hold. */
+  /** The derivation sink of the TOP cover, threaded into every nested
+   *  completion so a produced form's own recompositions are reported in the
+   *  same trace instead of vanishing after the first layer.  Undefined when
+   *  nothing is inspecting, so an uninspected response pays nothing. */
+  private derivationSink?: (steps: DerivationStep[]) => void;
+  /** The chain of nodes currently being re-completed — the recursion STACK.
+   *  MEMBERSHIP is the cycle guard ({@link recompleteNode} refuses a node
+   *  already open on this chain), which is what lets a completion recurse as
+   *  deep as the graph licenses while the work stays the answer's: the
+   *  recursion only advances through an ACCEPTED completion, every produced
+   *  form is decomposed into its own kids, and the memo re-covers each node at
+   *  most once per cover.  A Set, not a flag, because it states WHICH node is
+   *  open — the invariant a reader needs to check the guard. */
   private recompleteOpen = new Set<number>();
 
   /** out(i,j,bytes,…): index it for the binary rules, then offer splicing a
