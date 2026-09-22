@@ -615,7 +615,23 @@ export async function counterfactualTransfer(
       fwd !== null && indexOf(answer, fwd, 0) < 0 &&
       !restatesQuery(query, fwd)
     ) {
-      answer = concat2(answer, fwd);
+      // THROUGH THE SHARED JOINER, not a bare concatenation.
+      //
+      // `joinWithBridge` is the composition step every out-of-search assembly
+      // shares (multi-topic fusion, CAST's substitution and comparison): it
+      // asks the corpus for a learnt connector between the pieces and, on a
+      // miss, joins them BARE **and says so** — the `bridgeMiss` step (see
+      // resonance.ts).  This site bypassed it, and that is the whole of the
+      // gluing the study measured: `"Steel is hard"` + `"wet"` came back as
+      // `"hardwet"`, `"eva director father"` + `"The father of…"` as
+      // `"fatherThe"` — compositions no rationale could show, because the one
+      // step that made them left no trace.
+      //
+      // Routing it through the shared joiner is the instrumentation fix that
+      // comes first: a bare join stays possible (the house rule is "joined
+      // bare, never silent") but it is now VISIBLE, and an attested connector
+      // is used when the corpus has one.
+      answer = await joinWithBridge(ctx, answer, fwd);
     }
     ctx.trace?.step(
       "projectCounterfactual",
