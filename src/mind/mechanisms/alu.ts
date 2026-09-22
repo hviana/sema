@@ -16,14 +16,16 @@ import type { PipelineMechanism } from "../pipeline-mechanism.js";
 export function aluToMechanism(alu: Alu): PipelineMechanism {
   return {
     name: "alu",
-    // Not a cover derivation: cover.ts composes an answer by walking
-    // recognised query STRUCTURE; the ALU evaluates a recognised expression
-    // to its authoritative result and hands the bytes back untouched. It
-    // shares cover's near-zero floor (computation always wins, masked into
-    // cover's own search — see mechanisms/cover.ts), but the candidate this
-    // produces is not one of cover's derivations, so it carries its own
-    // honest label, the same way extract/cast/recall each carry theirs.
-    provenance: "alu",
+    // The computation is GROUNDED BY COVER: this adapter's `parse` puts the
+    // authoritative span into `pre.computed`, cover masks it, and cover's
+    // derivation is what carries the answer out — measured, every computed
+    // probe reports provenance `cover`. So the adapter declares the core
+    // provenance the answer actually has. The ALU's own act is named where it
+    // belongs, in the TRACE (`evalComputation`, emitted by its `parse`), not in
+    // the provenance: a mechanism may not invent a label outside the pipeline's
+    // `Provenance` vocabulary, because post-grounding gates on that vocabulary
+    // (see the `provenance` contract in pipeline-mechanism.ts).
+    provenance: "cover",
     parse: (query) => alu.parse(query),
     async floor(_ctx, _query, pre, _worthRunning) {
       return pre.computed.length > 0 ? 0 : null;

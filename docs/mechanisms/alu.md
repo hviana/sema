@@ -66,8 +66,14 @@ forms need no host; meaning-based paths do.
 
 ## Provenance
 
-Grounded ALU answers carry `alu`; `computeExtensions`/`evalComputation` trace
-the expression and result.
+`cover`. A computation is grounded by cover: this adapter's `parse` puts the
+authoritative span into `pre.computed`, cover masks it, and cover's derivation
+carries the answer out (measured: 9 of 9 computed probes report `cover` —
+`137*24`, `1000 - 421`, `15 * 7`, `3+3`, `5*5`). The adapter therefore declares
+`cover` — a mechanism may not invent a label outside the pipeline's `Provenance`
+vocabulary, because post-grounding gates on it (see `pipeline-mechanism.ts`).
+The ALU's own act is named in the TRACE (`evalComputation`/`computeExtensions`),
+not in the provenance.
 
 ## Pins
 

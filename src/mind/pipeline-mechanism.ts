@@ -712,7 +712,13 @@ export interface PipelineMechanism {
   /** Stable identifier for trace/debug. */
   readonly name: string;
 
-  /** Which provenance tag the pipeline attaches to this mechanism's answers. */
+  /** Which provenance tag the pipeline attaches to this mechanism's answers.
+   *  DECLARED, not free-form: the pipeline narrows it to its own `Provenance`
+   *  vocabulary (pipeline.ts), because post-grounding gates on that vocabulary
+   *  — so an adapter declares one of those values, never a label of its own.
+   *  The type is `string` only because a mechanism imports nothing from
+   *  `pipeline.ts` (constraint 1, decoupling); the contract is semantic, and
+   *  every shipped adapter honours it (see mechanisms/alu.ts). */
   readonly provenance: string;
 
   /** Parse authoritative spans BEFORE the grounding loop.
