@@ -71,6 +71,16 @@ export interface GraphSearchHost {
    *  uses it rather than re-probing the store, which keeps the predicate
    *  single-defined AND memoised on the response-scoped struct cache. */
   leadsSomewhere?(id: number): boolean;
+  /** Report a SEARCH REFUSAL into the rationale — the channel AGENTS §6
+   *  requires: a callback threaded through a call chain must FEED the
+   *  rationale, the way `GraphSearch`'s `onDerivation` feeds `traceDerivation`,
+   *  never a channel of its own.  Optional, so a bare host stays silent rather
+   *  than crashing. */
+  reportSearch?(
+    name: string,
+    parts: ReadonlyArray<Uint8Array>,
+    note: string,
+  ): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

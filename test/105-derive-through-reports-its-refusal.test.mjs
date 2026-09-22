@@ -1,0 +1,91 @@
+// 105-derive-through-reports-its-refusal.test.mjs — the join rule says WHY it
+// did not join.
+//
+// THE GAP THIS CLOSES.  DIRECTION (the study's gap 2): a produced fact carries
+// the subject the query never wrote, and the query's remaining tail names the
+// relation to follow FROM it — but on the measured chain the rule never fired
+// and nothing said why.  `deriveThrough` yields no rule when it refuses, and a
+// rule that yields nothing leaves no step, so the gate was invisible from
+// outside: four fixtures changed the SYMPTOM (`"eva director country"` answered
+// with the intermediate KEY's bytes glued to the fact) without ever reaching the
+// rule.  AGENTS §6: a gap in instrumentation is a defect IN the instrumentation
+// — close it there, once, through the rationale, never a channel of its own.
+//
+// WHAT IS PINNED.
+//   1. the refusal is REPORTED, and it names the two pieces it tried (the fact
+//      and the tail), so the gate is readable in the rationale;
+//   2. it is reported ONLY for a form: the search asks this rule for every
+//      finalized out with a node, one-byte outs included — measured, 68
+//      refusals for a single 3-relation query, all letters.  W is the line the
+//      mind already draws between a chance overlap and a form, and a report per
+//      letter is noise, not instrumentation;
+//   3. a fully covered query (no tail) is not a refusal at all — the rule does
+//      not apply, and it must not be reported as a miss.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Mind } from "../dist/src/index.js";
+import { SQliteStore } from "../dist/src/store-sqlite.js";
+
+const F1 = "The director of Eva is Gustaf Molander.";
+const F2 = "The country of Gustaf Molander is Sweden.";
+const F3 = "The capital of Sweden is Stockholm.";
+
+/** The measured chain: every relation filed under BOTH the entity and its key,
+ *  which is how the real store files a fact (the study's round-3 dump). */
+async function chain() {
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store });
+  await mind.ingest([
+    ["eva", F1],
+    ["eva director", F1],
+    ["gustaf molander", F2],
+    ["gustaf molander country", F2],
+    ["sweden", F3],
+    ["sweden capital", F3],
+  ]);
+  return mind;
+}
+
+const misses = (steps) =>
+  steps.filter((s) => s.mechanism.at(-1) === "deriveThroughMiss");
+
+test("the join's refusal is reported, naming the pieces it tried", async () => {
+  const mind = await chain();
+  const steps = [];
+  await mind.respond("eva director country", (s) => steps.push(s));
+  const got = misses(steps);
+  assert.ok(got.length > 0, "the join must say why it did not join");
+  const named = got.some((s) => {
+    const parts = (s.inputs ?? []).map((i) => String(i.text));
+    return parts.some((t) => t.includes("Gustaf Molander")) &&
+      parts.some((t) => t.trim().startsWith("country"));
+  });
+  assert.ok(named, "the report must name the fact and the tail it tried");
+  await mind.store.close();
+});
+
+test("a report per LETTER is noise: only forms are reported", async () => {
+  const mind = await chain();
+  const steps = [];
+  await mind.respond("eva director country capital", (s) => steps.push(s));
+  const got = misses(steps);
+  assert.ok(
+    got.length <= 4,
+    `one-byte outs must not each report a miss, got ${got.length}`,
+  );
+  assert.ok(got.length > 0, "but the real fact's refusal is still reported");
+  await mind.store.close();
+});
+
+test("a fully covered query is not a refusal", async () => {
+  const mind = await chain();
+  const steps = [];
+  await mind.respond("eva director", (s) => steps.push(s));
+  assert.equal(
+    misses(steps).length,
+    0,
+    "with no tail there is nothing to join through — not a miss",
+  );
+  await mind.store.close();
+});

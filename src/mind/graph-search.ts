@@ -1195,6 +1195,14 @@ export class GraphSearch {
     if (!this.host.recogniseSpan) return;
     const tail = queryBytes.subarray(fact.j, queryLen);
     if (tail.length === 0) return;
+    // Report ONLY the invocations that could have joined: the search asks this
+    // rule for every finalized out with a node, which includes the one-byte
+    // outs the cover bridges with — measured, 68 refusals for a single
+    // 3-relation query, all of them letters.  A form shorter than one window is
+    // not a fact a join could travel through, so it is not a refusal worth
+    // reporting; W is the same line the rest of the mind draws between a chance
+    // overlap and a form.
+    const reportable = fact.bytes.length >= this.maxGroup;
     // The entity candidates are the forms the fact's own bytes CONTAIN — the
     // same recogniser the query went through, so the evidence standard is the
     // query's.  A byte atom is never a subject; the fact's own node is the span
@@ -1219,6 +1227,15 @@ export class GraphSearch {
     //     introduces ("Timur" must not win over "Timur Bekmambetov").
     // Byte work over bytes already read, and the pruning REMOVES the
     // resolve()/nextFirst() probes these candidates would have paid.
+    if (leading.length === 0) {
+      if (reportable) {
+        this.host.reportSearch?.(
+          "deriveThroughMiss",
+          [fact.bytes, tail],
+          "no entity inside the fact leads anywhere — nothing to join through",
+        );
+      }
+    }
     const candidates = leading
       .map((s) => ({
         payload: s.payload,
@@ -1231,10 +1248,29 @@ export class GraphSearch {
         )
       );
     for (const c of candidates) {
-      const key = this.host.resolve(concat2(c.bytes, tail));
-      if (key === null) continue;
+      const keyBytes = concat2(c.bytes, tail);
+      const key = this.host.resolve(keyBytes);
+      if (key === null) {
+        if (reportable) {
+          this.host.reportSearch?.(
+            "deriveThroughMiss",
+            [c.bytes, tail, keyBytes],
+            "no learnt key names this entity and tail together",
+          );
+        }
+        continue;
+      }
       const nx = this.store.nextFirst(key, 1);
-      if (nx.length === 0) continue;
+      if (nx.length === 0) {
+        if (reportable) {
+          this.host.reportSearch?.(
+            "deriveThroughMiss",
+            [keyBytes],
+            "the key this entity and tail name leads nowhere",
+          );
+        }
+        continue;
+      }
       yield {
         premises: [fact],
         conclusion: {

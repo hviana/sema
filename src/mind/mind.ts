@@ -349,6 +349,15 @@ export class Mind implements MindContext {
    *  `traverse.ts`'s ONE definition (edge or halo, with its response-scoped
    *  cache).  The search holds a bare Store and cannot reach that cache itself,
    *  so it asks through this hook; a bare host keeps its raw-store fallback. */
+  /** Feed a search refusal into the rationale (see GraphSearchHost). */
+  reportSearch(
+    name: string,
+    parts: ReadonlyArray<Uint8Array>,
+    note: string,
+  ): void {
+    this.trace?.step(name, parts.map((b) => rItem(b)), [], note);
+  }
+
   leadsSomewhere(id: number): boolean {
     return leadsSomewhere(this, id);
   }
