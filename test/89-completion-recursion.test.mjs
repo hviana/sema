@@ -77,31 +77,35 @@ const mix = (x) => {
   return (x ^ (x >>> 15)) >>> 0;
 };
 
-/** Four-word windows of the repo's own English prose.  Code fences, inline
- *  code and link targets are stripped so what is left is language, which is
- *  where the fragment overlap lives.
+/** Four-word windows of the repo's own prose, taken from the CODE's comments
+ *  under src (TypeScript) and test (the suites) — never from documentation.  A
+ *  test that reads docs is coupled to every documentation edit: deleting one
+ *  root file once took its corpus below the non-vacuity guard and broke every
+ *  release.  Code comments are prose too, and the code is always here.
  *
- *  Reads the WHOLE tree, not just the root: the root prose alone falls below
- *  the non-vacuity guard below once the top-level documents are reorganised,
- *  and a release that fails because the documentation moved is a false alarm.
- *  `.git`/`node_modules` are skipped; the guard still refuses to run on a repo
- *  whose prose has genuinely gone. */
+ *  Comment markers, code fences, inline code and link targets are stripped so
+ *  what is left is language, which is where the fragment overlap lives. */
 function fragments() {
   const out = [];
   const files = [];
-  const walk = (dir) => {
+  const walk = (dir, exts) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      if (
+        e.name.startsWith(".") || e.name === "node_modules" || e.name === "dist"
+      ) continue;
       const p = join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith(".md")) files.push(p);
+      if (e.isDirectory()) walk(p, exts);
+      else if (exts.some((x) => e.name.endsWith(x))) files.push(p);
     }
   };
-  walk(REPO);
+  walk(join(REPO, "src"), [".ts"]);
+  walk(join(REPO, "test"), [".mjs"]);
   for (const f of files.sort()) {
-    let t = readFileSync(f, "utf8");
-    t = t.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
-    t = t.replace(/\[[^\]]*\]\([^)]*\)/g, " ");
+    const text = readFileSync(f, "utf8");
+    let t = "";
+    for (const m of text.matchAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g)) {
+      t += " " + m[0];
+    }
     t = t.toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ");
     const w = t.split(" ").filter(Boolean);
     for (let i = 0; i + 4 < w.length; i += 2) {
@@ -156,9 +160,9 @@ const SIZES = [750, 1000, 1500];
 test("completion recursion: per-query work does not grow with the corpus", async () => {
   assert.ok(
     FRAG.length > 4000,
-    `only ${FRAG.length} prose fragments found under ${REPO} — this test ` +
-      `draws its corpus from the repo's own documentation; with the prose gone ` +
-      `it can no longer exercise the completion recursion at all`,
+    `only ${FRAG.length} prose fragments found in the source comments — this ` +
+      `test draws its corpus from src/**/*.ts and test/**/*.mjs; with the ` +
+      `comments gone it can no longer exercise the completion recursion at all`,
   );
 
   const searches = [], pops = [], answers = [], secs = [];
