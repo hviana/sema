@@ -1346,7 +1346,7 @@ export class GraphSearch {
             "deriveThroughMiss",
             [keyBytes],
             `the key this entity and tail name leads nowhere ` +
-              `(candidate #${c.payload}, from the ${source.get(c.payload) ?? "unknown"} source)`,
+              `(key #${key}, candidate #${c.payload}, from the ${source.get(c.payload) ?? "unknown"} source)`,
           );
         }
         continue;
