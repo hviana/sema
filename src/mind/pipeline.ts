@@ -545,6 +545,21 @@ export async function think(
       ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n))
     )
     : [];
+  // REPORTABLE, NOT SILENT.  A declared-complete grounding ends the derivation
+  // here, and that decision is part of the derivation's shape: the reader of a
+  // rationale must be able to see that the chain stopped because the mechanism
+  // claimed the query WAS the context, not because nothing followed.  The step
+  // carries the claim, not a re-description of the answer — the extension is
+  // skipped, so there is no output item to show.
+  if (decided.complete) {
+    ctx.trace?.step(
+      "completeGrounding",
+      [rItem(answer, provenance)],
+      [],
+      "grounding declared complete — the query IS the context, so " +
+        "post-grounding extension is skipped",
+    );
+  }
   const reasoned = decided.complete ? answer : meter
     ? await meter.time(
       "reason",

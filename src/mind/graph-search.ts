@@ -1080,10 +1080,42 @@ export class GraphSearch {
       // a deeper rewrite chain is made of.
       const rec = this.host.recogniseSpan(bytes);
       const kids = new Set(nrec.kids);
+      // THE NODE'S OWN KIDS ARE SITES BY STRUCTURE — recognition cannot be the
+      // only source.  A produced composite is decomposed by ITS OWN SHAPE, and
+      // at hub scale the recognition of a produced span returns the WHOLE while
+      // deliberately suppressing its atoms (the off-boundary suppression), so
+      // the kid filter below would admit nothing at all and the chain would end
+      // at the intermediate composite.  Measured on the chain
+      // `seed → "p q" → (p→r, q→s) → "r s" → "m n"`: below the flip it reaches
+      // "m n" with fuse+recompose, above it stops at "p q" — the trace shows
+      // `recognise("p q") ⇒ form "p q"` alone, no parts.
+      //
+      // Laying the node's kids out over its own bytes restores exactly the
+      // decomposition the node's tree already states; a kid recognition ALREADY
+      // offers is skipped, so below the flip the seed set is byte-identical to
+      // what it was.  The filter's guarantee is untouched: nothing beyond the
+      // node's own kids may enter.
+      const recognised = rec.sites.filter((s) => kids.has(s.payload));
+      const seenKids = new Set(recognised.map((s) => s.payload));
+      const structural: Site[] = [];
+      {
+        let off = 0;
+        for (const k of nrec.kids) {
+          const len = this.store.bytesPrefix(k, ALL).length;
+          if (!seenKids.has(k) && len > 0) {
+            structural.push({
+              start: off,
+              end: Math.min(off + len, bytes.length),
+              payload: k,
+            });
+          }
+          off += len;
+        }
+      }
       const solved = this.solve(
         bytes.length,
         {
-          sites: rec.sites.filter((s) => kids.has(s.payload)),
+          sites: [...recognised, ...structural],
           leaves: rec.leaves,
           splits: rec.splits,
           starts: rec.starts,

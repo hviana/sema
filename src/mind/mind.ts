@@ -198,6 +198,8 @@ export interface MindOptions {
   seed?: number;
   recallQueryK?: number;
   haloQueryK?: number;
+  /** Gap pairs one alignment call may examine — see {@link MindConfig}. */
+  alignGapPairs?: number;
   normalizeEpsilon?: number;
   cosineEpsilon?: number;
   geometry?: Partial<import("../config.js").GeometryConfig>;

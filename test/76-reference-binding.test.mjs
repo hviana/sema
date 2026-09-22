@@ -144,7 +144,12 @@ test("the frame inventory REPORTS without judging", async () => {
     "the country where the Eiffel Tower is",
   );
   assert.equal(clean(inst.slots[0].filler), "France");
-  assert.equal(inst.covered, 23, "coverage must be reported, not judged");
+  // 24, not 23: the alignment's gap bound is the PAIR's extent now (budgeted),
+  // so the frame's constant run is no longer cut one byte short by
+  // chainReach(W).  The contract this test pins — REPORT without judging — is
+  // untouched: the substitution is still reported (and still refused by
+  // `voiceable` below).
+  assert.equal(inst.covered, 24, "coverage must be reported, not judged");
 
   // 2. An INSERTION — a real variation, and not a slot anything can carry.
   const ins = frameSlots(

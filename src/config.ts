@@ -116,6 +116,13 @@ export interface MindConfig {
   seed: number;
   recallQueryK: number;
   haloQueryK: number;
+  /** Gap pairs one alignment call may examine.  The sweep explores
+   *  (queryGap, contextGap) pairs by ASCENDING total, so this bounds the WORK
+   *  of the sweep while the gap LENGTH stays the pair's own extent — the two
+   *  are different questions, and conflating them is what truncated every
+   *  learned frame whose slot exceeded chainReach(W): a budget that runs out
+   *  drops the FAR continuations and never the near ones. */
+  alignGapPairs: number;
   normalizeEpsilon: number;
   cosineEpsilon: number;
 
@@ -131,6 +138,7 @@ export const DEFAULT_CONFIG: MindConfig = {
   seed: 42,
   recallQueryK: 12,
   haloQueryK: 12,
+  alignGapPairs: 4096,
   normalizeEpsilon: 1e-12,
   cosineEpsilon: 1e-12,
   alu: {
@@ -172,6 +180,7 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     seed: opts.seed ?? DEFAULT_CONFIG.seed,
     recallQueryK: opts.recallQueryK ?? DEFAULT_CONFIG.recallQueryK,
     haloQueryK: opts.haloQueryK ?? DEFAULT_CONFIG.haloQueryK,
+    alignGapPairs: opts.alignGapPairs ?? DEFAULT_CONFIG.alignGapPairs,
     normalizeEpsilon: opts.normalizeEpsilon ?? DEFAULT_CONFIG.normalizeEpsilon,
     cosineEpsilon: opts.cosineEpsilon ?? DEFAULT_CONFIG.cosineEpsilon,
     alu: {

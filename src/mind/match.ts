@@ -54,6 +54,7 @@ import {
   sharedReachMemo,
 } from "./traverse.js";
 import { recognise, segment } from "./recognition.js";
+import { rItem } from "./trace.js";
 import type { Site } from "./graph-search.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -382,7 +383,22 @@ export function alignAround(
   co: number,
 ): { matched: Array<[number, number]>; gaps: AlignGap[] } {
   const W = ctx.space.maxGroup;
-  const reachCap = chainReach(W);
+  // THE GAP LENGTH IS THE PAIR'S OWN EXTENT; THE WORK IS BUDGETED.
+  //
+  // The sweep walks (queryGap, contextGap) pairs by ASCENDING total, so reaching
+  // a gap of size G costs about G²/2 pairs.  Bounding the LENGTH by the write
+  // side's arity (`chainReach(W)` = 16) therefore truncated every learned frame
+  // whose slot is longer — measured: `bindReference` reported the cap at 18, 24,
+  // 30 and 36 bytes and `recall` answered with ANOTHER instance's filler — while
+  // removing the bound outright took the corpus-cost guard (test/89) from
+  // milliseconds to 68 seconds.
+  //
+  // Bounding the PAIRS keeps a call's cost constant however long the pair is,
+  // and the ascending order means an exhausted budget drops the FAR
+  // continuations and never the near ones — the same degradation recognition.ts
+  // documents for its canon budget.  Length and work are different questions;
+  // this is the one place they were conflated.
+  const gapPairs = ctx.cfg.alignGapPairs;
   // Maximal run around the seed.
   let qs = qo, ss = co;
   while (qs > 0 && ss > 0 && q[qs - 1] === c[ss - 1]) {
@@ -396,6 +412,28 @@ export function alignAround(
   }
   const matched: Array<[number, number]> = [[qs, qe]];
   const gaps: AlignGap[] = [];
+  // THE BOUND, REPORTED WHERE IT BITES.  A sweep can end for two different
+  // reasons, and a reader of the rationale has to be able to tell them apart:
+  // the PAIR ran out of bytes (nothing left to align) or the BUDGET ran out
+  // (the far continuations were dropped).  Without this, an answer that came
+  // back carrying another instance's filler looks like a corpus fact rather
+  // than a substitution (pinned by test/101).
+  const reportCap = (
+    queryLeft: number,
+    contextLeft: number,
+    outOfBudget: boolean,
+  ): void => {
+    // The bytes ran out and the budget did not: not a bound worth reporting.
+    if (!outOfBudget && (queryLeft <= 0 || contextLeft <= 0)) return;
+    ctx.trace?.step(
+      "alignCap",
+      [rItem(q.subarray(qs, qe), "matched")],
+      [],
+      outOfBudget
+        ? `alignment exhausted its ${gapPairs}-pair budget with ${queryLeft} query byte(s) and ${contextLeft} context byte(s) left`
+        : `alignment exhausted the gap sweep with ${queryLeft} query byte(s) and ${contextLeft} context byte(s) left`,
+    );
+  };
   // The next common run of ≥ W bytes past (qi, si), with each side's gap
   // bounded by chainReach; smallest total gap wins (nearest continuation).
   const runLenAt = (qi: number, si: number): number => {
@@ -407,12 +445,19 @@ export function alignAround(
   };
   // RIGHT sweep.
   let qi = qe, si = se;
+  let spent = 0;
   for (;;) {
     let found = false;
-    for (let total = 1; total <= 2 * reachCap && !found; total++) {
-      for (let gq = 0; gq <= Math.min(total, reachCap); gq++) {
+    const qAvail = q.length - qi, cAvail = c.length - si;
+    for (
+      let total = 1;
+      total <= qAvail + cAvail && !found && spent < gapPairs;
+      total++
+    ) {
+      for (let gq = 0; gq <= Math.min(total, qAvail); gq++) {
         const gs = total - gq;
-        if (gs > reachCap) continue;
+        if (gs > cAvail) continue;
+        if (++spent > gapPairs) break;
         if (qi + gq >= q.length || si + gs >= c.length) continue;
         const n = runLenAt(qi + gq, si + gs);
         if (n >= W || qi + gq + n === q.length) {
@@ -428,17 +473,26 @@ export function alignAround(
         }
       }
     }
-    if (!found) break;
+    if (!found) {
+      reportCap(qAvail, cAvail, spent >= gapPairs);
+      break;
+    }
   }
   // LEFT sweep (mirror).
   qi = qs;
   si = ss;
   for (;;) {
     let found = false;
-    for (let total = 1; total <= 2 * reachCap && !found; total++) {
-      for (let gq = 0; gq <= Math.min(total, reachCap); gq++) {
+    const qAvail = qi, cAvail = si;
+    for (
+      let total = 1;
+      total <= qAvail + cAvail && !found && spent < gapPairs;
+      total++
+    ) {
+      for (let gq = 0; gq <= Math.min(total, qAvail); gq++) {
         const gs = total - gq;
-        if (gs > reachCap) continue;
+        if (gs > cAvail) continue;
+        if (++spent > gapPairs) break;
         if (qi - gq <= 0 || si - gs <= 0) continue;
         // Run ENDING at (qi - gq, si - gs).
         let n = 0;
@@ -461,7 +515,10 @@ export function alignAround(
         }
       }
     }
-    if (!found) break;
+    if (!found) {
+      reportCap(qAvail, cAvail, spent >= gapPairs);
+      break;
+    }
   }
   return { matched, gaps };
 }
