@@ -223,6 +223,16 @@ export class Meter {
   /** Refused: the fact contains no entity that leads anywhere. */
   joinNoEntity = 0;
 
+  // ── Mind: the multi-hop pivot (EXTENSION) ───────────────────────────────
+  //
+  // `pivotStep` was observable only through the rationale, and the rationale
+  // perturbs the search (measured).  How far the reasoner hopped is a
+  // BEHAVIOUR, so it needs an untraced view: one counter, incremented where the
+  // step is emitted.
+  /** Times the reasoner pivoted on a span its answer contains and stepped
+   *  across that fact. */
+  pivotSteps = 0;
+
   // ── Phases ──────────────────────────────────────────────────────────────
 
   private readonly _phases = new Map<string, PhaseCost>();

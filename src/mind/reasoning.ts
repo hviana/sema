@@ -200,6 +200,7 @@ export async function reason(
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
     if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) break;
+    if (ctx.meter) ctx.meter.pivotSteps++;
     t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
     ctx.trace?.step(
       "pivotStep",
