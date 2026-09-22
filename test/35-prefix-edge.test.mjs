@@ -5,7 +5,7 @@
 // parents, or (halo > 0 ∧ already an edge source).  Pure answers do
 // not qualify — they are destinations, not sources.
 //
-// All phrases verified via instrumentation first (see MISTAKES.md).
+// All phrases verified via instrumentation first.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
