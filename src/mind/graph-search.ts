@@ -735,7 +735,13 @@ export class GraphSearch {
           return this.coverRules(it, coversDone, coverableByStart);
         }
         if (it.kind === "form") {
-          return this.formRules(it, conceptTarget, substitutions, nodeBytes);
+          return this.formRules(
+            it,
+            conceptTarget,
+            substitutions,
+            nodeBytes,
+            queryLen,
+          );
         }
         return this.outRules(it, {
           W,
@@ -840,6 +846,7 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     substitutions: ReadonlyMap<number, Uint8Array> | undefined,
     nodeBytes: (n: number) => Uint8Array,
+    queryLen: number,
   ): Iterable<Rule<GItem>> {
     // Articulation: emit voice bytes at the recognised span; the hop/concept/
     // emit chain is suppressed — the form contributes only its substitute.
@@ -875,7 +882,25 @@ export class GraphSearch {
       // guard then dead-ends it) with no way to reach the forward edge.
       // Forking offers every continuation as its own rule so the one that
       // genuinely advances (not a duplicate) is still reachable.
-      const nx = this.store.nextFirst(it.node, this.hubBound());
+      // A CHAIN HOP OFFERS ONLY WHAT THE QUESTION CAN PAY FOR.
+      //
+      // `hubBound` = √N is the READ cap — every read here stays inside it — but
+      // it is not an exploration bound: measured, a hub of degree 1083 sits
+      // BELOW √N = 1559, so a hop offered all 1083 continuations, the chart grew
+      // to 3113 outs for a two-word question, and since every out with an
+      // uncovered tail probes its tail's prefixes (measured: 16 885 canonical
+      // probes = 87% of that query's work, and its 270 MB peak / 256 MB OOM),
+      // the cost came from OFFERING rather than from reading.
+      //
+      // The bound is derived, not tuned: a derivation of L hops consumes ~L
+      // units of the question, so a hop cannot be paid for by offering more
+      // continuations than the question has units —
+      // `ceil(queryLen / W)`, floored at 2 for plurality. It is QUERY-sized
+      // (invariant 5: no per-query read grows with N) and it leaves `hubBound`
+      // and every read untouched.
+      const offerCap = Math.max(2, Math.ceil(queryLen / this.maxGroup));
+      const nx = this.store.nextFirst(it.node, offerCap);
+      if (this.host.meter) this.host.meter.chainOffers += nx.length;
       if (nx.length) {
         // The SAME evidence-weighted disambiguation the first hop uses
         // (below) identifies the most-corroborated continuation.  Yielding

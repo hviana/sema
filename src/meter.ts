@@ -241,6 +241,11 @@ export class Meter {
   // the untraced view of it.
   /** `bridge` calls the cover makes assembling connectors (pairwise + n-ary). */
   coverBridges = 0;
+  /** Continuations a CHAIN hop offered the search.  Bounded by the question
+   *  (`ceil(queryLen / W)`) rather than by the corpus's fan-out — measured on a
+   *  hub of degree 1083, offering every continuation grew the chart to 3113 outs
+   *  and cost a 270 MB peak / 256 MB OOM for a two-word question. */
+  chainOffers = 0;
   /** Σ byte-allowance the n-ary interior passes those bridges.  The allowance
    *  is `middleBytes + (m + 1) * W` — every intermediate answer's bytes plus
    *  one window of glue per joint — so it is the quantity that grows with a hub
