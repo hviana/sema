@@ -1,17 +1,17 @@
 // 93-regime-prediction.test.mjs — the retrieval/composition regime (R8) is
 // exposed as a structured trace step, without changing inference.
 //
-// After the FIRST mechanism runs (cover, which §2.6 places first and floors at
-// 0), the market's whole outcome is already determined by the one cost ladder:
-// the consensus climb runs exactly when `worthRunning(2 * STEP)` is true —
-// CAST (floor 2·STEP) is the cheapest mechanism that first-touches it.  An
-// incumbent at or below that floor prunes CAST and, with it, the climb
+// After the FIRST mechanism runs (cover, which mechanism-market.md places first
+// and floors at 0), the market's whole outcome is already determined by the one
+// cost ladder: the consensus climb runs exactly when `worthRunning(2 * STEP)`
+// is true — CAST (floor 2·STEP) is the cheapest mechanism that first-touches
+// it. An incumbent at or below that floor prunes CAST and, with it, the climb
 // (retrieval); anything above — or no incumbent — runs the full market and the
-// climb (composition).  The step is purely observational: it is built only
-// under a trace (optional-chaining short-circuits it otherwise), and it never
-// alters which candidate wins.  The assertions here check the payload's
-// STRUCTURE and its consistency with the actual market outcome, never that
-// inference itself changed.
+// climb (composition). The step is purely observational: it is built only under
+// a trace (optional-chaining short-circuits it otherwise), and it never alters
+// which candidate wins. The assertions here check the payload's STRUCTURE and
+// its consistency with the actual market outcome, never that inference itself
+// changed.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

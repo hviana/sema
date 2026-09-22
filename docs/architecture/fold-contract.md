@@ -84,4 +84,4 @@ any change here.
 
 See:
 `src/geometry.ts:contentLevels`/`contentBoundaries`/`contentFoldIncremental`/`stablePrefixFold`;
-`AGENTS.md` bootloader invariants.
+`AGENTS.md` §2 invariants.

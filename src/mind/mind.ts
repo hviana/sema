@@ -211,13 +211,12 @@ export interface MindOptions {
     host: import("../extension.js").ExtensionHost,
   ) => import("./pipeline-mechanism.js").PipelineMechanism)[];
   /** Measure the computational usage of every inference call — see
-   *  src/meter.ts.  Off by default and free when off (one null check per
-   *  store read); on, each `respond`/`respondTurn` leaves a {@link
-   *  Mind.lastCost} report behind.  Counters are deterministic, so two runs
-   *  of the same query on the same store are diffable; the millisecond
-   *  fields are not.  Profiling NEVER changes an answer — but note that
-   *  attaching a RATIONALE does (traced responses bypass the ctx memos,
-   *  AGENTS §2.11), so profile without a trace. */
+   *  src/meter.ts. Off by default and free when off (one null check per store
+   * read); on, each `respond`/`respondTurn` leaves a {@link Mind.lastCost}
+   * report behind. Counters are deterministic, so two runs of the same query on
+   * the same store are diffable; the millisecond fields are not. Profiling
+   * NEVER changes an answer — but attaching a RATIONALE does: a traced response
+   * bypasses the ctx memos (memoization.md), so profile without a trace. */
   profile?: boolean;
   /** Content canonicalizer applied to EVERY response (any modality) for
    *  equivalence-class resolution — see src/canon.ts.  Text entry points

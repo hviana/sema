@@ -13,7 +13,7 @@
 //
 // THE ONLY THIRD-PARTY CODE IN THIS REPOSITORY IS BELOW, and it is LAZILY
 // LOADED. Sema itself imports nothing outside `node:` — that is a product
-// property, not an accident (AGENTS.md §6) — and this trainer is an EXAMPLE,
+// property, not an accident (AGENTS.md §7) — and this trainer is an EXAMPLE,
 // not part of the library. hyparquet (+ its Snappy codec) is therefore a dev
 // dependency, and it is loaded by a dynamic import the first time a Parquet
 // corpus is actually read: a curriculum with no Parquet stage (SmolSent,

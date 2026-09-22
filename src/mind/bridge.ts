@@ -148,23 +148,23 @@ export function dismissedKnownContent(
   return false;
 }
 
-// The seeded aligner this file used to own now lives in the shared match
-// family as {@link alignAround} — the frame reading (match.ts) reads the same
-// gaps and asks the OPPOSITE question of them (see AlignGap's own doc).  Two
-// consumers, one definition (AGENTS §2.5); the bridge's reading is unchanged.
+// The seeded aligner this file used to own now lives in the shared match family
+// as {@link alignAround} — the frame reading (match.ts) reads the same gaps and
+// asks the OPPOSITE question of them (see AlignGap's own doc). Two consumers,
+// one definition (factored-machinery.md); the bridge's reading is unchanged.
 const align = alignAround;
 
 /** Recall's corroborated-substitution bridge — see the module comment.
  *  Returns the best bridged grounding proposal, or null. */
 /** `proposed` is a THUNK, not a list: the bridge's own cheap gates (the
- *  two-quantum query floor and the O(|query|) stored-window anchor scan)
- *  decide whether ANY candidate can be aligned, and they need no proposals
- *  to do it.  Resolving the caller's proposals eagerly meant recall paid its
- *  exhaustive whole-index resonance — the most expensive single act on the
- *  refusal path — for every query, including the ones whose windows the
- *  store has never seen and which the anchor scan rejects outright.  Same
- *  investment discipline the mechanism floors follow (AGENTS §2.6): never
- *  compute a shared analysis just to discard it. */
+ *  two-quantum query floor and the O(|query|) stored-window anchor scan) decide
+ * whether ANY candidate can be aligned, and they need no proposals to do it.
+ * Resolving the caller's proposals eagerly meant recall paid its exhaustive
+ * whole-index resonance — the most expensive single act on the refusal path —
+ * for every query, including the ones whose windows the store has never seen
+ * and which the anchor scan rejects outright. Same investment discipline the
+ * mechanism floors follow (mechanism-market.md): never compute a shared
+ * analysis just to discard it. */
 export async function substitutionBridge(
   ctx: MindContext,
   query: Uint8Array,
@@ -290,12 +290,12 @@ async function bridgeImpl(
     );
     return null;
   }
-  // NO DISCRIMINATING LITERAL EVIDENCE — abstain (§2.13).  A bridge grounds
-  // through the literal spans it did NOT substitute; those anchors are the
-  // whole of its evidence.  When every one of them is SATURATED — containment
-  // clamped at the √N hub bound, i.e. the window is corpus-global scaffolding
-  // — the query's unsubstituted part discriminates nothing, and the single
-  // substituted span is carrying the entire semantic load.  That is not a
+  // NO DISCRIMINATING LITERAL EVIDENCE — abstain (INVARIANTS.md). A bridge
+  // grounds through the literal spans it did NOT substitute; those anchors are
+  // the whole of its evidence. When every one of them is SATURATED —
+  // containment clamped at the √N hub bound, i.e. the window is corpus-global
+  // scaffolding — the query's unsubstituted part discriminates nothing, and the
+  // single substituted span is carrying the entire semantic load. That is not a
   // corroborated bridge; it is a template match, and it FABRICATES.
   //
   // Measured on the trained store (hubBound 571).  "What is the capital of"
@@ -310,7 +310,8 @@ async function bridgeImpl(
   // them silent and cannot be credited for them.
   //
   // This introduces NO new threshold: `bound` is the same √N reading of "hub"
-  // the anchor scan already clamps its own containment read to (§2.2, §2.7).
+  // the anchor scan already clamps its own containment read to (thresholds.md,
+  // commonality.md).
   if (allWindowsAreScaffolding(ctx, query)) {
     ctx.trace?.step(
       "substitutionBridge",
@@ -353,8 +354,8 @@ async function bridgeImpl(
   //
   // The question every gap poses is "may the two forms differ HERE without
   // differing in what they SAY?", and that is the discriminative-vs-
-  // scaffolding question AGENTS §2.7 names, over the CORPUS-GLOBAL
-  // population.  It already has one definition — `dominates(reachOf(...), N)`,
+  // scaffolding question commonality.md names, over the CORPUS-GLOBAL
+  // population. It already has one definition — `dominates(reachOf(...), N)`,
   // the same gate confluence's filler test uses ("scaffolding never binds").
   // Nothing new is derived here; the bar is read, not invented.
   //
@@ -366,17 +367,17 @@ async function bridgeImpl(
   //     climb's own definition of non-discriminative), or it resolves to a
   //     majority of the corpus's contexts.  "the process of ", " is the ".
   //
-  // THE READING MATTERS, not just the population (AGENTS §2.7).  This
-  // deliberately does NOT go through `reachOf`, which maps BOTH "saturated"
-  // and "reaches nothing" to Infinity.  For IDF weighting those are the same
-  // thing (no usable identity evidence); for THIS question they are
-  // opposites — a window reaching nothing is novel content, the most
-  // discriminative material there is, and reading it as Infinity would call
-  // it scaffolding.  Measured: with `reachOf`, "Is water wet?" was answered
-  // with "No, heavy water is not wet." — "heav"/"eavy" occur once, reach no
-  // edge-bearing ancestor, and were written off as filler.  So an
-  // empty-rooted window is NEVER explained, and neither is an untrained one
-  // (the same principle attestedQ applies to the query side).
+  // THE READING MATTERS, not just the population — see commonality.md. This
+  // deliberately does NOT go through `reachOf`, which maps BOTH "saturated" and
+  // "reaches nothing" to Infinity. For IDF weighting those are the same thing
+  // (no usable identity evidence); for THIS question they are opposites — a
+  // window reaching nothing is novel content, the most discriminative material
+  // there is, and reading it as Infinity would call it scaffolding. Measured:
+  // with `reachOf`, "Is water wet?" was answered with "No, heavy water is not
+  // wet." — "heav"/"eavy" occur once, reach no edge-bearing ancestor, and were
+  // written off as filler. So an empty-rooted window is NEVER explained, and
+  // neither is an untrained one (the same principle attestedQ applies to the
+  // query side).
   const reachMemo = sharedReachMemo(ctx);
   const explainedSpan = (
     bytes: Uint8Array,

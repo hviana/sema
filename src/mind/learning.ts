@@ -306,7 +306,8 @@ function constituentSketch(ctx: MindContext, id: number, k: number): number[] {
         for (const g of constituentSketch(ctx, kid, k)) pool.push(g);
       }
     }
-    // Bottom-k by identity, then by id so ties are corpus-determined (§2.1).
+    // Bottom-k by identity, then by id so ties are corpus-determined
+    // (determinism.md).
     pool.sort((a, b) => (unitPriority(a) - unitPriority(b)) || (a - b));
     const seen = new Set<number>();
     out = [];
@@ -368,15 +369,15 @@ function constituentSketch(ctx: MindContext, id: number, k: number): number[] {
  *  terms unique to that partner, which dilute but never mislead; the shared
  *  units contribute the signal.
  *
- *  HUBS ARE THE ONE EXCLUSION, read LIMITed as `parentsFirst(n, bound+1)` —
- *  the store's own exact hub-or-not probe (a result longer than the bound
- *  means MORE than the bound), never a fan-in-sized read.  A constituent with
- *  more than √N structural parents is scaffolding by §8.8's bound: " is ",
- *  "the ".  Superposing it would put a term shared by every deposit into every
- *  profile, ALL halos would correlate, and the concept threshold's null model
- *  (unrelated halos at 0 ± 1/√D) that §4.1's hygiene note protects would
- *  collapse.  It is still DESCENDED into — a hub chunk can contain a rare
- *  unit — but contributes nothing itself.
+ *  HUBS ARE THE ONE EXCLUSION, read LIMITed as `parentsFirst(n, bound+1)` — the
+ * store's own exact hub-or-not probe (a result longer than the bound means MORE
+ * than the bound), never a fan-in-sized read. A constituent with more than √N
+ * structural parents is scaffolding by bounded-reads.md's bound: " is ", "the
+ * ". Superposing it would put a term shared by every deposit into every
+ * profile, ALL halos would correlate, and the concept threshold's null model
+ * (unrelated halos at 0 ± 1/√D) that halo-sketch.md's hygiene note protects
+ * would collapse. It is still DESCENDED into — a hub chunk can contain a rare
+ * unit — but contributes nothing itself.
  *
  *  Byte atoms are skipped in BOTH representations (a negative id and a stored
  *  kid-less node): an atom's fan-in is the alphabet's, so it can only ever
@@ -386,32 +387,32 @@ function constituentSketch(ctx: MindContext, id: number, k: number): number[] {
  *  analogy strength 0.3636 -> 0.2004, "no halo-tier company evidence",
  *  test/29 C1).
  *
- *  A FUNCTION OF THE NODE AND THE CORPUS STATE — stated precisely, because
- *  the weaker claim is the true one.  The constituents are read from the
- *  STORE, never from the depositing tree's id map: that map holds only the
- *  nodes THIS deposit newly interned, so a partner met a second time yielded a
- *  profile missing exactly those constituents, the exact-partner case fell
- *  from cosine 1 to 1/√(1+k), and the geometry stopped meaning anything.
- *  Reading the store fixes that.  It does NOT make the profile permanent: the
- *  hub test reads fan-in against √N and both grow with training, so a partner
- *  poured early and again late can profile differently.  That residue is
- *  confined to the hub EXCLUSION — which terms are dropped as scaffolding —
- *  and never to which units are found, because the descent itself is now
- *  order-independent.  The drift is one-directional and benign: a term can
- *  only ever go from contributing to being excluded as scaffolding.  Replay of
- *  a fixed training order is bit-identical, so §2.1 holds.  What must not be
- *  claimed is that a node's profile is fixed for all time; it is fixed given
- *  the corpus that has been seen.
+ *  A FUNCTION OF THE NODE AND THE CORPUS STATE — stated precisely, because the
+ * weaker claim is the true one. The constituents are read from the STORE, never
+ * from the depositing tree's id map: that map holds only the nodes THIS deposit
+ * newly interned, so a partner met a second time yielded a profile missing
+ * exactly those constituents, the exact-partner case fell from cosine 1 to
+ * 1/√(1+k), and the geometry stopped meaning anything. Reading the store fixes
+ * that. It does NOT make the profile permanent: the hub test reads fan-in
+ * against √N and both grow with training, so a partner poured early and again
+ * late can profile differently. That residue is confined to the hub EXCLUSION —
+ * which terms are dropped as scaffolding — and never to which units are found,
+ * because the descent itself is now order-independent. The drift is
+ * one-directional and benign: a term can only ever go from contributing to
+ * being excluded as scaffolding. Replay of a fixed training order is
+ * bit-identical, so determinism.md holds. What must not be claimed is that a
+ * node's profile is fixed for all time; it is fixed given the corpus that has
+ * been seen.
  *
- *  THE NULL MODEL IS OTHERWISE UNTOUCHED (§4.1).  Every term is still a seeded
- *  function of a NODE IDENTITY, never a gist, so no byte-similarity between
- *  partners can leak content similarity into distributional similarity.  The
- *  result is normalized, so ONE episode still pours ONE unit of mass:
- *  {@link Store.haloMass} keeps counting episodes and every mass-based
- *  reading is unchanged.  Two partners sharing j of k discriminating
- *  constituents meet at j/(1+k) — graded evidence, above the 1/√D noise floor
- *  and below conceptThreshold until the overlap is most of the content, which
- *  is the semantics "same company" should have.
+ * THE NULL MODEL IS OTHERWISE UNTOUCHED (halo-sketch.md). Every term is still a
+ * seeded function of a NODE IDENTITY, never a gist, so no byte-similarity
+ * between partners can leak content similarity into distributional similarity.
+ * The result is normalized, so ONE episode still pours ONE unit of mass: {@link
+ * Store.haloMass} keeps counting episodes and every mass-based reading is
+ * unchanged. Two partners sharing j of k discriminating constituents meet at
+ * j/(1+k) — graded evidence, above the 1/√D noise floor and below
+ * conceptThreshold until the overlap is most of the content, which is the
+ * semantics "same company" should have.
  *
  *  Bounded: at most {@link PROFILE_VISITS} constituents are classified, each
  *  by ONE LIMITed structural-parent read, so a pour costs O(1) reads in the

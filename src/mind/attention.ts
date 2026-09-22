@@ -1941,10 +1941,10 @@ export function canonicalChunkId(
   // CAST lost a point of attention it needed (test/29 D1/D2).
   //
   // So scan every offset and prefer an anchor that still discriminates: not
-  // saturated, and among those the one reaching the FEWEST contexts (§2.7,
-  // corpus-global).  Only when every window in the region saturates does the
-  // old generalising choice stand — there is then no discriminative anchor to
-  // find, and abstaining is the honest outcome.
+  // saturated, and among those the one reaching the FEWEST contexts
+  // (commonality.md, corpus-global). Only when every window in the region
+  // saturates does the old generalising choice stand — there is then no
+  // discriminative anchor to find, and abstaining is the honest outcome.
   let discId: number | null = null;
   let discReached = Infinity;
   let fallback: number | null = null;
@@ -2649,16 +2649,16 @@ async function crossRegionVotes(
   const consumed = new Set<number>();
   let probes = 0;
   // When atoms themselves are hubs (atomIsHub — a single byte reaches ≥ √N
-  // contexts, §2.8's own predicate), the corpus is large enough that the
-  // cross-region junction walks are dominated by the drift through common
-  // content's ancestry.  Each of k candidate pairs otherwise spends its own
-  // √N·W budget (profiled: 160,210 junction pops, 31% of think at
-  // N = 325,608), and a cumulative dialogue multiplies bounded work into tens
-  // of seconds.  The structural walk is therefore given ONE k·W allowance per
+  // contexts, bounded-reads.md's own predicate), the corpus is large enough
+  // that the cross-region junction walks are dominated by the drift through
+  // common content's ancestry. Each of k candidate pairs otherwise spends its
+  // own √N·W budget (profiled: 160,210 junction pops, 31% of think at N =
+  // 325,608), and a cumulative dialogue multiplies bounded work into tens of
+  // seconds. The structural walk is therefore given ONE k·W allowance per
   // evidence tier, shared across every pair — k pairs × W phrase-scale levels,
   // the minimal exact check; a pair whose container is not reached within it
-  // falls through to the resonance tier (the ANN proposes what the shallow
-  // walk no longer exhaustively scans, §2.3).
+  // falls through to the resonance tier (the ANN proposes what the shallow walk
+  // no longer exhaustively scans, exact-vs-approximate.md).
   //
   // Below atomIsHub the store is small and atoms still discriminate, so the
   // walks keep exhaustive exact traversal (per-walk √N·W) — the shared budget

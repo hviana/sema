@@ -541,16 +541,16 @@ export interface Store {
   // selected by identity hash so the choice is a property of each constituent
   // and never of where it sits in the fold.
   //
-  // DURABLE DERIVED STATE, NOT A CACHE.  §2.12 permits a cache to cost only
+  // DURABLE DERIVED STATE, NOT A CACHE. caches.md permits a cache to cost only
   // speed; this decides which terms enter a halo — a learned relation — so an
-  // eviction would change the geometry rather than slow it down.  It is
+  // eviction would change the geometry rather than slow it down. It is
   // therefore written like the canon index: computed once, kept, never
-  // budgeted.  Soundness rests on the set being INTRINSIC — minimality,
-  // `len ≥ W` and non-domination are properties of the node's own subtree and
-  // do not move as the corpus grows.  The one corpus-dependent reading, the
-  // hub exclusion, is deliberately NOT stored: it is applied by the caller at
-  // pour time over the ≤ k candidates, which is the drift companyProfile
-  // already documents as benign and one-directional.
+  // budgeted. Soundness rests on the set being INTRINSIC — minimality, `len ≥
+  // W` and non-domination are properties of the node's own subtree and do not
+  // move as the corpus grows. The one corpus-dependent reading, the hub
+  // exclusion, is deliberately NOT stored: it is applied by the caller at pour
+  // time over the ≤ k candidates, which is the drift companyProfile already
+  // documents as benign and one-directional.
   //
   // Backends that do not implement the pair leave both absent; companyProfile
   // then recomputes the sketch per pour and simply loses the amortisation.
@@ -1789,18 +1789,18 @@ export abstract class AbstractStore implements Store {
    *  remainders must fit the budget.  Scattered differences leave a wide
    *  middle and are rejected.
    *
-   *  Every read here is CAPPED (§2.8).  It used to open with
-   *  `bytesPrefix(k, Number.MAX_SAFE_INTEGER)` — the ALL sentinel, i.e. the
-   *  full materialising `bytes()` read — on the deposit hot path, and only
-   *  then compare lengths.  So a candidate the length test was about to reject
-   *  had already been reconstructed byte for byte.  The LENGTHS decide first
-   *  instead, from the `contentLen` memo the interning order has already built
-   *  bottom-up, and the target's length is itself read under a cap: a target
-   *  longer than `la + W` is rejected without touching one of its bytes.
-   *  Same semantics — the old capped `b` read would have produced
-   *  `a.length + W + 1` here and failed the very same test — strictly fewer
-   *  byte reads.  The `+ 1` on each byte cap keeps `_prefix`'s
-   *  "complete reconstruction" test true, so the results still cache. */
+   *  Every read here is CAPPED (bounded-reads.md). It used to open with
+   * `bytesPrefix(k, Number.MAX_SAFE_INTEGER)` — the ALL sentinel, i.e. the full
+   * materialising `bytes()` read — on the deposit hot path, and only then
+   * compare lengths. So a candidate the length test was about to reject had
+   * already been reconstructed byte for byte. The LENGTHS decide first instead,
+   * from the `contentLen` memo the interning order has already built bottom-up,
+   * and the target's length is itself read under a cap: a target longer than
+   * `la + W` is rejected without touching one of its bytes. Same semantics —
+   * the old capped `b` read would have produced `a.length + W + 1` here and
+   * failed the very same test — strictly fewer byte reads. The `+ 1` on each
+   * byte cap keeps `_prefix`'s "complete reconstruction" test true, so the
+   * results still cache. */
   private differsByOneWindow(
     kids: NodeId[],
     targetId: NodeId,

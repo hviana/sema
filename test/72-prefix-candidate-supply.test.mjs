@@ -98,9 +98,9 @@ test("a proper prefix reaches its trained form through the window supply", async
     "a FORM is grounded whole, never a slice cut at the query's end",
   );
 
-  // HONEST DEGRADATION (§2.13).  A query with no discriminative window must
-  // propose nothing rather than guess — silence is the correct answer, and a
-  // supply that widened until it found something would be the real defect.
+  // HONEST DEGRADATION (INVARIANTS.md). A query with no discriminative window
+  // must propose nothing rather than guess — silence is the correct answer, and
+  // a supply that widened until it found something would be the real defect.
   const hub = enc("The ");
   assert.equal(
     prefixCompletion(m, hub, formsOpenedBy(m, hub)),

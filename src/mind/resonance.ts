@@ -380,15 +380,15 @@ export async function pivotInto(
   // Byte containment, longest wins — the answer literally contains the
   // pivot's bytes, and the biggest well-evidenced span is the real pivot.
   //
-  // REAL SATURATION, not a hard cap: the score IS the candidate's byte
-  // length, so the scan is DECIDED the moment the first candidate that passes
-  // every filter is found in DESCENDING length order — a shorter candidate can
-  // never outscore it.  `contentLen` (the prefix-capped length read, §2.8) is
-  // the cheap ordering key, and the first-inserted tie-break is made explicit
-  // (`a.index - b.index`) so equal lengths keep `scored`'s insertion order —
-  // exactly the tie argmaxBy(strict) used to keep.  The bytes of at most ONE
-  // winning candidate are read; every shorter candidate the probes proposed is
-  // skipped without reconstruction, where the old argmax read them all.
+  // REAL SATURATION, not a hard cap: the score IS the candidate's byte length,
+  // so the scan is DECIDED the moment the first candidate that passes every
+  // filter is found in DESCENDING length order — a shorter candidate can never
+  // outscore it. `contentLen` (the prefix-capped length read, bounded-reads.md)
+  // is the cheap ordering key, and the first-inserted tie-break is made
+  // explicit (`a.index - b.index`) so equal lengths keep `scored`'s insertion
+  // order — exactly the tie argmaxBy(strict) used to keep. The bytes of at most
+  // ONE winning candidate are read; every shorter candidate the probes proposed
+  // is skipped without reconstruction, where the old argmax read them all.
   const ranked = [...scored.keys()]
     .map((id, index) => ({
       id,
@@ -399,11 +399,11 @@ export async function pivotInto(
   let pivotId: number | null = null;
   for (const c of ranked) {
     const id = c.id;
-    // A ZERO-LENGTH candidate is not a pivot.  `argmaxBy(…, 0, strict)` used to
+    // A ZERO-LENGTH candidate is not a pivot. `argmaxBy(…, 0, strict)` used to
     // carry this floor in its threshold argument, and dropping it here would
     // admit an empty node: `indexOf(answer, <empty>)` returns 0, so every
-    // filter below passes and the chain would hop through nothing (§2.13 —
-    // empty bytes are truthy).
+    // filter below passes and the chain would hop through nothing
+    // (INVARIANTS.md — empty bytes are truthy).
     if (c.len === 0) continue;
     // A PIVOT MUST BE A THING THE CORPUS DEPOSITED, NOT A PIECE OF ONE.
     // "Longest wins" ranks candidates but never asks whether the winner is
@@ -439,15 +439,15 @@ export async function pivotInto(
     // a span that was never a fact on its own is not one to step through.
     // No constant enters — it is a structural predicate, not a threshold.
     if (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) continue;
-    // A candidate whose bytes are LONGER than the answer cannot be a
-    // substring of it — `indexOf` would return −1 regardless.  Prune by
-    // length BEFORE reconstructing the bytes: `read` is an UNCAPPED read
-    // (AGENTS §2.8), and a resonated context far longer than the answer is
-    // exactly the candidate that makes it cost a whole deposit's worth of
-    // reconstruction for a containment test that must fail.  `contentLen`
-    // with the `answer.length + 1` cap is the prefix-capped length read the
-    // same contract prescribes; the prune is byte-identical to the old
-    // `indexOf` miss (it returns −1 for a needle longer than the haystack).
+    // A candidate whose bytes are LONGER than the answer cannot be a substring
+    // of it — `indexOf` would return −1 regardless. Prune by length BEFORE
+    // reconstructing the bytes: `read` is an UNCAPPED read (bounded-reads.md),
+    // and a resonated context far longer than the answer is exactly the
+    // candidate that makes it cost a whole deposit's worth of reconstruction
+    // for a containment test that must fail. `contentLen` with the
+    // `answer.length + 1` cap is the prefix-capped length read the same
+    // contract prescribes; the prune is byte-identical to the old `indexOf`
+    // miss (it returns −1 for a needle longer than the haystack).
     if (c.len > answer.length) continue;
     const bytes = read(ctx, id);
     if (indexOf(answer, bytes, 0) < 0) continue;

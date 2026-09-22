@@ -76,7 +76,7 @@ not to do, why it fails, and what to do instead.
 - **WHY:** `frameSlots` reports (contracted gaps tagged
   substitution/insertion/deletion); `carriesFillers` judges;
   `Precomputed.frames` inventories — elects nothing (`AGENTS §2` Cross-cutting
-  contracts — `docs/architecture/factored-machinery.md` § Frame reading).
+  contracts — `docs/architecture/match-project.md` § Frame reading).
 - **CORRECT:** Report everything in the shared layer; apply
   `substituteAll(contA, fillersA→fillersB)==contB` and
   frame-dominance/`W`-reach/distinctness in the consumer (reference). Pinned by
@@ -88,8 +88,7 @@ not to do, why it fails, and what to do instead.
   `depth[i]`/`dominates(depth, aligned)` to decide climb/IDF.
 - **WHY:** They measure different things: global reach (minority discriminates,
   powers climb/pooling) vs weave-local depth with `MIN_WEAVE=2` (what the local
-  cohort shares, powers CAST) (`AGENTS §2` Cross-cutting contracts — Two
-  measures of commonality).
+  cohort shares, powers CAST) (`docs/architecture/commonality.md`).
 - **CORRECT:** Climb/attention uses corpus-global;
   `frame(i) ⇔ depth[i]>MIN_WEAVE ∧ dominates(depth[i],aligned)` for CAST. Pinned
   by `test/50-cast-analog-consensus-floor.test.mjs` and

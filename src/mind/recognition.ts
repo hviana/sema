@@ -34,19 +34,20 @@ import type { Leaf, Site } from "./graph-search.js";
  *
  *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus.
  *
- *  ONE READING PER BYTE STREAM, deliberately: there is no "cheap mode" that
- *  skips the edge-trim fallbacks.  A `trimmed` variant was tried and REFUTED
- *  twice over.  Its premise — "the trims only recover misaligned FRAGMENTS, so
- *  a consumer whose gate rejects fragments loses nothing" — is false: the
- *  left/right trim loops below exist precisely to find WHOLE trained forms
- *  embedded at an offset the query's own fold did not cut, and such a form has
- *  no structural parents or containers, so it passes the pivot's fragment gate
- *  and is exactly the candidate a multi-hop chain steps through.  Skipping them
- *  narrows the pivot's evidence silently.  And a per-caller variant has to key
- *  the memo by the variant, which breaks the "computed at most once" property
- *  (§2.11): the pipeline recognises a grounded answer untrimmed for
- *  `preConsumed`, and the pivot then recognises the same bytes again — the
- *  saving inverts into a doubling on the path it was measured for. */
+ * ONE READING PER BYTE STREAM, deliberately: there is no "cheap mode" that
+ * skips
+ * the edge-trim fallbacks. A `trimmed` variant was tried and REFUTED twice
+ * over. Its premise — "the trims only recover misaligned FRAGMENTS, so a
+ * consumer whose gate rejects fragments loses nothing" — is false: the
+ * left/right trim loops below exist precisely to find WHOLE trained forms
+ * embedded at an offset the query's own fold did not cut, and such a form has
+ * no structural parents or containers, so it passes the pivot's fragment gate
+ * and is exactly the candidate a multi-hop chain steps through. Skipping them
+ * narrows the pivot's evidence silently. And a per-caller variant has to key
+ * the memo by the variant, which breaks the "computed at most once" property
+ * (memoization.md): the pipeline recognises a grounded answer untrimmed for
+ * `preConsumed`, and the pivot then recognises the same bytes again — the
+ * saving inverts into a doubling on the path it was measured for. */
 export function recognise(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -180,16 +181,15 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     // and read the answer from `starts`, which is exactly {0, W, 2W, …}
     // because riverFold groups fixed-arity — arithmetic, not evidence.
     //
-    // Measured on the 17.9M-node store, over the sites of 7 probes (1 good,
-    // 11 junk by hand-labelling, corrected for whole-query forms):
-    //     len >= W        rejects "hi"(2) "of"(2) "is"(2) "di"(2) "the"(3),
-    //                     admits  "Eiffel Tower"(12) and both whole-query forms
-    //     len >= W-1      admits "the" — W-1 is the write side's straddle
-    //                     neighbour for RETRIEVAL, never a claim about units
-    //     §2.7 saturation admits 11/11 junk: edgeAncestors on a site node
-    //                     reaches 1..48 contexts, so dominates(ctx, N) needs
-    //                     ctx > 162805 and never fires; every site reads DISC
-    //     rarity          does not separate: "hi" has 1 container, "the" 572
+    // Measured on the 17.9M-node store, over the sites of 7 probes (1 good, 11
+    // junk by hand-labelling, corrected for whole-query forms): len >= W
+    // rejects "hi"(2) "of"(2) "is"(2) "di"(2) "the"(3), admits "Eiffel
+    // Tower"(12) and both whole-query forms len >= W-1 admits "the" — W-1 is
+    // the write side's straddle neighbour for RETRIEVAL, never a claim about
+    // units commonality.md saturation admits 11/11 junk: edgeAncestors on a
+    // site node reaches 1..48 contexts, so dominates(ctx, N) needs ctx > 162805
+    // and never fires; every site reads DISC rarity does not separate: "hi" has
+    // 1 container, "the" 572
     //
     // A span covering the WHOLE query is exempt: then it is not a fragment of
     // something longer, it is the question ("hi" asked on its own).

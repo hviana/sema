@@ -32,7 +32,7 @@ Two consequences follow, and both are load-bearing:
 2. **A corpus under a ShareAlike licence cannot enter the store**, because its
    copyleft would attach to the distributed artifact.
 
-Both rules are stated in [AGENTS.md](AGENTS.md) §6 and must be checked before
+Both rules are stated in [AGENTS.md](AGENTS.md) §7 and must be checked before
 any corpus is added to a trainer.
 
 ---

@@ -349,19 +349,20 @@ function bytesToLeaves(
  *  sentences fall would be importing an assumption the architecture rejects.
  *  Random binary must, and does, behave exactly like prose.
  *
- *  Every constant is derived (§2.2): the cut mask is W, so a cut is offered once
- *  per quantum of bytes — which, composed with the minimum below, puts the
- *  expected segment at minLen + W − 1 ≈ 6 B rather than at W, deliberately (see
- *  the refutation recorded at `cutRate` in {@link contentLevels}: a segment is
- *  the flat PHRASE-scale unit the W-ary groups are built from, not a group of W
- *  children, and forcing E[len] = W costs 15 tests).  The minimum is W−1, `canonicalWindows`'s
- *  straddle neighbour and the write side's own floor for a unit; and the maximum
- *  is the KEYRING's seat count, because a segment folds as ONE flat node and
- *  `fold` has exactly that many seats to bind children into.  Capping there is
- *  what keeps the fold light: a segment of 3..seats leaves is a single node,
- *  where splitting it into W-groups plus a remainder would cost two or three
- *  and the remainders barely share (measured: partial-arity nodes 504 → 3,590,
- *  and total distinct nodes 8,142 → 9,712, when segments folded as [W][rest]). */
+ *  Every constant is derived (thresholds.md): the cut mask is W, so a cut is
+ * offered once per quantum of bytes — which, composed with the minimum below,
+ * puts the expected segment at minLen + W − 1 ≈ 6 B rather than at W,
+ * deliberately (see the refutation recorded at `cutRate` in {@link
+ * contentLevels}: a segment is the flat PHRASE-scale unit the W-ary groups are
+ * built from, not a group of W children, and forcing E[len] = W costs 15
+ * tests). The minimum is W−1, `canonicalWindows`'s straddle neighbour and the
+ * write side's own floor for a unit; and the maximum is the KEYRING's seat
+ * count, because a segment folds as ONE flat node and `fold` has exactly that
+ * many seats to bind children into. Capping there is what keeps the fold light:
+ * a segment of 3..seats leaves is a single node, where splitting it into
+ * W-groups plus a remainder would cost two or three and the remainders barely
+ * share (measured: partial-arity nodes 504 → 3,590, and total distinct nodes
+ * 8,142 → 9,712, when segments folded as [W][rest]). */
 /** {@link contentBoundaries} plus, for each cut, its LEVEL — how deep in the
  *  tree that cut reaches.
  *
@@ -622,16 +623,16 @@ export function knownPrefixLength(
  *  correct boundary.  Pass them through from `perceive`; the geometry
  *  computes the stable prefix internally.
  *
- *  `boundaries` is the CALLER-computed stable-prefix boundary set (§10.3):
- *  strictly-increasing proper byte offsets, each the length of a prefix that
- *  is already a stored whole-stream form.  When given, the fold splits into
- *  the segments between consecutive boundaries — each folded independently,
- *  exactly as it folded when it was learned — and the segment roots join
- *  LEFT-NESTED (((s₀·s₁)·s₂)…), so every learnt cumulative-context root
- *  reappears as an identical subtree (and, by hash-consing, the very same
- *  node) inside the grown stream.  This is what lets a conversation's next
- *  turn extend perception instead of refolding it: identical prefixes
- *  produce identical subtrees regardless of what follows them. */
+ *  `boundaries` is the CALLER-computed stable-prefix boundary set
+ * (fold-contract.md): strictly-increasing proper byte offsets, each the length
+ * of a prefix that is already a stored whole-stream form. When given, the fold
+ * splits into the segments between consecutive boundaries — each folded
+ * independently, exactly as it folded when it was learned — and the segment
+ * roots join LEFT-NESTED (((s₀·s₁)·s₂)…), so every learnt cumulative-context
+ * root reappears as an identical subtree (and, by hash-consing, the very same
+ * node) inside the grown stream. This is what lets a conversation's next turn
+ * extend perception instead of refolding it: identical prefixes produce
+ * identical subtrees regardless of what follows them. */
 export function bytesToTree(
   space: Space,
   alphabet: Alphabet,
@@ -962,7 +963,7 @@ function flatFold(
   return { tree: sema(gist, null, kids), len: n };
 }
 
-/** The stable-prefix segmented fold (§10.3).  Each segment between
+/* * The stable-prefix segmented fold (fold-contract.md).  Each segment between
  *  consecutive boundaries folds PLAINLY and independently; segment roots
  *  join left-nested, and only the final root is normalized (the linear-fold
  *  contract: one normalize per perception).  A segment's own inner splits

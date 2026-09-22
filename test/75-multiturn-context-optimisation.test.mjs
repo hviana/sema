@@ -966,11 +966,11 @@ test("F1: every turn of a trained conversation is answered exactly", async () =>
 test("F1b: attaching a trace changes no answer — the audit layer is inert", async () => {
   // The mind's ONLY text-shaped code lives in the rationale/trace payloads:
   // attention.ts's `dec` helper decodes bytes and collapses whitespace so an
-  // audit line is readable, and frame-filler builds diagnostic strings the
-  // same way. Neither may ever reach a decision — nothing in the core knows
-  // what "whitespace" is (see canon.ts's header, and AGENTS §2.11: profile
-  // and trace must not move an answer). Asserted here rather than assumed,
-  // because the formatting sits inside the same functions that decide.
+  // audit line is readable, and frame-filler builds diagnostic strings the same
+  // way. Neither may ever reach a decision — nothing in the core knows what
+  // "whitespace" is (see canon.ts's header, and memoization.md: profile and
+  // trace must not move an answer). Asserted here rather than assumed, because
+  // the formatting sits inside the same functions that decide.
   const pairs = [
     [
       "who painted the weeping woman",

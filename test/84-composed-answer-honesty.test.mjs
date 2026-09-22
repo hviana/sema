@@ -93,10 +93,10 @@ test("each hop still answers on its own — the substrate is intact", async () =
 
 test("a two-hop query composes or stays silent — it never fabricates", async () => {
   // THE CONTRACT. Three outcomes are conceivable and only two are acceptable:
-  //   compose  -> the answer contains Paris
-  //   silence  -> the empty answer, which is honest (AGENTS §2.13)
-  //   fabricate-> an assembly carrying content from an unrelated deposit
-  // The third is what a store past the real-text ceiling actually does.
+  // compose -> the answer contains Paris silence -> the empty answer, which is
+  // honest (INVARIANTS.md) fabricate-> an assembly carrying content from an
+  // unrelated deposit The third is what a store past the real-text ceiling
+  // actually does.
   const mind = await storeWithDistractors();
   const answer = await mind.respondText(TWO_HOP);
 

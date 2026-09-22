@@ -3,13 +3,13 @@
 // separated from the query only by material that does not change what the
 // text SAYS, is the SAME learnt form and grounds through its own edge.
 //
-// "Material that does not change what it says" has ONE definition here, and
-// it is read from the corpus, never tuned (AGENTS §2.7, corpus-global
+// "Material that does not change what it says" has ONE definition here, and it
+// is read from the corpus, never tuned (commonality.md, corpus-global
 // population): a span is EXPLAINED when it is sub-quantum (< W — typographic
-// glue) or every W-window in it is COMMON by the store's own climb (the
-// ascent saturates, or it reaches a majority of contexts).  A window that
-// reaches NOTHING is novel content and is never explained — the reading that
-// separates a droppable "the process of " from a load-bearing "heavy ".
+// glue) or every W-window in it is COMMON by the store's own climb (the ascent
+// saturates, or it reaches a majority of contexts). A window that reaches
+// NOTHING is novel content and is never explained — the reading that separates
+// a droppable "the process of " from a load-bearing "heavy ".
 //
 // THE GAP THIS CLOSES (measured on the 17.9M-node trained store).  The query
 // `Who wrote Romeo and Juliet?` against the trained `Who wrote "Romeo and

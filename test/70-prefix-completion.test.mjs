@@ -1,9 +1,10 @@
 // 70-prefix-completion.test.mjs — a query that IS the opening of one trained
 // form is completed by that form's remainder; anything less is refused.
 //
-// WHAT THE MECHANISM DOES (src/mind/prefix-completion.ts): when every other
-// tier has declined, scan the candidate list recall's refusal path has ALREADY
-// fetched and look for a trained form whose bytes literally BEGIN with the whole
+// WHAT THE MECHANISM DOES (src/mind/mechanisms/prefix-completion.ts): when
+// every other tier has declined, scan the candidate list recall's refusal path
+// has ALREADY fetched and look for a trained form whose bytes literally BEGIN
+// with the whole
 // query.  The answer is that form's own remainder — never an invention.
 //
 // WHY IT IS NEEDED, measured on the 15.7M-node trained store:

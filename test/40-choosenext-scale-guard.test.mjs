@@ -10,23 +10,22 @@
 // already requires strict dominance; a tie leaves first-inserted as the
 // pick, exactly the "no real winner" case a floor would matter for.
 //
-// But chooseNext ALSO gated this pick on `bestSupport < consensusFloor(N)`
-// once the corpus scale crosses atomIsHub's threshold (traverse.ts:541-546)
-// — reusing the SAME ln(N)+0.5 floor recallByResonance and commitVotes use
-// for POOLED, IDF-weighted CLIMB VOTES (each region worth up to ln N, so a
-// sum exceeding ln N + 0.5 is more than any one region could say alone —
-// HOW_IT_WORKS.md §8.6).  `prevCount(candidate)` is a different kind of
-// quantity: a raw count of how many training contexts independently
-// predicted ONE destination, bounded by how many times that specific fact
-// was retold — NOT by corpus size N.  Gating an N-invariant count against
-// an N-growing threshold guarantees failure once N is large enough
-// (verified live: N≈325K gives a floor of ≈13.19, so a genuinely dominant
-// but only-doubly-attested fact like "capital of France → Paris" was
-// refused, falling back to a noisy concept-hop that produced the wrong
-// answer).  HOW_IT_WORKS.md's own canonical chooseNext pseudocode (§25)
-// has NO such floor — it's undocumented implementation drift, not a
-// deliberate design surface.  Fix: remove the gate; chooseNext's existing
-// strict-dominance loop already IS the "genuinely competing" test.
+// But chooseNext ALSO gated this pick on `bestSupport < consensusFloor(N)` once
+// the corpus scale crosses atomIsHub's threshold (traverse.ts:541-546) —
+// reusing the SAME ln(N)+0.5 floor recallByResonance and commitVotes use for
+// POOLED, IDF-weighted CLIMB VOTES (each region worth up to ln N, so a sum
+// exceeding ln N + 0.5 is more than any one region could say alone —
+// thresholds.md). `prevCount(candidate)` is a different kind of quantity: a raw
+// count of how many training contexts independently predicted ONE destination,
+// bounded by how many times that specific fact was retold — NOT by corpus size
+// N. Gating an N-invariant count against an N-growing threshold guarantees
+// failure once N is large enough (verified live: N≈325K gives a floor of
+// ≈13.19, so a genuinely dominant but only-doubly-attested fact like "capital
+// of France → Paris" was refused, falling back to a noisy concept-hop that
+// produced the wrong answer). The canonical `chooseNext` pseudocode has NO such
+// floor — it is undocumented implementation drift, not a deliberate design
+// surface. Fix: remove the gate; chooseNext's existing strict-dominance loop
+// already IS the "genuinely competing" test.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

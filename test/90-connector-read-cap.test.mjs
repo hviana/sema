@@ -7,10 +7,10 @@
 // substring search, so it needs the candidate's bytes; it used to reconstruct
 // them in FULL via `read(ctx, answer)`, whose maxLen defaults to ALL.
 //
-// AGENTS §2.8, prefix-capped reads: "a candidate that exceeds the cap is
+// bounded-reads.md, prefix-capped reads: "a candidate that exceeds the cap is
 // rejected without reconstructing it — the weave, the junction walks and the
 // bridge all read this way, and uncapped reads there cost seconds per query on
-// a large store."  This probe was the exception, and it runs hubBound(ctx) = √N
+// a large store." This probe was the exception: it runs hubBound(ctx) = √N
 // times PER SITE.
 //
 // The probe's corpus-scale cost was once claimed from a trained-store
@@ -18,14 +18,15 @@
 // prompt" — but that number was measured on a `respond()` query, where the
 // probe does NOT execute (`answeredSpans` is empty there, so the enclosing
 // guard returns first).  It is therefore not attributable to the probe and is
-// not repeated here (§2.16: a comment asserting a measurement inherits Gate 1).
+// not repeated here (a comment asserting a measurement inherits Gate 1).
 // The probe runs only on a multi-turn `respondTurn` response; its benefit there
 // is still unmeasured.
 //
-// WHAT THIS PINS.  The cap cannot reduce the read COUNT — only a semantic change
-// could (see below).  It bounds each read by the QUERY, which is what §2.8 asks
-// and what rescues a SHORT query: candidates averaged 231 B reconstructed
-// against a 3-byte prompt.  So the invariant here is per-read SIZE.
+// WHAT THIS PINS. The cap cannot reduce the read COUNT — only a semantic change
+// could (see below). It bounds each read by the QUERY, which is what
+// bounded-reads.md asks and what rescues a SHORT query: candidates averaged 231
+// B reconstructed against a 3-byte prompt. So the invariant here is per-read
+// SIZE.
 //
 // It is measured by calling `resolveConnectors` DIRECTLY and diffing the meter
 // across it.  A whole-response counter cannot express this: `bytesRead` sums
@@ -121,7 +122,8 @@ test("connector probe reads by the query, not by the learnt continuation", async
       `the connector probe averaged ${perRead.toFixed(0)} B per read for a ` +
         `${QUERY.length} B query — a candidate longer than the query cannot ` +
         `occur inside it, so it must be rejected on an overflow probe of ` +
-        `${QUERY.length + 1} B, not reconstructed in full (AGENTS §2.8)`,
+        `${QUERY.length + 1} B, not reconstructed in full ` +
+        `(bounded-reads.md)`,
     );
   } finally {
     mind.endResponse();

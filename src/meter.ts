@@ -8,8 +8,8 @@
 // Four contracts, all load-bearing:
 //
 //   1. NEVER READ BY INFERENCE.  No counter may reach a decision, a threshold,
-//      or an ordering.  Determinism (AGENTS §2.1) survives only because the
-//      meter is write-only from the engine's point of view.
+//      or an ordering.  Determinism (determinism.md) survives
+//      only because the meter is write-only from the engine's point of view.
 //   2. OFF BY DEFAULT, AND FREE WHEN OFF.  Every call site is `meter?.x++` on
 //      a null field.  Nothing allocates, nothing is keyed, nothing is timed
 //      unless a Meter is attached (`new Mind({ profile: true })`).
@@ -79,9 +79,9 @@ export class Meter {
   nodeRecords = 0;
   /** `store.bytes` / `store.bytesPrefix` — one reconstruction request. */
   byteReads = 0;
-  /** Bytes actually handed back by those reads — the real I/O volume, and
-   *  the number that exposes an unbounded read (AGENTS §2.8) that a call
-   *  count alone hides. */
+  /* * Bytes actually handed back by those reads — the real I/O volume, and the
+   *  number that exposes an unbounded read (bounded-reads.md) that a call count
+   * alone hides. */
   bytesRead = 0;
   /** `store.contentLen`. */
   lenReads = 0;
@@ -178,10 +178,10 @@ export class Meter {
   junctionPops = 0;
   /** Ascents that ended by EXHAUSTING the expansion budget rather than by
    *  deciding — the walk abstained and the caller silently fell through to a
-   *  lower tier of the ladder (§2.13: a degradation nothing else reports).
-   *  It rises the moment a SHARED budget is drained by an earlier walk, which
-   *  is what makes "this tier answered nothing" distinguishable from "this
-   *  tier never got to look". */
+   * lower tier of the ladder — honest degradation, and nothing else reports it
+   * (INVARIANTS.md). It rises the moment a SHARED budget is drained by an
+   * earlier walk, which is what makes "this tier answered nothing"
+   * distinguishable from "this tier never got to look". */
   junctionBudgetExhausted = 0;
   /** Arbitrary byte spans whose distributional company was VSA-bundled from
    *  existing episode halos. */
@@ -238,11 +238,11 @@ export class Meter {
     }
   }
 
-  /** Time one SYNCHRONOUS phase.  The sync/async seam (§2.10) is a real
-   *  contract — perception, recognition and the graph search are synchronous —
-   *  so a synchronous layer must not be wrapped in `time`'s promise just to be
-   *  measured: that would make the profiled path await where the unprofiled
-   *  one does not, and a meter never changes what a layer computes. */
+  /* * Time one SYNCHRONOUS phase.  The sync/async seam is a real contract
+   * (meter.md) — perception, recognition and the graph search are synchronous —
+   * so a synchronous layer must not be wrapped in `time`'s promise just to be
+   * measured: that would make the profiled path await where the unprofiled one
+   * does not, and a meter never changes what a layer computes. */
   timeSync<T>(phase: string, fn: () => T): T {
     const before = this.snapshot();
     const t = performance.now();

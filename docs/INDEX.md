@@ -1,8 +1,8 @@
 # Sema Documentation Index
 
 Sema is a single system stated three ways: the law lives in `docs/architecture/`
-(what holds), the prescription in `AGENTS.md` bootloader (what to do and where),
-and the proof in `test/` (pins that fail when the law is broken).
+(what holds), the prescription in `AGENTS.md` (what to do and where), and the
+proof in `test/` (pins that fail when the law is broken).
 
 ## Routing — what to read for each task
 

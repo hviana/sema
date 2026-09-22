@@ -297,10 +297,10 @@ export type AItem =
 export interface MindContext extends GraphSearchHost {
   store: Store;
   /** The work accumulator for the inference call in flight, or null when
-   *  nothing is profiling — see src/meter.ts.  WRITE-ONLY from the engine's
-   *  point of view: no inference decision may read a counter, or the
-   *  determinism contract (AGENTS §2.1) is gone.  Every call site is
-   *  `ctx.meter?.x++`, so an unprofiled response allocates nothing. */
+   * nothing is profiling — see src/meter.ts. WRITE-ONLY from the engine's point
+   * of view: no inference decision may read a counter, or determinism is gone
+   * (determinism.md). Every call site is `ctx.meter?.x++`, so an unprofiled
+   * response allocates nothing. */
   meter: Meter | null;
   space: Space;
   alphabet: Alphabet;

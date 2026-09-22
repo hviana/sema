@@ -4,8 +4,8 @@
 // the cache ceiling, the read budgets, the caps. A knob that describes ONE
 // CORPUS (which pairs of SmolSent, how many SODA dialogues, how long an Aya
 // field may be) belongs next to that corpus's adapter, together with the
-// evidence that fixed its default — see AGENTS.md §2.16: a comment carries the
-// constraint, and a constraint is only readable beside the code it constrains.
+// evidence that fixed its default — a comment carries the constraint, and a
+// constraint is only readable beside the code it constrains.
 
 import { join } from "node:path";
 

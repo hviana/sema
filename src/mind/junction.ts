@@ -208,7 +208,7 @@ function cachedContainers(
  *     is legitimately reached across many containing structures.  Half the
  *     successful junctions would be lost.
  *
- *     REFUTED EARLY-STOP (side-cone exhaustion, §2.17's "real saturation"):
+ * REFUTED EARLY-STOP (side-cone exhaustion, saturation.md's "real saturation"):
  *     stopping the walk the moment ONE side's upward cone is emptied is wrong,
  *     in both a hub-guarded form and a hub-flagged form.  The junction test is
  *     a BYTE containment over the UNION of the two cones, and a junction can be
@@ -265,13 +265,13 @@ export function junctionContainersFrom(
     d: 0,
   }));
   while (stack.length > 0 && out.length < bound) {
-    // BUDGET EXHAUSTION IS AN ABSTENTION, AND IT MUST BE VISIBLE (§2.13).  The
-    // walk stops with work still on the stack, the caller reads "no container"
-    // and falls through to a lower ladder rung — indistinguishable, from the
-    // outside, from a walk that looked everywhere and found nothing.  With a
-    // SHARED budget (cross-region's one k·W allowance per tier) an EARLIER
-    // pair can drain it, so a later pair's exact tier may never run at all;
-    // this counter is the only thing that says so.
+    // BUDGET EXHAUSTION IS AN ABSTENTION, AND IT MUST BE VISIBLE
+    // (INVARIANTS.md). The walk stops with work still on the stack, the caller
+    // reads "no container" and falls through to a lower ladder rung —
+    // indistinguishable, from the outside, from a walk that looked everywhere
+    // and found nothing. With a SHARED budget (cross-region's one k·W allowance
+    // per tier) an EARLIER pair can drain it, so a later pair's exact tier may
+    // never run at all; this counter is the only thing that says so.
     if (b.n-- <= 0) {
       if (ctx.meter) ctx.meter.junctionBudgetExhausted++;
       break;

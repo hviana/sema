@@ -2,8 +2,8 @@
 // bytes (Grounding IV).
 //
 // This file is a CONFIGURATION of the shared frame reading in match.ts, not a
-// pipeline of its own.  The three parts it configures live where §2.5 puts
-// them and are reachable by any mechanism:
+// pipeline of its own. The three parts it configures live where
+// match-project.md puts them and are reachable by any mechanism:
 //
 //   matcher     Precomputed.frames() — the frame INVENTORY: which ranked
 //               candidates read as instances of the query's own frame, and
@@ -29,10 +29,10 @@
 // candidate's continuation UNSUBSTITUTED, so admitting a slot-gap there would
 // voice the corpus's filler for the asker's referent — the misreference
 // measured live on the trained store ("How do you say 'flurbish' in French?"
-// answered "the way to say hello is \"Bonjour\"").  Nor is CAST rewired: its
+// answered "the way to say hello is \"Bonjour\""). Nor is CAST rewired: its
 // frame gate is WEAVE-local while a slot is COHORT-local, and substituting one
-// population for the other is the error §2.7 names.  The notion is made
-// AVAILABLE, never imposed.
+// population for the other is the error commonality.md names. The notion is
+// made AVAILABLE, never imposed.
 
 import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
@@ -52,16 +52,16 @@ import { rItem, rNode, traceFail } from "../trace.js";
  *  agrees with nothing, so no carriage is attested — the same "two or no
  *  constituent" reading frame-filler's contentRuns applies.
  *
- *  THIS IS ALSO THE MECHANISM'S REACH.  Evidence comes from the shared top-k
- *  resonance, so a frame the corpus instantiates only ONCE within k is not
- *  reachable here.  Measured on the trained store: `How do you say 'flurbish'
- *  in French?` finds one instance of its frame in the top 24 — the rest are
- *  `How do you make …`, a different frame — so this abstains and recall's
- *  scaffolding-dominated tier answers with the CORPUS's filler.  That
- *  misreference is recall's, and widening the supply is not the fix: the
- *  exhaustive √N list recall's refusal path builds costs hundreds of
- *  milliseconds and this runs before it.  Abstaining on thin evidence is the
- *  honest reading (§2.13). */
+ *  THIS IS ALSO THE MECHANISM'S REACH. Evidence comes from the shared top-k
+ * resonance, so a frame the corpus instantiates only ONCE within k is not
+ * reachable here. Measured on the trained store: `How do you say 'flurbish' in
+ * French?` finds one instance of its frame in the top 24 — the rest are `How do
+ * you make …`, a different frame — so this abstains and recall's
+ * scaffolding-dominated tier answers with the CORPUS's filler. That
+ * misreference is recall's, and widening the supply is not the fix: the
+ * exhaustive √N list recall's refusal path builds costs hundreds of
+ * milliseconds and this runs before it. Abstaining on thin evidence is the
+ * honest reading (INVARIANTS.md). */
 const MIN_INSTANCES = 2;
 
 /** THE VOICING GATES — this mechanism's own reading of a pairing, applied here
@@ -135,7 +135,7 @@ function electFrame(
   let best: FrameInstance[] = [];
   for (const group of bySignature.values()) {
     // Ties keep the FIRST group in insertion order, which is resonance rank —
-    // corpus-determined, like every other tie-break here (§2.1).
+    // corpus-determined, like every other tie-break here (determinism.md).
     if (group.length > best.length) best = group;
   }
   return best;

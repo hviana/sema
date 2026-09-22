@@ -1,7 +1,7 @@
 // 94-cross-region-budget.test.mjs — the cross-region junction ladder shares ONE
 // k·W allowance per evidence tier once atoms are hubs, instead of letting each
-// candidate pair spend its own √N·W drift budget (attention.ts crossRegionVotes,
-// §2.17's derived gate = traverse.atomIsHub).
+// candidate pair spend its own √N·W drift budget (attention.ts
+// crossRegionVotes, saturation.md's derived gate = traverse.atomIsHub).
 //
 // This is a PERFORMANCE regression test, not a behaviour test: the shared
 // budget is byte-identical at every scale — a pair whose container is not

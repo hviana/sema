@@ -59,11 +59,11 @@ export function perceiveKey(
 /** Perceive input into a content-defined tree (the river fold).
  *  Deterministic — identical bytes always produce an identical tree.
  *
- *  `boundaries` is an optional sorted list of proper byte offsets where the
- *  fold must split so that each prefix segment folds identically to how it
- *  folded when it was learned (§10.3 stable-prefix contract).  Only the
- *  CALLER — who assembled the multi-turn context — knows where those
- *  boundaries are; the geometry never guesses them from the bytes. */
+ * `boundaries` is an optional sorted list of proper byte offsets where the fold
+ * must split so that each prefix segment folds identically to how it folded
+ * when it was learned (fold-contract.md stable-prefix contract). Only the
+ * CALLER — who assembled the multi-turn context — knows where those boundaries
+ * are; the geometry never guesses them from the bytes. */
 export function perceive(
   ctx: MindContext,
   input: Input,

@@ -1,6 +1,6 @@
 // 88 — the dependency footprint is a PRODUCT PROPERTY, so it is tested.
 //
-// AGENTS.md §6: "do not add runtime dependencies casually — the near-zero-
+// AGENTS.md §7: "do not add runtime dependencies casually — the near-zero-
 // dependency footprint is a product feature." A feature stated only in prose
 // erodes; this suite pins it at the two places it can actually break.
 //

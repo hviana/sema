@@ -361,7 +361,7 @@ test("a halo accumulates poured signatures and gates on mass", async () => {
 });
 
 // A multi-turn conversation is deposited as ACCUMULATED-CONTEXT episodes — the
-// pattern HOW_IT_WORKS §19a prescribes and example/train.ts uses:
+// pattern example/train.ts uses:
 //   (t0)            → t1
 //   (t0 + t1)       → t2
 //   (t0 + t1 + t2)  → t3

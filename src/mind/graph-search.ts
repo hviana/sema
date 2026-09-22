@@ -375,9 +375,10 @@ export class GraphSearch {
     private readonly host: GraphSearchHost,
   ) {}
 
-  /** The hub bound √N (AGENTS §2.8) — the ONE fan-out cap, stated here
-   *  rather than imported from `traverse.ts` because this module is
-   *  deliberately host-based (it holds a bare Store, never a MindContext).
+  /* * The hub bound √N (bounded-reads.md) — the ONE
+   *  fan-out cap, stated here rather than imported from `traverse.ts` because
+   *  this module is deliberately host-based (it holds a bare Store, never a
+   *  MindContext).
    *  That is the same write/read-side duplication convention canonical.ts's
    *  header documents: if the formula changes it must change in BOTH places.
    *  It is stated ONCE per side, though — the expression used to be spelled
@@ -1038,12 +1039,12 @@ export class GraphSearch {
     const memo = this.recompleteMemo;
     if (memo.has(node)) return memo.get(node) ?? null;
     // Re-covering is how a PRODUCED node's bytes enter the search at all: the
-    // cover machinery otherwise only ever sees the QUERY's spans.  The recursion
+    // cover machinery otherwise only ever sees the QUERY's spans. The recursion
     // is allowed to nest — a chain IS nested completions — but it is bounded so
-    // the work stays the ANSWER's (AGENTS §2.8): the stack below is the cycle
-    // guard, only ACCEPTED completions recurse, and the nested solve decomposes
-    // the form by its own shape instead of re-recognising the corpus's hub forms
-    // inside it.
+    // the work stays the ANSWER's (bounded-reads.md): the stack below is the
+    // cycle guard, only ACCEPTED completions recurse, and the nested solve
+    // decomposes the form by its own shape instead of re-recognising the
+    // corpus's hub forms inside it.
     //
     // `recompleteOpen` IS the stack of the chain being built, so MEMBERSHIP is
     // the cycle guard: a node already open on this chain cannot re-enter it.

@@ -130,15 +130,15 @@ export interface NarrowDecisionData {
 }
 
 /** Structured payload of the "regimePrediction" rationale step — the R8
- *  observation exposed as data.  After the first mechanism (cover, which §2.6
- *  runs first) grounds or abstains, the market's whole outcome is already
- *  determined by the one cost ladder: the consensus climb runs exactly when
- *  `worthRunning(2 * STEP)` is true — CAST (floor 2·STEP) is the cheapest
- *  mechanism that first-touches it, and confluence (3·STEP) / extraction
- *  (CONCEPT+STEP) are only reached after CAST is.  An incumbent at or below
- *  that floor prunes CAST and, with it, the climb (retrieval); anything above
- *  — or no incumbent — runs the full market and the climb (composition).
- *  Purely observational; never read by inference. */
+ *  observation exposed as data. After the first mechanism (cover, which
+ * mechanism-market.md runs first) grounds or abstains, the market's whole
+ * outcome is already determined by the one cost ladder: the consensus climb
+ * runs exactly when `worthRunning(2 * STEP)` is true — CAST (floor 2·STEP) is
+ * the cheapest mechanism that first-touches it, and confluence (3·STEP) /
+ * extraction (CONCEPT+STEP) are only reached after CAST is. An incumbent at or
+ * below that floor prunes CAST and, with it, the climb (retrieval); anything
+ * above — or no incumbent — runs the full market and the climb (composition).
+ * Purely observational; never read by inference. */
 export interface RegimePredictionData {
   version: 1;
   /** retrieval | composition — the two regimes R1 measured as a ~100× cost
@@ -187,13 +187,13 @@ export async function think(
   // ── Pre-computation ──────────────────────────────────────────────────
   const mechanisms = mechs ?? defaultMechanisms;
   const meter = ctx.meter;
-  // recognition is a shared analysis (§2.14 contract 5): it does the query's
+  // recognition is a shared analysis (meter.md contract 5): it does the query's
   // own store work (perceive → foldTree → resolve), which used to land in
   // `think` and in nothing narrower — the meter's one accounting surface must
   // charge it to itself, exactly as attention/weave/resonance are charged.
-  // SYNCHRONOUS phase: recognition is on the sync side of §2.10's seam, so it
-  // is timed with `timeSync` — wrapping it in a promise would make a profiled
-  // response await where an unprofiled one does not.
+  // SYNCHRONOUS phase: recognition is on the sync side of meter.md's seam, so
+  // it is timed with `timeSync` — wrapping it in a promise would make a
+  // profiled response await where an unprofiled one does not.
   const rec = meter
     ? meter.timeSync("recognise", () => recognise(ctx, query))
     : recognise(ctx, query);
@@ -225,15 +225,15 @@ export async function think(
     }
   }
 
-  // Phase 2: the shared pre-computation container.  Eager fields only
-  // (recognition, computed spans, guide) — every expensive analysis
-  // (consensus climb, weave, span-shape classification) is a lazily-cached
-  // method on Precomputed, first-touched by whichever mechanism's floor
-  // survives its cheap gates and the worthRunning check.  A query no
-  // mechanism climbs for (e.g. one an extension decided) never climbs.
-  // NOT phased: the constructor itself is trivial (it only derives `k`), so a
-  // phase here would add a zero-work entry to every profiled report — the meter
-  // attributes WORK (§2.14); the trace already represents structure.
+  // Phase 2: the shared pre-computation container. Eager fields only
+  // (recognition, computed spans, guide) — every expensive analysis (consensus
+  // climb, weave, span-shape classification) is a lazily-cached method on
+  // Precomputed, first-touched by whichever mechanism's floor survives its
+  // cheap gates and the worthRunning check. A query no mechanism climbs for
+  // (e.g. one an extension decided) never climbs. NOT phased: the constructor
+  // itself is trivial (it only derives `k`), so a phase here would add a
+  // zero-work entry to every profiled report — the meter attributes WORK
+  // (meter.md); the trace already represents structure.
   const pre = new Precomputed(ctx, query, rec, computed, ctx._edgeGuide);
 
   // ── Grounding: ONE lightest-derivation choice among the mechanisms ────
@@ -298,16 +298,17 @@ export async function think(
   const worthRunning = (floor: number) =>
     best === null || grade(floor) < grade(best.weight);
 
-  // REGIME PREDICTION (R8) — observational only.  Once the FIRST mechanism has
-  // had its turn (cover, which §2.6 places first and floors at 0), the market's
-  // outcome is already determined by the one cost ladder: the consensus climb
-  // runs exactly when `worthRunning(2 * STEP)` is true — CAST (floor 2·STEP) is
-  // the cheapest mechanism that first-touches it, so an incumbent at or below
-  // grade 2 prunes CAST and, with it, confluence (3·STEP) and extraction
-  // (CONCEPT+STEP) (retrieval); anything above — or no incumbent — runs the
-  // full market and the climb (composition).  The predicate is `worthRunning`,
-  // the same function the loop itself uses — nothing is computed here that the
-  // engine had not already computed, and nothing is read back by inference.
+  // REGIME PREDICTION (R8) — observational only. Once the FIRST mechanism has
+  // had its turn (cover, which mechanism-market.md places first and floors at
+  // 0), the market's outcome is already determined by the one cost ladder: the
+  // consensus climb runs exactly when `worthRunning(2 * STEP)` is true — CAST
+  // (floor 2·STEP) is the cheapest mechanism that first-touches it, so an
+  // incumbent at or below grade 2 prunes CAST and, with it, confluence (3·STEP)
+  // and extraction (CONCEPT+STEP) (retrieval); anything above — or no incumbent
+  // — runs the full market and the climb (composition). The predicate is
+  // `worthRunning`, the same function the loop itself uses — nothing is
+  // computed here that the engine had not already computed, and nothing is read
+  // back by inference.
   //
   // EMITTED BEFORE THE SECOND MECHANISM'S FLOOR, never after some mechanism's
   // run: a "prediction" published after the fact could assert "the climb will

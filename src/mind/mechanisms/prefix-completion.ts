@@ -1,15 +1,15 @@
 // mechanisms/prefix-completion.ts — Grounding a query that IS the opening of a
 // trained form (Grounding V).
 //
-// A MECHANISM, NOT A TIER.  This used to run inside recall's refusal path, in
-// a fixed if-chain that first-match-wins — the shape CAST was refactored away
-// from, where placement rather than the cost ladder decided.  Its claim is
+// A MECHANISM, NOT A TIER. This used to run inside recall's refusal path, in a
+// fixed if-chain that first-match-wins — the shape CAST was refactored away
+// from, where placement rather than the cost ladder decided. Its claim is
 // maximal (every query byte literally matched, from offset zero, against a
 // trained form) at one STEP, so as a market candidate it competes honestly and
-// the decider weighs it like everything else.  It is registered LAST: recall's
+// the decider weighs it like everything else. It is registered LAST: recall's
 // exact self-match makes an IDENTITY claim about the query while this makes a
-// CONTAINMENT one, and on an exact grade tie the identity claim is the
-// stronger evidence — the same ordering §2.3's ladders use.
+// CONTAINMENT one, and on an exact grade tie the identity claim is the stronger
+// evidence — the same ordering exact-vs-approximate.md's ladders use.
 //
 // Its SUPPLY moved too, and further: `formsOpenedBy` (traverse.ts) answers a
 // question about the STORE — "which trained forms does this byte run open?" —
@@ -49,12 +49,12 @@
 //
 // So this is a RETRIEVABILITY gap, not a semantic one, and the ANN is the wrong
 // instrument for it: a proper prefix's gist cannot rank its own continuation.
-// The repair is CONTENT-ADDRESSED (§2.3) — `formsOpenedBy` (traverse.ts) reads
-// the leaf-id WINDOW index the write side already maintains and answers "which
-// trained forms does this byte run open?" in a bounded √N walk.  That is this
-// mechanism's first supply.  The response's memoised top-k `resonance()` is the
-// second, for prefixes long enough that the gist still ranks the form; it is
-// read, never re-issued.
+// The repair is CONTENT-ADDRESSED (exact-vs-approximate.md) — `formsOpenedBy`
+// (traverse.ts) reads the leaf-id WINDOW index the write side already maintains
+// and answers "which trained forms does this byte run open?" in a bounded √N
+// walk. That is this mechanism's first supply. The response's memoised top-k
+// `resonance()` is the second, for prefixes long enough that the gist still
+// ranks the form; it is read, never re-issued.
 //
 // AN EXHAUSTIVE ANN LIST IS NOT A SUPPLY HERE, AND WAS REMOVED.  This tier once
 // read `Precomputed.wideResonance()` — a full-index `resonate(guide, √N,
@@ -273,20 +273,20 @@ export const prefixMechanism: PipelineMechanism = {
     return STEP;
   },
   async run(ctx, query, pre) {
-    // ONE SUPPLY PASS, not a two-tier `??`.  The window index (exact,
+    // ONE SUPPLY PASS, not a two-tier `??`. The window index (exact,
     // content-addressed) and the response's memoised top-k (approximate) are
-    // concatenated and the three guards decide ONCE over the union.  A
+    // concatenated and the three guards decide ONCE over the union. A
     // first-then-fallback chain would let the APPROXIMATE tier override the
-    // EXACT one (§2.3): when formsOpenedBy finds two continuations, guard 3
-    // returns null and the fallback re-runs the guards on resonance's top-k
-    // alone — which, seeing only one of the two forms, would voice it.  That is
-    // precisely the disagreement-suppression guard 3 exists to prevent, and it
-    // is the exact tier's ambiguity being washed away by the approximate tier.
-    // Evaluating the union means a disagreement the window index saw can never
-    // be hidden by what the ANN happens to rank.  The ANN read is the
-    // response's ONE memoised top-k (§2.11), already paid by recall's refusal
-    // path on the queries where this mechanism fires, so reading it here is not
-    // a second index scan.
+    // EXACT one (exact-vs-approximate.md): when formsOpenedBy finds two
+    // continuations, guard 3 returns null and the fallback re-runs the guards
+    // on resonance's top-k alone — which, seeing only one of the two forms,
+    // would voice it. That is precisely the disagreement-suppression guard 3
+    // exists to prevent, and it is the exact tier's ambiguity being washed away
+    // by the approximate tier. Evaluating the union means a disagreement the
+    // window index saw can never be hidden by what the ANN happens to rank. The
+    // ANN read is the response's ONE memoised top-k (memoization.md), already
+    // paid by recall's refusal path on the queries where this mechanism fires,
+    // so reading it here is not a second index scan.
     const ids = [
       ...formsOpenedBy(ctx, query),
       ...(await pre.resonance()).map((h) => h.id),

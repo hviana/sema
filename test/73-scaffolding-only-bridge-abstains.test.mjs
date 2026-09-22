@@ -2,16 +2,16 @@
 // ABSTAIN when every literal span it did not substitute is corpus-global
 // scaffolding.
 //
-// THE DEFECT THIS PINS.  A bridge grounds through the literal spans it did NOT
-// substitute; those anchors are the whole of its evidence.  The anchor scan
+// THE DEFECT THIS PINS. A bridge grounds through the literal spans it did NOT
+// substitute; those anchors are the whole of its evidence. The anchor scan
 // ranked them by containment but rejected only the ones with ZERO containers,
 // so a query made entirely of scaffolding still bridged — the single
 // substituted span carried the whole semantic load, and the answer was voiced
-// with confidence.  Measured on the trained store (hubBound 571): "What is the
+// with confidence. Measured on the trained store (hubBound 571): "What is the
 // capital of" has 19 anchors, ALL saturated ("What":572, "hat ":572, "at i":572
-// …), and answered with an unrelated trained context about an integral.  That
-// breaks honest silence (§2.13), which is worse than a gap: a gap is visible, a
-// fabrication is not.
+// …), and answered with an unrelated trained context about an integral. That
+// breaks honest silence (INVARIANTS.md), which is worse than a gap: a gap is
+// visible, a fabrication is not.
 //
 // WHY THIS IS NOT A PROBE-SHAPED PATCH.  The gate was falsified against the
 // queries the bridge answers CORRECTLY before it was written, and every one of

@@ -4,7 +4,7 @@
 // Cover consumes recognition directly (its axioms are the query's own
 // decomposition) plus the computed spans any parse()-bearing mechanism
 // contributed: computed spans MASK colliding recognised sites and enter the
-// search at zero cost ("computation always wins", §16.3) — which is also why
+// search at zero cost ("computation always wins", alu.md) — which is also why
 // cover runs FIRST in defaultMechanisms: a computed-backed cover becomes a
 // near-zero-cost incumbent that prunes the other mechanisms through the
 // ordinary admissible-floor check, with no extension special-case anywhere.
@@ -75,22 +75,23 @@ export async function resolveConnectors(
       if (query === undefined || ctx.answeredSpans.length === 0) return true;
       const continuations = ctx.store.nextFirst(s.payload, hubBound(ctx));
       return !continuations.some((answer) => {
-        // PREFIX-CAPPED (AGENTS §2.8): a candidate longer than the query cannot
-        // occur INSIDE it, so read one byte past the query's length — enough to
-        // detect the overflow — and reject without reconstructing the rest.
-        // The `+ 1` is what makes the test exact rather than a truncation: a
-        // result of exactly `query.length + 1` bytes is known to be too long,
-        // and anything shorter is the candidate's COMPLETE content, so the
-        // substring test below is the same test as before.  (The same overflow
-        // probe bridge.ts:256 already uses.)
+        // PREFIX-CAPPED (bounded-reads.md): a candidate longer than the query
+        // cannot occur INSIDE it, so read one byte past the query's length —
+        // enough to detect the overflow — and reject without reconstructing the
+        // rest. The `+ 1` is what makes the test exact rather than a
+        // truncation: a result of exactly `query.length + 1` bytes is known to
+        // be too long, and anything shorter is the candidate's COMPLETE
+        // content, so the substring test below is the same test as before. (The
+        // same overflow probe bridge.ts:256 already uses.)
         //
         // This loop runs up to hubBound(ctx) = √N reads PER SITE, and only on a
         // multi-turn response — `answeredSpans` is empty for a plain respond(),
-        // so the probe does not execute there.  The cap cannot reduce the read
+        // so the probe does not execute there. The cap cannot reduce the read
         // COUNT — only a semantic change to the "already answered" test could —
         // but it bounds each read by the query instead of by the corpus, which
-        // is what §2.8 asks for and what rescues a SHORT query: at 3 bytes this
-        // reads 4 bytes per candidate instead of the ~231 it averaged before.
+        // is what bounded-reads.md asks for and what rescues a SHORT query: at
+        // 3 bytes this reads 4 bytes per candidate instead of the ~231 it
+        // averaged before.
         const bytes = read(ctx, answer, query.length + 1);
         return bytes.length <= query.length && indexOf(query, bytes, 0) >= 0;
       });

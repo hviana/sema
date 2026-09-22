@@ -44,4 +44,5 @@ Two rules in `attention.ts` encode "exact decides" and must not be flattened:
 
 Add a tier to the shared family in `mind/match.ts` with a derived gate
 (`geometry.ts`), never a private `score >= k` check. A new mechanism is a
-`(matcher, direction, gate)` configuration over that family (§2.5).
+`(matcher, direction, gate)` configuration over that family
+(`docs/architecture/match-project.md`).

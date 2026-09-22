@@ -92,12 +92,12 @@ test("bytes() terminates when its memo cannot hold the working set", async () =>
 });
 
 test("differsByOneWindow's reads are capped — no ALL-sentinel read on deposit", async () => {
-  // §2.8: the near-dedup byte check used to open with
+  // bounded-reads.md: the near-dedup byte check used to open with
   // `bytesPrefix(k, Number.MAX_SAFE_INTEGER)` — the ALL sentinel, which routes
-  // to the full materialising `bytes()` — and only THEN compare lengths.  A
+  // to the full materialising `bytes()` — and only THEN compare lengths. A
   // candidate the length test was about to reject had already been rebuilt byte
   // for byte, and that read is what dragged the deposit path into the walk
-  // above.  Lengths now decide first, from the `contentLen` memo.
+  // above. Lengths now decide first, from the `contentLen` memo.
   const src = await import("node:fs").then((fs) =>
     fs.readFileSync(new URL("../src/store.ts", import.meta.url), "utf8")
   );

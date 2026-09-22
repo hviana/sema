@@ -236,24 +236,22 @@ export async function recallByResonance(
     }
   }
 
-  // The query-relative grounding fraction, shared by tiers 2–4 — gated on
-  // the FRACTION OF THE QUERY the grounding explains, not the raw cosine.
-  // Root gists are unit vectors, but their magnitudes are recoverable from
-  // the byte lengths (‖·‖ = √len under the linear fold):
-  // cos = shared/√(lenQ·lenG), so shared/lenQ = cos·√(lenG/lenQ).
-  // The raw cosine punished honest containment — a query fully inside a
-  // longer grounded answer scored √(lenQ/lenG) and was refused — and let a
-  // long answer sharing only scaffolding pass; the query-relative fraction
-  // measures exactly what the reach bar means: how much of THE QUERY the
-  // store accounts for.
-  // Chance similarity survives the length conversion AMPLIFIED: the same
-  // √(lenG/lenQ) factor that converts an honest shared fraction into a
-  // query-relative one multiplies the estimator/chance floor too, so a long
-  // stored form (√(lenG/lenQ) ≈ 10 at 100×) lifted a noise-level cosine past
-  // the reach bar and grounded pure gibberish (observed).  Only the
-  // ABOVE-CHANCE part of the similarity is evidence of shared content —
-  // subtract the significance bar (3/√D, §8.3) before converting.  Derived
-  // from the existing bars; never tuned.
+  // The query-relative grounding fraction, shared by tiers 2–4 — gated on the
+  // FRACTION OF THE QUERY the grounding explains, not the raw cosine. Root
+  // gists are unit vectors, but their magnitudes are recoverable from the byte
+  // lengths (‖·‖ = √len under the linear fold): cos = shared/√(lenQ·lenG), so
+  // shared/lenQ = cos·√(lenG/lenQ). The raw cosine punished honest containment
+  // — a query fully inside a longer grounded answer scored √(lenQ/lenG) and was
+  // refused — and let a long answer sharing only scaffolding pass; the
+  // query-relative fraction measures exactly what the reach bar means: how much
+  // of THE QUERY the store accounts for. Chance similarity survives the length
+  // conversion AMPLIFIED: the same √(lenG/lenQ) factor that converts an honest
+  // shared fraction into a query-relative one multiplies the estimator/chance
+  // floor too, so a long stored form (√(lenG/lenQ) ≈ 10 at 100×) lifted a
+  // noise-level cosine past the reach bar and grounded pure gibberish
+  // (observed). Only the ABOVE-CHANCE part of the similarity is evidence of
+  // shared content — subtract the significance bar (3/√D, thresholds.md) before
+  // converting. Derived from the existing bars; never tuned.
   const sig = significanceBar(ctx.store.D);
   const reach = reachThreshold(ctx.space.maxGroup);
   const fracOfQuery = (cos: number, otherLen: number): number =>
@@ -411,14 +409,14 @@ export async function recallByResonance(
       }
     }
   }
-  // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts).
-  // The bridge's proposal source is the response's ONE top-k read — the same
-  // list recall already ranked above — never an exhaustive √N scan.  The
-  // bridge's own candidate cap is 2·recallQueryK, so top-k proposals are
-  // exactly the budget it can consume, and every proposal is byte-verified
-  // downstream (§2.3).  Reuse the memoised `resonance()`; scanning every IVF
-  // cluster here once made every honest refusal cost hundreds of ms regardless
-  // of k.
+  // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts). The
+  // bridge's proposal source is the response's ONE top-k read — the same list
+  // recall already ranked above — never an exhaustive √N scan. The bridge's own
+  // candidate cap is 2·recallQueryK, so top-k proposals are exactly the budget
+  // it can consume, and every proposal is byte-verified downstream
+  // (exact-vs-approximate.md). Reuse the memoised `resonance()`; scanning every
+  // IVF cluster here once made every honest refusal cost hundreds of ms
+  // regardless of k.
   const wideIds = async () => (await pre.resonance()).map((h) => h.id);
 
   // Every gist-based tier has failed; before refusing, align the query
@@ -471,12 +469,12 @@ export async function recallByResonance(
       // prefixCompletion runs a few lines below and carries the three guards
       // this tier lacks — unreadable-continuation veto, sub-quantum
       // continuation, and UNIQUENESS (distinct continuations ⇒ refuse), which
-      // is exactly what 4,300 competing values must trip.  So this is not a
-      // new rule and not a new threshold: it is deferring a prefix decision to
-      // the tier that owns it (§2.5, one factored machinery).  Byte-strict on
-      // purpose — a candidate differing by case or punctuation ("what is the
-      // capital of france" → "What is the capital of France?") is NOT a byte
-      // prefix, keeps grounding here, and is unaffected.
+      // is exactly what 4,300 competing values must trip. So this is not a new
+      // rule and not a new threshold: it is deferring a prefix decision to the
+      // tier that owns it (match-project.md, one factored machinery).
+      // Byte-strict on purpose — a candidate differing by case or punctuation
+      // ("what is the capital of france" → "What is the capital of France?") is
+      // NOT a byte prefix, keeps grounding here, and is unaffected.
       const strictPrefix = g !== null &&
         cBytes.length > query.length &&
         indexOf(cBytes, query, 0) === 0;
@@ -542,15 +540,15 @@ export async function recallByResonance(
     }
   }
 
-  // The refusal/echo decision.  The echo returns a stored form's bytes AS
-  // the answer — a near-identity claim about the query — and identity-grade
+  // The refusal/echo decision. The echo returns a stored form's bytes AS the
+  // answer — a near-identity claim about the query — and identity-grade
   // decisions are never made on an estimated score ("approximate scores may
-  // rank and propose; they may never decide", §6.2): the RaBitQ estimate
-  // overshooting the reach bar echoed a WRONG-entity neighbour ("capital of
-  // Zamunda?" echoed the Armenia fact, observed).  The bytes are read
-  // anyway to be echoed, so the decision uses their EXACT fold: one river
-  // fold of the top hit, measured in the same query-relative,
-  // chance-corrected units as the tier above.
+  // rank and propose; they may never decide", exact-vs-approximate.md): the
+  // RaBitQ estimate overshooting the reach bar echoed a WRONG-entity neighbour
+  // ("capital of Zamunda?" echoed the Armenia fact, observed). The bytes are
+  // read anyway to be echoed, so the decision uses their EXACT fold: one river
+  // fold of the top hit, measured in the same query-relative, chance-corrected
+  // units as the tier above.
   const topBytes = read(ctx, top.id);
   const exact = topBytes.length > 0
     ? cosine(queryGist, gistOf(ctx, topBytes))

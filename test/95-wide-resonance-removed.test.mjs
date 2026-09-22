@@ -4,13 +4,14 @@
 // pipeline-mechanism.ts's REMOVED note).
 //
 // This is a PERFORMANCE regression test, not a behaviour test: the wide list
-// was a PROPOSAL source whose consumers byte-verify every candidate (§2.3), so
-// removing it is byte-identical wherever the bounded sources supply the same
-// candidate set — and the meter's phase map is the only observable that says
-// whether the exhaustive machinery still exists.  Red-on-revert: re-adding
-// wideResonance re-creates the `wideResonance` phase (and, when the query's
-// top hit clears conceptThreshold, a full-index ANN scan inside it), so the
-// phase-absence assertion below fails.
+// was
+// a PROPOSAL source whose consumers byte-verify every candidate
+// (exact-vs-approximate.md), so removing it is byte-identical wherever the
+// bounded sources supply the same candidate set — and the meter's phase map is
+// the only observable that says whether the exhaustive machinery still exists.
+// Red-on-revert: re-adding wideResonance re-creates the `wideResonance` phase
+// (and, when the query's top hit clears conceptThreshold, a full-index ANN scan
+// inside it), so the phase-absence assertion below fails.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

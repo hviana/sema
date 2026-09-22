@@ -32,11 +32,11 @@ interface StructCache {
   hasParents: Map<number, boolean>;
 }
 //
-// Budgeted on the same terms as the reach memo below (AGENTS §2.12): these
-// three maps are cleared on every write, but a long read-only session over a
-// large store converges on one entry per node per map with nothing to bound
-// it.  Past the cap all three are dropped together and re-derived, costing
-// cold structural probes and never a wrong answer.
+// Budgeted on the same terms as the reach memo below (caches.md): these three
+// maps are cleared on every write, but a long read-only session over a large
+// store converges on one entry per node per map with nothing to bound it. Past
+// the cap all three are dropped together and re-derived, costing cold
+// structural probes and never a wrong answer.
 const STRUCT_MEMO_MAX = 100_000;
 const structCaches = new WeakMap<object, StructCache>();
 
@@ -55,21 +55,22 @@ const structCaches = new WeakMap<object, StructCache>();
 // battery repeatedly reaches the same corpus scaffolding even when its
 // surface questions differ.
 //
-// Budgeted, not unbounded (AGENTS §2.12): past the cap the whole map is
-// dropped and re-derived, costing a cold climb and never a wrong answer.
+// Budgeted, not unbounded (caches.md): past the cap the whole map is dropped
+// and
+// re-derived, costing a cold climb and never a wrong answer.
 const REACH_MEMO_MAX = 100_000;
 const reachCaches = new WeakMap<object, Map<number, AncestorReach>>();
 
 /** The reach memo this ask should use — see the note above.
  *
- *  A TRACED response always gets a fresh, empty one.  `AncestorReach`'s
- *  `visited`/`maxDepth`/`saturation` fields are populated only when a trace
- *  is attached, so an entry deposited by an untraced earlier turn would
- *  silently black out the reach detail of a later traced one; and the trace's
- *  reach payload is serialised by ITERATING this map, which must therefore
- *  hold what THIS climb consulted, not the whole conversation's history.
- *  Consistent with AGENTS §2.11: a traced response is a different machine —
- *  never benchmark with a trace attached. */
+ *  A TRACED response always gets a fresh, empty one. `AncestorReach`'s
+ * `visited`/`maxDepth`/`saturation` fields are populated only when a trace is
+ * attached, so an entry deposited by an untraced earlier turn would silently
+ * black out the reach detail of a later traced one; and the trace's reach
+ * payload is serialised by ITERATING this map, which must therefore hold what
+ * THIS climb consulted, not the whole conversation's history. Consistent with
+ * memoization.md: a traced response is a different machine — never benchmark
+ * with a trace attached. */
 export function sharedReachMemo(
   ctx: MindContext,
 ): Map<number, AncestorReach> {
@@ -481,13 +482,14 @@ export function bearsEdge(ctx: MindContext, id: number): boolean {
 }
 
 /** Whether a node LEADS SOMEWHERE — it bears a continuation edge or a halo.
- *  The admission predicate recognition filters sites with (HOW_IT_WORKS
- *  §15.3): a form that leads nowhere contributes nothing to any derivation.
- *  Runs once per candidate span on the recognition hot path — `hasNext` is
- *  cached per response (the same flat-branch ids are probed across prefix
- *  variants by canonicalChunkId).  `hasHalo` is not cached: it's a single
- *  indexed point probe per candidate, and the candidates that reach this
- *  check have already been filtered by hasNext above in edgeAncestors. */
+ * The admission predicate recognition filters sites with (cover.md): a form
+ * that
+ * leads nowhere contributes nothing to any derivation. Runs once per candidate
+ * span on the recognition hot path — `hasNext` is cached per response (the same
+ * flat-branch ids are probed across prefix variants by canonicalChunkId).
+ * `hasHalo` is not cached: it's a single indexed point probe per candidate, and
+ * the candidates that reach this check have already been filtered by hasNext
+ * above in edgeAncestors. */
 export function leadsSomewhere(ctx: MindContext, id: number): boolean {
   const memo = getStructCache(ctx);
   if (cachedHasNext(ctx, id, memo)) return true;
@@ -539,10 +541,10 @@ function boundFor(contextCount: number): number {
 }
 
 /** Cap a candidate list at the hub bound √N (insertion order) — the ONE
- *  fan-out convention every walk and disambiguation uses (see HOW_IT_WORKS
- *  §8.6).  A node connected to more than √N others is a hub whose individual
- *  connections carry ~no discriminative information; materialising or scoring
- *  them all would make single decisions scale with the corpus. */
+ * fan-out convention every walk and disambiguation uses (see bounded-reads.md).
+ * A node connected to more than √N others is a hub whose individual connections
+ * carry ~no discriminative information; materialising or scoring them all would
+ * make single decisions scale with the corpus. */
 export function hubCap<T>(
   ctx: MindContext,
   ids: readonly T[],
@@ -581,16 +583,16 @@ export function contains(
  *  the EXACT half's veto on calling them synonyms.
  *
  *  Halos measure company, and the strongest company any two forms can keep is
- *  standing next to each other: a question and its answer co-occur in every
- *  episode that taught the pair, so their halos SHOULD be similar, and on a
- *  conversational store they are (measured on the CONV fixture: consecutive
- *  turns at 0.809 against a 0.516 concept threshold).  A gate reading halo
- *  cosine alone therefore reads adjacency as synonymy and revoices an answer
- *  in the words of the question it answers — "it hangs in madrid" spliced back
- *  into "where is it kept now".  The distributional layer cannot tell the two
- *  relations apart, because to it they are the same observation; the exact
- *  half can, for free, because it stored the edge.  §4.1's division of labour
- *  exactly: approximate proposes, exact decides.
+ * standing next to each other: a question and its answer co-occur in every
+ * episode that taught the pair, so their halos SHOULD be similar, and on a
+ * conversational store they are (measured on the CONV fixture: consecutive
+ * turns at 0.809 against a 0.516 concept threshold). A gate reading halo cosine
+ * alone therefore reads adjacency as synonymy and revoices an answer in the
+ * words of the question it answers — "it hangs in madrid" spliced back into
+ * "where is it kept now". The distributional layer cannot tell the two
+ * relations apart, because to it they are the same observation; the exact half
+ * can, for free, because it stored the edge. halo-sketch.md's division of
+ * labour exactly: approximate proposes, exact decides.
  *
  *  Read LIMITed in both directions at the hub bound — a common continuation's
  *  fan-in is corpus-sized, and no single decision may scale with it. */
@@ -745,19 +747,18 @@ export function chooseNext(
   // NO consensusFloor gate here (tried and reverted — see
   // test/40-choosenext-scale-guard.test.mjs): that floor is calibrated for
   // POOLED, IDF-weighted CLIMB VOTES (recallByResonance, commitVotes), where
-  // each corroborating region contributes at most ln N and the floor grows
-  // with N exactly as that per-region ceiling does (HOW_IT_WORKS.md §8.6).
-  // `bestSupport` here is a different kind of quantity — a raw prevCount of
-  // how many training contexts predicted ONE destination, bounded by how
-  // often that specific fact was retold, never by corpus size N.  Gating an
-  // N-invariant count against an N-growing threshold guarantees failure
-  // once N is large enough, discarding genuinely, structurally dominant
-  // edges (observed: a fact corroborated 2-to-1-1-1 refused at N≈325K,
-  // falling back to a noisy concept-hop).  The loop above already IS the
-  // "genuinely competing" test: a tie leaves first-inserted as the pick
-  // (test/30's own pinned behaviour); a strict winner is real evidence
-  // regardless of corpus scale.  Matches HOW_IT_WORKS.md §25's own
-  // chooseNext pseudocode, which has no such floor.
+  // each corroborating region contributes at most ln N and the floor grows with
+  // N exactly as that per-region ceiling does (thresholds.md). `bestSupport`
+  // here is a different kind of quantity — a raw prevCount of how many training
+  // contexts predicted ONE destination, bounded by how often that specific fact
+  // was retold, never by corpus size N. Gating an N-invariant count against an
+  // N-growing threshold guarantees failure once N is large enough, discarding
+  // genuinely, structurally dominant edges (observed: a fact corroborated
+  // 2-to-1-1-1 refused at N≈325K, falling back to a noisy concept-hop). The
+  // loop above already IS the "genuinely competing" test: a tie leaves
+  // first-inserted as the pick (test/30's own pinned behaviour); a strict
+  // winner is real evidence regardless of corpus scale. Matches `chooseNext`'s
+  // own pseudocode, which has no such floor.
 
   // Trace is built lazily — the filter + map below only execute when a
   // trace listener is attached, so the common (no-trace) path pays only
@@ -838,12 +839,13 @@ function rItemShort(
  *  W-window it spells is contained by more places than the hub bound allows,
  *  i.e. the whole query is corpus-global scaffolding.
  *
- *  WHAT IT IS FOR.  Several mechanisms ground a query through the literal
- *  spans it did NOT explain, and those spans are the whole of their evidence.
- *  When every one of them is a hub, the query says nothing the corpus can be
- *  held to, and grounding it means picking one of thousands of continuations
- *  it gives no evidence for — a fabrication whatever the answer happens to be.
- *  Answering with silence there is the honest degradation contract (§2.13).
+ * WHAT IT IS FOR. Several mechanisms ground a query through the literal spans
+ * it
+ * did NOT explain, and those spans are the whole of their evidence. When every
+ * one of them is a hub, the query says nothing the corpus can be held to, and
+ * grounding it means picking one of thousands of continuations it gives no
+ * evidence for — a fabrication whatever the answer happens to be. Answering
+ * with silence there is the honest degradation contract (INVARIANTS.md).
  *
  *  MEASURED SEPARATION (trained store, hubBound 571) — this is categorical,
  *  not marginal, and it is why the predicate lives here rather than being
@@ -860,11 +862,11 @@ function rItemShort(
  *  evidence and sit on the SAME side as the correct ones, so this predicate
  *  is not what makes them silent and cannot be credited for them.
  *
- *  NO NEW THRESHOLD (§2.2): `hubBound` is the √N reading of "hub" used
- *  everywhere, and the containment read is clamped to it exactly as every
- *  other fan-out read is (§2.8).  A query with no stored window at all is NOT
- *  scaffolding-only — it has no evidence either way, and its callers already
- *  refuse it on their own terms. */
+ *  NO NEW THRESHOLD (thresholds.md): `hubBound` is the √N reading of "hub" used
+ * everywhere, and the containment read is clamped to it exactly as every other
+ * fan-out read is (bounded-reads.md). A query with no stored window at all is
+ * NOT scaffolding-only — it has no evidence either way, and its callers already
+ * refuse it on their own terms. */
 export function allWindowsAreScaffolding(
   ctx: MindContext,
   query: Uint8Array,
@@ -916,19 +918,19 @@ export function allWindowsAreScaffolding(
  *  by climbing containment then parents.  Nothing is added to the write side;
  *  this reads an index training already built.
  *
- *  BOUNDED (§2.8), AND WITH NO NEW THRESHOLD.  The window whose containment is
- *  SMALLEST carries the most evidence, and one saturated at `hubBound` carries
- *  none — that is the same √N reading of "hub" the rest of the mind uses, not
- *  a tuned knob.  The upward walk spends a budget of `hubBound` nodes and
- *  fans out by W, so a hub query enumerates nothing and the caller stays
- *  silent rather than guessing (§2.13).  Measured on the trained store: the
- *  photosynthesis form at a one-byte truncation picks a window with 52
- *  containers, visits 446 nodes, and yields exactly ONE candidate that
- *  survives the caller's byte compare — the form itself.
+ *  BOUNDED (bounded-reads.md), AND WITH NO NEW THRESHOLD. The window whose
+ * containment is SMALLEST carries the most evidence, and one saturated at
+ * `hubBound` carries none — that is the same √N reading of "hub" the rest of
+ * the mind uses, not a tuned knob. The upward walk spends a budget of
+ * `hubBound` nodes and fans out by W, so a hub query enumerates nothing and the
+ * caller stays silent rather than guessing (INVARIANTS.md). Measured on the
+ * trained store: the photosynthesis form at a one-byte truncation picks a
+ * window with 52 containers, visits 446 nodes, and yields exactly ONE candidate
+ * that survives the caller's byte compare — the form itself.
  *
- *  These are PROPOSALS only.  Every candidate still faces the byte-exact
- *  prefix compare and all three guards below, so a wrong proposal costs one
- *  bounded read and can never be voiced (§2.3). */
+ *  These are PROPOSALS only. Every candidate still faces the byte-exact prefix
+ * compare and all three guards below, so a wrong proposal costs one bounded
+ * read and can never be voiced (exact-vs-approximate.md). */
 export function formsOpenedBy(
   ctx: MindContext,
   query: Uint8Array,

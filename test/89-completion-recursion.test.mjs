@@ -1,20 +1,21 @@
 // 89-completion-recursion.test.mjs — the completion recursion must be
 // OUTPUT-SENSITIVE.
 //
-// AGENTS §2.8: "No per-query read may grow with the corpus."  §2.8 enforces
-// that per READ (nextFirst, bytesPrefix, …), and every one of those caps holds.
-// What no guard covered is the NUMBER of reads: `recompleteNode`
+// bounded-reads.md: "No per-query read may grow with the corpus." That law is
+// enforced per READ (nextFirst, bytesPrefix, …), and every one of those caps
+// holds. What no guard covered is the NUMBER of reads: `recompleteNode`
 // (src/mind/graph-search.ts) re-covers a produced node by calling `solve`
-// recursively, and each nested solve builds its own agenda and chart.  Its own
+// recursively, and each nested solve builds its own agenda and chart. Its own
 // doc states the intent —
 //
 //     "its cost tracks the ANSWER's own structure, not how densely the corpus
 //      interconnects the nodes passed through"
 //
 // — but argues termination from "Distinct node ids are finite and each finished
-// completion is memoised".  Finite-in-the-corpus is exactly the bound §2.8
-// forbids, and the recursion is emitted at `cost: 0` while the nested cover's
-// own `cost` is computed and discarded, so A* has no gradient against depth.
+// completion is memoised". Finite-in-the-corpus is exactly the bound
+// bounded-reads.md forbids, and the recursion is emitted at `cost: 0` while the
+// nested cover's own `cost` is computed and discarded, so A* has no gradient
+// against depth.
 //
 // MEASURED on a trained store (18,938,834 nodes, edgeSourceCount 796,528):
 // `respond("Hi")` reached recursion depth 331 and 9.1 GB RSS in 56 s without
@@ -221,8 +222,9 @@ test("completion recursion: per-query work does not grow with the corpus", async
     } (agenda pops) — target ≪ 1 (sublinear in the corpus)`,
   );
 
-  // THE LAW.  Same answer, more corpus, so cost must not move.  k ≈ 0 is flat,
-  // k ≈ 1 is linear in the corpus — the bound §2.8 forbids outright.
+  // THE LAW. Same answer, more corpus, so cost must not move. k ≈ 0 is flat, k
+  // ≈
+  // 1 is linear in the corpus — the bound bounded-reads.md forbids outright.
   //
   // `searches` counts nested solve() calls, which is the recursion itself and
   // nothing else, so it gets 14-scaling.test.mjs's stricter 0.6 bar.  Measured
@@ -234,17 +236,18 @@ test("completion recursion: per-query work does not grow with the corpus", async
       `nested solve() builds its own agenda and chart, so this is the ` +
       `completion recursion doing work the answer never asked for`,
   );
-  // A LOOSER BAR, FOR A REASON.  `searchPops` aggregates the TOP-LEVEL cover's
+  // A LOOSER BAR, FOR A REASON. `searchPops` aggregates the TOP-LEVEL cover's
   // agenda too, and that one legitimately carries some corpus sensitivity: a
   // bigger store recognises more sites inside the same query, so more items are
-  // admissible.  Only outright linear growth is the forbidden case (§2.8), so
-  // this asserts the law itself, k < 1, rather than the stricter 0.6 that suits
-  // a counter the fix governs end to end.  Measured 1.40 unfixed, 0.54 fixed.
+  // admissible. Only outright linear growth is the forbidden case
+  // (bounded-reads.md), so this asserts the law itself, k < 1, rather than the
+  // stricter 0.6 that suits a counter the fix governs end to end. Measured 1.40
+  // unfixed, 0.54 fixed.
   assert.ok(
     kPops < 1,
     `agenda pops grew with exponent k=${kPops.toFixed(2)} in corpus size (${
       pops.join(" → ")
     }) for a byte-identical answer — k≈1 is work LINEAR in the corpus, which ` +
-      `is the bound §2.8 forbids outright`,
+      `is the bound bounded-reads.md forbids outright`,
   );
 });

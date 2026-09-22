@@ -319,12 +319,12 @@ export function alignGraded(
 //
 //     "these bytes occupy a place the corpus keeps open"   (bind).
 //
-// Both arrive as unaligned residue.  That single missing distinction is why
-// the substitution bridge refuses on `attestedQ`, why the cover charges PASS
-// over a slot, and why CAST reads a filler as noise rather than as the
-// variable it is.  The family below supplies it, and it lives HERE — not in
-// any mechanism — because it is the ordinary (matcher, projection, gate)
-// triple of §2.5 with its three parts in their proper places:
+// Both arrive as unaligned residue. That single missing distinction is why the
+// substitution bridge refuses on `attestedQ`, why the cover charges PASS over a
+// slot, and why CAST reads a filler as noise rather than as the variable it is.
+// The family below supplies it, and it lives HERE — not in any mechanism —
+// because it is the ordinary (matcher, projection, gate) triple of
+// match-project.md with its three parts in their proper places:
 //
 //   matcher     alignAround + contractGap + frameSlots — bytes only, no
 //               projection, no licence.  SAFE FOR EVERY CONSUMER: knowing a
@@ -1168,24 +1168,25 @@ export async function project(
 
 // ── The span-shape family ───────────────────────────────────────────────────
 //
-// "Is this answer drawn from this context?" has TWO formally distinct
-// readings, and the pair plus the anchor classifier built on them are SHARED
-// machinery — extraction proposes span-shaped exemplars with them, the
-// shared `Precomputed.spanShapedOf` container computes them, and fusion
-// (reasoning.ts) gates on the strict one.  They lived inside
-// mechanisms/extraction.ts, so `pipeline-mechanism.ts` and `reasoning.ts`
-// both had to import back OUT of a specific mechanism — an inversion the
-// mechanism market forbids (AGENTS §2.6: the shared contract may not depend
-// on any one mechanism; §2.5: a shared matcher belongs to this family, never
-// to a mechanism's private helpers).  Deleting extraction must not break the
-// shared container, so they live here.
+// "Is this answer drawn from this context?" has TWO formally distinct readings,
+// and the pair plus the anchor classifier built on them are SHARED machinery —
+// extraction proposes span-shaped exemplars with them, the shared
+// `Precomputed.spanShapedOf` container computes them, and fusion (reasoning.ts)
+// gates on the strict one. They lived inside mechanisms/extraction.ts, so
+// `pipeline-mechanism.ts` and `reasoning.ts` both had to import back OUT of a
+// specific mechanism — an inversion the mechanism market forbids: the shared
+// contract may not depend on any one mechanism (mechanism-market.md), and a
+// shared matcher belongs to this family (match-project.md), never to a
+// mechanism's private helpers. Deleting extraction must not break the shared
+// container, so they live here.
 //
 //   • isSpanShaped  — the OPEN reading (sparse in-order embedding).
 //   • containsSpan  — the STRICT reading (contiguous run or resolved node).
 //   • skillExemplar — classify one anchor into (context, answer) using them.
 //
-// The two readings are NOT interchangeable; AGENTS §2.5 pins the distinction
-// and each function's own doc states what breaks if it is substituted.
+// The two readings are NOT interchangeable; match-project.md pins the
+// distinction and each function's own doc states what breaks if it is
+// substituted.
 
 /** Check whether an anchor is a span-shaped skill exemplar: it represents a
  *  fact whose context and answer together form a span-in-context pattern.

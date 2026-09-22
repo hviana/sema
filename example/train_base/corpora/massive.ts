@@ -37,7 +37,7 @@ import { convertedParquetUnits } from "./converted-parquet.js";
 //
 // So it displaces some wrong answers and manufactures others, INCLUDING turning
 // a correct silence into a wrong answer — and honest silence is a stated
-// property of this engine (AGENTS §2.13). On the mixed-curriculum store the
+// property of this engine (INVARIANTS.md). On the mixed-curriculum store the
 // same shape produced the fragment "nus" for "wake me up at nine am".
 //
 // That evidence is four probes on toy stores and is NOT conclusive; it is,

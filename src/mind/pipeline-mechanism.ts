@@ -5,7 +5,7 @@
 // a list of PipelineMechanism objects — it never imports a mechanism-specific
 // type and never has a special-case branch for any mechanism.
 //
-// The four constraints of the free-will architecture (§14.5):
+// The four constraints of the free-will architecture (mechanism-market.md):
 //   1. DECOUPLING — mechanisms import nothing from each other or from pipeline.
 //   2. DECLARED COMPETENCE — floor() returns null when impossible, a number when
 //      possible.  Binary, auditable, no learned scores.
@@ -148,17 +148,17 @@ export class Precomputed {
     );
   }
 
-  // REMOVED — the WIDE exhaustive-√N resonance list (`wideResonance`).  It ran
+  // REMOVED — the WIDE exhaustive-√N resonance list (`wideResonance`). It ran
   // `resonate(guide, √N, exhaustive=true)` whenever the top hit cleared
-  // conceptThreshold, so consumers could look "past the top-k".  Every consumer
+  // conceptThreshold, so consumers could look "past the top-k". Every consumer
   // only ever needed ≤ 2·recallQueryK proposals (the substitution bridge's own
   // candidate cap) or a content-addressed answer (prefix completion's
-  // formsOpenedBy), and every proposal is byte-verified downstream (§2.3), so
-  // the exhaustive scan bought recall at O(index) cost for an O(k) need —
-  // measured: 244K annVectorReads per refusing query, ~1.5 s, every answer
-  // byte-identical to a top-k read.  The two consumers now read `resonance()`
-  // (the one top-k read) and the write side's window index respectively — see
-  // recall.ts and prefix-completion.ts.
+  // formsOpenedBy), and every proposal is byte-verified downstream
+  // (exact-vs-approximate.md), so the exhaustive scan bought recall at O(index)
+  // cost for an O(k) need — measured: 244K annVectorReads per refusing query,
+  // ~1.5 s, every answer byte-identical to a top-k read. The two consumers now
+  // read `resonance()` (the one top-k read) and the write side's window index
+  // respectively — see recall.ts and prefix-completion.ts.
 
   private _frames?: Promise<ReadonlyArray<FrameInstance>>;
   /** THE FRAME INVENTORY — every ranked candidate that reads as an instance of
@@ -166,14 +166,16 @@ export class Precomputed {
    *  ({@link FrameInstance}).  The one place the engine represents "a position
    *  whose occupant comes from the context rather than the corpus".
    *
-   *  AN INVENTORY, NOT AN ELECTION.  It reports every pairing and elects no
-   *  frame, deliberately: a slot is a property of a PAIRING, not of the query,
-   *  and different candidates put slots in different places.  Committing to one
-   *  reading here would push whichever consumer asked first onto everyone else
-   *  — the market's decoupling (§2.6) broken from inside the shared container,
-   *  and the population error §2.7 names.  Each consumer groups and commits
-   *  for its own question; reference elects the modal slot signature, and a
-   *  consumer wanting a different reading is not fighting this one.
+   * AN INVENTORY, NOT AN ELECTION. It reports every pairing and elects no
+   * frame,
+   * deliberately: a slot is a property of a PAIRING, not of the query, and
+   * different candidates put slots in different places. Committing to one
+   * reading here would push whichever consumer asked first onto everyone else —
+   * the market's decoupling (mechanism-market.md) broken from inside the shared
+   * container, and the population error commonality.md names. Each consumer
+   * groups and commits for its own question; reference elects the modal slot
+   * signature, and a consumer wanting a different reading is not fighting this
+   * one.
    *
    *  NO LICENCE EITHER.  Knowing a span is variable is safe for every consumer
    *  — it can only improve an alignment.  Knowing one may be VOICED through is
@@ -189,9 +191,10 @@ export class Precomputed {
       const capBytes = this.query.length * W;
       const out: FrameInstance[] = [];
       for (const h of await this.resonance()) {
-        // REJECT BY LENGTH BEFORE RECONSTRUCTING (§2.8): `contentLen` is an
-        // indexed read, `bytesPrefix` rebuilds a subtree.  ONLY the phrase-scale
-        // cap is applied — it is a bounded-read discipline, not a judgement.
+        // REJECT BY LENGTH BEFORE RECONSTRUCTING (bounded-reads.md):
+        // `contentLen` is an indexed read, `bytesPrefix` rebuilds a subtree.
+        // ONLY the phrase-scale cap is applied — it is a bounded-read
+        // discipline, not a judgement.
         //
         // A LOWER bound was here too (`dominates(len, query.length)`, on the
         // reasoning that a candidate shorter than half the query cannot supply
@@ -519,7 +522,8 @@ function computeWeave(
   // IDF — gates the aligner has no equivalent of.
   //
   // So the climb PROPOSES the pairing (which structure, which query span) and
-  // bytes DECIDE its terms (§2.3).  Three gates, each one measured:
+  // bytes DECIDE its terms (exact-vs-approximate.md). Three gates, each one
+  // measured:
   //
   //   • it may only take query bytes NO literal run claimed.  Run inline with
   //     phase 1 this did the opposite of "exact decides" — a higher-ranked
