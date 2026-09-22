@@ -50,18 +50,22 @@ async function chain() {
 const misses = (steps) =>
   steps.filter((s) => s.mechanism.at(-1) === "deriveThroughMiss");
 
-test("the join's refusal is reported, naming the pieces it tried", async () => {
+test("the join's refusal is reported, naming the candidate and tail it tried", async () => {
   const mind = await chain();
+  // The THREE-relation query: the second join is still refused (the rule
+  // concludes terminal — the study's other half), so this is where the refusal
+  // is observable.  The two-relation one now JOINS (measured, and pinned by
+  // test/99's spec), which is why this test moved here.
   const steps = [];
-  await mind.respond("eva director country", (s) => steps.push(s));
+  await mind.respond("eva director country capital", (s) => steps.push(s));
   const got = misses(steps);
   assert.ok(got.length > 0, "the join must say why it did not join");
   const named = got.some((s) => {
     const parts = (s.inputs ?? []).map((i) => String(i.text));
-    return parts.some((t) => t.includes("Gustaf Molander")) &&
-      parts.some((t) => t.trim().startsWith("country"));
+    return parts.some((t) => t.includes("gustaf molander")) &&
+      parts.some((t) => t.includes("country"));
   });
-  assert.ok(named, "the report must name the fact and the tail it tried");
+  assert.ok(named, "the report must name the candidate and the tail it tried");
   await mind.store.close();
 });
 

@@ -153,8 +153,7 @@ import {
   perceive as perceiveImpl,
   perceiveKey,
   read,
-  resolve as resolveImpl,
-} from "./primitives.js";
+  resolve as resolveImpl, canonResolve as canonResolveImpl } from "./primitives.js";
 import {
   chooseNext,
   edgeAncestors as edgeAncestorsFn,
@@ -349,6 +348,11 @@ export class Mind implements MindContext {
    *  `traverse.ts`'s ONE definition (edge or halo, with its response-scoped
    *  cache).  The search holds a bare Store and cannot reach that cache itself,
    *  so it asks through this hook; a bare host keeps its raw-store fallback. */
+  /** The canonical identity for the search (see GraphSearchHost). */
+  canonResolve(bytes: Uint8Array): number | null {
+    return canonResolveImpl(this, bytes);
+  }
+
   /** Feed a search refusal into the rationale (see GraphSearchHost). */
   reportSearch(
     name: string,

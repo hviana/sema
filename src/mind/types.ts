@@ -81,6 +81,13 @@ export interface GraphSearchHost {
     parts: ReadonlyArray<Uint8Array>,
     note: string,
   ): void;
+  /** The CANONICAL resolver ({@link canonResolve}), optional like
+   *  {@link leadsSomewhere}.  The store's keys were written through the
+   *  canonical fold, so a fact's `Gustaf Molander` and the deposited
+   *  `gustaf molander` are the SAME node (measured inside a response: the
+   *  canonical resolver maps the surface form to the deposited node while a raw
+   *  resolve returns null).  A bare host falls back to the plain probe. */
+  canonResolve?(bytes: Uint8Array): number | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

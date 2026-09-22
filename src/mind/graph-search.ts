@@ -375,6 +375,38 @@ export class GraphSearch {
     private readonly host: GraphSearchHost,
   ) {}
 
+  /** The nodes the QUERY canonically names — the same identity the store's keys
+   *  were written through.  A byte-exact test is not enough: the query writes
+   *  `Eiffel Tower country` and the deposited node is `eiffel tower country`, so
+   *  a join that filters the query's own subject by RAW bytes re-admits it —
+   *  measured: that is the trap's wrong answer (`The capital of Eiffel Tower
+   *  country is Berlin.`).  Cached by query identity, because the search is
+   *  reused across responses. */
+  private canonicalQueryNodes(query: Uint8Array): ReadonlySet<number> {
+    if (
+      this.queryCanonCache !== undefined &&
+      this.queryCanonCache.query === query
+    ) {
+      return this.queryCanonCache.nodes;
+    }
+    const nodes = new Set<number>();
+    const canon = this.host.canonResolve?.bind(this.host);
+    if (canon !== undefined) {
+      const W = this.maxGroup;
+      for (let start = 0; start < query.length; start++) {
+        for (let end = query.length; end - start >= W; end--) {
+          const id = canon(query.subarray(start, end));
+          if (id === null) continue;
+          nodes.add(id);
+          break;
+        }
+      }
+    }
+    this.queryCanonCache = { query, nodes };
+    return nodes;
+  }
+  private queryCanonCache?: { query: Uint8Array; nodes: Set<number> };
+
   /* * The hub bound √N (bounded-reads.md) — the ONE
    *  fan-out cap, stated here rather than imported from `traverse.ts` because
    *  this module is deliberately host-based (it holds a bare Store, never a
@@ -1212,12 +1244,42 @@ export class GraphSearch {
     // and a bare host falls back to the raw-store probe, so the search stays
     // host-based.
     const factRec = this.host.recogniseSpan(fact.bytes);
-    const leading = factRec.sites.filter((s) =>
-      s.payload >= 0 && s.payload !== fact.node &&
-      (this.host.leadsSomewhere !== undefined
-        ? this.host.leadsSomewhere(s.payload)
-        : this.store.hasNext(s.payload) || this.store.hasHalo(s.payload))
-    );
+    const leads = (id: number): boolean =>
+      this.host.leadsSomewhere !== undefined
+        ? this.host.leadsSomewhere(id)
+        : this.store.hasNext(id) || this.store.hasHalo(id);
+    // THE QUERY'S OWN SUBJECT, CANONICALLY.  The filter used raw bytes and the
+    // store's nodes are canonical, so `Eiffel Tower country` in the query did
+    // not match the deposited `eiffel tower country` — measured, that is the
+    // trap's wrong answer.
+    const queryNodes = this.canonicalQueryNodes(queryBytes);
+    // TWO SOURCES, ONE ADMISSION.  The recognition of a STORED WHOLE returns the
+    // whole and stops — measured: for `The director of Eva is Gustaf Molander.`
+    // it yields exactly ONE site, the fact's own node — so the entity a join
+    // exists for is never proposed.  The canonical fold is the second source,
+    // and the scan runs only for a FORM (≥ W: a one-byte out is not something to
+    // join through, and running it per letter measured 20-26 s in test/99).
+    const W = this.maxGroup;
+    const proposed = new Map<number, Uint8Array>();
+    for (const s of factRec.sites) {
+      if (s.payload >= 0 && leads(s.payload)) {
+        proposed.set(s.payload, this.store.bytesPrefix(s.payload, ALL));
+      }
+    }
+    if (this.host.canonResolve !== undefined && fact.bytes.length >= W) {
+      const canon = this.host.canonResolve.bind(this.host);
+      for (let start = 0; start < fact.bytes.length; start++) {
+        for (let end = fact.bytes.length; end - start >= W; end--) {
+          const id = canon(fact.bytes.subarray(start, end));
+          if (id === null) continue;
+          if (leads(id)) proposed.set(id, this.store.bytesPrefix(id, ALL));
+          break; // the longest form at this offset wins
+        }
+      }
+    }
+    const leading = [...proposed]
+      .filter(([payload]) => payload !== fact.node && !queryNodes.has(payload))
+      .map(([payload, bytes]) => ({ payload, bytes }));
     // …then prefer the entity the query did NOT name, and the MAXIMAL one.  The
     // join exists to reach the subject the query never wrote, so:
     //   • a candidate the query already contains is the query's OWN subject, and
@@ -1244,11 +1306,6 @@ export class GraphSearch {
       }
     }
     const candidates = leading
-      .map((s) => ({
-        payload: s.payload,
-        bytes: this.store.bytesPrefix(s.payload, ALL),
-      }))
-      .filter((c) => indexOf(queryBytes, c.bytes, 0) < 0)
       .filter((c, _i, all) =>
         !all.some((o) =>
           o.bytes.length > c.bytes.length && indexOf(o.bytes, c.bytes, 0) >= 0
@@ -1256,7 +1313,12 @@ export class GraphSearch {
       );
     for (const c of candidates) {
       const keyBytes = concat2(c.bytes, tail);
-      const key = this.host.resolve(keyBytes);
+      // EXACT FIRST, THEN CANONICAL: the corpus holds both identities.  The
+      // WHOLE tail must still name the key — the shorter-prefix variant is
+      // refuted by test/99 (it opened keys naming the wrong fact).
+      const key = this.host.resolve(keyBytes) ??
+        this.host.canonResolve?.(keyBytes) ??
+        null;
       if (key === null) {
         if (reportable) {
           this.host.reportSearch?.(
