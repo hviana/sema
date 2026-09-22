@@ -560,12 +560,15 @@ export async function think(
         "post-grounding extension is skipped",
     );
   }
+  // The ladder's own view of what the grounding left uncovered: the datum the
+  // reasoner judges its OWN extensions by.
+  const uncovered = unexplainedSpans(query.length, decided.accounted);
   const reasoned = decided.complete ? answer : meter
     ? await meter.time(
       "reason",
-      () => reason(ctx, query, answer, preConsumed, pre, voiced),
+      () => reason(ctx, query, answer, preConsumed, pre, voiced, uncovered),
     )
-    : await reason(ctx, query, answer, preConsumed, pre, voiced);
+    : await reason(ctx, query, answer, preConsumed, pre, voiced, uncovered);
 
   // Fuse only when the query has a genuine REMAINDER no mechanism's
   // structural evidence touched at all.  `decided.accounted` alone

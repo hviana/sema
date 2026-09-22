@@ -43,6 +43,10 @@ export async function reason(
   preConsumed: ReadonlySet<number>,
   pre: Precomputed,
   voiced: readonly Uint8Array[] = [],
+  /** The query material the GROUNDING left uncovered — the cost ladder's own
+   *  `unaccounted` spans.  Only the reasoner's OWN extensions are judged
+   *  against it; a mechanism carrying its own `used` set owns its shape. */
+  uncovered: readonly (readonly [number, number])[] = [],
 ): Promise<Uint8Array> {
   // Echo guard: a query that is ITSELF a learnt continuation (some context's
   // answer) is being asked back at the system — hopping forward from it would
@@ -200,6 +204,37 @@ export async function reason(
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
     if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) break;
+    // WHOSE EXTENSION IS THIS?
+    //
+    // `voiced` is what the mechanism WITHHELD (the pipeline sends the used
+    // anchors' CONTINUATIONS, not their bytes — see pipeline's own note), so a
+    // non-empty `voiced` means exactly what that note says: the grounding came
+    // from a mechanism that carries its own short `used` set (cast/join) and
+    // therefore owns the shape of its answer.  The further terms inside such a
+    // seat are legitimately followable — test/29 C3's `Mona Lisa` lives inside
+    // the voiced seat and leads on to a fact about neither analog.
+    //
+    // Every other grounding is ordinary, and an extension of it is the
+    // reasoner's own inference: it is taken only while question material the
+    // grounding left uncovered remains AND the step carries some of it, judged
+    // by the mind's own line between chance and evidence — one W-byte window,
+    // no word notion, no character class, no threshold.  Measured: the drift's
+    // second step (`the Eiffel Tower is in Paris` after `Paris is famous for
+    // the Eiffel Tower`) carries no window of `" famous for"` and is refused,
+    // while the first carries it.  Terminates by a real argument: the uncovered
+    // material is finite and each taken extension must carry some of it.
+    const producerOwnsShape = voiced.length > 0;
+    if (!producerOwnsShape && uncovered.length > 0) {
+      const W = ctx.space.maxGroup;
+      let progress = false;
+      for (const [a, b] of uncovered) {
+        for (let i = a; i + W <= b && !progress; i++) {
+          if (indexOf(fc, query.subarray(i, i + W), 0) >= 0) progress = true;
+        }
+        if (progress) break;
+      }
+      if (!progress) break;
+    }
     if (ctx.meter) ctx.meter.pivotSteps++;
     t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
     ctx.trace?.step(
