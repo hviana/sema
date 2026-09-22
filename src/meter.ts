@@ -206,6 +206,23 @@ export class Meter {
   /** Candidates the decider weighed. */
   candidates = 0;
 
+  // ── Graph search: the fact join (DIRECTION) ─────────────────────────────
+  //
+  // The join's outcome was observable ONLY through the rationale, and the
+  // rationale PERTURBS the search (measured: appending text to a refusal note
+  // changed a traced answer).  These four counters are the untraced view — the
+  // same surface every other work counter uses, incremented where the decision
+  // is made, never behind a trace guard.
+  /** `deriveThrough` yielded — a fact was reached through the subject the query
+   *  never named. */
+  joinFired = 0;
+  /** Refused: no key names the entity and the tail together. */
+  joinNoKey = 0;
+  /** Refused: the key the entity and tail name leads nowhere. */
+  joinNoContinuation = 0;
+  /** Refused: the fact contains no entity that leads anywhere. */
+  joinNoEntity = 0;
+
   // ── Phases ──────────────────────────────────────────────────────────────
 
   private readonly _phases = new Map<string, PhaseCost>();

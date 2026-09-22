@@ -1300,6 +1300,7 @@ export class GraphSearch {
     // Byte work over bytes already read, and the pruning REMOVES the
     // resolve()/nextFirst() probes these candidates would have paid.
     if (leading.length === 0) {
+      if (this.host.meter) this.host.meter.joinNoEntity++;
       if (reportable) {
         // Report WHAT the recognition returned, not just that nothing led: the
         // count and the first few site texts are the difference between "the
@@ -1329,6 +1330,7 @@ export class GraphSearch {
         this.host.canonResolve?.(keyBytes) ??
         null;
       if (key === null) {
+        if (this.host.meter) this.host.meter.joinNoKey++;
         if (reportable) {
           this.host.reportSearch?.(
             "deriveThroughMiss",
@@ -1341,6 +1343,7 @@ export class GraphSearch {
       }
       const nx = this.store.nextFirst(key, 1);
       if (nx.length === 0) {
+        if (this.host.meter) this.host.meter.joinNoContinuation++;
         if (reportable) {
           this.host.reportSearch?.(
             "deriveThroughMiss",
@@ -1351,6 +1354,7 @@ export class GraphSearch {
         }
         continue;
       }
+      if (this.host.meter) this.host.meter.joinFired++;
       yield {
         premises: [fact],
         conclusion: {
