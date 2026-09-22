@@ -115,6 +115,12 @@ export type GItem =
      *  derivation actually CHOSE.  Part of {@link key}, because it decides
      *  whether the span's final bytes may still change. */
     fix?: boolean;
+    /** Set on the out a JOIN produced: a produced fact's own contained entity
+     *  (the subject the query never named) combined with the query's adjacent
+     *  relation span named a learned key, and that key's continuation is this
+     *  out.  Part of {@link key} so the joined reading is a distinct chart item
+     *  from the plain concatenation of the same bytes. */
+    join?: boolean;
   };
 type OutItem = Extract<GItem, { kind: "out" }>;
 
@@ -240,6 +246,7 @@ export type DerivationMove =
   | "split" // out→out cut at a sub-leaf form boundary
   | "fuse" // out+out→out: adjacent fragments recomposed toward a learned form
   | "recompose" // out+out→form: a fused pair that names an edge-bearing node
+  | "join-fact" // out→out: a produced fact's own contained subject + the query's tail names a learned key (the join)
   | "bridge" // cover+out→cover: the cover frontier advanced across a span
   | "pool-vote" // N premises→conclusion, evidence pooled (combine:"sum" — see derive)
   | "step"; // any other single-premise move (fallback)
@@ -276,7 +283,11 @@ function classifyMove(
       if (!conclusion.rec) return "step";
       return articulating ? "voice" : "ground";
     }
-    if (p.kind === "out" && conclusion.kind === "out") return "split";
+    if (p.kind === "out" && conclusion.kind === "out") {
+      // A JOIN derives through a produced fact's own contained subject; a plain
+      // single-premise out→out is the byte-level split.
+      return conclusion.join ? "join-fact" : "split";
+    }
     return "step";
   }
   if (premises.length === 2) {
@@ -551,6 +562,13 @@ export class GraphSearch {
       Math.ceil((this.store.edgeSourceCount() * W) / 256),
     ) > this.hubBound();
     const nodeBytes = (n: number) => this.store.bytesPrefix(n, ALL);
+    // The query's own bytes, tiled from its perceived leaves.  A JOIN reads the
+    // tail a produced fact's contained entity has to combine with, and `buildSearch`
+    // otherwise only ever sees positions, never the bytes behind them.
+    const queryBytes = new Uint8Array(queryLen);
+    for (const lf of leaves) {
+      queryBytes.set(lf.bytes.subarray(0, lf.end - lf.start), lf.start);
+    }
     // Content-addressed probes over the store's hash-cons maps — the same keys
     // training filled.  No byte-by-byte trie walk.
     const findLeafU = (b: Uint8Array) => this.store.findLeaf(b) ?? undefined;
@@ -589,7 +607,7 @@ export class GraphSearch {
         }
         return `o${it.i}.${it.j}.${it.cover ? 1 : 0}.${it.rec ? 1 : 0}.${
           it.fix ? 1 : 0
-        }.${it.node ?? -1}.${latin1(it.bytes)}`;
+        }.${it.join ? 1 : 0}.${it.node ?? -1}.${latin1(it.bytes)}`;
       },
       *axioms() {
         yield { item: { kind: "cover", p: 0 }, cost: 0 };
@@ -697,6 +715,8 @@ export class GraphSearch {
           findBranchU,
           linksByLeft,
           linksByRight,
+          queryBytes,
+          queryLen,
         });
       },
     };
@@ -1113,10 +1133,65 @@ export class GraphSearch {
    *  open — the invariant a reader needs to check the guard. */
   private recompleteOpen = new Set<number>();
 
+  /** JOIN — the move the substrate was missing: derive the answer THROUGH a
+   *  produced fact, without the intermediate key being named in the query.
+   *
+   *  A produced fact (`fact.node`) carries the subject the query reached but
+   *  never wrote; the query's remaining tail names the relation to follow from
+   *  it.  The pair IS a learned key — `"<entity><tail>"` — so the rule asks the
+   *  store for that key's continuation and, when it exists, concludes with the
+   *  joined fact.  On the ladder it is one STEP: a direct edge, exactly as
+   *  following a literal continuation is.  Deterministic and point-probed
+   *  (`resolve` + `nextFirst`, no scan), so it adds no read that grows with the
+   *  corpus.  The move is visible in the rationale as its own act
+   *  (`classifyMove` reports `join-fact`), distinct from the byte-concatenating
+   *  `fuse`/`splice`. */
+  private *join(
+    fact: OutItem,
+    queryBytes: Uint8Array,
+    queryLen: number,
+  ): Iterable<Rule<GItem>> {
+    if (!this.host.recogniseSpan) return;
+    const tail = queryBytes.subarray(fact.j, queryLen);
+    if (tail.length === 0) return;
+    // The entity candidates are the forms the fact's own bytes CONTAIN — the
+    // same recogniser the query went through, so the evidence standard is the
+    // query's.  A byte atom is never a subject; the fact's own node is the span
+    // itself, not an entity inside it.
+    for (const site of this.host.recogniseSpan(fact.bytes).sites) {
+      if (site.payload < 0 || site.payload === fact.node) continue;
+      if (
+        !this.store.hasNext(site.payload) &&
+        !this.store.hasHalo(site.payload)
+      ) continue;
+      const key = this.host.resolve(
+        concat2(this.store.bytesPrefix(site.payload, ALL), tail),
+      );
+      if (key === null) continue;
+      const nx = this.store.nextFirst(key, 1);
+      if (nx.length === 0) continue;
+      yield {
+        premises: [fact],
+        conclusion: {
+          kind: "out",
+          i: fact.i,
+          j: queryLen,
+          bytes: this.store.bytesPrefix(nx[0], ALL),
+          cover: true,
+          rec: true,
+          node: nx[0],
+          join: true,
+        },
+        cost: STEP,
+      };
+    }
+  }
+
   /** out(i,j,bytes,…): index it for the binary rules, then offer splicing a
    *  learnt connector (the in-search bridge), splitting (at a sub-leaf form
-   *  boundary), bridging (cover(i) ∧ this → cover(j)), and fusing with an
-   *  adjacent finalised out. */
+   *  boundary), bridging (cover(i) ∧ this → cover(j)), fusing with an adjacent
+   *  finalised out, and — for a produced fact — JOINING the entity it contains
+   *  with the query's tail ({@link join}). */
   private *outRules(
     it: OutItem,
     ctx: {
@@ -1133,6 +1208,8 @@ export class GraphSearch {
       findBranchU: (k: number[]) => number | undefined;
       linksByLeft?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
       linksByRight?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
+      queryBytes: Uint8Array;
+      queryLen: number;
     },
   ): Iterable<Rule<GItem>> {
     const { splits, coversDone, outsByStart, outsByEnd, coverableByStart } =
@@ -1225,6 +1302,18 @@ export class GraphSearch {
 
     for (const r of outsByStart.get(it.j) ?? []) yield* this.fuse(it, r, ctx);
     for (const l of outsByEnd.get(it.i) ?? []) yield* this.fuse(l, it, ctx);
+
+    // ── JOIN (the A*LD extension) ───────────────────────────────────────
+    // A produced fact may CONTAIN the subject the query never named; the query's
+    // remaining tail then names the relation to follow FROM that subject.  The
+    // pair (contained entity, tail) is itself a learned key, and its
+    // continuation is the derived answer — a genuine two-fact join, not the
+    // juxtaposition the cover produces when the intermediate key IS named.
+    // Fired per finalized out with a node, so it is the search's own rule, on
+    // the ladder, memoised by {@link key}, and bounded by the fact's own length.
+    if (it.node !== undefined) {
+      yield* this.join(it, ctx.queryBytes, ctx.queryLen);
+    }
   }
 
   /** Whether the query span [from, to) is wholly covered by RECOGNISED outs —

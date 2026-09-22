@@ -518,7 +518,21 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         end: number,
         canonBudget: boolean,
       ): void => {
-        if (end - start < W || end - start <= chainReach(W)) return;
+        // Any span at least one river window wide is worth a probe.  This used
+        // to stop at `chainReach(W)` — "the chain already covers anything that
+        // short" — and that premise is false for a NESTED form: the chain grows
+        // single-byte leaf ids and gates each step on `findBranch(ids)`, which
+        // is null for a form the write side chunked (measured: "Gustaf
+        // Molander" embedded in "The director of Eva is Gustaf Molander." gains
+        // no branch at any prefix, so `resolveSpan` is never reached), and its
+        // INTERIOR reach is one chunk plus W, which can be shorter than the
+        // form.  The result was a dead zone: a form shorter than `chainReach`
+        // that neither starts on a fold cut nor ends on a node edge was
+        // unreachable by either tier — the exact site whose loss `tryChain`'s
+        // own note records as "the pivot dies with the site and multi-hop goes
+        // silent".  The interior pass below spends the same budget on those
+        // pairs.
+        if (end - start < W) return;
         if (flatProbe(start, end) === null) {
           if (!canonBudget) return;
           if (!canonAdmits(start, end)) return;
@@ -574,6 +588,24 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         // out — a query can carry a trained form at either end.
         if (i < prefixes.length && !spend(0, prefixes[i])) break;
         if (i < suffixes.length && !spend(suffixes[i], bytes.length)) break;
+      }
+      // INTERIOR pairs, bounded by the same `chainReach(W)` the chain trusts —
+      // the dead zone the gate above used to leave: a form that neither starts
+      // on a fold cut nor ends on a node edge is exactly the one neither the
+      // chain (nested, `findBranch` misses) nor the two edge scans reach.  The
+      // pair count is `|endpoints| · chainReach(W)`, i.e. LINEAR in the query —
+      // the W² span bound is what keeps this from being the quadratic scan the
+      // budget note above describes (that one had no span bound at all).
+      {
+        const reach = chainReach(W);
+        for (const end of ordered) {
+          for (const start of ordered) {
+            if (start >= end) continue;
+            const span = end - start;
+            if (span < W || span > reach) continue;
+            spend(start, end);
+          }
+        }
       }
     }
   }

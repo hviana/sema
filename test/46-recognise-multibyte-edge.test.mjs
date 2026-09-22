@@ -83,3 +83,33 @@ test("recognise(): a wide edge trim does not corrupt an unrelated short-form ans
   const r = await m.respond("2+2 は何ですか");
   assert.equal(dec(r.bytes), "4");
 });
+
+test("recognise(): an INTERIOR form at a non-cut offset is recovered, not only an edge one", async () => {
+  // The edge tier used to probe only prefixes of 0 and suffixes to bytes.length,
+  // and the flat-leaf chain cannot rebuild a write-side-chunked form (its
+  // `findBranch(ids)` pre-check misses at every prefix, so `resolveSpan` is
+  // never reached) while its interior reach is one chunk plus W.  A form that
+  // neither starts on a fold cut nor ends on a node edge therefore fell in a
+  // dead zone — exactly the object inside a produced fact ("…is Gustaf
+  // Molander."), which is the site the pivot would need to chain on.
+  // MEASURED on the pre-change tree: no site for the entity.  With the bounded
+  // interior pass (spans W..chainReach(W), linear in the query), it is found at
+  // its true span.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["x", "The director of Eva is Gustaf Molander."],
+    ["Gustaf Molander", "The father of Gustaf Molander is Harald Molander."],
+  ]);
+  const expected = resolve(m, enc("Gustaf Molander"));
+  assert.ok(expected !== null, "sanity: the entity must resolve standalone");
+
+  const rec = recognise(m, enc("The director of Eva is Gustaf Molander."));
+  const hit = rec.sites.find((s) => s.payload === expected);
+  assert.ok(
+    hit,
+    `expected an interior site for the entity, got: ` +
+      JSON.stringify(rec.sites.map((s) => [s.start, s.end, s.payload])),
+  );
+  assert.deepEqual([hit.start, hit.end], [23, 38]);
+  await m.store.close();
+});
