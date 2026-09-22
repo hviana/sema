@@ -1211,7 +1211,8 @@ export class GraphSearch {
     // LENDS it when it can (Mind does, with the response-scoped struct cache),
     // and a bare host falls back to the raw-store probe, so the search stays
     // host-based.
-    const leading = this.host.recogniseSpan(fact.bytes).sites.filter((s) =>
+    const factRec = this.host.recogniseSpan(fact.bytes);
+    const leading = factRec.sites.filter((s) =>
       s.payload >= 0 && s.payload !== fact.node &&
       (this.host.leadsSomewhere !== undefined
         ? this.host.leadsSomewhere(s.payload)
@@ -1229,10 +1230,16 @@ export class GraphSearch {
     // resolve()/nextFirst() probes these candidates would have paid.
     if (leading.length === 0) {
       if (reportable) {
+        // Report WHAT the recognition returned, not just that nothing led: the
+        // count and the first few site texts are the difference between "the
+        // fact was not recognised" and "it was recognised but nothing led".
+        const seen = factRec.sites.slice(0, 3).map((s) =>
+          this.store.bytesPrefix(s.payload, ALL)
+        );
         this.host.reportSearch?.(
           "deriveThroughMiss",
-          [fact.bytes, tail],
-          "no entity inside the fact leads anywhere — nothing to join through",
+          [fact.bytes, tail, ...seen],
+          `no entity inside the fact leads anywhere — ${factRec.sites.length} site(s) recognised inside it`,
         );
       }
     }
