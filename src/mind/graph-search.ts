@@ -1322,13 +1322,36 @@ export class GraphSearch {
         )
       );
     for (const c of candidates) {
-      const keyBytes = concat2(c.bytes, tail);
-      // EXACT FIRST, THEN CANONICAL: the corpus holds both identities.  The
-      // WHOLE tail must still name the key — the shorter-prefix variant is
-      // refuted by test/99 (it opened keys naming the wrong fact).
-      const key = this.host.resolve(keyBytes) ??
-        this.host.canonResolve?.(keyBytes) ??
-        null;
+      // THE SHORTEST TAIL PREFIX WHOSE KEY ALSO LEADS SOMEWHERE.
+      //
+      // The conclusion covers only that prefix, so the rest of the tail stays
+      // for the step after — which is what CHAINING is (a whole-tail key
+      // consumed the whole remainder and made every join terminal: measured,
+      // `joinFired=0` on a three-relation query).
+      //
+      // A KEY THAT RESOLVES IS NOT ENOUGH.  Measured with a dry run of these
+      // very primitives: for the candidate `Sweden` the first tail prefix that
+      // resolves is `" "` — the key `Sweden ` (a trailing space) — and it leads
+      // NOWHERE (`nextFirst` = 0), so accepting it refused the join while the
+      // key that names the fact (`sweden capital`) sat one prefix further.  The
+      // loop therefore asks BOTH questions before accepting, and keeps looking
+      // otherwise.
+      //
+      // EXACT FIRST, THEN CANONICAL: the corpus holds both identities.
+      let key: number | null = null;
+      let used = 0;
+      let keyBytes = c.bytes;
+      for (let len = 1; len <= tail.length; len++) {
+        keyBytes = concat2(c.bytes, tail.subarray(0, len));
+        const k = this.host.resolve(keyBytes) ??
+          this.host.canonResolve?.(keyBytes) ??
+          null;
+        if (k === null) continue;
+        if (this.store.nextFirst(k, 1).length === 0) continue;
+        key = k;
+        used = len;
+        break;
+      }
       if (key === null) {
         if (this.host.meter) this.host.meter.joinNoKey++;
         if (reportable) {
@@ -1360,7 +1383,7 @@ export class GraphSearch {
         conclusion: {
           kind: "out",
           i: fact.i,
-          j: queryLen,
+          j: fact.j + used,
           bytes: this.store.bytesPrefix(nx[0], ALL),
           cover: true,
           rec: true,
