@@ -1168,10 +1168,16 @@ export class GraphSearch {
     // itself, not an entity inside it.
     for (const site of this.host.recogniseSpan(fact.bytes).sites) {
       if (site.payload < 0 || site.payload === fact.node) continue;
-      if (
-        !this.store.hasNext(site.payload) &&
-        !this.store.hasHalo(site.payload)
-      ) continue;
+      // The admission predicate has ONE definition — `traverse.ts`'s
+      // `leadsSomewhere` (edge or halo).  The host LENDS it when it can (Mind
+      // does, with the response-scoped struct cache); a bare host falls back to
+      // the raw-store probe, so the search stays host-based.  Same semantics
+      // either way; the hook spares the repeated probe and keeps the predicate
+      // from being redefined here.
+      const leads = this.host.leadsSomewhere !== undefined
+        ? this.host.leadsSomewhere(site.payload)
+        : this.store.hasNext(site.payload) || this.store.hasHalo(site.payload);
+      if (!leads) continue;
       const key = this.host.resolve(
         concat2(this.store.bytesPrefix(site.payload, ALL), tail),
       );

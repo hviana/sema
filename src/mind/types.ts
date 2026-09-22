@@ -65,6 +65,12 @@ export interface GraphSearchHost {
     starts: ReadonlySet<number>;
   };
   chooseNext?(node: number): number | undefined;
+  /** The admission predicate — `traverse.ts`'s `leadsSomewhere`, its ONE
+   *  definition: does this node bear an edge or a halo?  Optional, so a bare
+   *  host (a raw Store and nothing else) still works; when present, the search
+   *  uses it rather than re-probing the store, which keeps the predicate
+   *  single-defined AND memoised on the response-scoped struct cache. */
+  leadsSomewhere?(id: number): boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

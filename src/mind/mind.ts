@@ -159,6 +159,7 @@ import {
   chooseNext,
   edgeAncestors as edgeAncestorsFn,
   invalidateStructuralCaches,
+  leadsSomewhere,
 } from "./traverse.js";
 import { invalidateJunctionCache } from "./junction.js";
 import { follow } from "./match.js";
@@ -341,6 +342,14 @@ export class Mind implements MindContext {
   /** Canonical node id of a byte span.  Required by GraphSearchHost & MindContext. */
   resolve(bytes: Uint8Array): number | null {
     return resolveImpl(this, bytes);
+  }
+
+  /** Whether a node leads somewhere — the admission predicate, delegating to
+   *  `traverse.ts`'s ONE definition (edge or halo, with its response-scoped
+   *  cache).  The search holds a bare Store and cannot reach that cache itself,
+   *  so it asks through this hook; a bare host keeps its raw-store fallback. */
+  leadsSomewhere(id: number): boolean {
+    return leadsSomewhere(this, id);
   }
 
   // recogniseSpan wraps recognise
