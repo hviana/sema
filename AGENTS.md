@@ -134,7 +134,28 @@ silence). A simplification that fails an existing test is wrong until the test
 is proven wrong. Sublibraries test themselves in
 `src/{alu,derive,rabitq-ivf}/test/` with zero Sema dependency.
 
-## 6. Dependencies and licensing
+## 6. Instrumentation — the meter and the rationale ARE the dev surface
+
+`src/meter.ts` (what an answer COST) and `inspectRationale` (why it was CHOSEN,
+`src/mind/rationale.ts`) are not debug helpers: they are Sema's development
+instrumentation, and the only ones. Both are read through the public path —
+`new Mind({ profile: true })` → `mind.lastCost` (`sumReports`/`formatReport`),
+and the `inspectRationale` callback on `respond`/`respondText`/`respondTurn`.
+
+When a change needs to be seen, measured, or proved, EXTEND THEM: a counter in
+`meter.ts` (the one place a counter name exists — keep its four contracts true),
+a step or note where the mechanism emits it (`src/mind/trace.ts` holds the move
+vocabulary). A gap in instrumentation is a defect IN the instrumentation: close
+it there, once, so the next person sees it too. Never add a parallel channel for
+a single investigation — no ad-hoc logging or timing probes left in `src/`
+(`performance.now()` belongs in `meter.ts`, not at a call site), no private
+per-layer counter where a `meter.ts` field belongs, and no trace channel of your
+own: a callback threaded through a call chain must FEED the rationale, the way
+`GraphSearch`'s `onDerivation` feeds `traceDerivation`. (`store.ts`'s
+`danglingReads`/`compactFailures` and the `console.warn`s that report them
+predate this and stay: session-lifetime HEALTH counters, not per-response work.)
+
+## 7. Dependencies and licensing
 
 PolyForm Noncommercial 1.0.0 with separate commercial licensing (see
 `LICENSE.md`, `COMMERCIAL-LICENSE.md`, `TRADEMARKS.md`). The library has **no
