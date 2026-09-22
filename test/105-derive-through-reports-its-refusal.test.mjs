@@ -66,6 +66,13 @@ test("the join's refusal is reported, naming the candidate and tail it tried", a
       parts.some((t) => t.includes("country"));
   });
   assert.ok(named, "the report must name the candidate and the tail it tried");
+  // …and WHERE the candidate came from: a refusal that names only bytes leaves
+  // the next reader guessing which proposal path produced them (three chained-
+  // join attempts were spent fixing paths that never proposed the offender).
+  assert.ok(
+    got.some((s) => /#\d+, from the .* source/.test(String(s.note))),
+    "the report must name the candidate's node and its source",
+  );
   await mind.store.close();
 });
 

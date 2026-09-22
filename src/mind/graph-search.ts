@@ -1261,9 +1261,15 @@ export class GraphSearch {
     // join through, and running it per letter measured 20-26 s in test/99).
     const W = this.maxGroup;
     const proposed = new Map<number, Uint8Array>();
+    // The SOURCE of each proposal travels with it: a refusal that names only the
+    // bytes leaves the next reader guessing which path proposed them — three
+    // attempts at the chained join were spent fixing paths that never produced
+    // the offending candidate.
+    const source = new Map<number, string>();
     for (const s of factRec.sites) {
       if (s.payload >= 0 && leads(s.payload)) {
         proposed.set(s.payload, this.store.bytesPrefix(s.payload, ALL));
+        source.set(s.payload, "recognised site");
       }
     }
     if (this.host.canonResolve !== undefined && fact.bytes.length >= W) {
@@ -1272,7 +1278,10 @@ export class GraphSearch {
         for (let end = fact.bytes.length; end - start >= W; end--) {
           const id = canon(fact.bytes.subarray(start, end));
           if (id === null) continue;
-          if (leads(id)) proposed.set(id, this.store.bytesPrefix(id, ALL));
+          if (leads(id)) {
+            proposed.set(id, this.store.bytesPrefix(id, ALL));
+            source.set(id, "canonical fold");
+          }
           break; // the longest form at this offset wins
         }
       }
@@ -1324,7 +1333,8 @@ export class GraphSearch {
           this.host.reportSearch?.(
             "deriveThroughMiss",
             [c.bytes, tail, keyBytes],
-            "no learnt key names this entity and tail together",
+            `no learnt key names this entity and tail together ` +
+              `(candidate #${c.payload}, from the ${source.get(c.payload) ?? "unknown"} source)`,
           );
         }
         continue;
@@ -1335,7 +1345,8 @@ export class GraphSearch {
           this.host.reportSearch?.(
             "deriveThroughMiss",
             [keyBytes],
-            "the key this entity and tail name leads nowhere",
+            `the key this entity and tail name leads nowhere ` +
+              `(candidate #${c.payload}, from the ${source.get(c.payload) ?? "unknown"} source)`,
           );
         }
         continue;
