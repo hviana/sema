@@ -159,25 +159,39 @@ not to do, why it fails, and what to do instead.
 - **CORRECT:** BUDGET it — the work is charged in the one currency
   (`MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`, see
   `docs/architecture/cost-model.md`) and the charge is visible in the meter and
-  the rationale, so the SEARCH decides whether the work is worth paying. Where
-  the work is mechanical rather than evidential — enumeration, scans, sweeps —
-  the fix is an ALGORITHM whose cost is structural in the bytes it is given, not
-  a smaller cap. Both were done and measured here, with no cap, budget or new
-  number anywhere: the alignment sweep indexes the context's windows once and
-  walks the query's outward, so its work is proportional to the bytes a run spans
-  (a 60-byte divergence is bridged; `test/14` 60.0 s → 56.8 s against a 67.8 s
-  baseline, 775 MB → 773 MB), and the join's key prefixes come from the query's
-  own fold boundaries instead of every byte length (5 of 5 accepted keys landed
-  on a boundary; 153 candidate probes became 52). Pinned by
+  the rationale, so the SEARCH decides whether the work is worth paying. And
+  where the work is mechanical rather than evidential — enumeration, scans,
+  sweeps — an algorithm whose cost is structural in the bytes it is given is not
+  a smaller cap.
+
+- **THE IDEAL, WHICH IS NOT WHAT THIS REPOSITORY DOES.** The aim of the project
+  is a universal **closure engine**: ONE law of closure, stated in the quantities
+  the machine already has (`leadsSomewhere`, the exact-then-canonical identity,
+  `accounted` bytes, the ladder, `hubBound`), from which the reach of a gap, the
+  offer of a hop, the depth of a join and the scope of a substitution all FOLLOW.
+  None of that law exists. It is not stated anywhere in this repository, and
+  nobody has stated it yet.
+
+- **WHAT THIS REPOSITORY ACTUALLY HAS, STATED PLAINLY.** A series of LOCAL
+  corrections, each measured and pinned, each standing on its own: the alignment
+  sweep indexes the context's windows and walks the query's outward, so its work
+  is proportional to the bytes a run spans (a 60-byte divergence is bridged;
+  `test/14` 60.0 s against a 67.8 s baseline); the join's key prefixes come from
+  the query's own fold boundaries instead of every byte length (5 of 5 accepted
+  keys landed on a boundary; 153 candidate probes became 52); a duplicated
+  per-offset scan was deleted; an offer cap was removed once the fan-out was
+  measured to be linear in the hub's degree rather than quadratic. Those are
+  patches. They lower cost and restore reach, and they are pinned by
   `test/101-alignment-gap-bound.test.mjs`,
   `test/103-alignment-gap-budget.test.mjs`,
   `test/114-alignment-budget-is-per-sweep.test.mjs`,
   `test/108-the-join-chains.test.mjs`,
-  `test/110-the-reasoner-stops-when-the-question-is-answered.test.mjs`,
+  `test/112-the-exploration-does-not-grow-with-the-hub.test.mjs`,
+  `test/110-the-reasoner-stops-when-the-question-is-answered.test.mjs` and
   `test/116-the-extension-is-gated-by-the-pipelines-own-remainder.test.mjs`.
-- **THE APEX:** the project evolves toward a universal CLOSURE ENGINE — one law
-  of closure, stated in the quantities the engine already has (`leadsSomewhere`,
-  the exact-then-canonical identity, `accounted` bytes, the ladder, `hubBound`),
-  from which the reach of a gap, the offer of a hop, the depth of a join and the
-  scope of a substitution all FOLLOW. A change that cannot be stated that way is
-  not ready.
+
+- **THE OPEN PROBLEM.** How to state the closure law so that those four
+  quantities — gap reach, hop offer, join depth, substitution scope — are
+  consequences of it instead of four separate decisions. It is unsolved. A change
+  that cannot be stated that way is not ready, and this entry does not claim
+  otherwise.
