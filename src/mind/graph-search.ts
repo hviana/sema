@@ -1165,13 +1165,19 @@ export class GraphSearch {
       // what it was.  The filter's guarantee is untouched: nothing beyond the
       // node's own kids may enter.
       const recognised = rec.sites.filter((s) => kids.has(s.payload));
-      const seenKids = new Set(recognised.map((s) => s.payload));
+      // DEDUPED BY SPAN, not by payload.  A node whose kids repeat (`"abab"`
+      // folds as ["ab","ab"]) has TWO occurrences of the same node at different
+      // offsets; a payload-keyed set suppressed the structural site for BOTH, so
+      // the second occurrence had no site at all.  The set now holds the spans
+      // recognition already covers, and a structural site is added exactly when
+      // nothing covers that PLACE — O(1) lookups, no extra reads.
+      const seenSpans = new Set(recognised.map((s) => `${s.start}:${s.end}`));
       const structural: Site[] = [];
       {
         let off = 0;
         for (const k of nrec.kids) {
           const len = this.store.bytesPrefix(k, ALL).length;
-          if (!seenKids.has(k) && len > 0) {
+          if (!seenSpans.has(`${off}:${off + len}`) && len > 0) {
             structural.push({
               start: off,
               end: Math.min(off + len, bytes.length),
