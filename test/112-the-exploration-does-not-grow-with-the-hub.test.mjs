@@ -80,7 +80,10 @@ test("the work does not explode with the hub's degree", async () => {
 test("and the hub still leads somewhere the chain can use", async () => {
   const mind = await hub(40);
   const out = (await mind.respondText(QUERY)).replace(/\0+/g, "").trim();
-  assert.ok(out.length > 0, `the hub must still be reachable, got ${JSON.stringify(out)}`);
+  assert.ok(
+    out.length > 0,
+    `the hub must still be reachable, got ${JSON.stringify(out)}`,
+  );
   assert.ok(offers(mind) > 0, "and the chain hop must have been taken");
   await mind.store.close();
 });

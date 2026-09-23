@@ -50,7 +50,10 @@ async function frame(n = 60, opts = {}) {
   const pairs = [];
   for (let i = 0; i < n; i++) {
     const f = i % 3 === 0 ? long(i) : short(i);
-    pairs.push([`Book a table at ${f} tonight.`, `Your table at ${f} is booked.`]);
+    pairs.push([
+      `Book a table at ${f} tonight.`,
+      `Your table at ${f} is booked.`,
+    ]);
   }
   await mind.ingest(pairs);
   return { store, mind };
@@ -58,7 +61,6 @@ async function frame(n = 60, opts = {}) {
 
 /** A novel filler of exactly `len` bytes, never ingested. */
 const novel = (len) => "zephyr quartz lantern ".repeat(3).slice(0, len).trim();
-
 
 // THE LAW'S ASSERTION, straight on the aligner.  There is no bound to report
 // any more: the sweep's work is proportional to the bytes a run spans, so a
@@ -71,7 +73,13 @@ test("a divergence far past the old arity bound is bridged, not truncated", () =
   const q = enc.encode(head + "a".repeat(60) + tail);
   const c = enc.encode(head + "b".repeat(60) + tail);
   const at = head.length - 1; // the seed: the shared head's own boundary
-  const { matched, gaps } = alignAround({ space: { maxGroup: 4 } }, q, c, at, at);
+  const { matched, gaps } = alignAround(
+    { space: { maxGroup: 4 } },
+    q,
+    c,
+    at,
+    at,
+  );
   assert.equal(
     matched.length,
     2,

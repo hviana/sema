@@ -77,8 +77,10 @@ test("both are deterministic across identical calls", async () => {
     b.pairs.map((p) => [p.contextId, p.continuationId, asText(p.context)]),
     "same store + same query ⇒ the same pairs in the same order",
   );
-  assert.deepEqual(mind.searchCorpusText("the capital of France").pairs,
-    mind.searchCorpusText("the capital of France").pairs);
+  assert.deepEqual(
+    mind.searchCorpusText("the capital of France").pairs,
+    mind.searchCorpusText("the capital of France").pairs,
+  );
   await mind.store.close();
 });
 
@@ -122,7 +124,10 @@ test("determinism holds ACROSS instances, not just across calls", async () => {
     shape(b.sampleCorpus(2)),
     "and browsing must agree too — no draw from outside the seed",
   );
-  assert.deepEqual(shape(a.sampleCorpus(2, 0.25)), shape(b.sampleCorpus(2, 0.25)));
+  assert.deepEqual(
+    shape(a.sampleCorpus(2, 0.25)),
+    shape(b.sampleCorpus(2, 0.25)),
+  );
   await a.store.close();
   await b.store.close();
 });
@@ -137,7 +142,9 @@ test("a browse never shows the same context twice", async () => {
   assert.equal(
     new Set(ids).size,
     ids.length,
-    `every browsed pair must be a different context, got ${JSON.stringify(ids)}`,
+    `every browsed pair must be a different context, got ${
+      JSON.stringify(ids)
+    }`,
   );
   await mind.store.close();
 });

@@ -1294,7 +1294,9 @@ export class GraphSearch {
     // canonical node of the query that can lead somewhere, which is exactly the
     // set this filter wants, and it costs nothing to read.
     const queryNodes = new Set<number>(
-      (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) => s.payload),
+      (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) =>
+        s.payload
+      ),
     );
     // TWO SOURCES, ONE ADMISSION.  The recognition of a STORED WHOLE returns the
     // whole and stops — measured: for `The director of Eva is Gustaf Molander.`
@@ -1422,7 +1424,9 @@ export class GraphSearch {
             "deriveThroughMiss",
             [c.bytes, tail, keyBytes],
             `no learnt key names this entity and tail together ` +
-              `(candidate #${c.payload}, from the ${source.get(c.payload) ?? "unknown"} source)`,
+              `(candidate #${c.payload}, from the ${
+                source.get(c.payload) ?? "unknown"
+              } source)`,
           );
         }
         continue;

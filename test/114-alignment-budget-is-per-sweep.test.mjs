@@ -50,7 +50,13 @@ test("both sides of the anchor align even when each flank exceeds the budget", (
   // left sweep and a per-sweep one does not.
   const { q, c, at } = pair(40);
   for (const budget of [512, 4096]) {
-    const res = alignAround(ctxWith(budget), enc.encode(q), enc.encode(c), at, at);
+    const res = alignAround(
+      ctxWith(budget),
+      enc.encode(q),
+      enc.encode(c),
+      at,
+      at,
+    );
     assert.ok(
       spansOf(res, q, "MATCH").length > 0,
       `the nearest LEFT continuation must survive the right sweep's budget ` +
@@ -71,11 +77,15 @@ test("the run chosen is the one with the smallest total gap", () => {
   const head = "common head ";
   const far = "FAR";
   const near = "NEAR";
-  const q = enc.encode(head + "x".repeat(4) + near + "q" + "z".repeat(30) + far);
+  const q = enc.encode(
+    head + "x".repeat(4) + near + "q" + "z".repeat(30) + far,
+  );
   const c = enc.encode(head + "y".repeat(9) + near + "c");
   const at = head.length - 1;
   const { matched } = alignAround(ctxWith(), q, c, at, at);
-  const got = matched.map(([a, b]) => new TextDecoder().decode(q.subarray(a, b)));
+  const got = matched.map(([a, b]) =>
+    new TextDecoder().decode(q.subarray(a, b))
+  );
   assert.ok(
     got.includes("NEAR"),
     "the nearest continuation must be found: " + JSON.stringify(got),

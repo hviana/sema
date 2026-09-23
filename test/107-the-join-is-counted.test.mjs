@@ -58,8 +58,7 @@ test("a query whose join does not fire reports WHY, untraced", async () => {
   const mind = await chain();
   await mind.respondText("eva director country capital"); // no rationale
   const c = counters(mind);
-  const refusals =
-    (c.joinNoKey ?? 0) + (c.joinNoEntity ?? 0);
+  const refusals = (c.joinNoKey ?? 0) + (c.joinNoEntity ?? 0);
   assert.ok(
     refusals > 0,
     "a join that did not fire must say so in the counters",

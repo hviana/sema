@@ -450,8 +450,10 @@ export function alignAround(
     let lo = 0, hi = list.length - 1, best = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (list[mid] >= from) { best = list[mid]; hi = mid - 1; }
-      else lo = mid + 1;
+      if (list[mid] >= from) {
+        best = list[mid];
+        hi = mid - 1;
+      } else lo = mid + 1;
     }
     return best;
   };
@@ -460,8 +462,10 @@ export function alignAround(
     let lo = 0, hi = list.length - 1, best = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (list[mid] <= to) { best = list[mid]; lo = mid + 1; }
-      else hi = mid - 1;
+      if (list[mid] <= to) {
+        best = list[mid];
+        lo = mid + 1;
+      } else hi = mid - 1;
     }
     return best;
   };
@@ -496,7 +500,10 @@ export function alignAround(
       const lens = left >= W ? [W] : [left];
       for (const len of lens) {
         const key = latin1(
-          q.subarray(forward ? qi + gq : qi - gq - len, forward ? qi + gq + len : qi - gq),
+          q.subarray(
+            forward ? qi + gq : qi - gq - len,
+            forward ? qi + gq + len : qi - gq,
+          ),
         );
         const list = index[len - 1].get(key);
         if (list === undefined) continue;
@@ -506,9 +513,13 @@ export function alignAround(
           ? runLenAt(qi + gq, o)
           : runLenBefore(qi - gq, o + len);
         if (n < 1) continue;
-        if (forward ? n >= W || qi + gq + n === q.length : n >= W || n === qi - gq) {
+        if (
+          forward ? n >= W || qi + gq + n === q.length : n >= W || n === qi - gq
+        ) {
           const gs = forward ? o - si : si - len - o;
-          if (best === null || gq + gs < best.gq + best.gs) best = { gq, gs, n };
+          if (best === null || gq + gs < best.gq + best.gs) {
+            best = { gq, gs, n };
+          }
           break;
         }
       }

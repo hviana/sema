@@ -83,7 +83,11 @@ test("a produced composite composes identically below and above the flip", async
 
   // The property: depth is a fact about the graph, not about the corpus size.
   assert.equal(deep, shallow, "scale must not change how deep the chain goes");
-  assert.equal(deep, "m n", "and the graph ends at the composite's continuation");
+  assert.equal(
+    deep,
+    "m n",
+    "and the graph ends at the composite's continuation",
+  );
 });
 
 test("above the flip the composition is reported, not just performed", async () => {

@@ -124,7 +124,9 @@ export function searchCorpus(
   // Weight each context by how much query content reached it.
   const weight = new Map<number, number>();
   for (const { id, len } of byLength) {
-    for (const root of edgeAncestors(ctx, id, ctx.cfg.corpusContextsPerClimb).roots) {
+    for (
+      const root of edgeAncestors(ctx, id, ctx.cfg.corpusContextsPerClimb).roots
+    ) {
       weight.set(root, (weight.get(root) ?? 0) + len);
     }
   }

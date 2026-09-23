@@ -54,8 +54,10 @@ test("the join reaches the subject the query never wrote", async () => {
   const mind = await chain();
   const moves = [];
   const out = text(
-    await mind.respond("eva director country", (s) =>
-      moves.push(s.mechanism.at(-1))),
+    await mind.respond(
+      "eva director country",
+      (s) => moves.push(s.mechanism.at(-1)),
+    ),
   );
   assert.equal(out.trim(), F2);
   assert.ok(

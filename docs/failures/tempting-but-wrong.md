@@ -157,15 +157,16 @@ not to do, why it fails, and what to do instead.
   (`MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`, see
   `docs/architecture/cost-model.md`), the charge is visible in the meter and the
   rationale, and the SEARCH decides whether the work is worth paying — so
-  inference is never locked by a limit and nothing is truncated in silence. Where
-  the work is mechanical rather than evidential — enumeration, scans, sweeps —
-  the answer is an algorithm whose cost is structural in the bytes it is given,
-  not a smaller cap.
+  inference is never locked by a limit and nothing is truncated in silence.
+  Where the work is mechanical rather than evidential — enumeration, scans,
+  sweeps — the answer is an algorithm whose cost is structural in the bytes it
+  is given, not a smaller cap.
 - **THE IDEAL:** a universal **closure engine** — one law of closure, stated in
   the quantities the machine already has (`leadsSomewhere`, the
-  exact-then-canonical identity, `accounted` bytes, the ladder, `hubBound`), from
-  which the reach of a gap, the offer of a hop, the depth of a join and the scope
-  of a substitution are CONSEQUENCES, not four separate decisions. Nothing in
-  this repository is that today.
-- **THE STANDARD A CHANGE MUST MEET:** state which consequence it is, and show it
-  following from the law. A change that cannot be stated that way is not ready.
+  exact-then-canonical identity, `accounted` bytes, the ladder, `hubBound`),
+  from which the reach of a gap, the offer of a hop, the depth of a join and the
+  scope of a substitution are CONSEQUENCES, not four separate decisions. Nothing
+  in this repository is that today.
+- **THE STANDARD A CHANGE MUST MEET:** state which consequence it is, and show
+  it following from the law. A change that cannot be stated that way is not
+  ready.

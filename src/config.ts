@@ -196,18 +196,17 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     seed: opts.seed ?? DEFAULT_CONFIG.seed,
     recallQueryK: opts.recallQueryK ?? DEFAULT_CONFIG.recallQueryK,
     haloQueryK: opts.haloQueryK ?? DEFAULT_CONFIG.haloQueryK,
-    rationaleSampleK:
-      opts.rationaleSampleK ?? DEFAULT_CONFIG.rationaleSampleK,
+    rationaleSampleK: opts.rationaleSampleK ?? DEFAULT_CONFIG.rationaleSampleK,
     corpusLimitMax: opts.corpusLimitMax ?? DEFAULT_CONFIG.corpusLimitMax,
     corpusClimbs: opts.corpusClimbs ?? DEFAULT_CONFIG.corpusClimbs,
-    corpusContextsPerClimb:
-      opts.corpusContextsPerClimb ?? DEFAULT_CONFIG.corpusContextsPerClimb,
-    corpusSampleProbes:
-      opts.corpusSampleProbes ?? DEFAULT_CONFIG.corpusSampleProbes,
-    corpusPreviewBytes:
-      opts.corpusPreviewBytes ?? DEFAULT_CONFIG.corpusPreviewBytes,
-    corpusSampleFloorBytes:
-      opts.corpusSampleFloorBytes ?? DEFAULT_CONFIG.corpusSampleFloorBytes,
+    corpusContextsPerClimb: opts.corpusContextsPerClimb ??
+      DEFAULT_CONFIG.corpusContextsPerClimb,
+    corpusSampleProbes: opts.corpusSampleProbes ??
+      DEFAULT_CONFIG.corpusSampleProbes,
+    corpusPreviewBytes: opts.corpusPreviewBytes ??
+      DEFAULT_CONFIG.corpusPreviewBytes,
+    corpusSampleFloorBytes: opts.corpusSampleFloorBytes ??
+      DEFAULT_CONFIG.corpusSampleFloorBytes,
     normalizeEpsilon: opts.normalizeEpsilon ?? DEFAULT_CONFIG.normalizeEpsilon,
     cosineEpsilon: opts.cosineEpsilon ?? DEFAULT_CONFIG.cosineEpsilon,
     alu: {

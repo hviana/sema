@@ -53,7 +53,10 @@ async function frame(opts = {}, n = 60) {
   const pairs = [];
   for (let i = 0; i < n; i++) {
     const f = i % 3 === 0 ? long(i) : short(i);
-    pairs.push([`Book a table at ${f} tonight.`, `Your table at ${f} is booked.`]);
+    pairs.push([
+      `Book a table at ${f} tonight.`,
+      `Your table at ${f} is booked.`,
+    ]);
   }
   await mind.ingest(pairs);
   return { store, mind };

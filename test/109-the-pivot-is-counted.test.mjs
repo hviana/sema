@@ -34,7 +34,9 @@ async function pivotFixture() {
 
 test("the pivot is counted, with no rationale attached", async () => {
   const mind = await pivotFixture();
-  const out = await mind.respondText("What is the capital of France famous for");
+  const out = await mind.respondText(
+    "What is the capital of France famous for",
+  );
   assert.ok(
     out.includes("Eiffel"),
     `the multi-hop must still chain, got ${JSON.stringify(out)}`,

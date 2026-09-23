@@ -35,11 +35,14 @@ async function chain() {
   return mind;
 }
 
-const text = (resp) => new TextDecoder().decode(resp.bytes).replace(/\0+/g, "").trim();
+const text = (resp) =>
+  new TextDecoder().decode(resp.bytes).replace(/\0+/g, "").trim();
 
 test("a remainder the pipeline calls real licenses the hop", async () => {
   const mind = await chain();
-  const out = text(await mind.respond("What is the capital of France famous for"));
+  const out = text(
+    await mind.respond("What is the capital of France famous for"),
+  );
   assert.equal(
     out,
     LINKS[1][1],
@@ -57,7 +60,12 @@ test("a one-word remainder is exactly one window, and licenses nothing", async (
   // question material.
   const mind = await chain();
   const steps = [];
-  const out = text(await mind.respond("What is the capital of France why", (s) => steps.push(s)));
+  const out = text(
+    await mind.respond(
+      "What is the capital of France why",
+      (s) => steps.push(s),
+    ),
+  );
   assert.equal(
     out,
     LINKS[0][1],
@@ -84,6 +92,9 @@ test("a computed-span query has no phantom remainder (M3)", async () => {
   // into an unrelated chain.
   const mind = await chain();
   const out = text(await mind.respond("2+2"));
-  assert.ok(out.length > 0, `a computation must still be answered, got ${JSON.stringify(out)}`);
+  assert.ok(
+    out.length > 0,
+    `a computation must still be answered, got ${JSON.stringify(out)}`,
+  );
   await mind.store.close();
 });

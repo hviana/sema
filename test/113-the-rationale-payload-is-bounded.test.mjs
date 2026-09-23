@@ -38,7 +38,12 @@ async function hub() {
   // RECALL's budget is deliberately enormous: the rationale's sample must not
   // follow it (found by an adversarial review — sharing `recallQueryK` meant
   // this very setting un-bounded the payload).
-  const mind = new Mind({ seed: 7, store, profile: true, recallQueryK: 100000 });
+  const mind = new Mind({
+    seed: 7,
+    store,
+    profile: true,
+    recallQueryK: 100000,
+  });
   const w = (i, n) => WORDS[(i * 7 + n * 13) % WORDS.length];
   const pairs = [];
   for (let i = 0; i < 40; i++) {
@@ -66,7 +71,9 @@ test("a step reports a bounded sample, and the count of the whole field", async 
     outs.length <= BUDGET,
     `the sample must fit the declared budget, got ${outs.length}`,
   );
-  const total = Number(/(\d+)\s+continuations/.exec(String(step.note))?.[1] ?? 0);
+  const total = Number(
+    /(\d+)\s+continuations/.exec(String(step.note))?.[1] ?? 0,
+  );
   assert.ok(total > 0, "the note must say how wide the field was");
   assert.ok(
     total >= outs.length,

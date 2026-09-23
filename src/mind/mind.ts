@@ -16,12 +16,14 @@ import type { CorpusPair, CorpusResult } from "./corpus.js";
 import { Alphabet } from "../alphabet.js";
 import {
   bytesToTree,
+  contentBoundaries,
   contentFoldIncremental,
   Grid,
   gridToTree,
   hilbertBytes,
   reachThreshold,
-  stackGrids, contentBoundaries } from "../geometry.js";
+  stackGrids,
+} from "../geometry.js";
 import type { ContentFold } from "../geometry.js";
 import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
@@ -147,6 +149,7 @@ interface ConversationData {
 import type { AttentionRead, MindContext, Recognition } from "./types.js";
 import { changedNodes, liftAnswer, spliceAll } from "./types.js";
 import {
+  canonResolve as canonResolveImpl,
   foldTree,
   gistOf,
   inputBytes,
@@ -154,7 +157,8 @@ import {
   perceive as perceiveImpl,
   perceiveKey,
   read,
-  resolve as resolveImpl, canonResolve as canonResolveImpl } from "./primitives.js";
+  resolve as resolveImpl,
+} from "./primitives.js";
 import {
   chooseNext,
   edgeAncestors as edgeAncestorsFn,
