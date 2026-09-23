@@ -253,8 +253,7 @@ export async function think(
   }
   const grade = (w: number) => Math.floor(w / STEP);
   const unaccounted = (spans: ReadonlyArray<[number, number]>): number =>
-    unexplainedSpans(query.length, spans)
-      .reduce((sum, [s, e]) => sum + (e - s), 0);
+    unaccountedBytes(unexplainedSpans(query.length, spans));
   const weigh = (
     accounted: ReadonlyArray<[number, number]>,
     moves: number,
@@ -578,10 +577,7 @@ export async function think(
   // extension or a fusion stops being invisible.
   if (meter) {
     meter.postGroundingRemainderSpans += uncovered.length;
-    meter.postGroundingRemainderBytes += uncovered.reduce(
-      (n, [a, b]) => n + (b - a),
-      0,
-    );
+    meter.postGroundingRemainderBytes += unaccountedBytes(uncovered);
   }
   // The extension is kept as a WHOLE (bytes + what it carried + how many steps),
   // not just its bytes: pricing it — `steps · STEP` against `PASS · unaccounted`

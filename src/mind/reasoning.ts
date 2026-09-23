@@ -308,7 +308,7 @@ export async function reason(
         // closure report's limits: a chain of thousands of links explaining a
         // handful of bytes.  No guard is added for it — a limit without a
         // derivation is exactly what the brake must not become.
-        const left = uncovered.reduce((n, [a, b]) => n + (b - a), 0);
+        const left = unaccountedBytes(uncovered);
         ctx.trace?.step(
           "pivotRefused",
           [rItem(cur, "answer"), rItem(query, "query")],
@@ -336,10 +336,7 @@ export async function reason(
   // it did (`steps · STEP`) and the uncovered material it carried.
   if (ctx.meter) {
     ctx.meter.reasonSteps += steps;
-    ctx.meter.reasonCarriedBytes += carried.reduce(
-      (n, [a, b]) => n + (b - a),
-      0,
-    );
+    ctx.meter.reasonCarriedBytes += unaccountedBytes(carried);
   }
   t?.done(
     [rItem(cur, "answer", resolve(ctx, cur) ?? undefined)],

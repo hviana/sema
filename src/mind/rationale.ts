@@ -122,7 +122,7 @@ export function decodeText(bytes: Uint8Array): string {
  *  pipeline.ts) before the architecture audit of `../auditoria-arquitectura-sema.md`
  *  collapsed them.  Same value at every site — the control diff is identical. */
 export function unaccountedBytes(
-  spans: ReadonlyArray<[number, number]>,
+  spans: ReadonlyArray<readonly [number, number]>,
 ): number {
   let total = 0;
   for (const [a, b] of spans) total += b - a;
