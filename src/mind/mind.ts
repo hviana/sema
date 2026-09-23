@@ -197,6 +197,8 @@ export interface MindOptions {
   seed?: number;
   recallQueryK?: number;
   haloQueryK?: number;
+  /** Items one rationale step may itemise — see {@link MindConfig}. */
+  rationaleSampleK?: number;
   /** Gap pairs one alignment call may examine — see {@link MindConfig}. */
   alignGapPairs?: number;
   normalizeEpsilon?: number;

@@ -20,8 +20,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
+import { DEFAULT_CONFIG } from "../dist/src/config.js";
 
-const BUDGET = 12; // DEFAULT_CONFIG.recallQueryK — the declared budget.
+// The DECLARED capacity, read from the config — no number is copied here.
+const BUDGET = DEFAULT_CONFIG.rationaleSampleK;
 
 const WORDS =
   ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima " +
@@ -33,7 +35,10 @@ const WORDS =
 /** A hub of 40 continuations, plus filler so `hubBound` exceeds the budget. */
 async function hub() {
   const store = new SQliteStore({ path: ":memory:", D: 1024 });
-  const mind = new Mind({ seed: 7, store, profile: true });
+  // RECALL's budget is deliberately enormous: the rationale's sample must not
+  // follow it (found by an adversarial review — sharing `recallQueryK` meant
+  // this very setting un-bounded the payload).
+  const mind = new Mind({ seed: 7, store, profile: true, recallQueryK: 100000 });
   const w = (i, n) => WORDS[(i * 7 + n * 13) % WORDS.length];
   const pairs = [];
   for (let i = 0; i < 40; i++) {

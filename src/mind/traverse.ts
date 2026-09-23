@@ -773,7 +773,7 @@ export function chooseNext(
     // bounds the sample, so no number is invented here.
     const others = capped
       .filter((c) => c !== best)
-      .slice(0, ctx.cfg.recallQueryK);
+      .slice(0, ctx.cfg.rationaleSampleK);
     ctx.trace.step(
       "disambiguate",
       [rItemShort(ctx, best, "halo-evidence", bestSupport)],

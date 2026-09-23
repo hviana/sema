@@ -116,6 +116,11 @@ export interface MindConfig {
   seed: number;
   recallQueryK: number;
   haloQueryK: number;
+  /** Items one rationale step may ITEMISE (the whole field is still counted in
+   *  the step's note).  A capacity of the rationale, not of recall: sharing
+   *  `recallQueryK` meant `new Mind({recallQueryK: 100000})` un-bounded the very
+   *  payload the bound exists for (found by an adversarial review). */
+  rationaleSampleK: number;
   /** Gap pairs one alignment call may examine.  The sweep explores
    *  (queryGap, contextGap) pairs by ASCENDING total, so this bounds the WORK
    *  of the sweep while the gap LENGTH stays the pair's own extent — the two
@@ -138,6 +143,7 @@ export const DEFAULT_CONFIG: MindConfig = {
   seed: 42,
   recallQueryK: 12,
   haloQueryK: 12,
+  rationaleSampleK: 12,
   alignGapPairs: 4096,
   normalizeEpsilon: 1e-12,
   cosineEpsilon: 1e-12,
@@ -180,6 +186,8 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     seed: opts.seed ?? DEFAULT_CONFIG.seed,
     recallQueryK: opts.recallQueryK ?? DEFAULT_CONFIG.recallQueryK,
     haloQueryK: opts.haloQueryK ?? DEFAULT_CONFIG.haloQueryK,
+    rationaleSampleK:
+      opts.rationaleSampleK ?? DEFAULT_CONFIG.rationaleSampleK,
     alignGapPairs: opts.alignGapPairs ?? DEFAULT_CONFIG.alignGapPairs,
     normalizeEpsilon: opts.normalizeEpsilon ?? DEFAULT_CONFIG.normalizeEpsilon,
     cosineEpsilon: opts.cosineEpsilon ?? DEFAULT_CONFIG.cosineEpsilon,
