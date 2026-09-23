@@ -159,6 +159,12 @@ export async function reason(
   const qv = pre.guide; // the response-wide guide IS the query's gist
   let t: ReturnType<Rationale["enter"]> | undefined;
   const startedFrom = answer;
+  // INSTRUMENTATION ONLY.  Records whether the chain STOPPED (a step refused:
+  // no pivot, no forward step, or no question material carried) or merely ran
+  // out of hops.  Truthful note text matters because the two outcomes are
+  // otherwise indistinguishable to a reader — but nothing here decides
+  // anything: the value is read only after the loop, to bump a counter.
+  let stopped = false;
   for (let hop = 0; hop < ctx.cfg.recallQueryK; hop++) {
     // Hop 0's `cur` IS `answer`, so the guard above already resolved it and
     // read its reverse edges — reuse both rather than repeat them.
@@ -199,11 +205,17 @@ export async function reason(
     // Pivot: find the longest unconsumed learnt context the answer contains.
     consumeAll(curId);
     const pivot = await pivotInto(ctx, cur, consumed, voiced);
-    if (pivot === null) break;
+    if (pivot === null) {
+      stopped = true;
+      break;
+    }
 
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
-    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) break;
+    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) {
+      stopped = true;
+      break;
+    }
     // WHOSE EXTENSION IS THIS?
     //
     // `voiced` is what the mechanism WITHHELD (the pipeline sends the used
@@ -251,6 +263,7 @@ export async function reason(
           `the step carries none of the question material the grounding left ` +
             `uncovered (${left} byte(s) in ${uncovered.length} span(s)) — refused`,
         );
+        stopped = true;
         break;
       }
     }
@@ -264,6 +277,11 @@ export async function reason(
     );
     cur = fc;
   }
+  // The loop consumed the allowance to its end rather than stopping.  Untraced
+  // on purpose (meter.ts contract 1: a counter never reaches a decision), so
+  // this cannot perturb the search.  It does NOT by itself mean reach was cut —
+  // see the counter's own doc.
+  if (ctx.meter && !stopped) ctx.meter.reasonHopsExhausted++;
   t?.done(
     [rItem(cur, "answer", resolve(ctx, cur) ?? undefined)],
     "the multi-hop chain's fixpoint",

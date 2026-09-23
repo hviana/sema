@@ -239,6 +239,27 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
+  /** Times the multi-hop chain consumed its hop allowance to the end
+   *  (`recallQueryK`) instead of stopping.  The two exits were indistinguishable
+   *  — the chain's `done` note says "fixpoint" either way, which is true only
+   *  for the stopping one — so this says the hops ran out.
+   *
+   *  Necessary but NOT sufficient to call it a cut: an answer can be complete
+   *  with the allowance spent to the last hop.  What separates "the reach was
+   *  cut" from "the count ran out on a finished chain" is whether a further step
+   *  existed, which only the rationale can say (the note).  Counters state
+   *  facts; interpretation stays with the reader.
+   *
+   *  NO FIXTURE IN THE SUITE REACHES THIS EXIT — measured, not assumed: the
+   *  3-link chain of test/110 still stops by structure after one pivot with
+   *  `recallQueryK` at 2 and at its default, so this stays absent.  It is
+   *  reachable in principle — a chain that spends every hop it is allowed and
+   *  would take one more — and on none of the corpora that exist here.
+   *  Tightening `recallQueryK` does NOT produce it, because the same number is
+   *  also the pivot's probe budget (`resonance.ts`), which then cannot find a
+   *  pivot at all: the duplication this work exists to remove, blocking its own
+   *  test. */
+  reasonHopsExhausted = 0;
 
   // ── Mind: the cover's connector assembly (LIMIT) ────────────────────────
   //
