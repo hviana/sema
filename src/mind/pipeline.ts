@@ -544,6 +544,27 @@ export async function think(
       ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n))
     )
     : [];
+  // WHAT THIS BRANCH READ, published where it was read.  Post-grounding decides
+  // by `decided.used` and by the provenance NAME; the operands were invisible in
+  // the trace, so a change to the branching could not be shown equivalent or
+  // otherwise from outside — three separate investigations failed on exactly
+  // that gap.  A gap in instrumentation is a defect IN the instrumentation
+  // (AGENTS.md §6): closed here, once, as counts only — never content.
+  ctx.trace?.step(
+    "postGrounding",
+    [rItem(answer, provenance)],
+    [],
+    `used=${decided.used !== undefined ? "declared" : "absent"} · ` +
+      `preConsumed=${preConsumed.size} · voiced=${voiced.length}`,
+    undefined,
+    {
+      version: 1,
+      provenance,
+      usedDeclared: decided.used !== undefined,
+      preConsumed: preConsumed.size,
+      voiced: voiced.length,
+    },
+  );
   // REPORTABLE, NOT SILENT.  A declared-complete grounding ends the derivation
   // here, and that decision is part of the derivation's shape: the reader of a
   // rationale must be able to see that the chain stopped because the mechanism
