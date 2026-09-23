@@ -65,7 +65,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
   const dominant = {
     anchor: franceId,
     vote: 100,
-    idfVote: 100, // a fixture constrói um Attention: o campo tem de existir
+    idfVote: 100, // the fixture builds an Attention: the field has to exist
     ctx: enc("What is the capital of France?"),
     runs: [{ qs: 0, qe: 30, cs: 0, weight: 1 }],
   };
@@ -76,7 +76,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
   const spainPoint = {
     anchor: spainAnalogSrcId,
     vote: 50,
-    idfVote: 50, // a fixture constrói um Attention: o campo tem de existir
+    idfVote: 50, // the fixture builds an Attention: the field has to exist
     ctx: enc("some other prompt"),
     runs: [{ qs: 32, qe: 62, cs: 0, weight: 1 }],
   };
@@ -87,7 +87,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
         {
           anchor: franceId,
           vote: 100,
-          idfVote: 100, // a fixture constrói um Attention: o campo tem de existir
+          idfVote: 100, // the fixture builds an Attention: the field has to exist
           start: 0,
           end: 30,
           breadth: 1,
@@ -98,7 +98,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
         {
           anchor: franceId,
           vote: 100,
-          idfVote: 100, // a fixture constrói um Attention: o campo tem de existir
+          idfVote: 100, // the fixture builds an Attention: the field has to exist
           start: 0,
           end: 30,
           breadth: 1,
@@ -107,7 +107,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
         {
           anchor: spainAnalogSrcId,
           vote: 50,
-          idfVote: 50, // a fixture constrói um Attention: o campo tem de existir
+          idfVote: 50, // the fixture builds an Attention: the field has to exist
           start: 32,
           end: 62,
           breadth: 0.5,
@@ -179,7 +179,7 @@ test("CAST comparison: a DIRECTLY aligned analog is never re-projected past its 
   const dominant = {
     anchor: franceId,
     vote: 100,
-    idfVote: 100, // a fixture constrói um Attention: o campo tem de existir
+    idfVote: 100, // the fixture builds an Attention: the field has to exist
     ctx: enc("What is the capital of France?"),
     runs: [{ qs: 0, qe: 30, cs: 0, weight: 1 }],
   };
@@ -188,7 +188,7 @@ test("CAST comparison: a DIRECTLY aligned analog is never re-projected past its 
   const japanPoint = {
     anchor: japanId,
     vote: 50,
-    idfVote: 50, // a fixture constrói um Attention: o campo tem de existir
+    idfVote: 50, // the fixture builds an Attention: the field has to exist
     ctx: enc("What is the capital of Japan? Tokyo is the capital of Japan."),
     runs: [{ qs: 32, qe: 62, cs: 0, weight: 1 }],
   };
@@ -199,7 +199,7 @@ test("CAST comparison: a DIRECTLY aligned analog is never re-projected past its 
         {
           anchor: franceId,
           vote: 100,
-          idfVote: 100, // a fixture constrói um Attention: o campo tem de existir
+          idfVote: 100, // the fixture builds an Attention: the field has to exist
           start: 0,
           end: 30,
           breadth: 1,
@@ -210,7 +210,7 @@ test("CAST comparison: a DIRECTLY aligned analog is never re-projected past its 
         {
           anchor: franceId,
           vote: 100,
-          idfVote: 100, // a fixture constrói um Attention: o campo tem de existir
+          idfVote: 100, // the fixture builds an Attention: the field has to exist
           start: 0,
           end: 30,
           breadth: 1,
@@ -219,7 +219,7 @@ test("CAST comparison: a DIRECTLY aligned analog is never re-projected past its 
         {
           anchor: japanId,
           vote: 50,
-          idfVote: 50, // a fixture constrói um Attention: o campo tem de existir
+          idfVote: 50, // the fixture builds an Attention: the field has to exist
           start: 32,
           end: 62,
           breadth: 0.5,
