@@ -723,7 +723,7 @@ export function frameSlots(
  *  ANCHOR that the query displaced.  Neither implies the other, and the
  *  observed failures pass the restatement guard cleanly.
  *
- *  Three conditions, all byte-exact and all necessary:
+ *  Four conditions, all byte-exact and all necessary:
  *
  *  1. the query and the anchor must be ONE STRUCTURE — what they share has to
  *     dominate the query, or the query is not a variant of the anchor at all
@@ -811,8 +811,10 @@ export function substituteAll(
   const usable = pairs.filter((p) => p.needle.length > 0);
   if (usable.length === 0) return hay;
   // Longest needle first, so a needle that is a prefix of another can never
-  // pre-empt it.  Ties cannot arise: an instance whose fillers are not
-  // pairwise distinct is refused by frameSlots.
+  // pre-empt it.  Ties cannot arise: a consumer that VOICES checks the
+  // fillers pairwise with `distinct` and refuses such an instance itself —
+  // `frameSlots` reports and does not judge (see its own doc), so the refusal
+  // lives with the mechanism that needs it, not here.
   const order = [...usable].sort((a, b) => b.needle.length - a.needle.length);
   const out: number[] = [];
   let i = 0;
