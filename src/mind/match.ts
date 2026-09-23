@@ -361,9 +361,13 @@ export interface AlignGap {
 
 /** Extend a seed match (query offset qo ↔ candidate offset co) to its maximal
  *  common run, then walk outward in both directions collecting further common
- *  runs of at least W bytes across bounded mismatch gaps (each side ≤
- *  chainReach).  Returns the matched query spans and the mismatch pairs
- *  between consecutive runs.
+ *  runs of at least W bytes across mismatch gaps.  Each gap's LENGTH is the
+ *  pair's own extent (a gap cannot be longer than the bytes it spans) and the
+ *  sweep's WORK is the declared `alignGapPairs` budget — the arity bound
+ *  (`chainReach`) used to cap BOTH, and truncated every learned frame whose
+ *  slot was longer.  Each sweep owns its own budget, so an exhausted right
+ *  sweep never starves the left one.  Returns the matched query spans and the
+ *  mismatch pairs between consecutive runs.
  *
  *  This is the SEEDED aligner, distinct from {@link alignRuns}: that one finds
  *  every run two structures share anywhere (a weave), this one reads two
@@ -434,8 +438,9 @@ export function alignAround(
         : `alignment exhausted the gap sweep with ${queryLeft} query byte(s) and ${contextLeft} context byte(s) left`,
     );
   };
-  // The next common run of ≥ W bytes past (qi, si), with each side's gap
-  // bounded by chainReach; smallest total gap wins (nearest continuation).
+  // The next common run of ≥ W bytes past (qi, si); each side's gap is bounded
+  // by the bytes available and by the sweep's own `alignGapPairs` budget.
+  // Smallest total gap wins (nearest continuation).
   const runLenAt = (qi: number, si: number): number => {
     let n = 0;
     while (qi + n < q.length && si + n < c.length && q[qi + n] === c[si + n]) {
