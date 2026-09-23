@@ -18,7 +18,7 @@ boundFor(n) = ceil(sqrt(max(2, n)))               // ctx-free reading
 ```
 
 Defined once in `mind/traverse.ts` (`corpusN`, `hubBound`, `hubCap`,
-`boundFor`). Every consumer imports them; never spell `Math.sqrt` inline.
+`boundFor`). Every consumer imports them; never re-derive them inline.
 
 ## Enforcement at the store level
 
