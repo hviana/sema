@@ -27,6 +27,7 @@ import { bytesEqual, concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { GraphSearchHost } from "./types.js";
 
 import { ALL } from "./types.js";
+import { exploreCap } from "../geometry.js";
 
 /** A recognised form: a span of the query that names a node already in the
  *  store. `payload` is that node id. */
@@ -903,7 +904,7 @@ export class GraphSearch {
       // `ceil(queryLen / W)`, floored at 2 for plurality. It is QUERY-sized
       // (invariant 5: no per-query read grows with N) and it leaves `hubBound`
       // and every read untouched.
-      const offerCap = Math.max(2, Math.ceil(queryLen / this.maxGroup));
+      const offerCap = exploreCap(queryLen, this.maxGroup);
       const nx = this.store.nextFirst(it.node, offerCap);
       // Count what is OFFERED, not what was read: the evidence-preferred
       // continuation is yielded too, even when it lies outside the cap.
