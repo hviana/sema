@@ -1076,3 +1076,68 @@ test("22. the trace publishes the bar the margin gate ACTUALLY applied", async (
   );
   await store.close();
 });
+
+test("23. the payload carries every section the draft supplies", async () => {
+  // `ClimbConsensusData` is assembled by hand from `TraceDraft` (see
+  // traceAttention): four sections are plain pass-throughs (`regions`,
+  // `saturation`, `pooling`, `anchors`), one comes from the config
+  // (`reaches`), and one is REBUILT from the summary plus two draft arrays
+  // (`crossRegion`).  A section added to the draft and missed in that assembly
+  // vanishes from the payload SILENTLY — which is the drift `visited?` records
+  // ("Absent on payloads recorded before this field existed").  The draft
+  // itself is not observable from outside, but the PAYLOAD is: this test runs a
+  // climb that produces each pass-through section and asserts it arrives.
+  const { Mind, SQliteStore } = await import("../dist/src/index.js");
+  const achar = (o, d = 0) => {
+    if (o === null || typeof o !== "object" || d > 5) return null;
+    if (o.config && Array.isArray(o.anchors)) return o;
+    for (const v of Object.values(o)) {
+      const r = achar(v, d + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest([
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+    ["2+2", "2+2 equals 4"],
+    ["Gustaf Molander", "Gustaf Molander was a Swedish film director"],
+    ["Stockholm", "Stockholm is the capital of Sweden"],
+  ]);
+  const q = "the capital of France and the tallest tower in Paris and 2+2";
+  const passos = [];
+  await mind.respondText(q, (x) => passos.push(x));
+  const st = passos.find((x) => achar(x.data ?? x) !== null);
+  const td = st ? achar(st.data ?? st) : null;
+  await store.close();
+  assert.ok(td !== null, "the traced climb must emit a payload at all");
+  for (const k of ["config", "candidates", "result"]) {
+    assert.ok(td[k] !== undefined, `the payload must always carry \`${k}\``);
+  }
+  // The four pass-through sections, plus the one the cfg supplies.
+  const missing = [];
+  for (const k of ["regions", "saturation", "pooling", "anchors", "reaches"]) {
+    if (td[k] === undefined) missing.push(k);
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `the payload is missing section(s) the draft/config supplied: ${
+      missing.join(", ")
+    } ` +
+      `(present: ${Object.keys(td).join(", ")})`,
+  );
+  assert.ok(
+    (td.regions ?? []).length >= 1 && (td.anchors ?? []).length >= 1,
+    `the fixture must produce regions and anchors (regions=${
+      (td.regions ?? []).length
+    }, ` +
+      `anchors=${(td.anchors ?? []).length})`,
+  );
+});
