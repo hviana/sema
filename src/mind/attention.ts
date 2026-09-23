@@ -1707,6 +1707,16 @@ export function commitVotes(
         ),
       };
     })
+    // THE ORDER IS NOT A PREFERENCE: with equal evidence it decides ADMISSION,
+    // through the stable sort and the first-come overlap absorption below.
+    // Measured on test/34's corpus, query "red": the two candidates (`red
+    // circle` and `red square`) carry IDENTICAL `vote` and IDENTICAL `idfVote`
+    // (1.3863 each, three seeds), so this comparator leaves them tied and the
+    // stable sort keeps the ENUMERATION order — which is corpus-determined and
+    // admits `red square`, 60/60 seeds.  Adding an id tie-break (`|| a.anchor -
+    // b.anchor`) picks `red circle` instead and makes a single region reach the
+    // JOINT context, which is the premise `test/34` exists to protect.  The
+    // gates read IDF; this line only decides who gets looked at first.
     .sort((a, b) => b.vote - a.vote);
   const overlaps = (a: Attention, b: Attention) =>
     a.start < b.end && b.start < a.end;
