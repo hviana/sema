@@ -1798,6 +1798,18 @@ export function commitVotes(
     let passesConsensusFloor: boolean | undefined;
     let pastLeadingSaturation: boolean | undefined;
     let tiedWithDominant: boolean | undefined;
+    // ── ONE OF THREE ADMISSIONS, AND THEY ARE NOT THE SAME READING ────────
+    // This block admits by VOTES: per-region evidence pooled, gated on the
+    // natural break and on consensusFloor, with the dominant allowed to bypass
+    // both.  `structuralResonance` admits by a MARGIN over the estimator's own
+    // noise, and `crossRegionVotes` admits by STRUCTURE (which regions may pair
+    // at all, with at least one side individually discriminative).  Read
+    // together they look like one policy written three times; they are three
+    // different measurements of the same question ("is this evidence?"), and
+    // unifying them would average three readings into one — the mistake
+    // `extraction.ts` records as "do not unify the two into one machine".
+    // What they DO share, and must keep sharing, is the discipline of deriving
+    // every bar from D/W/N rather than choosing it (thresholds.md).
     const rejectionReasons: AnchorRejectionReason[] = [];
     if (absorbed) {
       status = "overlap";
@@ -2524,6 +2536,13 @@ export async function structuralResonance(
     });
   };
 
+  // ── ADMISSION BY MARGIN, not by votes (see voteRegions' note) ─────────
+  // What this site measures: how far the best ANN proposal's effective score
+  // (score × semanticConfidence) stands above the runner-up's, against
+  // `estimatorNoise(D)`.  What it does NOT measure: how many regions voted,
+  // or whether the query's regions agree — that is voteRegions' question, and
+  // here a synthetic gist has already replaced them.  The two bars are both
+  // derived (thresholds.md), and neither is a tuning of the other.
   let selected: StructuralResonanceProposal | null = null;
   let selectedReach: AncestorReach | null = null;
   let selectedIdf = 0;
@@ -2639,6 +2658,15 @@ async function crossRegionVotes(
   // successfully reconstructed while probing one pair must not be read and
   // perceived again while probing another pair in the same climb.
   const siblingGistMemo = new Map<number, CachedSiblingGist>();
+  // ── ADMISSION BY STRUCTURE, not by a bar (see voteRegions' note) ──────
+  // What this site decides: WHICH regions may pair at all — a region that
+  // already voted (individually discriminative), or a KNOWN non-voting one as
+  // the weak side of a pair whose other side voted; never two non-voting
+  // regions, and never a span contained in a maximal one whose reading is
+  // exact.  The bar (the container's idf) comes later, on the candidate.  So
+  // its "rejection reasons" name structural disqualifications — a different
+  // vocabulary because it answers a different question, and the three
+  // taxonomies stay separate for the same reason the readings do.
   const votedSpans = new Set<string>();
   for (const rv of rvs.votes) votedSpans.add(`${rv.start},${rv.end}`);
   const seen = new Set<string>();
