@@ -55,7 +55,7 @@ deferred transaction.
 Every in-memory cache is a `BoundedMap` with byte accounting and eviction (`lru`
 vs `smallest` + `clock`/`reorder` recency). ANN reads
 (`resonate`/`resonateHalo`) are content-addressed (`vecKey`) and dropped on any
-index mutation; `RESonate_CACHE_MAX=4096`.
+index mutation; `RESONATE_CACHE_MAX=4096`.
 
 ## Maintenance (incremental)
 
