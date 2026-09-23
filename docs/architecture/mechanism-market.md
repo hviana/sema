@@ -19,6 +19,7 @@ interface MechanismResult {
   unexplained: string;
   scaffolding?: number;
   complete?: boolean;
+  used?: ReadonlySet<number>;
 }
 ```
 
@@ -30,7 +31,7 @@ interface MechanismResult {
 
 ## Decider
 
-`think` in `mind/pipeline.ts` iterates `defaultMechanisms` in list order:
+`think` iterates `defaultMechanisms` in list order:
 
 ```
 defaultMechanisms = [cover, cast, confluence, extraction, reference, recall,
@@ -39,8 +40,7 @@ defaultMechanisms = [cover, cast, confluence, extraction, reference, recall,
 
 Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
 `unaccountedBytes = unexplainedSpans(query.length, accounted)`. Comparison is at
-`STEP` grade (`grade = floor(weight/STEP)`); equal grade prefers fewer
-`scaffolding` bytes, then list order.
+`STEP` grade ; equal grade prefers fewer `scaffolding` bytes, then list order.
 
 ## Four constraints
 
@@ -48,16 +48,16 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
    never touches another; no mechanism asks what already decided.
 2. **Declared competence** — binary structural gates inside `floor`/`run` (query
    length, anchor shape, weave existence). Never a learned score; rationale
-   states exactly why a mechanism abstained.
+   states why a mechanism abstained.
 3. **Visible budget** — every corpus-scale loop is capped at a named constant:
    `√N` via `hubBound`/`hubCap` and `k = 2·recallQueryK` (`Precomputed.k`).
-   Enforced at the store level.
+   Enforced at the store.
 4. **Evidence travels** — every candidate carries `accounted` (query spans
    explained), `moves` (priced on `MICRO/STEP/CONCEPT/PASS`), `unexplained`
    (diagnostic label); optionally `scaffolding` (answer bytes from unrecognised
    spans — equal-grade tie-break) and `complete` (trained-form continuation
    reached via identity; post-grounding must not extend). The decider honours
-   both without knowing who set them.
+   all three without knowing who set them.
 
 ## Two disciplines
 
@@ -70,8 +70,8 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
 - **Investment discipline.** `worthRunning` is passed _into_ `floor`. A floor
   that would first-touch an expensive shared analysis (`pre.attention()` climb,
   `pre.weave()`, `pre.resonance()`) checks `worthRunning(cheapestBound)` first
-  and returns the uninvested bound when it already loses. Never compute a shared
-  analysis just to discard it. `cast.ts`/`extraction.ts` are the references.
+  and returns the uninvested bound if it loses. Never compute a shared analysis
+  just to discard it. `cast.ts`/`extraction.ts` are the references.
 
 ## Accounting
 
@@ -86,8 +86,8 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
   same act is charged twice (`PASS`/byte dominates).
 
 `accounted` is a cost-ladder quantity; `cover.ts` leaves masked computed spans
-out of it so `PASS`-bridged bytes are still charged. `unexplained`,
-`narrowDecision`, `thinGrounding` are observational only.
+out so `PASS`-bridged bytes are still charged. `unexplained`, `narrowDecision`,
+`thinGrounding` are observational only.
 
 ## Pins
 
