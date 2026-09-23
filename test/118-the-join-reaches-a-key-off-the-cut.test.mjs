@@ -1,16 +1,20 @@
 // 118-the-join-reaches-a-key-off-the-cut.test.mjs — a deposited, CONTINUING key
-// must be reachable even when its boundary is not a cut of the flow the join
-// segmented.
+// must be reachable even when its boundary is not a fold cut of the tail.
 //
-// WHY THIS EXISTS.  The join builds `key = fact.bytes ‖ tail[0..len]` and tries
-// only `len ∈ [contentCuts(tail), tail.length]`.  `contentCuts` segments the TAIL
-// alone, but the key was cut by the fold over THE CONCATENATION, and the rule has
-// a minimum segment length relative to the PREVIOUS cut — so the two cut sets
-// differ, and the boundary that names a real stored key can be missing.  Measured
-// on the five-fact chain below: the fourth hop's key "stockholm mayor" exists
-// (resolve() finds it), its continuation is the mayor fact, and its boundary
-// (p = 6) is NOT among the candidates ([4,7,12]) — so the join cannot try it and
-// the answer stops at the third fact.
+// WHY THIS EXISTS.  The join builds `key = fact.bytes ‖ tail[0..len]` and used to
+// try only the tail's own fold boundaries (plus its end).  A boundary is not a
+// proxy for a stored key's end: a deposited member's end is the end of ITS OWN
+// stream, and the fold never emits a cut at a stream's end (geometry's `emit`
+// guards `at >= n`) — so the boundary that names a real stored key can sit
+// between cuts, or beyond every one of them.  Measured on the five-fact chain
+// below: the fourth hop's key "stockholm mayor" exists (resolve() finds it), its
+// continuation is the mayor fact, and its boundary (p = 6) is NOT among the
+// tail's cuts ([4,7]) — so the join could not try it and the answer stopped at
+// the third fact.
+//
+// The candidate ends are now the prefixes that ARE stored nodes, ascending, from
+// the host's `contentKeyEnds` — so the shortest name still wins, and every
+// deposited key is reachable.
 //
 // WHAT IS PINNED.  The chain reaches the FIFTH fact, and the join fires at least
 // four times.  The counters are the untraced view (AGENTS §6: profile without a
