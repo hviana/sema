@@ -1037,9 +1037,9 @@ test("22. the trace publishes the bar the margin gate ACTUALLY applied", async (
   await mind.ingest(CORPUS);
   const q =
     "how do you say thank you in the language of Nepal and in the language of Oman";
-  const passos = [];
-  await mind.respondText(q, (x) => passos.push(x));
-  const st = passos.find((x) => achar(x.data ?? x) !== null);
+  const steps = [];
+  await mind.respondText(q, (x) => steps.push(x));
+  const st = steps.find((x) => achar(x.data ?? x) !== null);
   const td = st ? achar(st.data ?? st) : null;
   const raw = estimatorNoise(store.D);
   const regions = td?.regions ?? [];
@@ -1111,9 +1111,9 @@ test("23. the payload carries every section the draft supplies", async () => {
     ["Stockholm", "Stockholm is the capital of Sweden"],
   ]);
   const q = "the capital of France and the tallest tower in Paris and 2+2";
-  const passos = [];
-  await mind.respondText(q, (x) => passos.push(x));
-  const st = passos.find((x) => achar(x.data ?? x) !== null);
+  const steps = [];
+  await mind.respondText(q, (x) => steps.push(x));
+  const st = steps.find((x) => achar(x.data ?? x) !== null);
   const td = st ? achar(st.data ?? st) : null;
   await store.close();
   assert.ok(td !== null, "the traced climb must emit a payload at all");
