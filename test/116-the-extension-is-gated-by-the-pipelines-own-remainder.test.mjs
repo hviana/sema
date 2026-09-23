@@ -51,13 +51,28 @@ test("a remainder the pipeline calls real licenses the hop", async () => {
 test("a one-word remainder is exactly one window, and licenses nothing", async () => {
   // `" why"` is W bytes once its separator is counted: per the pipeline's own
   // floor it is a remainder, and per the extension law a remainder the step
-  // cannot carry licenses no hop — so the grounded fact stands.
+  // cannot carry licenses no hop — so the grounded fact stands, AND the refusal
+  // is visible: a brake that leaves no trace is the silent cut AGENTS §6
+  // forbids, so the rationale must say the extension was declined for want of
+  // question material.
   const mind = await chain();
-  const out = text(await mind.respond("What is the capital of France why"));
+  const steps = [];
+  const out = text(await mind.respond("What is the capital of France why", (s) => steps.push(s)));
   assert.equal(
     out,
     LINKS[0][1],
     "a step carrying none of the remainder must not be taken",
+  );
+  const refused = steps.find((s) => s.mechanism.at(-1) === "pivotRefused");
+  assert.ok(refused, "the refusal must be reported, not silent");
+  assert.match(
+    String(refused.note),
+    /carries none of the question material/,
+    "and it must say why it refused",
+  );
+  assert.ok(
+    (refused.outputs ?? []).length > 0,
+    "and name the material it left uncovered",
   );
   await mind.store.close();
 });

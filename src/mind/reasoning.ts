@@ -233,7 +233,26 @@ export async function reason(
         }
         if (progress) break;
       }
-      if (!progress) break;
+      if (!progress) {
+        // THE BRAKE, MADE VISIBLE.  The reasoner declines a step that carries
+        // none of the material the grounding left uncovered — the drift the
+        // extension tests pin.  A refusal that leaves no trace is the kind of
+        // silent cut AGENTS §6 forbids: the rationale is where a reader learns
+        // that an extension was declined for want of question material, and
+        // where the next person sees why the chain stopped here.  Measured with
+        // the check disabled, test/110 and test/116 fail — so this brake is the
+        // only thing keeping the extension honest until the pivot reports its
+        // own accounted spans and the ladder can judge it instead.
+        const left = uncovered.reduce((n, [a, b]) => n + (b - a), 0);
+        ctx.trace?.step(
+          "pivotRefused",
+          [rItem(cur, "answer"), rItem(query, "query")],
+          uncovered.map(([a, b]) => rItem(query.subarray(a, b), "uncovered")),
+          `the step carries none of the question material the grounding left ` +
+            `uncovered (${left} byte(s) in ${uncovered.length} span(s)) — refused`,
+        );
+        break;
+      }
     }
     if (ctx.meter) ctx.meter.pivotSteps++;
     t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
