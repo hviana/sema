@@ -179,39 +179,16 @@ in the same pass — reasons onward to a separate fact about that painter. Nothi
 in the reply but the painter's own name comes from the question.
 
 ```ts
-// demo.ts — one short session that drives the WHOLE pipeline from one memory.
+// demo.ts — a corpus goes in, and the memory is read back out.
 
-import { Mind } from "../src/index.js";
-import { SQliteStore } from "../src/store-sqlite.js";
+import { Mind, SQliteStore } from "../src/index.js";
 
-async function main(): Promise<void> {
-  const mind = new Mind({ store: new SQliteStore({ path: ":memory:" }) });
-  const ask = async (q: string) => (await mind.respondText(q)).trim();
+const mind = new Mind({ store: new SQliteStore({ path: ":memory:" }) });
+await mind.ingest(CORPUS); // (context -> what follows) notes, the deposit shape
 
-  // ── Jot down what we know. Each line is just (context → what follows). ──
-  await mind.ingest([
-    // One relation, shown three times — a pattern taught purely by example:
-    ["The Mona Lisa was painted by Leonardo da Vinci.", "Leonardo da Vinci"],
-    ["The Starry Night was painted by Vincent van Gogh.", "Vincent van Gogh"],
-    [
-      "The Night Watch was painted by Rembrandt van Rijn.",
-      "Rembrandt van Rijn",
-    ],
-    // One stray fact, keyed on a name none of the examples mention:
-    ["Pablo Picasso", "Pablo Picasso co-founded the Cubist movement"],
-  ]);
-
-  // 1) GENERALIZE — apply the learned pattern to an unseen sentence and read out
-  //    the painter, then keep going into what is known about him.
-  console.log(await ask("The Weeping Woman was painted by Pablo Picasso."));
-
-  // 2) COMPUTE — exact arithmetic, grounded right where the notes go silent.
-  console.log(await ask("a museum charges 12*4 for a family ticket"));
-
-  await mind.store.close();
-}
-
-main();
+mind.sampleCorpus(4); // what the memory HOLDS
+mind.searchCorpusText("Pablo Picasso"); // which notes a question REACHES
+await mind.respond("The Weeping Woman was painted by Pablo Picasso.");
 ```
 
 ```text
@@ -224,7 +201,7 @@ Ask for the receipt instead of the text, and each answer says how it was reached
 the route, and, on request, the complete replayable trace behind it:
 
 ```text
-"The Weeping Woman was painted by Pablo Picasso."  →  provenance: cast
+"The Weeping Woman was painted by Pablo Picasso."  →  provenance: cover
     ( structure carried across the three worked examples )
 
 "a museum charges 12*4 for a family ticket"        →  provenance: cover
@@ -233,10 +210,12 @@ the route, and, on request, the complete replayable trace behind it:
 
 > [!NOTE]
 > This is **[example/demo.ts](example/demo.ts)** — run it with `npm run demo`.
-> The first question names a painting Sema was never shown, and asks nothing
-> explicit; what comes back is a fact about Cubism that appears **nowhere** in
-> it. The second is exact, not a plausible-looking guess. Every step traces back
-> to the four notes above.
+> It reads the memory back two ways: `sampleCorpus` browses what it holds, and
+> `searchCorpusText` reports which stored notes a question reaches — exactly, so
+> a question overlapping nothing is answered with a note saying so, never with
+> an invention. The first answer names a painting Sema was never shown and still
+> returns a fact about Cubism that appears **nowhere** in it; the second is
+> computed. Every step traces back to the five notes above.
 
 ---
 
