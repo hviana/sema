@@ -70,26 +70,6 @@ export function identityBar(D: number, maxGroup: number, len: number): number {
  *  form sits below this bar is structurally unrelated to everything in the store
  *  — further than any single-child variant — and the system returns null rather
  *  than fabricate an answer from an unrelated form.  Derived, never tuned. */
-/** How many continuations a CHAIN HOP may offer the search.
- *
- *  Derived, never tuned: a derivation of L hops consumes about L units of the
- *  question, so a hop cannot be paid for by offering more continuations than the
- *  question has units.  `PLURALITY` is the floor and it is the SAME plurality
- *  the first hop's own probe senses (`nextFirst(node, 2)` — "LIMIT 2 only senses
- *  PLURALITY"): a hop must be able to choose between at least two continuations,
- *  or there is nothing to disambiguate.
- *
- *  This bounds what a hop OFFERS; it is not the read cap (`hubBound` = √N still
- *  bounds every read) and it is QUERY-sized, so per-query work does not grow
- *  with the corpus (bounded-reads.md).  Measured on a hub of degree 1083:
- *  offering every continuation grew the chart to 3113 outs and cost a 270 MB
- *  peak and a 256 MB OOM for a two-word question; with this cap, 180 outs and
- *  98 MB — and an independent review asked for the derivation to live here. */
-export const PLURALITY = 2;
-export function exploreCap(queryLen: number, W: number): number {
-  return Math.max(PLURALITY, Math.ceil(queryLen / W));
-}
-
 export function reachThreshold(maxGroup: number): number {
   return 1 - 1 / (2 * maxGroup);
 }
