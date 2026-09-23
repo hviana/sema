@@ -1,17 +1,17 @@
-// 123 — as fórmulas derivadas que a casa escreve POR LADO têm de concordar.
+// 123 — the derived formulas the house writes PER SIDE have to agree.
 //
-// A revisão estrutural (achado 9) encontrou quatro grandezas derivadas
-// duplicadas por desenho: o `hubBound`, o `atomIsHub`/`atomReach`, o
-// `leadsSomewhere` e a escala-de-frase do interior.  O módulo `graph-search.ts`
-// é *host-based* de propósito (não conhece o `MindContext`), logo a fórmula
-// repete-se — e a própria casa registou que ela JÁ DERIVOU uma vez
-// ("they had already drifted on the `Math.max(2, …)` floor", attention.ts).
+// The structural review (finding 9) found four derived quantities duplicated
+// by design: `hubBound`, `atomIsHub`/`atomReach`, `leadsSomewhere` and the
+// interior's phrase scale.  `graph-search.ts` is *host-based* on purpose (it
+// does not know `MindContext`), so the formula repeats — and the house
+// recorded that it HAS DRIFTED once ("they had already drifted on the
+// `Math.max(2, …)` floor", attention.ts).
 //
-// Um teste de par não pode chamar as duas casas (uma é privada), mas PODE ler o
-// código — o mesmo que `test/88-dependency-footprint` faz com os imports.  Cada
-// par é extraído por uma expressão própria e, se a extracção não encontrar a
-// fórmula, o teste FALHA: uma extracção que não acha nada deixaria o par a
-// comparar contra nada, que é a classe de vácuo que `prefix-completion.ts` nomeia.
+// A pair test cannot call both homes (one is private), but it CAN read the
+// code — as `test/88-dependency-footprint` reads imports.  Each pair is
+// extracted by its own pattern, and if the extraction finds no formula the
+// test FAILS: finding nothing would leave the pair comparing against nothing,
+// the vacuous-pass class `prefix-completion.ts` names.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 const SRC = (p) =>
   readFileSync(new URL(`../dist/src/${p}`, import.meta.url), "utf8");
 
-/** Extrai `pattern` e devolve o grupo 1 normalizado — ou falha, com o ficheiro. */
+/** Extract `pattern` and return normalised group 1 — or fail, naming the file. */
 function extract(file, pattern, what) {
   const text = SRC(file);
   const m = text.match(pattern);
