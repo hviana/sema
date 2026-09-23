@@ -97,10 +97,59 @@ test("a miss is a state in bytes and prose only in text", async () => {
   await mind.store.close();
 });
 
+test("determinism holds ACROSS instances, not just across calls", async () => {
+  // The invariant is about the engine, not about one object: the same seed,
+  // the same deposit order and the same query must give byte-identical results
+  // from a FRESH Mind over a fresh store built the same way — both for a search
+  // (whose ids come from the store's intern order) and for a browse.
+  const a = await fixture();
+  const b = await fixture();
+  const shape = (r) =>
+    r.pairs.map((p) => [
+      p.contextId,
+      p.continuationId,
+      p.matchedBytes,
+      Array.from(p.context),
+      Array.from(p.continuation),
+    ]);
+  assert.deepEqual(
+    shape(a.searchCorpus(enc.encode("the capital of France"))),
+    shape(b.searchCorpus(enc.encode("the capital of France"))),
+    "two fresh minds over identically-built stores must agree byte for byte",
+  );
+  assert.deepEqual(
+    shape(a.sampleCorpus(2)),
+    shape(b.sampleCorpus(2)),
+    "and browsing must agree too — no draw from outside the seed",
+  );
+  assert.deepEqual(shape(a.sampleCorpus(2, 0.25)), shape(b.sampleCorpus(2, 0.25)));
+  await a.store.close();
+  await b.store.close();
+});
+
+test("a browse never shows the same context twice", async () => {
+  // Found by mutating the determinism test: on a store small relative to the
+  // probe budget the id stride revisits ids, so a browse returned the SAME pair
+  // over and over (measured: six copies of context #4 for `limit: 6`).
+  const mind = await fixture();
+  const r = mind.sampleCorpus(6);
+  const ids = r.pairs.map((p) => p.contextId);
+  assert.equal(
+    new Set(ids).size,
+    ids.length,
+    `every browsed pair must be a different context, got ${JSON.stringify(ids)}`,
+  );
+  await mind.store.close();
+});
+
 test("browsing is deterministic, and `from` moves the window", async () => {
   const mind = await fixture();
   const a = mind.sampleCorpus(2);
   const b = mind.sampleCorpus(2);
+  assert.ok(
+    a.pairs.length >= 2,
+    "the fixture must yield at least two DISTINCT samples, or this proves nothing",
+  );
   assert.deepEqual(
     a.pairs.map((p) => [p.contextId, p.continuationId]),
     b.pairs.map((p) => [p.contextId, p.continuationId]),

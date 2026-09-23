@@ -171,13 +171,23 @@ export function sampleCorpus(
   const probes = ctx.cfg.corpusSampleProbes;
   const floorBytes = ctx.cfg.corpusSampleFloorBytes;
   const pairs: CorpusPair[] = [];
+  // EACH CONTEXT AT MOST ONCE.  Striding the id space revisits ids when the
+  // store is small relative to the probe budget (measured: a 160-node store
+  // returned the SAME pair six times for `limit: 6`), and a browse that repeats
+  // itself is not a browse.  The demo had the same hole; it is invisible only on
+  // a store far larger than the probe budget.
+  const seen = new Set<number>();
   for (let i = 0; i < probes && pairs.length < want && total > 0; i++) {
     const slot = (i / probes + from) % 1;
     const id = Math.floor(slot * total);
+    if (seen.has(id)) continue;
     if (!store.has(id) || !store.hasNext(id)) continue;
     if (store.contentLen(id, floorBytes) < floorBytes) continue;
     const pair = pairOf(ctx, id, 0);
-    if (pair) pairs.push(pair);
+    if (pair) {
+      seen.add(id);
+      pairs.push(pair);
+    }
   }
   return {
     pairs,
