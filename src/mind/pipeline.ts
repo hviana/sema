@@ -573,12 +573,17 @@ export async function think(
   ];
   const uncovered = unexplainedSpans(query.length, explained)
     .filter(([a, b]) => b - a >= ctx.space.maxGroup);
-  const reasoned = decided.complete ? answer : meter
+  // The extension is kept as a WHOLE (bytes + what it carried + how many steps),
+  // not just its bytes: pricing it — `steps · STEP` against `PASS · unaccounted`
+  // — is the caller's job, one comparison away.  `reasoned` stays the bytes so
+  // everything downstream is untouched.
+  const extension = decided.complete ? undefined : meter
     ? await meter.time(
       "reason",
       () => reason(ctx, query, answer, preConsumed, pre, voiced, uncovered),
     )
     : await reason(ctx, query, answer, preConsumed, pre, voiced, uncovered);
+  const reasoned = extension?.bytes ?? answer;
 
   // Fuse only when the query has a genuine REMAINDER no mechanism's
   // structural evidence touched at all.  `decided.accounted` alone

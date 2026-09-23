@@ -42,6 +42,19 @@ export function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
  *  when it declared one — see the pivot's own containment rule.  `pre` is the
  *  response's shared pre-computation — the post-grounding stages read the
  *  same container the mechanisms did. */
+/** What the multi-hop extension produced, and what it cost: the bytes (the
+ *  answer), the spans of the grounding's UNCOVERED material that each step was
+ *  justified by, and how many steps were taken.  The last two exist so the
+ *  caller can price the extension in the ladder's own currency — `steps · STEP`
+ *  against `PASS · unaccounted` — instead of taking it unconditionally.  Both
+ *  are FACTS, not verdicts: nothing here says whether the extension was worth
+ *  it; that is the comparison's job, one layer up. */
+export interface ReasonedAnswer {
+  bytes: Uint8Array;
+  carried: Array<[number, number]>;
+  steps: number;
+}
+
 export async function reason(
   ctx: MindContext,
   query: Uint8Array,
@@ -53,14 +66,16 @@ export async function reason(
    *  `unaccounted` spans.  Only the reasoner's OWN extensions are judged
    *  against it; a mechanism carrying its own `used` set owns its shape. */
   uncovered: readonly (readonly [number, number])[] = [],
-): Promise<Uint8Array> {
+): Promise<ReasonedAnswer> {
   // Echo guard: a query that is ITSELF a learnt continuation (some context's
   // answer) is being asked back at the system — hopping forward from it would
   // chain through the very fact that produced it and echo the conversation
   // back.  The grounded answer alone is the honest read-out.  Deliberately a
   // broad structural gate; pinned by test/31-audit.
   const qId = pre.queryResolved;
-  if (qId !== null && ctx.store.prevCount(qId) > 0) return answer;
+  if (qId !== null && ctx.store.prevCount(qId) > 0) {
+    return { bytes: answer, carried: [], steps: 0 };
+  }
 
   // Consume a node and its neighbours for pivot-cycle prevention — CAPPED at
   // the hub bound, via the store's LIMITed edge reads: a common continuation's
@@ -119,7 +134,7 @@ export async function reason(
     ? null
     : ctx.store.prevFirst(groundedId, bound);
   if (qId !== null && groundedPrev !== null && groundedPrev.includes(qId)) {
-    return answer;
+    return { bytes: answer, carried: [], steps: 0 };
   }
 
   const consumed = new Set<number>();
@@ -165,6 +180,14 @@ export async function reason(
   const qv = pre.guide; // the response-wide guide IS the query's gist
   let t: ReturnType<Rationale["enter"]> | undefined;
   const startedFrom = answer;
+  // INSTRUMENTATION ONLY — the two facts the extension's own decision already
+  // used and threw away: the spans of uncovered material each step was
+  // JUSTIFIED by (the gate below computes which span carries it and kept only a
+  // boolean), and how many steps were taken.  Nothing here decides anything:
+  // both are read after the loop, to bump counters and to let the caller compare
+  // the extension's cost against what it explains, in the ladder's own currency.
+  const carried: Array<[number, number]> = [];
+  let steps = 0;
   // NO ALLOWANCE: THE CHAIN ENDS WHEN IT STOPS.  Every exit below is the law —
   // no pivot, no forward step, no question material carried — and the walk is
   // bounded by the material and the graph rather than by a count: each taken
@@ -210,6 +233,7 @@ export async function reason(
           "the answer is itself a learnt fact — follow its continuation to the fixpoint",
         );
         cur = fwd;
+        steps++;
         continue;
       }
     }
@@ -245,12 +269,17 @@ export async function reason(
     if (!producerOwnsShape && uncovered.length > 0) {
       const W = ctx.space.maxGroup;
       let progress = false;
+      let justified: [number, number] | undefined;
       for (const [a, b] of uncovered) {
         for (let i = a; i + W <= b && !progress; i++) {
-          if (indexOf(fc, query.subarray(i, i + W), 0) >= 0) progress = true;
+          if (indexOf(fc, query.subarray(i, i + W), 0) >= 0) {
+            progress = true;
+            justified = [a, b];
+          }
         }
         if (progress) break;
       }
+      if (progress && justified !== undefined) carried.push(justified);
       if (!progress) {
         // THE BRAKE, MADE VISIBLE.  The reasoner declines a step that carries
         // none of the material the grounding left uncovered — the drift the
@@ -281,11 +310,19 @@ export async function reason(
       "pivot on the shared span this answer contains, then step forward across that fact",
     );
     cur = fc;
+    steps++;
   }
-  // The loop consumed the allowance to its end rather than stopping.  Untraced
-  // on purpose (meter.ts contract 1: a counter never reaches a decision), so
-  // this cannot perturb the search.  It does NOT by itself mean reach was cut —
-  // see the counter's own doc.
+  // INSTRUMENTATION ONLY — the extension's two facts, untraced (meter.ts
+  // contract 1: a counter never reaches a decision).  They are what a caller
+  // needs to PRICE the extension instead of taking it unconditionally: the work
+  // it did (`steps · STEP`) and the uncovered material it carried.
+  if (ctx.meter) {
+    ctx.meter.reasonSteps += steps;
+    ctx.meter.reasonCarriedBytes += carried.reduce(
+      (n, [a, b]) => n + (b - a),
+      0,
+    );
+  }
   t?.done(
     [rItem(cur, "answer", resolve(ctx, cur) ?? undefined)],
     // A FIXPOINT: no further step was possible.  This note used to also cover an
@@ -294,7 +331,7 @@ export async function reason(
     // a refusal, and the note is true again by construction.
     "the multi-hop chain's fixpoint",
   );
-  return cur;
+  return { bytes: cur, carried, steps };
 }
 
 /** Fuse independent points of attention into one answer (multi-topic).

@@ -239,6 +239,17 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
+  /** Steps the post-grounding EXTENSION took — pivots plus forward-absorbs.
+   *  `pivotSteps` counts only the former, so before this the extension's COST was
+   *  not computable at all.  With it, the price of extending the answer is
+   *  `reasonSteps · STEP`, the ladder's own value for following an edge. */
+  reasonSteps = 0;
+  /** Bytes of the grounding's UNCOVERED material the extension was justified by
+   *  — the union of the spans each step carried a `W`-window of.  The gate
+   *  already computed WHICH span carried it per step and kept only a boolean;
+   *  this is that fact, accumulated.  Read with {@link reasonSteps}: one is the
+   *  price, the other the explanation. */
+  reasonCarriedBytes = 0;
   /** Branch-node probes the pivot sweep actually spent looking for the learnt
    *  context an answer contains (one `resonate` per probe).  The untraced view
    *  of what the multi-hop's shortlist costs. */
