@@ -155,6 +155,11 @@ export async function confluenceJoin(
   // actually SELECTS a constraint is byte-structural and never the magnitude: a
   // run of at least 2W (`bindsAConstituent`, with its accidental-sharing
   // counter-examples above), disjoint covers (`disjoint`), and scaffolding never
+  // binds at all (`dominates(reachOf(…), N)`).  The MEET such a stream may
+  // produce is selected the same way: a span shorter than 2W is rejected, and
+  // the winner is the one with the smallest `reach` (ties broken by the longer
+  // span) — a corpus quantity and bytes, never the vote, which appears only in
+  // the trace item.
   // binds at all (`dominates(reachOf(…), N)`).  The only cut in this loop is a
   // BUDGET, and it is measured: stopping the scan at 2W anchors saves 50-70% of
   // confluence's cost on non-conjunctive queries while preserving every genuinely
