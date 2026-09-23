@@ -19,8 +19,8 @@ scaffolding. Powers the consensus climb, edge following, and vote pooling.
 
 ## Weave-local — `depth[]` + `MIN_WEAVE` + `dominates`
 
-_Defined in `src/mind/match.ts` (`depth[]`, `MIN_WEAVE`, `frame`) and gated in
-`src/mind/match.ts:frame`; used by CAST._
+_Defined and gated in `src/mind/mechanisms/cast.ts` (`depth[]` from the shared
+weave, `MIN_WEAVE`); used by CAST._
 
 For an alignment weave, `depth[i]` counts how many aligned structures cover byte
 `i` of the query. `MIN_WEAVE = 2` requires agreement beyond a pair (pair columns
