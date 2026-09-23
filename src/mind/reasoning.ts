@@ -552,3 +552,4 @@ export async function fuseAttention(
 // (resonance.js is already a static dependency above — `bridge` — so the old
 // dynamic import of pivotInto guarded against a cycle that does not exist.)
 import { containsSpan } from "./match.js";
+import { unaccountedBytes } from "./rationale.js";

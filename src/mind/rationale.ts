@@ -115,6 +115,20 @@ export function decodeText(bytes: Uint8Array): string {
 /** The `[start, end)` gaps of `[0, queryLen)` NOT covered by `accounted` —
  *  the same union-of-spans reading think's grounding decider prices at PASS
  *  per byte, exposed here so a mechanism can turn it into a human label. */
+/** The BYTE COUNT of the complement — what the currency calls `unaccounted`
+ *  in `weight = moves + PASS·unaccounted`.  It lives here, beside the function
+ *  that produces the gaps, because the price's second term has ONE definition:
+ *  this was four copies of the same `reduce` (two in reasoning.ts, two in
+ *  pipeline.ts) before the architecture audit of `../auditoria-arquitectura-sema.md`
+ *  collapsed them.  Same value at every site — the control diff is identical. */
+export function unaccountedBytes(
+  spans: ReadonlyArray<[number, number]>,
+): number {
+  let total = 0;
+  for (const [a, b] of spans) total += b - a;
+  return total;
+}
+
 export function unexplainedSpans(
   queryLen: number,
   accounted: ReadonlyArray<[number, number]>,

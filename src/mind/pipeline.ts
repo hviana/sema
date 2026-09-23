@@ -15,7 +15,7 @@ import type { ComputedSpan } from "../extension.js";
 import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { fuseAttention, reason } from "./reasoning.js";
-import { unexplainedSpans } from "./rationale.js";
+import { unaccountedBytes, unexplainedSpans } from "./rationale.js";
 import { rItem } from "./trace.js";
 import { hubBound } from "./traverse.js";
 import { type PipelineMechanism, Precomputed } from "./pipeline-mechanism.js";
