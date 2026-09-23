@@ -164,6 +164,12 @@ export async function confluenceJoin(
   // BUDGET, and it is measured: stopping the scan at 2W anchors saves 50-70% of
   // confluence's cost on non-conjunctive queries while preserving every genuinely
   // conjunctive case, whose top anchors ARE its constraints.
+  // MEASURED (this goal, on THIS file's own conjunctive fixture): the two
+  // streams appear at ranks 1 and 4 against a budget of 2W = 8, on a query whose
+  // `ranked` is 9 — so the cut IS live (it would have returned null at the 8th
+  // anchor) and it does NOT prune the case it exists to protect.  The other
+  // conjunctive fixture (the Leonardo one) finds them at ranks 0 and 1.  Scope:
+  // these are the repo's conjunctive fixtures, and no more.
   const streams: Stream[] = [];
   const rankedCapped = ranked.length > pre.k ? ranked.slice(0, pre.k) : ranked;
   // CONJUNCTIVITY EARLY-EXIT: a conjunctive query's top-ranked anchors
