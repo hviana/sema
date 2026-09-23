@@ -259,7 +259,7 @@ whose span overlaps a computed span is **masked** before the search. This is the
 the computed `4` is the cover's sole completion there. The search itself stays a
 neutral cost engine (a computed `Out` and a learned edge both cost `STEP`);
 precedence lives entirely in the masking step, which is in
-`src/mind/pipeline.ts`, not in the search and not in the ALU.
+`src/mind/mechanisms/cover.ts`, not in the search and not in the ALU.
 
 A computation and an _unrelated_ rewrite still compose in one answer
 (`"ice 2+2"` → `"cold 4"`) because the masking is scoped to the colliding span
@@ -302,11 +302,10 @@ registry.derive("hypot", 2, ["hypot"], (args, ctx) =>
   ]));
 ```
 
-No kernel edit, no graph-search edit, no resonance edit — name it, list its
-surface forms, write the body in terms of existing ops. A scalar op broadcasts
-over `nd` automatically; pass `structural = true` (the trailing flag on
-`prim`/`derive`) only for an op that consumes a list _whole_, like the `nd`
-kernel's own.
+No kernel, graph-search or resonance edit — name it, list its surface forms,
+write the body from existing ops. A scalar op broadcasts over `nd`
+automatically; pass `structural = true` (the trailing flag on `prim`/`derive`)
+only for an op that consumes a list _whole_, like the `nd` kernel's own.
 
 ## Layout
 
