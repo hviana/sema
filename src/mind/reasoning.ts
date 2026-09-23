@@ -29,8 +29,14 @@ export function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
 
 /** Extend a grounded answer forward across facts (multi-hop reasoning).
  *  Pivots on the longest unconsumed learnt context each answer contains,
- *  then follows the pivot's continuation to the next fact.  Repeats up
- *  to `cfg.recallQueryK` hops.  `preConsumed` carries node ids already
+ *  then follows the pivot's continuation to the next fact.  **The chain ends
+ *  when it STOPS, never when a count runs out**: every exit is a refusal (no
+ *  pivot, no forward step, no question material carried) and the walk is bounded
+ *  by the material and the graph — `consumed` refuses to revisit a node.  There
+ *  is no hop allowance, so this doc deliberately names no `cfg` capacity: the
+ *  cover prices every hop at `STEP` and lets the search decide the depth, and a
+ *  second count here would be a second decision about the same thing.
+ *  `preConsumed` carries node ids already
  *  spoken for by the grounding stage (cover/extract/CAST).  `voiced` carries
  *  the BYTES of the anchors a mechanism declared it voiced (its `used` set),
  *  when it declared one — see the pivot's own containment rule.  `pre` is the

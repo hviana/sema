@@ -330,8 +330,12 @@ export async function pivotInto(
   voiced: readonly Uint8Array[] = [],
 ): Promise<number | null> {
   // The pivot's OWN shortlist capacity — not `recallQueryK`: they are different
-  // quantities, and sharing one number meant a tight hop allowance silently
-  // starved this sweep (measured: at recallQueryK 1 the pivot finds no pivot).
+  // quantities (a mechanical sweep's probe budget vs the bridge's candidate-read
+  // allowance), and one number serving both means tightening either silently
+  // starves the other.  The reason is the duplication, NOT a measured strangle:
+  // an earlier version of this comment claimed "at recallQueryK 1 the pivot finds
+  // no pivot", and that was probed and is FALSE on test/23's fixture — the
+  // strangle is fixture-specific, so it is not the evidence for this split.
   const k = ctx.cfg.pivotProbeK;
   // ONE perception of the answer, shared by the probe budget and the walk —
   // this used to fold the same bytes twice, back to back, on every hop.
