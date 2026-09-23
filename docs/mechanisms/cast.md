@@ -12,7 +12,7 @@ schema yields its own candidate and `think`'s single weight comparison picks.
 halo-matched `pre.rec.sites`. The product is `pre.weave()` — `points[]` (each
 with graded `runs[]`) and a per-query-byte `depth[]` (how many structures cover
 that byte). CAST's single-vs-multi test is measured from those runs: a second
-point must add ≥ one perception quantum of coverage the widest point does not.
+point must add ≥ one perception quantum of coverage the widest does not.
 
 ## Gate — weave-local discriminative frame
 
@@ -76,5 +76,5 @@ redirection, or analogical comparison), not from a literal continuation.
 ## Source
 
 `src/mind/mechanisms/cast.ts` (`counterfactualTransfer`, `seatOfNode`,
-`MIN_WEAVE`), `src/mind/match.ts` (`alignGraded`, `project`, `depth`),
+`MIN_WEAVE`, `weave.depth`), `src/mind/match.ts` (`alignGraded`, `project`),
 `src/geometry.ts` (`dominates`), `src/mind/graph-search.ts` (`STEP`).
