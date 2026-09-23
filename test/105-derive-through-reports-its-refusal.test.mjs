@@ -81,11 +81,22 @@ test("a report per LETTER is noise: only forms are reported", async () => {
   const steps = [];
   await mind.respond("eva director country capital", (s) => steps.push(s));
   const got = misses(steps);
-  assert.ok(
-    got.length <= 4,
-    `one-byte outs must not each report a miss, got ${got.length}`,
-  );
-  assert.ok(got.length > 0, "but the real fact's refusal is still reported");
+  assert.ok(got.length > 0, "the real fact's refusal is still reported");
+  // STRUCTURAL, not a count: a report is only made for a FORM, so every report
+  // carries a piece at least one window long — no one-byte out reports a miss.
+  // `W` is the fixture's own geometry (the Mind's default maxGroup), the same
+  // line the rule uses.
+  const W = 4;
+  for (const m of got) {
+    const longest = Math.max(
+      0,
+      ...(m.inputs ?? []).map((i) => String(i.text ?? "").length),
+    );
+    assert.ok(
+      longest >= W,
+      `a report must be about a form, got pieces of at most ${longest} bytes`,
+    );
+  }
   await mind.store.close();
 });
 

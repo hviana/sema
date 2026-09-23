@@ -54,7 +54,15 @@ test("ten times the hub's continuations is not ten times the offered work", asyn
   // The slack IS the rule's own derived quantity — a hop may offer up to
   // `ceil(queryLen / W)` continuations — so the assertion needs no magic
   // number: ten times the hub may cost at most the question's own units more.
-  const slack = Math.ceil(QUERY.length / 4);
+  // `W` is the fixture's own geometry (the Mind's default maxGroup), the same W
+  // the rule derives with.
+  const W = 4;
+  const slack = Math.ceil(QUERY.length / W);
+  assert.ok(
+    offers(small) > 0 && offers(big) > 0,
+    "the hop must actually be taken, or this test proves nothing: " +
+      `small=${offers(small)} big=${offers(big)}`,
+  );
   assert.ok(
     offers(big) <= offers(small) + slack,
     "what a chain hop OFFERS must be bounded by the question, not by the " +

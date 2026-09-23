@@ -64,7 +64,9 @@ test("a longer corpus does not change an answer already given", async () => {
     answered,
     "adding a link must not push the chain past the answer",
   );
-  assert.equal(answered, "Paris is famous for the Eiffel Tower");
+  // The expected answer is the fixture's OWN second link — the relation the
+  // question asked for — not a string copied into the test.
+  assert.equal(answered, LINKS[1][1]);
   await short.store.close();
   await long.store.close();
 });
