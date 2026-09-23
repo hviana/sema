@@ -220,7 +220,11 @@ test("completion recursion: per-query work does not grow with the corpus", async
   // removed by dividing the work by the answer it produced — the reading the
   // comment below already allows ("Work is allowed to grow with the ANSWER").
   // The two raw bars below stay exactly as they were; this only ADDS a bar.
-  const perByte = pops.map((p, i) => p / Math.max(1, answers[i].length));
+  // BYTES, not UTF-16 code units: this law is priced per byte (PASS/byte,
+  // bounded-reads.md), so the denominator is the answer's own byte length even
+  // though respondText hands back a string.
+  const answerBytes = answers.map((a) => new TextEncoder().encode(a).length);
+  const perByte = pops.map((p, i) => p / Math.max(1, answerBytes[i]));
   const kPerByte = logLogSlope(SIZES, perByte);
   console.log(
     `      answer-normalised pops/byte: ${
