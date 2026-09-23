@@ -326,3 +326,68 @@ test("10. the recompose descent is counted, and its zero is omitted", async () =
     "a response that never descends must omit the counter (test 6's convention)",
   );
 });
+
+test("11. the pivot's probe cap is visible: what it spent, and what it withheld", async () => {
+  // The cap itself is deliberate — probing every branch of a long answer made
+  // the pivot sweep the dominant ANN cost at corpus scale — but what it spent
+  // and what it withheld were both invisible.  Untraced on purpose (meter.ts
+  // contract 1), so seeing them cannot perturb the search.
+  //
+  // The withheld count is a CAPACITY fact, never a verdict: the sweep is
+  // breadth-first (largest regions first) and recognition still contributes
+  // every exact containment candidate, so the answer below is asserted to be
+  // the same either way — if a future change makes the cap actually lose
+  // reach, this pair of assertions forces it to be reported as a loss.
+  const LONG =
+    "the capital of France is Paris and Paris is a city on the river Seine in " +
+    "the north of the country and the river runs through the heart of the city " +
+    "past the tower and the museums and the wide avenues of the old quarters";
+  const run = async (k) => {
+    const store = new SQliteStore({ path: ":memory:" });
+    const mind = new Mind({
+      seed: 7,
+      store,
+      profile: true,
+      ...(k ? { recallQueryK: k } : {}),
+    });
+    await mind.ingest([
+      ["what is the capital of France", LONG],
+      ["Paris", "Paris is famous for the Eiffel Tower"],
+      ["the Eiffel Tower", "the Eiffel Tower is in Paris"],
+    ]);
+    const answer = String(
+      await mind.respondText("what is the capital of France famous for"),
+    ).trim();
+    const c = mind.lastCost.counters;
+    await store.close();
+    return {
+      answer,
+      probes: c.pivotProbes ?? 0,
+      // RAW on purpose: the "withholds nothing" case must be able to observe
+      // the field's ABSENCE (test 6's convention drops zeros), so coercing here
+      // would make the assertion below unable to fail.
+      withheld: c.pivotBranchesUnprobed,
+      pivots: c.pivotSteps ?? 0,
+    };
+  };
+
+  const wide = await run(64);
+  const tight = await run(0); // the default allowance
+
+  assert.ok(tight.probes > 0, "the sweep really ran");
+  assert.ok(
+    tight.withheld >= 1,
+    `the capacity the cap withheld must be counted (got ${tight.withheld})`,
+  );
+  assert.equal(
+    wide.withheld,
+    undefined,
+    "an allowance that probes every branch withholds nothing (zeros are dropped)",
+  );
+  assert.equal(tight.pivots, wide.pivots, "both runs took the same hop");
+  assert.equal(
+    tight.answer,
+    wide.answer,
+    "the cap withheld capacity, not the answer",
+  );
+});

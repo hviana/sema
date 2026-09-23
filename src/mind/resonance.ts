@@ -365,6 +365,17 @@ export async function pivotInto(
     }
     for (const c of n.kids) queue.push(c); // breadth-first: larger regions first
   }
+  // The sweep's two FACTS, untraced (meter.ts contract 1: a counter never
+  // reaches a decision).  `probes` is the work done; the shortfall is the
+  // capacity the cap withheld — the branches the breadth-first order never got
+  // to.  Whether that withheld anything that mattered is NOT said here: the
+  // order spends the largest regions first, and recognition below still
+  // contributes every exact containment candidate regardless of the budget.
+  if (ctx.meter) {
+    ctx.meter.pivotProbes += probes;
+    const unprobed = branchCount - probeCap;
+    if (unprobed > 0) ctx.meter.pivotBranchesUnprobed += unprobed;
+  }
   // THE FULL recognition, memo-shared with every other reader of these bytes.
   // A "skip the edge trims here" variant was refuted (see recognise's own
   // note): those trims are what find a WHOLE trained form embedded at an

@@ -260,6 +260,17 @@ export class Meter {
    *  pivot at all: the duplication this work exists to remove, blocking its own
    *  test. */
   reasonHopsExhausted = 0;
+  /** Branch-node probes the pivot sweep actually spent looking for the learnt
+   *  context an answer contains (one `resonate` per probe).  The untraced view
+   *  of what the multi-hop's shortlist costs. */
+  pivotProbes = 0;
+  /** Branch nodes the pivot's probe cap withheld (`branchCount − probeCap`, over
+   *  every call).  A capacity fact, not a verdict: the sweep is breadth-first,
+   *  so the probes it DOES spend are the largest regions, and recognition still
+   *  contributes every exact containment candidate regardless of the budget.
+   *  Read it with {@link pivotProbes} — one says the work, the other the
+   *  shortfall. */
+  pivotBranchesUnprobed = 0;
 
   // ── Mind: the cover's connector assembly (LIMIT) ────────────────────────
   //
