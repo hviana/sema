@@ -239,6 +239,13 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
+  /** Canon probes REFUSED because the canon budget ran out — the one thing the
+   *  budget does that nothing could see.  The budget itself is derived
+   *  (`bytes.length · chainReach(W)²`, recognition.ts), and the cheap exact route
+   *  is deliberately unbudgeted, so this counter says exactly when the expensive
+   *  route was priced out.  Counted where the fact happens (the `!canonBudget`
+   *  refusal), not where the probe is called. */
+  canonProbesDenied = 0;
   /** The pipeline's remainder AT THE DECISION POINT, in bytes: what the grounded
    *  answer plus the pre-computed spans left unexplained, after the same W floor
    *  the fuse gate uses.  This is the quantity that licenses (or refuses) the

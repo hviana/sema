@@ -535,7 +535,10 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         // emitted, so a caller can retry a trimmed edge on the miss path only.
         if (end - start < W) return false;
         if (flatProbe(start, end) === null) {
-          if (!canonBudget) return false;
+          if (!canonBudget) {
+            if (ctx.meter) ctx.meter.canonProbesDenied++;
+            return false;
+          }
           if (!canonAdmits(start, end)) return false;
         }
         const id = resolveSpan(start, end);
