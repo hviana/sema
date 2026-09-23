@@ -88,6 +88,41 @@ export function leafIdPrefix(
   return ids;
 }
 
+/** Which prefixes of `prefix ‖ tail` are STORED NODES — as lengths in the
+ *  tail's own coordinates, ascending, excluding the empty one.  This is the
+ *  candidate set a rule needs to join an already-stored prefix to a suffix it
+ *  has not stored: a key names a relation exactly when `prefix ‖ tail[0..p]` IS
+ *  a node, and a key can end strictly inside the tail without sitting on any
+ *  fold boundary (a stored member's end is the end of ITS OWN stream, and the
+ *  fold never emits a cut at a stream's end).  Measured: "stockholm mayor"
+ *  exists, leads on, and its boundary 6 is in neither the tail's cuts nor the
+ *  concatenation's.
+ *
+ *  ONE cheap content-addressed probe per offset — `leafIdPrefix` walks the bytes
+ *  once (a point probe each), `findBranch` hashes the growing kid run — and NO
+ *  `resolve`, which is what keeps this off the O(suffix) vector folds the
+ *  recognition path pays.  It stops at the first byte that was never interned,
+ *  which costs nothing real: a stored key's bytes are interned by construction. */
+export function keyEnds(
+  ctx: MindContext,
+  prefix: Uint8Array,
+  tail: Uint8Array,
+): number[] {
+  if (prefix.length === 0 || tail.length === 0) return [];
+  const joined = new Uint8Array(prefix.length + tail.length);
+  joined.set(prefix, 0);
+  joined.set(tail, prefix.length);
+  const ids = leafIdPrefix(ctx, joined);
+  if (ids.length < prefix.length) return [];
+  const ends: number[] = [];
+  for (let p = 1; p <= tail.length && prefix.length + p <= ids.length; p++) {
+    if (ctx.store.findBranch(ids.slice(0, prefix.length + p)) !== null) {
+      ends.push(p);
+    }
+  }
+  return ends;
+}
+
 /** The canonical W-window node ids of a byte stream, offset → id — the
  *  CONTENT-ADDRESSED IDENTITY of every W-sized slice, under which any content
  *  two deposits share IS the same node (hash-consing paid the comparison at

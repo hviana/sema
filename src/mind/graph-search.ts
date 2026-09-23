@@ -1391,20 +1391,36 @@ export class GraphSearch {
       // duplicate read and a branch that could never be taken.
       let next: number | null = null;
       let keyBytes = c.bytes;
-      // THE PREFIX ENDS ARE THE TAIL'S OWN FOLD BOUNDARIES, not every byte
-      // length.  The key is `entity + prefix`, and the prefix that names a
-      // stored relation ends where the fold cuts: measured over four join-firing
-      // queries, 5 of 5 accepted keys ended on a boundary (or the tail's end)
-      // while the byte-by-byte scan spent 153 probes where 14 boundaries would
-      // do.  Same criterion — resolves AND leads — same shortest-first order, so
-      // the answer is the same one the enumeration found; only the candidates
-      // come from the structure instead of from the byte count.  A host with no
-      // boundary rule falls back to the enumeration.
-      const cuts = this.host.contentCuts?.(tail);
-      const ends = cuts && cuts.length > 0
-        ? [...cuts.filter((c) => c > 0 && c < tail.length), tail.length]
-        : Array.from({ length: tail.length }, (_, i) => i + 1);
-      for (const len of ends) {
+      // THE CANDIDATE ENDS ARE THE PREFIXES THAT ARE STORED NODES, ASCENDING.
+      // The key is `entity + prefix`, and it names a relation exactly when that
+      // concatenation IS a node — so the ends come from a content-addressed
+      // probe per offset (the host's `contentKeyEnds`, the learning path's own
+      // mechanism: one leaf walk plus one `findBranch` per offset, no `resolve`),
+      // never from the fold's boundaries.  A boundary is not a proxy: a stored
+      // member's end is the end of ITS OWN stream, and the fold never cuts at a
+      // stream's end — measured, "stockholm mayor" exists, leads on to the mayor
+      // fact, and its boundary 6 sits in neither the tail's cuts ([4,7]) nor the
+      // concatenation's.  Filtering the scan by "is this a node?" cannot change
+      // the winner: a position that is not a node cannot resolve, so skipping it
+      // is invisible; and the order stays SHORTEST FIRST, which is a semantic
+      // law, not an optimisation (test/106, test/108 pin it).
+      //
+      // A host that cannot answer falls back to every prefix: exact and
+      // complete, at a `resolve` per offset.  A host that CAN answer is
+      // authoritative even when it answers "none" — if no prefix is a node then
+      // no key exists to resolve, so enumerating would only pay nulls.  (A key
+      // reachable through the CANONICAL equivalence alone and ending off every
+      // node end is therefore not tried here; that dimension is unreachable on
+      // this path by construction and is not part of the exact-key law.)
+      const ends = this.host.contentKeyEnds?.(c.bytes, tail);
+      const candidateEnds = function* (): Generator<number> {
+        if (ends !== undefined) {
+          yield* ends;
+          return;
+        }
+        for (let p = 1; p <= tail.length; p++) yield p;
+      };
+      for (const len of candidateEnds()) {
         keyBytes = concat2(c.bytes, tail.subarray(0, len));
         const k = this.host.resolve(keyBytes) ??
           this.host.canonResolve?.(keyBytes) ??

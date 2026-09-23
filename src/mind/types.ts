@@ -65,15 +65,21 @@ export interface GraphSearchHost {
     starts: ReadonlySet<number>;
   };
   chooseNext?(node: number): number | undefined;
-  /** The boundary positions of `bytes` under the engine's ONE boundary rule
-   *  (geometry.ts's `contentBoundaries`), or undefined when the host has no
-   *  space to ask.  The join's key is an entity plus a prefix of the tail, and
-   *  the prefix that names a stored relation ENDS on one of these boundaries —
-   *  measured, 5 of 5 accepted keys over four join-firing queries, where the
-   *  byte-by-byte scan spent 153 probes for 14 boundaries.  Boundaries are
-   *  content-defined and STABLE under prefix extension, which is why a corpus
-   *  key's end is a boundary of the query's own fold of the same bytes. */
-  contentCuts?(bytes: Uint8Array): readonly number[];
+  /** The lengths `p` for which `prefix ‖ tail[0..p]` IS A STORED NODE, ascending
+   *  — the join's candidate set, in the tail's own coordinates.  Optional: a host
+   *  that cannot answer makes the join fall back to every prefix, which is exact
+   *  and complete but pays a `resolve` per offset.
+   *
+   *  WHY NOT THE FOLD'S CUTS.  A key names a relation exactly when the
+   *  concatenation is a node, and a node's end is the end of ITS OWN stream —
+   *  where the fold never emits a cut (geometry's `emit` guards `at >= n`).  So a
+   *  key can end strictly inside the tail with no boundary anywhere near it:
+   *  measured, "stockholm mayor" exists, leads on to the mayor fact, and its
+   *  boundary 6 is in neither the tail's cuts ([4,7]) nor the concatenation's.
+   *  The fold's boundaries are a SUBSET of the real ends, not a proxy for them,
+   *  and using them skipped the shortest names first — which is a semantic law,
+   *  not an optimisation (test/106, test/108 pin it). */
+  contentKeyEnds?(prefix: Uint8Array, tail: Uint8Array): readonly number[];
   /** The admission predicate — `traverse.ts`'s `leadsSomewhere`, its ONE
    *  definition: does this node bear an edge or a halo?  Optional, so a bare
    *  host (a raw Store and nothing else) still works; when present, the search
