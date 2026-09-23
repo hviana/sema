@@ -59,8 +59,8 @@ exceeds the true remaining cost.
 ## Policy is not cost
 
 "Computation always wins" is **not** priced into the ladder (a computed result
-costs `STEP`, same as a learned edge). It is enforced by masking: `pipeline.ts`
-removes recognised sites overlapped by a `ComputedResult` so the computation is
+costs `STEP`, same as a learned edge). It is enforced by masking: `cover.ts`
+removes recognised sites overlapped by a `ComputedResult`, so the computation is
 the sole completion there. Keep policy in callers; keep the engine neutral.
 
 ## Pins
