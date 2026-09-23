@@ -216,10 +216,11 @@ export class Meter {
   /** `deriveThrough` yielded — a fact was reached through the subject the query
    *  never named. */
   joinFired = 0;
-  /** Refused: no key names the entity and the tail together. */
+  /** Refused: no key names the entity and the tail together.  (A key that
+   *  resolves but leads nowhere is not "refused" — it is not the relation, so
+   *  the scan simply moves on; there is no counter for a case the loop cannot
+   *  reach.) */
   joinNoKey = 0;
-  /** Refused: the key the entity and tail name leads nowhere. */
-  joinNoContinuation = 0;
   /** Refused: the fact contains no entity that leads anywhere. */
   joinNoEntity = 0;
 

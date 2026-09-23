@@ -900,7 +900,9 @@ export class GraphSearch {
       // and every read untouched.
       const offerCap = Math.max(2, Math.ceil(queryLen / this.maxGroup));
       const nx = this.store.nextFirst(it.node, offerCap);
-      if (this.host.meter) this.host.meter.chainOffers += nx.length;
+      // Count what is OFFERED, not what was read: the evidence-preferred
+      // continuation is yielded too, even when it lies outside the cap.
+      if (this.host.meter) this.host.meter.chainOffers += nx.length + 1;
       if (nx.length) {
         // The SAME evidence-weighted disambiguation the first hop uses
         // (below) identifies the most-corroborated continuation.  Yielding
@@ -909,10 +911,14 @@ export class GraphSearch {
         // arrivals at an EQUAL cost (`cost < current`, strictly) — so
         // among same-depth sibling forks that tie in cost, the
         // evidence-backed edge wins deterministically, never by
-        // exploration-order luck.  `preferred`, when set, is necessarily
-        // an element of `nx` (chooseNext reads the identical hub-bounded
-        // set — see traverse.ts), so a plain skip-in-place suffices; no
-        // second array need be allocated to reorder it to the front.
+        // exploration-order luck.  `preferred` is NOT necessarily an element
+        // of `nx` any more: `nx` is the capped read above, while `chooseNext`
+        // reads its own hub-bounded set (see traverse.ts) — so the evidence
+        // pick may lie outside the cap, and it is still yielded FIRST on
+        // purpose.  The cap bounds what the hop EXPLORES; it must never make
+        // the evidence-ranked continuation unreachable, or the derivation the
+        // corpus corroborates would lose to exploration order.  Nothing is
+        // reallocated: `nx` is walked with a skip-in-place for the duplicate.
         const preferred = nx.length > 1
           ? this.host.chooseNext?.(it.node)
           : undefined;
@@ -1365,6 +1371,11 @@ export class GraphSearch {
       // EXACT FIRST, THEN CANONICAL: the corpus holds both identities.
       let key: number | null = null;
       let used = 0;
+      // The continuation the accepted key leads to, carried out of the loop:
+      // the loop already HAD to read it to accept the key (a key that leads
+      // nowhere is not the relation), so re-reading it after the loop was a
+      // duplicate read and a branch that could never be taken.
+      let next: number | null = null;
       let keyBytes = c.bytes;
       for (let len = 1; len <= tail.length; len++) {
         keyBytes = concat2(c.bytes, tail.subarray(0, len));
@@ -1372,9 +1383,11 @@ export class GraphSearch {
           this.host.canonResolve?.(keyBytes) ??
           null;
         if (k === null) continue;
-        if (this.store.nextFirst(k, 1).length === 0) continue;
+        const nx = this.store.nextFirst(k, 1);
+        if (nx.length === 0) continue;
         key = k;
         used = len;
+        next = nx[0];
         break;
       }
       if (key === null) {
@@ -1389,19 +1402,6 @@ export class GraphSearch {
         }
         continue;
       }
-      const nx = this.store.nextFirst(key, 1);
-      if (nx.length === 0) {
-        if (this.host.meter) this.host.meter.joinNoContinuation++;
-        if (reportable) {
-          this.host.reportSearch?.(
-            "deriveThroughMiss",
-            [keyBytes],
-            `the key this entity and tail name leads nowhere ` +
-              `(key #${key}, candidate #${c.payload}, from the ${source.get(c.payload) ?? "unknown"} source)`,
-          );
-        }
-        continue;
-      }
       if (this.host.meter) this.host.meter.joinFired++;
       yield {
         premises: [fact],
@@ -1409,10 +1409,10 @@ export class GraphSearch {
           kind: "out",
           i: fact.i,
           j: fact.j + used,
-          bytes: this.store.bytesPrefix(nx[0], ALL),
+          bytes: this.store.bytesPrefix(next!, ALL),
           cover: true,
           rec: true,
-          node: nx[0],
+          node: next!,
           throughFact: true,
         },
         cost: STEP,

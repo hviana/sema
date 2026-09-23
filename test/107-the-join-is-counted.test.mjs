@@ -5,7 +5,10 @@
 // the rationale, and the rationale PERTURBS the search: appending text to a
 // refusal note changed the answer of a traced response (measured, 386293e), and
 // the "key leads nowhere" refusal chased for four rounds turned out to be a
-// trace artifact — untraced, `joinNoContinuation` is zero on every fixture here.
+// trace artifact — untraced, every refusal is a missing KEY, never a key whose
+// continuation is missing: a key that leads nowhere is not the relation at all,
+// so the scan moves on and there is no counter for it (the branch that reported
+// it was unreachable, and an adversarial review said so).
 // A work counter is the untraced view, and `meter.ts` is its one home
 // (AGENTS §6: a counter name exists in exactly one place).
 //
@@ -56,7 +59,7 @@ test("a query whose join does not fire reports WHY, untraced", async () => {
   await mind.respondText("eva director country capital"); // no rationale
   const c = counters(mind);
   const refusals =
-    (c.joinNoKey ?? 0) + (c.joinNoContinuation ?? 0) + (c.joinNoEntity ?? 0);
+    (c.joinNoKey ?? 0) + (c.joinNoEntity ?? 0);
   assert.ok(
     refusals > 0,
     "a join that did not fire must say so in the counters",
