@@ -40,11 +40,20 @@
 //
 // THE INVARIANT THIS FILE PINS, and the reason it is not a duplicate of
 // test/118: composition means the NEXT step's premise is the PREVIOUS step's
-// conclusion.  The join attempts name their candidate entity, and on a five-fact
+// conclusion.  The join ATTEMPTS name their candidate entity, and on a five-fact
 // chain those candidates ADVANCE through the chain's subjects — measured:
 // "gustaf molander" → "gustaf molander" → "sweden" → "stockholm", never the
 // query's own subject.  test/118 pins that the chain completes and counts the
-// joins; this pins that each hop stands on the previous one.
+// joins that SUCCEED; this pins that the attempts ADVANCE.
+//
+// SCOPE, measured rather than assumed: this assertion SATURATES.  A vacuity
+// experiment on truncated chains gave 2 facts → ["gustaf molander"] (fails),
+// 3 → ["gustaf molander", "sweden"] (fails), and 4 and 5 → the same three
+// subjects (passes).  So it proves the premise advances through at least three
+// subjects and never stands on the query's own; it does NOT pin the last hop,
+// because a SUCCESSFUL join is not reported under a `deriveThrough` step name —
+// the count of successes is test/118's assertion, cited here rather than
+// pretended.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -67,7 +76,7 @@ const KEYS = [
 ];
 const QUERY = "eva director country capital mayor party";
 
-test("each hop of a join chain stands on the previous hop's conclusion", async () => {
+test("a join chain's attempts advance through the chain's subjects", async () => {
   const store = new SQliteStore({ path: ":memory:" });
   const mind = new Mind({ seed: 7, store, profile: true });
   const pairs = [];
