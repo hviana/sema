@@ -239,28 +239,6 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
-  /** Times the multi-hop chain consumed its hop allowance to the end
-   *  (`recallQueryK`) instead of stopping.  The two exits were indistinguishable
-   *  — the chain's `done` note said "fixpoint" either way, which is true only
-   *  for the stopping one — so this says the hops ran out.
-   *
-   *  Necessary but NOT sufficient to call it a cut: an answer can be complete
-   *  with the allowance spent to the last hop.  Left open, and it stays open:
-   *  whether a further step EXISTED cannot be answered by anything here or in
-   *  the rationale, because the loop never looked.  The note now reports exactly
-   *  that state (see `reason()`'s `done`), and this counter reports the spend.
-   *  Counters state facts; interpretation stays with the reader.
-   *
-   *  NO FIXTURE IN THE SUITE REACHES THIS EXIT — measured, not assumed: the
-   *  3-link chain of test/110 still stops by structure after one pivot with
-   *  `recallQueryK` at 2 and at its default, so this stays absent.  It is
-   *  reachable in principle — a chain that spends every hop it is allowed and
-   *  would take one more — and on none of the corpora that exist here.
-   *  Tightening `recallQueryK` does NOT produce it, because the same number is
-   *  also the pivot's probe budget (`resonance.ts`), which then cannot find a
-   *  pivot at all: the duplication this work exists to remove, blocking its own
-   *  test. */
-  reasonHopsExhausted = 0;
   /** Branch-node probes the pivot sweep actually spent looking for the learnt
    *  context an answer contains (one `resonate` per probe).  The untraced view
    *  of what the multi-hop's shortlist costs. */

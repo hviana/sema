@@ -159,13 +159,19 @@ export async function reason(
   const qv = pre.guide; // the response-wide guide IS the query's gist
   let t: ReturnType<Rationale["enter"]> | undefined;
   const startedFrom = answer;
-  // INSTRUMENTATION ONLY.  Records whether the chain STOPPED (a step refused:
-  // no pivot, no forward step, or no question material carried) or merely ran
-  // out of hops.  Truthful note text matters because the two outcomes are
-  // otherwise indistinguishable to a reader — but nothing here decides
-  // anything: the value is read only after the loop, to bump a counter.
-  let stopped = false;
-  for (let hop = 0; hop < ctx.cfg.recallQueryK; hop++) {
+  // NO ALLOWANCE: THE CHAIN ENDS WHEN IT STOPS.  Every exit below is the law —
+  // no pivot, no forward step, no question material carried — and the walk is
+  // bounded by the material and the graph rather than by a count: each taken
+  // step must carry a W-window of the uncovered material (finite), and
+  // `consumed` refuses to revisit a node.  `recallQueryK` no longer bounds the
+  // reasoner here; it keeps its other roles (the bridge's candidate reads, the
+  // pivot's probe budget, the resonance limits).
+  //
+  // Measured before removing it: test/89 — the corpus-cost guard, the heaviest
+  // case in the suite — is green and no slower without the allowance (27 s
+  // against 30 s); and raising it from 12 to 200 changed neither the answer nor
+  // `pivotSteps` on the chain fixtures.
+  for (let hop = 0;; hop++) {
     // Hop 0's `cur` IS `answer`, so the guard above already resolved it and
     // read its reverse edges — reuse both rather than repeat them.
     const curId = hop === 0 ? groundedId : resolve(ctx, cur);
@@ -205,17 +211,11 @@ export async function reason(
     // Pivot: find the longest unconsumed learnt context the answer contains.
     consumeAll(curId);
     const pivot = await pivotInto(ctx, cur, consumed, voiced);
-    if (pivot === null) {
-      stopped = true;
-      break;
-    }
+    if (pivot === null) break;
 
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
-    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) {
-      stopped = true;
-      break;
-    }
+    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) break;
     // WHOSE EXTENSION IS THIS?
     //
     // `voiced` is what the mechanism WITHHELD (the pipeline sends the used
@@ -263,7 +263,6 @@ export async function reason(
           `the step carries none of the question material the grounding left ` +
             `uncovered (${left} byte(s) in ${uncovered.length} span(s)) — refused`,
         );
-        stopped = true;
         break;
       }
     }
@@ -281,18 +280,13 @@ export async function reason(
   // on purpose (meter.ts contract 1: a counter never reaches a decision), so
   // this cannot perturb the search.  It does NOT by itself mean reach was cut —
   // see the counter's own doc.
-  if (ctx.meter && !stopped) ctx.meter.reasonHopsExhausted++;
   t?.done(
     [rItem(cur, "answer", resolve(ctx, cur) ?? undefined)],
-    // A FIXPOINT IS WHERE NO STEP WAS POSSIBLE — the two exits are different
-    // facts and the note must not merge them.  When the allowance ran out, all
-    // that is known is that it ran out: whether a further step existed is not
-    // known, because the loop never looked.  Saying so is the honest report; the
-    // counter cannot say it (meter.ts contract 1) and neither can a claim of
-    // reach lost.
-    stopped
-      ? "the multi-hop chain's fixpoint"
-      : "the hop allowance was spent; whether a further step existed is not known",
+    // A FIXPOINT: no further step was possible.  This note used to also cover an
+    // exhausted hop allowance — a different fact, and the reason F1 added a
+    // counter for it.  The allowance is gone, so the only way out of the loop is
+    // a refusal, and the note is true again by construction.
+    "the multi-hop chain's fixpoint",
   );
   return cur;
 }
