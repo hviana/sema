@@ -6,7 +6,6 @@ The following are not licensed under the software license:
 
 - redistribute its algorithmic logic: that is, how algorithms and mathematical
   techniques are combined to develop its machinery;
-- visual identity;
 - project name;
 - logos;
 - icons;
