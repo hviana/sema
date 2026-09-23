@@ -16,13 +16,14 @@
 // gap of size G costs about G²/2 pairs, so a length bound is a work bound only
 // by accident, and at the wrong scale.
 //
-// WHAT IS PINNED, and the demonstration is self-contained: the SAME novel filler
-// is substituted when the budget is too small to reach it and quoted back when
-// it is not.  That is the old defect reproduced as a declared budget, and the
-// fix as the default:
+// WHAT IS PINNED: the asker's OWN filler comes back.  The old defect used to be
+// reproduced by injecting a tiny budget; that knob is gone because there is no
+// budget any more — the sweep indexes the context's windows and walks the
+// query's, so its work is proportional to the bytes a run spans and its reach is
+// the bytes' own.  There is nothing to make artificially small, and nothing that
+// silently drops a far continuation:
 //
-//     filler 24 B, alignGapPairs 32   → another instance's filler   (the bound bites)
-//     filler 24 B, default budget     → the asker's own filler      (spans it)
+//     filler 18/20/24 B   → the asker's own filler   (the pair's own extent spans it)
 //
 // Beyond what the frame's own instances can span (measured: from ~30 bytes) a
 // DIFFERENT cause takes over — the frame inventory drops to a single instance,
@@ -64,16 +65,6 @@ const novel = (len) => "zephyr quartz lantern ".repeat(4).slice(0, len).trim();
 const answer = async (mind, filler) =>
   (await mind.respondText(`Book a table at ${filler} tonight.`))
     .replace(/\0+/g, "").trim();
-
-test("the same filler is substituted when the budget cannot reach it", async () => {
-  const filler = novel(24);
-  const { mind } = await frame({ alignGapPairs: 32 });
-  const got = await answer(mind, filler);
-  assert.ok(
-    !got.includes(filler),
-    "a budget too small to span the slot is the old behaviour, reproduced",
-  );
-});
 
 test("the default budget spans it, and the answer quotes the ASKER's filler", async () => {
   const filler = novel(24);

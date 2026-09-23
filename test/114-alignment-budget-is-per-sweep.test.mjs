@@ -22,11 +22,9 @@ import { alignAround } from "../dist/src/mind/match.js";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-/** The minimal context `alignAround` reads: `space.maxGroup`, `cfg.alignGapPairs`. */
-const ctxWith = (gapPairs) => ({
-  space: { maxGroup: 4 },
-  cfg: { alignGapPairs: gapPairs },
-});
+/** The minimal context `alignAround` reads.  There is no budget to inject any
+ *  more: the sweep's work is proportional to the bytes a run spans. */
+const ctxWith = () => ({ space: { maxGroup: 4 } });
 
 /** A shared head, a shared anchor, and divergent flanks on both sides. */
 function pair(flankLen) {
@@ -65,15 +63,21 @@ test("both sides of the anchor align even when each flank exceeds the budget", (
   }
 });
 
-test("an ample budget finds the same spans as a tight one", () => {
-  const { q, c, at } = pair(40);
-  const tight = alignAround(ctxWith(512), enc.encode(q), enc.encode(c), at, at);
-  const ample = alignAround(ctxWith(1_000_000), enc.encode(q), enc.encode(c), at, at);
-  for (const side of ["MATCH", "SEED"]) {
-    assert.equal(
-      spansOf(tight, q, side).length,
-      spansOf(ample, q, side).length,
-      `${side} must not depend on how much budget the OTHER sweep spent`,
-    );
-  }
+test("the run chosen is the one with the smallest total gap", () => {
+  // The criterion the enumeration used to compute, now computed by the walk:
+  // smallest qGap + cGap, ties to the smaller query gap.  Two continuations are
+  // offered at different totals and the NEARER one must win.
+  const enc = new TextEncoder();
+  const head = "common head ";
+  const far = "FAR";
+  const near = "NEAR";
+  const q = enc.encode(head + "x".repeat(4) + near + "q" + "z".repeat(30) + far);
+  const c = enc.encode(head + "y".repeat(9) + near + "c");
+  const at = head.length - 1;
+  const { matched } = alignAround(ctxWith(), q, c, at, at);
+  const got = matched.map(([a, b]) => new TextDecoder().decode(q.subarray(a, b)));
+  assert.ok(
+    got.includes("NEAR"),
+    "the nearest continuation must be found: " + JSON.stringify(got),
+  );
 });

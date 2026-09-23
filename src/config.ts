@@ -133,13 +133,6 @@ export interface MindConfig {
    *  `recallQueryK` meant `new Mind({recallQueryK: 100000})` un-bounded the very
    *  payload the bound exists for (found by an adversarial review). */
   rationaleSampleK: number;
-  /** Gap pairs one alignment call may examine.  The sweep explores
-   *  (queryGap, contextGap) pairs by ASCENDING total, so this bounds the WORK
-   *  of the sweep while the gap LENGTH stays the pair's own extent — the two
-   *  are different questions, and conflating them is what truncated every
-   *  learned frame whose slot exceeded chainReach(W): a budget that runs out
-   *  drops the FAR continuations and never the near ones. */
-  alignGapPairs: number;
   normalizeEpsilon: number;
   cosineEpsilon: number;
 
@@ -162,7 +155,6 @@ export const DEFAULT_CONFIG: MindConfig = {
   corpusSampleProbes: 6000,
   corpusPreviewBytes: 220,
   corpusSampleFloorBytes: 12,
-  alignGapPairs: 4096,
   normalizeEpsilon: 1e-12,
   cosineEpsilon: 1e-12,
   alu: {
@@ -216,7 +208,6 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
       opts.corpusPreviewBytes ?? DEFAULT_CONFIG.corpusPreviewBytes,
     corpusSampleFloorBytes:
       opts.corpusSampleFloorBytes ?? DEFAULT_CONFIG.corpusSampleFloorBytes,
-    alignGapPairs: opts.alignGapPairs ?? DEFAULT_CONFIG.alignGapPairs,
     normalizeEpsilon: opts.normalizeEpsilon ?? DEFAULT_CONFIG.normalizeEpsilon,
     cosineEpsilon: opts.cosineEpsilon ?? DEFAULT_CONFIG.cosineEpsilon,
     alu: {

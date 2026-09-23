@@ -250,8 +250,6 @@ export interface MindOptions {
   corpusSampleProbes?: number;
   corpusPreviewBytes?: number;
   corpusSampleFloorBytes?: number;
-  /** Gap pairs one alignment call may examine — see {@link MindConfig}. */
-  alignGapPairs?: number;
   normalizeEpsilon?: number;
   cosineEpsilon?: number;
   geometry?: Partial<import("../config.js").GeometryConfig>;

@@ -38,7 +38,7 @@ import {
   identityBar,
   significanceBar,
 } from "../geometry.js";
-import { bytesEqual, indexOf } from "../bytes.js";
+import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { chainReach, leafIdRun } from "./canonical.js";
 import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
@@ -363,7 +363,8 @@ export interface AlignGap {
  *  common run, then walk outward in both directions collecting further common
  *  runs of at least W bytes across mismatch gaps.  Each gap's LENGTH is the
  *  pair's own extent (a gap cannot be longer than the bytes it spans) and the
- *  sweep's WORK is the declared `alignGapPairs` budget — the arity bound
+ *  sweep's WORK is proportional to the bytes a run spans (the context's windows
+ *  are indexed once, then the query's are walked) — the arity bound
  *  (`chainReach`) used to cap BOTH, and truncated every learned frame whose
  *  slot was longer.  Each sweep owns its own budget, so an exhausted right
  *  sweep never starves the left one.  Returns the matched query spans and the
@@ -402,7 +403,6 @@ export function alignAround(
   // continuations and never the near ones — the same degradation recognition.ts
   // documents for its canon budget.  Length and work are different questions;
   // this is the one place they were conflated.
-  const gapPairs = ctx.cfg.alignGapPairs;
   // Maximal run around the seed.
   let qs = qo, ss = co;
   while (qs > 0 && ss > 0 && q[qs - 1] === c[ss - 1]) {
@@ -416,31 +416,56 @@ export function alignAround(
   }
   const matched: Array<[number, number]> = [[qs, qe]];
   const gaps: AlignGap[] = [];
-  // THE BOUND, REPORTED WHERE IT BITES.  A sweep can end for two different
-  // reasons, and a reader of the rationale has to be able to tell them apart:
-  // the PAIR ran out of bytes (nothing left to align) or the BUDGET ran out
-  // (the far continuations were dropped).  Without this, an answer that came
-  // back carrying another instance's filler looks like a corpus fact rather
-  // than a substitution (pinned by test/101).
-  const reportCap = (
-    queryLeft: number,
-    contextLeft: number,
-    outOfBudget: boolean,
-  ): void => {
-    // The bytes ran out and the budget did not: not a bound worth reporting.
-    if (!outOfBudget && (queryLeft <= 0 || contextLeft <= 0)) return;
-    ctx.trace?.step(
-      "alignCap",
-      [rItem(q.subarray(qs, qe), "matched")],
-      [],
-      outOfBudget
-        ? `alignment exhausted its ${gapPairs}-pair budget with ${queryLeft} query byte(s) and ${contextLeft} context byte(s) left`
-        : `alignment exhausted the gap sweep with ${queryLeft} query byte(s) and ${contextLeft} context byte(s) left`,
-    );
+  // THE SWEEP IS STRUCTURAL, NOT ENUMERATIVE.
+  //
+  // The criterion is unchanged: the next common run, MINIMUM TOTAL GAP, ties to
+  // the smaller query gap.  What changed is how it is found.  Enumerating
+  // (queryGap, contextGap) pairs by ascending total reaches a run at total t in
+  // about t²/2 pairs — and that quadratic shape, not the reach, was the cost
+  // problem: capping the pairs dropped reach (a legitimate 24-byte slot stopped
+  // being found), while leaving them uncapped cost 68 seconds on the corpus
+  // guard.  Neither is the answer, because the answer is the algorithm.
+  //
+  // The context's windows are indexed ONCE, for lengths 1..W — W being the
+  // geometry's own unit of composition, so nothing is chosen here.  Each step
+  // then walks the query's windows outward from the anchor: for a given query
+  // gap the nearest context gap that continues a run is one O(1) lookup, and the
+  // walk stops the moment the query gap alone exceeds the best total already
+  // found.  So the work is proportional to the bytes the run SPANS.  No budget,
+  // no cap, no number: a long slot is reached, and its price is already the
+  // ladder's (its bytes are unaccounted, so the search pays PASS per byte).
+  const index: Array<Map<string, number[]>> = [];
+  for (let len = 1; len <= W; len++) {
+    const m = new Map<string, number[]>();
+    for (let o = 0; o + len <= c.length; o++) {
+      const key = latin1(c.subarray(o, o + len));
+      const at = m.get(key);
+      if (at === undefined) m.set(key, [o]);
+      else at.push(o);
+    }
+    index.push(m);
+  }
+  /** Smallest listed offset at or after `from`, or -1. */
+  const fromAt = (list: number[], from: number): number => {
+    let lo = 0, hi = list.length - 1, best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid] >= from) { best = list[mid]; hi = mid - 1; }
+      else lo = mid + 1;
+    }
+    return best;
   };
-  // The next common run of ≥ W bytes past (qi, si); each side's gap is bounded
-  // by the bytes available and by the sweep's own `alignGapPairs` budget.
-  // Smallest total gap wins (nearest continuation).
+  /** Largest listed offset at or before `to`, or -1. */
+  const toAt = (list: number[], to: number): number => {
+    let lo = 0, hi = list.length - 1, best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid] <= to) { best = list[mid]; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return best;
+  };
+  /** Length of the common run STARTING at (qi, si). */
   const runLenAt = (qi: number, si: number): number => {
     let n = 0;
     while (qi + n < q.length && si + n < c.length && q[qi + n] === c[si + n]) {
@@ -448,91 +473,73 @@ export function alignAround(
     }
     return n;
   };
-  // RIGHT sweep.
-  let qi = qe, si = se;
-  let spent = 0;
-  for (;;) {
-    let found = false;
-    const qAvail = q.length - qi, cAvail = c.length - si;
-    for (
-      let total = 1;
-      total <= qAvail + cAvail && !found && spent < gapPairs;
-      total++
-    ) {
-      for (let gq = 0; gq <= Math.min(total, qAvail); gq++) {
-        const gs = total - gq;
-        if (gs > cAvail) continue;
-        if (++spent > gapPairs) break;
-        if (qi + gq >= q.length || si + gs >= c.length) continue;
-        const n = runLenAt(qi + gq, si + gs);
-        if (n >= W || qi + gq + n === q.length) {
-          if (n === 0) continue;
-          if (gq > 0 || gs > 0) {
-            gaps.push({ qs: qi, qe: qi + gq, cs: si, ce: si + gs });
-          }
-          matched.push([qi + gq, qi + gq + n]);
-          qi = qi + gq + n;
-          si = si + gs + n;
-          found = true;
+  /** Length of the common run ENDING at (qi, si). */
+  const runLenBefore = (qi: number, si: number): number => {
+    let n = 0;
+    while (n < qi && n < si && q[qi - 1 - n] === c[si - 1 - n]) n++;
+    return n;
+  };
+  /** The next run outward from an anchor, or null when the bytes run out. */
+  const nextRun = (
+    qi: number,
+    si: number,
+    forward: boolean,
+  ): { gq: number; gs: number; n: number } | null => {
+    const qLim = forward ? q.length - qi : qi;
+    let best: { gq: number; gs: number; n: number } | null = null;
+    for (let gq = 0; gq < qLim; gq++) {
+      // No later query gap can beat a total already found.
+      if (best !== null && gq > best.gq + best.gs) break;
+      const left = qLim - gq;
+      // A run of >= W bytes, or — when the query itself ends inside one window —
+      // the run that REACHES that end.  Exactly the acceptance the sweep had.
+      const lens = left >= W ? [W] : [left];
+      for (const len of lens) {
+        const key = latin1(
+          q.subarray(forward ? qi + gq : qi - gq - len, forward ? qi + gq + len : qi - gq),
+        );
+        const list = index[len - 1].get(key);
+        if (list === undefined) continue;
+        const o = forward ? fromAt(list, si) : toAt(list, si - len);
+        if (o < 0) continue;
+        const n = forward
+          ? runLenAt(qi + gq, o)
+          : runLenBefore(qi - gq, o + len);
+        if (n < 1) continue;
+        if (forward ? n >= W || qi + gq + n === q.length : n >= W || n === qi - gq) {
+          const gs = forward ? o - si : si - len - o;
+          if (best === null || gq + gs < best.gq + best.gs) best = { gq, gs, n };
           break;
         }
       }
     }
-    if (!found) {
-      reportCap(qAvail, cAvail, spent >= gapPairs);
-      break;
+    return best;
+  };
+  // RIGHT sweep.
+  let qi = qe, si = se;
+  for (;;) {
+    const step = nextRun(qi, si, true);
+    if (step === null) break;
+    if (step.gq > 0 || step.gs > 0) {
+      gaps.push({ qs: qi, qe: qi + step.gq, cs: si, ce: si + step.gs });
     }
+    matched.push([qi + step.gq, qi + step.gq + step.n]);
+    qi = qi + step.gq + step.n;
+    si = si + step.gs + step.n;
   }
-  // LEFT sweep (mirror) — WITH ITS OWN BUDGET.  The two sweeps are independent
-  // walks (each one finds ITS nearest continuation), so sharing one counter let
-  // an exhausted RIGHT sweep leave the left loop's guard false on entry: zero
-  // iterations, the NEAREST left continuation lost — the exact opposite of the
-  // law above ("an exhausted budget drops the FAR continuations and never the
-  // near ones").  Measured by an adversarial review on a 260-byte pair whose
-  // divergent flanks exceed the budget: `["SEED","MATCH"]` before the budget
-  // existed, `["SEED"]` with the shared counter, `["SEED","MATCH"]` again with
-  // it reset.  Each sweep now drops only ITS OWN far continuations.
-  spent = 0;
+  // LEFT sweep (mirror): an independent walk, so an exhausted right side can
+  // never starve it (pinned by test/114).
   qi = qs;
   si = ss;
   for (;;) {
-    let found = false;
-    const qAvail = qi, cAvail = si;
-    for (
-      let total = 1;
-      total <= qAvail + cAvail && !found && spent < gapPairs;
-      total++
-    ) {
-      for (let gq = 0; gq <= Math.min(total, qAvail); gq++) {
-        const gs = total - gq;
-        if (gs > cAvail) continue;
-        if (++spent > gapPairs) break;
-        if (qi - gq <= 0 || si - gs <= 0) continue;
-        // Run ENDING at (qi - gq, si - gs).
-        let n = 0;
-        while (
-          n < qi - gq && n < si - gs &&
-          q[qi - gq - 1 - n] === c[si - gs - 1 - n]
-        ) {
-          n++;
-        }
-        if (n >= W || n === qi - gq) {
-          if (n === 0) continue;
-          if (gq > 0 || gs > 0) {
-            gaps.push({ qs: qi - gq, qe: qi, cs: si - gs, ce: si });
-          }
-          matched.push([qi - gq - n, qi - gq]);
-          qi = qi - gq - n;
-          si = si - gs - n;
-          found = true;
-          break;
-        }
-      }
+    const step = nextRun(qi, si, false);
+    if (step === null) break;
+    if (step.gq > 0 || step.gs > 0) {
+      gaps.push({ qs: qi - step.gq, qe: qi, cs: si - step.gs, ce: si });
     }
-    if (!found) {
-      reportCap(qAvail, cAvail, spent >= gapPairs);
-      break;
-    }
+    matched.push([qi - step.gq - step.n, qi - step.gq]);
+    qi = qi - step.gq - step.n;
+    si = si - step.gs - step.n;
   }
   return { matched, gaps };
 }

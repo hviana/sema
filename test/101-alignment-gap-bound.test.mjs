@@ -29,6 +29,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
+import { alignAround } from "../dist/src/mind/match.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 
 const WORDS =
@@ -59,42 +60,29 @@ async function frame(n = 60, opts = {}) {
 const novel = (len) => "zephyr quartz lantern ".repeat(3).slice(0, len).trim();
 
 
-test("an alignment that runs out of budget reports it", async () => {
-  // A tiny budget makes the report deterministic: the sweep cannot reach far,
-  // so it says so — which is the whole point of the step.
-  const { mind } = await frame(60, { alignGapPairs: 32 });
-  const steps = [];
-  await mind.respondText(
-    `Book a table at ${novel(30)} tonight.`,
-    (s) => steps.push(s),
+// THE LAW'S ASSERTION, straight on the aligner.  There is no bound to report
+// any more: the sweep's work is proportional to the bytes a run spans, so a
+// divergence far past the old arity bound (chainReach(W) = 16) is simply
+// bridged, on both sides, by finding the next common run.
+test("a divergence far past the old arity bound is bridged, not truncated", () => {
+  const enc = new TextEncoder();
+  const head = "the common head of the frame ";
+  const tail = " and the common tail of the frame";
+  const q = enc.encode(head + "a".repeat(60) + tail);
+  const c = enc.encode(head + "b".repeat(60) + tail);
+  const at = head.length - 1; // the seed: the shared head's own boundary
+  const { matched, gaps } = alignAround({ space: { maxGroup: 4 } }, q, c, at, at);
+  assert.equal(
+    matched.length,
+    2,
+    "both common runs must be found: " + JSON.stringify(matched),
   );
-
-  const cap = steps.find((s) => s.mechanism.at(-1) === "alignCap");
+  assert.equal(gaps.length, 1, "with exactly one substitution between them");
+  const g = gaps[0];
   assert.ok(
-    cap,
-    "an alignment stopped by the bound must report it (was silent before)",
+    g.qe - g.qs >= 60 && g.ce - g.cs >= 60,
+    "the substitution's extent is the pair's own: " + JSON.stringify(g),
   );
-  assert.match(
-    cap.note,
-    /exhausted its 32-pair budget/,
-    "the note must name the budget that ran out",
-  );
-  assert.match(cap.note, /left/, "and the material it left unmatched");
-});
-
-test("the report is reachable when the sweep cannot reach", async () => {
-  for (const len of [18, 30, 40]) {
-    const { mind } = await frame(60, { alignGapPairs: 32 });
-    const steps = [];
-    await mind.respondText(
-      `Book a table at ${novel(len)} tonight.`,
-      (s) => steps.push(s),
-    );
-    assert.ok(
-      steps.some((s) => s.mechanism.at(-1) === "alignCap"),
-      `filler of ${len} B must report the bound`,
-    );
-  }
 });
 
 test("control: a filler inside the cap is quoted back, and the fixture is live", async () => {
