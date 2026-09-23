@@ -1,6 +1,6 @@
-# Tempting but Wrong — 12 Traps
+# Tempting but Wrong — 13 Traps
 
-Twelve shortcuts that look plausible and break an invariant. Each states what
+Thirteen shortcuts that look plausible and break an invariant. Each states what
 not to do, why it fails, and what to do instead.
 
 ### 1. `score >= threshold` decides identity
@@ -141,3 +141,43 @@ not to do, why it fails, and what to do instead.
   `twoEndedSeat`); turns are API state in `mind/mind.ts`, not segmentation.
   Pinned by `test/59-fold-invariance.test.mjs` and
   `test/63-fold-invariants.test.mjs`.
+
+### 13. Capping a combinatorial explosion instead of budgeting it
+
+- **WRONG:** Answer a combinatorial explosion with a geometry-derived limit —
+  capping the pairs a sweep enumerates, the continuations a hop offers, the
+  candidates a scan probes. A derived limit is a legitimate cutoff for a
+  DECISION, but used as the answer to explosion it is a short-circuit: it stops
+  the computation silently, truncates reach, and removes capability without a
+  single test failing.
+- **WHY:** Both failure modes are measured in this repository. With the cap, a
+  legitimate 24-byte slot stopped being reachable — the alignment truncated every
+  learned frame whose slot exceeded `chainReach(W)=W²=16`, and the asker's own
+  filler came back as another instance's. Without it, removing the bound outright
+  took the corpus-cost guard from milliseconds to 68 seconds. Neither is an
+  answer, because the answer is not a number.
+- **CORRECT:** BUDGET it — the work is charged in the one currency
+  (`MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`, see
+  `docs/architecture/cost-model.md`) and the charge is visible in the meter and
+  the rationale, so the SEARCH decides whether the work is worth paying. Where
+  the work is mechanical rather than evidential — enumeration, scans, sweeps —
+  the fix is an ALGORITHM whose cost is structural in the bytes it is given, not
+  a smaller cap. Both were done and measured here, with no cap, budget or new
+  number anywhere: the alignment sweep indexes the context's windows once and
+  walks the query's outward, so its work is proportional to the bytes a run spans
+  (a 60-byte divergence is bridged; `test/14` 60.0 s → 56.8 s against a 67.8 s
+  baseline, 775 MB → 773 MB), and the join's key prefixes come from the query's
+  own fold boundaries instead of every byte length (5 of 5 accepted keys landed
+  on a boundary; 153 candidate probes became 52). Pinned by
+  `test/101-alignment-gap-bound.test.mjs`,
+  `test/103-alignment-gap-budget.test.mjs`,
+  `test/114-alignment-budget-is-per-sweep.test.mjs`,
+  `test/108-the-join-chains.test.mjs`,
+  `test/110-the-reasoner-stops-when-the-question-is-answered.test.mjs`,
+  `test/116-the-extension-is-gated-by-the-pipelines-own-remainder.test.mjs`.
+- **THE APEX:** the project evolves toward a universal CLOSURE ENGINE — one law
+  of closure, stated in the quantities the engine already has (`leadsSomewhere`,
+  the exact-then-canonical identity, `accounted` bytes, the ladder, `hubBound`),
+  from which the reach of a gap, the offer of a hop, the depth of a join and the
+  scope of a substitution all FOLLOW. A change that cannot be stated that way is
+  not ready.
