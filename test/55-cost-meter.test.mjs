@@ -674,3 +674,66 @@ test("16. the climb's own search is timed", async () => {
     `and it must carry a real duration (got ${search.ms})`,
   );
 });
+
+test("17. the bar and the climb's vote are in one dimension", async () => {
+  // `consensusFloor(N) = ln(N) + 1/2` is the POOLED-vote significance floor
+  // (thresholds.md §2: "each region contributes at most ln(N/c) <= ln(N)"), and
+  // attention.ts builds the vote on the same scale.  The comparison in recall and
+  // in cast holds because the climb WEIGHTS BY IDF: `wf` is `direct ? df :
+  // combined ? idf + df : idf`, and the engine only runs the last one (DFMode's
+  // default "inverse", the mode every non-test caller uses).  There, `wf === idf`,
+  // so the pooled vote IS the per-place reading the bar prices.
+  //
+  // FAIL BEFORE: nothing pinned this.  Changing the default mode, or `wf`'s
+  // formula, would silently move `vote >= consensusFloor` out of the floor's
+  // dimension — and `direct`/`combined` are real reads (test/24 pins that their
+  // votes differ), not dead code.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+  ];
+  const findAnchors = (o, depth = 0) => {
+    if (o === null || typeof o !== "object" || depth > 5) return null;
+    if (Array.isArray(o.anchors) && o.anchors.length) return o;
+    for (const v of Object.values(o)) {
+      const r = findAnchors(v, depth + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CORPUS);
+  const steps = [];
+  await mind.respondText(
+    "capital of France and the tallest tower in Paris",
+    (s) => steps.push(s),
+  );
+  await store.close();
+  const step = steps.find((s) => findAnchors(s.data ?? s) !== null);
+  const td = step ? findAnchors(step.data ?? step) : null;
+  assert.ok(td, "the climb must report its anchors");
+  assert.equal(
+    td.config.mode,
+    "inverse",
+    "the engine's mode is the IDF-weighted one",
+  );
+
+  // Anti-vacuity: at least one anchor must actually stand on contributions.
+  const real = td.anchors.filter((a) => (a.contributingVotes ?? 0) >= 1);
+  assert.ok(real.length >= 1, "the fixture must reach an anchor with evidence");
+
+  for (const a of real) {
+    assert.equal(
+      a.pooledVote,
+      a.idfVote,
+      `the pooled vote and the per-place reading must coincide under the ` +
+        `engine's mode (anchor ${a.anchor}: pooled=${a.pooledVote} idf=${a.idfVote})`,
+    );
+  }
+});

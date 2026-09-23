@@ -276,9 +276,24 @@ export async function recallByResonance(
     // consensus", while breadth is the SCALE-INVARIANT reading — "a point whose
     // breadth clears `dominates` (> half the query's regions corroborate it) is
     // real consensus; one that does not is a coincidental single-region echo".
-    // Attention.peak's contract makes the same point from the other side:
-    // comparing a POOLED SUM against a floor that prices ONE region's evidence
-    // is a dimensional error.
+    // THIS USED TO CLAIM A DIMENSIONAL ERROR, AND THAT CLAIM WAS FALSE.
+    // It read: "comparing a POOLED SUM against a floor that prices ONE region's
+    // evidence is a dimensional error."  `consensusFloor` is not priced for one
+    // region: thresholds.md §2 derives it as the POOLED-vote significance floor —
+    // "each region contributes at most ln(N/c) <= ln(N); ln(N)+1/2 demands ..." —
+    // and attention.ts says the same where it builds the vote ("the scale
+    // consensusFloor is derived for").  The comparison is in ONE dimension, and
+    // it is so because the climb WEIGHTS BY IDF: `wf` in voteRegions is
+    // `direct ? df : combined ? idf + df : idf`, and the engine only ever runs the
+    // last one (DFMode's default "inverse", the mode every non-test caller uses —
+    // `direct` and `combined` are exercised by test/24 and test/27 only, and
+    // test/24 pins that their votes DO differ).  In those two the sum would leave
+    // the floor's dimension and the floor would need re-deriving.
+    //
+    // What the OR below is really for is SCALE, not dimension (the paragraph
+    // above says it): a vote that clears ln(N)+1/2 means "strong" on a small store
+    // and "weak" on a large one for the same genuine consensus, so the
+    // scale-invariant breadth reading is added beside it.
     //
     // Measured on the 15.7M-node store (N=325,615, so the old floor was 13.19).
     // The absolute vote cannot separate right from wrong at this scale, and the
