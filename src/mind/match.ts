@@ -478,7 +478,16 @@ export function alignAround(
       break;
     }
   }
-  // LEFT sweep (mirror).
+  // LEFT sweep (mirror) — WITH ITS OWN BUDGET.  The two sweeps are independent
+  // walks (each one finds ITS nearest continuation), so sharing one counter let
+  // an exhausted RIGHT sweep leave the left loop's guard false on entry: zero
+  // iterations, the NEAREST left continuation lost — the exact opposite of the
+  // law above ("an exhausted budget drops the FAR continuations and never the
+  // near ones").  Measured by an adversarial review on a 260-byte pair whose
+  // divergent flanks exceed the budget: `["SEED","MATCH"]` before the budget
+  // existed, `["SEED"]` with the shared counter, `["SEED","MATCH"]` again with
+  // it reset.  Each sweep now drops only ITS OWN far continuations.
+  spent = 0;
   qi = qs;
   si = ss;
   for (;;) {
