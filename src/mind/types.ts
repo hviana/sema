@@ -162,6 +162,17 @@ export interface Attention {
    *  reading `peak` would refuse every root the engine elects.  `peak` remains
    *  what it is: the strongest SINGLE region's contribution. */
   peak: number;
+  /** The IDF-WEIGHTED sum behind this point — the quantity `consensusFloor` is
+   *  derived for, and therefore the one the floor gates must read.  It is
+   *  MODE-INDEPENDENT by construction (its per-region weight is
+   *  `mutual · idf / roots`, never the mode-dependent `wf`), so gating on it
+   *  makes an anchor's admission the same in `inverse`, `direct` and `combined`.
+   *  In `inverse` — the only mode the engine runs — it equals `vote` exactly
+   *  (measured, test/55 test 17), so nothing about today's verdicts changes.
+   *  MEASURED before this field existed: gating on `vote` DID flip a verdict,
+   *  anchor 87 of test/55's query (inverse 2.682 admitted, direct 1.468
+   *  refused, floor 2.292). */
+  idfVote: number;
   /** SCALE-INVARIANT confidence: the fraction of the query's OWN regions
    *  whose evidence this point accounts for (Σ RegionVote.absorbed among
    *  its contributors, over the query's total region count) — read PER-

@@ -867,7 +867,9 @@ export async function counterfactualTransfer(
   // grounds") — fine for ORIENTING mechanisms, not for voicing learnt
   // content the query never asked about.  Computed once here; both the
   // hub fallback below and the comparison gate consume it.
-  const rootTrusted = roots.some((r) => r.vote >= consensusFloor(corpusN(ctx)));
+  const rootTrusted = roots.some((r) =>
+    r.idfVote >= consensusFloor(corpusN(ctx))
+  ); // the IDF sum: the bar's own quantity
   // The context that ESTABLISHES a filler — the same reverse context, under
   // the same naming test, `seatOfNode` uses to VOICE an analog (a predecessor
   // whose bytes CONTAIN the node's: it names or describes it, rather than

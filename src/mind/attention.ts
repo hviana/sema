@@ -1677,6 +1677,7 @@ export function commitVotes(
         anchor,
         vote,
         peak: regionPeak.get(anchor) ?? 0,
+        idfVote: votesIdf.get(anchor) ?? 0,
         start: s.start,
         end: s.end,
         breadth: (regionSupport.get(anchor) ?? 0) / totalRegions,
@@ -1787,8 +1788,15 @@ export function commitVotes(
           rejectionReasons.push("leading-saturation");
         }
       } else {
-        passesNaturalBreak = vote >= rootCut;
-        passesConsensusFloor = vote >= floor;
+        // THE FLOOR AND THE BREAK READ THE IDF WEIGHTING.  `floor` is derived
+        // for pooled IDF-weighted votes, and `rootCut` comes from the IDF
+        // distribution (`idfDesc`), so gating the mode-dependent `vote` against
+        // either let a weighting mode change an admission (measured: anchor 87,
+        // inverse 2.682 admitted vs direct 1.468 refused).  Reading the IDF sum
+        // makes the verdict mode-independent, and changes nothing in the
+        // engine's own mode, where the two readings coincide.
+        passesNaturalBreak = point.idfVote >= rootCut;
+        passesConsensusFloor = point.idfVote >= floor;
         // CO-DOMINANT — an anchor the estimator cannot separate from the
         // dominant inherits the dominant's exemption, because that exemption's
         // only warrant is being TOP, and "top" is not a fact about the corpus

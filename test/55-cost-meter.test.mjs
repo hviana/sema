@@ -845,3 +845,101 @@ test("19. the floor is read on the pooled vote, not on one region", async () => 
     } vs floor ${floor})`,
   );
 });
+
+test("20. the non-IDF weighting modes never flip a gate verdict", async () => {
+  // `consensusFloor` is derived for the POOLED IDF-weighted vote.  The other two
+  // weighting modes deviate — and the deviation is TWO-SIDED and bounded by
+  // `ln 2`: `direct` deflates a region (ln(1+c) < ln(N/c) for small c) and
+  // `combined` inflates it.  MEASURED across 8 anchors in 5 queries, running the
+  // same climb in all three modes: gating on the mode-dependent `vote` DID flip a
+  // verdict — anchor 87 of the second query (inverse 2.682 admitted, direct 1.468
+  // refused, floor 2.292).  The fix is to gate on the IDF sum, which is
+  // mode-independent by construction and EQUALS `vote` in the engine's own mode,
+  // so no verdict in `inverse` moves.
+  //
+  // The anchor that makes this test non-vacuous is #148 of the second query: its
+  // `combined` reading sits ABOVE the floor and its `direct` reading BELOW, while
+  // its inverse reading is above — i.e. both deviations are present in the
+  // fixture, and still neither crosses the floor in the wrong place.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+    ["Gustaf Molander", "Gustaf Molander was a Swedish film director"],
+    ["Stockholm", "Stockholm is the capital of Sweden"],
+  ];
+  const { corpusN } = await import("../dist/src/mind/traverse.js");
+  const { consensusFloor } = await import("../dist/src/geometry.js");
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CORPUS);
+  const queries = [
+    "capital of France and the tallest tower in Paris",
+    "2+2 and the Eiffel Tower",
+    "Gustaf Molander and the tallest tower in Paris and 2+2",
+  ];
+  let anchors = 0;
+  let straddling = 0;
+  for (const q of queries) {
+    const enc = new TextEncoder().encode(q);
+    const floor = consensusFloor(corpusN(mind));
+    const rootsOf = {};
+    const votes = {};
+    const idfOf = {};
+    for (const mode of ["inverse", "direct", "combined"]) {
+      const got = await mind.climbAttention(enc, 24, mode);
+      rootsOf[mode] = got.map((a) => a.anchor).sort((x, y) => x - y);
+      votes[mode] = new Map(got.map((a) => [a.anchor, a.vote]));
+      // `idfVote` is on Attention; the gate reads it.
+      idfOf[mode] = new Map(got.map((a) => [a.anchor, a.idfVote]));
+    }
+    // THE PROPERTY pinned here is the GATE's, per anchor: the IDF reading — the
+    // quantity `consensusFloor` is derived for — is mode-independent, so an
+    // anchor's floor verdict cannot change with the weighting.  The ELECTED SET
+    // is deliberately NOT pinned: the election walks the ranked anchors in `vote`
+    // order, which is mode-dependent by design (that order is a legitimate
+    // ranking, used as an order by `confluence`), and overlap resolution can
+    // therefore elect a different anchor in another mode.
+    const first = [...votes.inverse.keys()];
+    for (const id of first) {
+      const iv = idfOf.inverse.get(id);
+      assert.equal(
+        idfOf.direct.get(id),
+        iv,
+        `the IDF reading must not depend on the mode (anchor ${id})`,
+      );
+      assert.equal(
+        idfOf.combined.get(id),
+        iv,
+        `the IDF reading must not depend on the mode (anchor ${id})`,
+      );
+      assert.equal(
+        (idfOf.direct.get(id) ?? 0) >= floor,
+        (iv ?? 0) >= floor,
+        `the floor verdict must not depend on the mode (anchor ${id})`,
+      );
+    }
+    // Anti-vacuity: the fixture must contain an anchor whose mode-dependent
+    // VOTE straddles the floor on opposite sides, so the deviations are present.
+    for (const id of rootsOf.inverse) {
+      anchors++;
+      const c = votes.combined.get(id) ?? 0;
+      const d = votes.direct.get(id) ?? 0;
+      if ((c >= floor) !== (d >= floor)) straddling++;
+    }
+  }
+  await store.close();
+  assert.ok(
+    anchors >= 4,
+    `the fixture must reach several anchors (${anchors})`,
+  );
+  assert.ok(
+    straddling >= 1,
+    `the fixture must contain an anchor whose two deviations straddle the floor, ` +
+      `else this test pins nothing (straddling=${straddling})`,
+  );
+});

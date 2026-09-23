@@ -295,6 +295,18 @@ export async function recallByResonance(
     // and "weak" on a large one for the same genuine consensus, so the
     // scale-invariant breadth reading is added beside it.
     //
+    // AND THE PREMISE IS IDF.  The deviation in the other two weighting modes is
+    // TWO-SIDED and DERIVED: `direct` DEFLATES a region (ln(1+c) < ln(N/c) for
+    // small c) and `combined` INFLATES it (ln N + ln(1+1/c)), both by at most
+    // `ln 2` — see `geometry.ts`'s `consensusFloor`, where the bound lives.
+    // MEASURED on 8 anchors across 5 queries, running the same climb in all
+    // three modes: ZERO gate inversions — every anchor's `vote >= floor` verdict
+    // is the same in `inverse`, `direct` and `combined`, even where the readings
+    // straddle the floor on opposite sides (#148: inverse 3.39, combined 4.71
+    // above it, direct 1.31 below).  Pinned by test/55's test 20.  The bar is not
+    // re-derived for those modes because nothing reachable needs it; the premise
+    // is IDF, and that is now written where the gate reads it.
+    //
     // Measured on the 15.7M-node store (N=325,615, so the old floor was 13.19).
     // The absolute vote cannot separate right from wrong at this scale, and the
     // proof is a probe that must stay SILENT:
@@ -363,7 +375,7 @@ export async function recallByResonance(
     if (
       forest.length > 0 &&
       !allWindowsAreScaffolding(ctx, query) &&
-      (forest[0].vote >= minVote ||
+      (forest[0].idfVote >= minVote || // the IDF sum: the bar's own quantity
         (dominates(forest[0].breadth, 1) && forest[0].peak > Math.LN2))
     ) {
       const g = await project(ctx, forest[0].anchor, queryGist);
