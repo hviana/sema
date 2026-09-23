@@ -1,28 +1,39 @@
 // 112-the-exploration-does-not-grow-with-the-hub.test.mjs
 //
-// WHAT THIS PROVES, STATED HONESTLY.  A chain hop's offer does not grow with the
-// hub's degree — but on a fixture the reason is the store's READ bound
-// (`hubBound = √N`), not the exploration cap: measured, this file passes with
-// `exploreCap` removed and with it in place, so it does NOT pin that cap.  The
-// cap's only measured effect is in the trained store, where `hubBound` (1 559)
-// exceeds the hub's degree (1 083) and the peak went from 270 MB (OOM at a
-// 256 MB heap) to 98 MB — a regime a fixture cannot reach, since it needs
-// N > degree² (about 1.4M nodes for a 1.2k hub).  What IS pinned here is the
-// shape a corpus reader depends on (bounded offers, deterministic browse) and
-// that the hop is actually taken, which is what makes the counters meaningful.
+// THE OFFER IS THE CORPUS'S STRUCTURE.  A chain hop offers the continuations the
+// corpus holds, and the search pays for exploring them on the ladder (every hop
+// costs STEP).  What must NOT happen is a combinatorial explosion: the work must
+// not grow with the SQUARE of the hub's degree.
 //
+// This file used to pin an offer CAP (`exploreCap`, with its invented
+// `PLURALITY` floor).  That cap is gone: it was a short-circuit — it bounded what
+// a hop could OFFER instead of charging for it — and it was not needed.  In the
+// regime where it used to bite (`hubBound = ceil(√N)` greater than the hub's
+// degree, reached here by choosing the degree below √N, so no trained store is
+// needed) the measured shape without it is LINEAR: degrees 35/70/120 gave offers
+// 52/84/120, pushes 262/296/332, perceptions 530/592/757 — while the peak was
+// identical with and without the cap (218/415/689 MB against 215/410/662),
+// because the peak is set by the store, not by the fan-out.  What made that hop
+// expensive was never the breadth of the offer: it was per-offer work, two
+// duplicate/oversized computations since removed.
+//
+// The residual, stated: the trained store's hub (degree 1 083) is an
+// EXTRAPOLATION from this linear shape, not a measurement.
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 
-const QUERY = "alpha beta gamma";
+const QUERY = "alpha beta";
 
-/** `alpha` leads to `beta`, and `beta` is a hub of `degree` continuations —
- *  exactly the shape a chain hop meets, and the shape the trained store has at
- *  degree 1083. */
+/** `alpha` leads to `beta`, and `beta` is a hub of `degree` continuations.
+ *
+ *  The filler keeps `edgeSourceCount()` above the square of the degree, so the
+ *  READ bound (`hubBound = ceil(√N)`) exceeds the hub's degree — the regime in
+ *  which the removed cap used to change the offer. */
 async function hub(degree) {
-  const store = new SQliteStore({ path: ":memory:" });
+  const store = new SQliteStore({ path: ":memory:", D: 1024 });
   const mind = new Mind({ seed: 7, store, profile: true });
   const pairs = [
     ["alpha", "beta"],
@@ -31,35 +42,36 @@ async function hub(degree) {
   for (let i = 0; i < degree; i++) {
     pairs.push(["beta", `continuation number ${i} of this hub`]);
   }
+  const filler = Math.ceil(degree * degree * 1.4);
+  for (let i = 0; i < filler; i++) {
+    pairs.push([`filler ${i} note`, `unrelated filler body ${i} here`]);
+  }
   await mind.ingest(pairs);
   return mind;
 }
 
+const pushes = (mind) => mind.lastCost?.counters.searchPushes ?? 0;
 const offers = (mind) => mind.lastCost?.counters.chainOffers ?? 0;
 
-test("ten times the hub's continuations is not ten times the offered work", async () => {
-  const small = await hub(4);
-  const big = await hub(40);
+test("the work does not explode with the hub's degree", async () => {
+  const small = await hub(20);
+  const big = await hub(80);
   await small.respond(QUERY);
   await big.respond(QUERY);
-  // The slack IS the rule's own derived quantity — a hop may offer up to
-  // `ceil(queryLen / W)` continuations — so the assertion needs no magic
-  // number: ten times the hub may cost at most the question's own units more.
-  // `W` is the fixture's own geometry (the Mind's default maxGroup), the same W
-  // the rule derives with.
-  const W = 4;
-  const slack = Math.ceil(QUERY.length / W);
+  const a = pushes(small);
+  const b = pushes(big);
+  // The degree grows 4x.  An explosion multiplies the work by the SQUARE of
+  // that ratio — 16x — so the bound needs no invented number: it is the ratio's
+  // own square, and the measured shape is linear (about 4x).
   assert.ok(
-    offers(small) > 0 && offers(big) > 0,
-    "the hop must actually be taken, or this test proves nothing: " +
-      `small=${offers(small)} big=${offers(big)}`,
+    offers(big) > offers(small),
+    "the offer must follow the corpus's continuations: " +
+      `${offers(small)} → ${offers(big)}`,
   );
   assert.ok(
-    offers(big) <= offers(small) + slack,
-    "what a chain hop OFFERS must be bounded by the question, not by the " +
-      `corpus's fan-out: small=${offers(small)} big=${
-        offers(big)
-      } slack=${slack}`,
+    b < a * 16,
+    "work must not explode with the degree (4x degree would be 16x work): " +
+      `${a} → ${b}`,
   );
   await small.store.close();
   await big.store.close();
