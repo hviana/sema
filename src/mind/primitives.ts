@@ -338,7 +338,15 @@ export function canonResolve(
     // on exactly the node the canonical-case query would have found.
     const folded = foldTree(ctx, perceive(ctx, bytesOf), 0).node;
     const use = folded ?? id;
-    const leads = store.hasNext(use) || store.haloMass(use) > 0;
+    // THE ADMISSION PREDICATE, by its own pair of probes: `traverse.ts`'s
+    // `leadsSomewhere` is edge-or-halo, and `hasHalo` is the one that carries
+    // the mass bar (`mass >= minHaloMass`).  Asking `haloMass(use) > 0` instead
+    // is the same answer only while `minHaloMass <= 1` (its default): raise the
+    // bar and this site would rank a node as leading on evidence the law
+    // refuses.  Calling `leadsSomewhere` here is not possible — `traverse.ts`
+    // imports THIS file, so it would be a cycle — which is why the pair is
+    // spelled out rather than named.
+    const leads = store.hasNext(use) || store.hasHalo(use);
     if (
       best === null || (leads && !bestLeads) ||
       (leads === bestLeads && use < best)
