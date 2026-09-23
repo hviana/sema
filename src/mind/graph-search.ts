@@ -238,6 +238,14 @@ export interface DerivationItem {
  *  {@link GraphSearch}'s rules fired, recovered from the rule's premise/
  *  conclusion shape (the rules carry no label, so this classifies by structure,
  *  the single place that maps rule geometry to a name). */
+// CLOSED ON PURPOSE — AND ONLY THIS ONE IS.  A derivation move is BRANCHED ON
+// (`classifyMove`, the rationale's readers, MOVE_NOTE's fallback), so it is a
+// closed union: adding one without teaching every reader is a compile error,
+// which is what a closed vocabulary buys.  The MECHANISM names in
+// `rationale.ts` are the opposite case — written and displayed, never
+// branched on — and they stay free strings that COMPOSE with the nesting
+// (`["respond", "think", "recognise"]`).  That asymmetry is deliberate; do not
+// "fix" it by uniting the two (see test/126 for the pipeline half of it).
 export type DerivationMove =
   | "axiom" // a seed: a perceived leaf, a recognised form, or a computed result
   | "follow-edge" // form→form via a continuation edge (STEP) — the core "what follows what"

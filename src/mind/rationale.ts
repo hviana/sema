@@ -289,7 +289,16 @@ export class Rationale {
     };
   }
 
-  /** Record a mechanism that has no sub-steps — its inputs and outputs are both
+  /** WHY THIS NAME IS A FREE STRING, when the derivation's moves are a closed
+   *  union: a mechanism name is WRITTEN and DISPLAYED, and it COMPOSES with
+   *  the nesting — `mechanism` is the whole path (`["respond", "think",
+   *  "recognise"]`), which no fixed union can express.  Nothing branches on it:
+   *  `nothing here drives the inference; it only WITNESSES it`.  A vocabulary
+   *  that is only witnessed needs no union; one that is read does
+   *  (`DerivationMove`, in graph-search.ts).  The asymmetry is the design, not
+   *  a drift.
+   *
+   *  Record a mechanism that has no sub-steps — its inputs and outputs are both
    *  known at the call site.  Returns its index, for a later step to depend on. */
   step(
     name: string,
