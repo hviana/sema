@@ -30,8 +30,7 @@ not to do, why it fails, and what to do instead.
 - **WRONG:** Break equal-rank ties by picking the most recently inserted
   edge/node.
 - **WHY:** Tie-breaks must be corpus-determined and stable; last-inserted is
-  recency-dependent and was fixed as a bug (`AGENTS §2` Invariant 1 —
-  first-inserted fallback).
+  recency-dependent (`AGENTS §2` Invariant 1 — first-inserted fallback).
 - **CORRECT:** `guidedFirst`/`chooseNext`/`chooseAmong`: rank then
   first-inserted (lowest node id / `LIMIT 1` insertion order). Pinned by
   `test/03-recall.test.mjs` determinism suites.
@@ -55,8 +54,8 @@ not to do, why it fails, and what to do instead.
   policy is enforced by masking, not pricing (`AGENTS §2` Invariant 4 — One cost
   currency; `docs/architecture/cost-model.md` § Policy is not cost).
 - **CORRECT:** Keep `PASS` dominating; enforce precedence in the caller (e.g.
-  `pipeline.ts` masks recognised sites overlapped by `ComputedResult`). Pinned
-  by `test/04-think.test.mjs` and `test/55-cost-meter.test.mjs`.
+  `cover.ts` masks recognised sites overlapped by `ComputedResult`). Pinned by
+  `test/04-think.test.mjs` and `test/55-cost-meter.test.mjs`.
 
 ### 6. Reimplementing `locate`/`align` inside a mechanism
 
