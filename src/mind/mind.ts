@@ -244,6 +244,8 @@ export interface MindOptions {
   seed?: number;
   recallQueryK?: number;
   haloQueryK?: number;
+  /** Branch nodes the pivot sweep may probe — see {@link MindConfig}. */
+  pivotProbeK?: number;
   /** Items one rationale step may itemise — see {@link MindConfig}. */
   rationaleSampleK?: number;
   /** Corpus-reading capacities and budgets — see {@link MindConfig}. */

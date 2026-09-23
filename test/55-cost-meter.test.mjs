@@ -342,13 +342,15 @@ test("11. the pivot's probe cap is visible: what it spent, and what it withheld"
     "the capital of France is Paris and Paris is a city on the river Seine in " +
     "the north of the country and the river runs through the heart of the city " +
     "past the tower and the museums and the wide avenues of the old quarters";
-  const run = async (k) => {
+  const run = async (probeK) => {
     const store = new SQliteStore({ path: ":memory:" });
     const mind = new Mind({
       seed: 7,
       store,
       profile: true,
-      ...(k ? { recallQueryK: k } : {}),
+      // The pivot's budget is ITS OWN since F4: `recallQueryK` no longer widens
+      // it, which is exactly what this test now pins.
+      pivotProbeK: probeK,
     });
     await mind.ingest([
       ["what is the capital of France", LONG],
@@ -372,7 +374,7 @@ test("11. the pivot's probe cap is visible: what it spent, and what it withheld"
   };
 
   const wide = await run(64);
-  const tight = await run(0); // the default allowance
+  const tight = await run(12); // the default pivot budget
 
   assert.ok(tight.probes > 0, "the sweep really ran");
   assert.ok(

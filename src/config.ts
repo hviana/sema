@@ -116,6 +116,17 @@ export interface MindConfig {
   seed: number;
   recallQueryK: number;
   haloQueryK: number;
+  /** Branch nodes the pivot sweep may PROBE looking for the learnt context an
+   *  answer contains — the pivot's own shortlist capacity, separate from
+   *  `recallQueryK` because they are different quantities: this one bounds a
+   *  MECHANICAL sweep over the answer's tree (breadth-first, largest regions
+   *  first, so an exhausted allowance drops the far ones and never the near
+   *  ones), while `recallQueryK` bounds the bridge's candidate reads.  Sharing
+   *  one number for both meant that tightening either silently starved the
+   *  other — measured: at `recallQueryK: 1` the pivot cannot find a pivot at
+   *  all.  (`rationaleSampleK` was split out of `recallQueryK` for the same
+   *  reason, found by an adversarial review.) */
+  pivotProbeK: number;
   /** Corpus reading (see src/mind/corpus.ts): results per call, resolved
    *  nodes climbed from, contexts requested per climb, probes used to stride
    *  the id space when browsing, bytes of each side a preview keeps, and the
@@ -148,6 +159,7 @@ export const DEFAULT_CONFIG: MindConfig = {
   seed: 42,
   recallQueryK: 12,
   haloQueryK: 12,
+  pivotProbeK: 12,
   rationaleSampleK: 12,
   corpusLimitMax: 24,
   corpusClimbs: 24,
@@ -196,6 +208,7 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     seed: opts.seed ?? DEFAULT_CONFIG.seed,
     recallQueryK: opts.recallQueryK ?? DEFAULT_CONFIG.recallQueryK,
     haloQueryK: opts.haloQueryK ?? DEFAULT_CONFIG.haloQueryK,
+    pivotProbeK: opts.pivotProbeK ?? DEFAULT_CONFIG.pivotProbeK,
     rationaleSampleK: opts.rationaleSampleK ?? DEFAULT_CONFIG.rationaleSampleK,
     corpusLimitMax: opts.corpusLimitMax ?? DEFAULT_CONFIG.corpusLimitMax,
     corpusClimbs: opts.corpusClimbs ?? DEFAULT_CONFIG.corpusClimbs,
