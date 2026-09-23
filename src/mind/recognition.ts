@@ -559,13 +559,6 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       // endpoints in order and running out partway along the query.  A form
       // longer than that is out of this tier's reach — but so is a form the
       // chain cannot span, and that is exactly the trade the budget prices.
-      // The factor is chainReach(W), the same W² scale the chain already
-      // trusts; no new constant.
-      // The factor is chainReach(W) — the same W² scale the chain itself
-      // trusts — so the cap is derived from the fold's geometry, never tuned.
-      // (It was briefly an environment variable while the cost was being
-      // measured; an env-read here would make inference non-reproducible,
-      // which the determinism contract forbids outright.)
       // The factor is chainReach(W) — the same W² scale the chain itself
       // trusts — so the cap is derived from the fold's geometry, never tuned.
       // (It was briefly an environment variable while the cost was being
