@@ -560,9 +560,19 @@ export async function think(
         "post-grounding extension is skipped",
     );
   }
-  // The ladder's own view of what the grounding left uncovered: the datum the
-  // reasoner judges its OWN extensions by.
-  const uncovered = unexplainedSpans(query.length, decided.accounted);
+  // THE REASONER JUDGES ITS OWN EXTENSIONS BY THE PIPELINE'S REMAINDER, not by
+  // the ladder's `accounted` — and by the SAME reading the fuse gate below uses,
+  // with the same W floor.  `accounted` is a COST quantity (measured: a query
+  // fully explained by one computed span plus bridged connectors reports
+  // `accounted: []` while nothing is unexplained), and a remainder under one
+  // river-fold quantum is bridging punctuation, never a second topic — so it
+  // licenses no extension and blocks none.
+  const explained: Array<[number, number]> = [
+    ...decided.accounted,
+    ...pre.computed.map((u): [number, number] => [u.i, u.j]),
+  ];
+  const uncovered = unexplainedSpans(query.length, explained)
+    .filter(([a, b]) => b - a >= ctx.space.maxGroup);
   const reasoned = decided.complete ? answer : meter
     ? await meter.time(
       "reason",
@@ -586,10 +596,6 @@ export async function think(
   // observed: a single space between two fully-computed arithmetic spans
   // ("2+2 3+3") registered as "unaccounted" and pulled in an unrelated
   // corpus fact, corrupting "4 6" into "4 63".
-  const explained: Array<[number, number]> = [
-    ...decided.accounted,
-    ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-  ];
   const remainder = unaccounted(explained);
   // Whether the winning candidate's entire recognised substance is
   // COMPUTED — every accounted span exactly a pre.computed span, nothing
