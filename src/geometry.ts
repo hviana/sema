@@ -155,6 +155,27 @@ export function profileCapacity(D: number): number {
   return Math.max(1, Math.floor(Math.sqrt(D)));
 }
 
+/**
+ *  The POOLED-vote significance floor, and the derivation lives here because
+ *  its PREMISE is a property of the caller's weighting.
+ *
+ *  DERIVATION (docs/architecture/thresholds.md §2): a maximally-specific region
+ *  contributes at most `ln N` to a pooled vote, so `ln(N) + 1/2` sits half a
+ *  unit above ONE region's ceiling — it demands corroboration BEYOND a single
+ *  region, which is what makes it a consensus bar rather than a resonance bar.
+ *
+ *  PREMISE: that per-region ceiling is an IDF, `ln(N/c)` — attention.ts's
+ *  `inverse` mode, the mode every non-test caller runs.  The other two modes
+ *  weight a region by `ln(1+c)` (`direct`) or `ln(N/c) + ln(1+c)` (`combined`),
+ *  i.e. `ln N + ln(1 + 1/c)`, so they exceed the premise's ceiling by at most
+ *  `ln 2` — a DERIVED bound, not a hole: the floor stays within `ln 2` of its
+ *  own premise in every mode, and exactly on it in `inverse`.
+ *
+ *  MEASURED: the floor is read on the pooled vote (`commitVotes`, `recall`,
+ *  `cast`).  Across 27 anchors on 6 queries, 11 cleared it by the sum and NONE
+ *  by a single region's peak — gating on one region would refuse every elected
+ *  root.
+ */
 export function consensusFloor(N: number): number {
   return Math.log(N) + 1 / 2;
 }

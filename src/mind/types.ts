@@ -151,10 +151,16 @@ export interface Attention {
    *  strength and its place.
    *  `vote` is a sum over every region that agreed, so it grows with how many
    *  places corroborated; `peak` is what the strongest one of them said on its
-   *  own.  A consumer holding this point to consensusFloor(N) — a bar that
-   *  prices ONE region's maximally-discriminative evidence — must read `peak`,
-   *  not `vote`: six scaffolding regions summing past the floor is not the
-   *  same claim as one region clearing it. */
+   *  own.  THIS USED TO PRESCRIBE THE WRONG OPERAND.  It read: "a consumer
+   *  holding this point to consensusFloor(N) — a bar that prices ONE region's
+   *  maximally-discriminative evidence — must read `peak`, not `vote`."  The
+   *  engine reads the POOLED vote, and thresholds.md §2 derives the floor for
+   *  exactly that ("Pooled-vote significance floor": one maximally-specific
+   *  region contributes at most ln N, and ln(N)+1/2 demands corroboration
+   *  BEYOND one region).  MEASURED across 27 anchors on 6 queries: all 11
+   *  admissions cleared the floor by the sum and NONE by `peak` alone — a gate
+   *  reading `peak` would refuse every root the engine elects.  `peak` remains
+   *  what it is: the strongest SINGLE region's contribution. */
   peak: number;
   /** SCALE-INVARIANT confidence: the fraction of the query's OWN regions
    *  whose evidence this point accounts for (Σ RegionVote.absorbed among

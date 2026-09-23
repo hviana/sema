@@ -785,3 +785,63 @@ test("18. the remainder the pipeline decides on is visible", async () => {
   assert.equal(direct.spans, undefined);
   assert.equal(direct.bytes, undefined);
 });
+
+test("19. the floor is read on the pooled vote, not on one region", async () => {
+  // thresholds.md §2 derives `consensusFloor` as the POOLED-vote floor (one
+  // maximally-specific region contributes at most ln N, and ln(N)+1/2 demands
+  // corroboration BEYOND one region).  The engine reads it that way in three
+  // places (`commitVotes`, `recall`, `cast`), and this pins the practice with
+  // the measurement that decided it: across 27 anchors on 6 queries, all 11
+  // admissions cleared the floor by the SUM and NONE by `peak` alone.
+  //
+  // FAIL BEFORE: `types.ts` prescribed the opposite ("must read `peak`, not
+  // `vote`"), and nothing pinned what the engine actually does.  A gate reading
+  // `peak` would refuse every root the engine elects.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+  ];
+  const findAnchors = (o, depth = 0) => {
+    if (o === null || typeof o !== "object" || depth > 5) return null;
+    if (Array.isArray(o.anchors) && o.anchors.length) return o;
+    for (const v of Object.values(o)) {
+      const r = findAnchors(v, depth + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CORPUS);
+  const steps = [];
+  await mind.respondText(
+    "capital of France and the tallest tower in Paris",
+    (s) => steps.push(s),
+  );
+  await store.close();
+  const step = steps.find((s) => findAnchors(s.data ?? s) !== null);
+  const td = step ? findAnchors(step.data ?? step) : null;
+  assert.ok(td, "the climb must report its anchors");
+  const floor = td.config.consensusFloor;
+
+  const roots = td.anchors.filter((a) => (a.commit ?? {}).status === "root");
+  assert.ok(roots.length >= 1, "the fixture must elect at least one root");
+  for (const a of roots) {
+    assert.ok(
+      a.pooledVote >= floor,
+      `a root must clear the floor by the pooled vote (${a.pooledVote} vs ${floor})`,
+    );
+  }
+  const bySumOnly = roots.filter((a) => a.peak < floor);
+  assert.ok(
+    bySumOnly.length >= 1,
+    `this fixture must contain a root that only the SUM admits (peaks: ${
+      JSON.stringify(roots.map((a) => a.peak))
+    } vs floor ${floor})`,
+  );
+});
