@@ -52,8 +52,7 @@ The shared layer never refuses on a consumer's behalf. Reference owns its four
 gates: frame dominates the query, each slot reaches `W` on both sides, no
 insertion/deletion, fillers pairwise distinct — plus `carriesFillers` on the
 chosen pair. CAST, recall, and cover each apply their own gate over the same
-shared inventory. Moving a consumer's gate into `match.ts` would hide who is
-responsible for the refusal.
+shared inventory. Moving a gate into `match.ts` would hide who owns the refusal.
 
 ## Pins
 
