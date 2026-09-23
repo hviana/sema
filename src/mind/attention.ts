@@ -1819,9 +1819,75 @@ export function commitVotes(
       pastLeadingSaturation = pastLeading;
       const vote = votesIdf.get(point.anchor) ?? 0;
       if (roots.length === 0) {
-        // The first non-overlapping root is DOMINANT and bypasses the two
-        // vote thresholds (it always grounds) — only the leading-saturation
-        // gate still applies to it.
+        // THE DOMINANCE PRIVILEGE, AND THE TENSION IT CARRIES (measured).
+        //
+        // The first non-overlapping candidate is DOMINANT: it bypasses both
+        // vote gates below and grounds on its own; only the leading-saturation
+        // gate still applies to it.  The privilege is load-bearing — analogies,
+        // substitutions and composed contexts are precisely candidates the
+        // query does NOT contain, and the engine loses them without it.
+        //
+        // WHICH candidate receives it, though, is decided by this loop's ORDER.
+        // That order comes from `ranked`, and when two candidates carry equal
+        // evidence the stable sort preserves the ENUMERATION order, so the
+        // privilege is allocated by an ordering rather than by a rule.
+        //
+        // Measured on test/34's corpus, query "red":
+        //
+        //   0:#77 vote=1.3863 idf=1.3863 [0,3) | 1:#49 vote=1.3863 idf=1.3863 [0,3)
+        //
+        // Both candidates (`red square` #77, `red circle` #49) have IDENTICAL
+        // `vote` AND IDENTICAL `idfVote` over the SAME support span, so the
+        // comparator leaves them tied, the second is absorbed as "overlap", and
+        // the first grounds.  With this build's enumeration order that first is
+        // `red square`, 60/60 seeds, and `red circle` — the JOINT context — is
+        // never reached by "red" alone.  That is the premise test/34 exists to
+        // protect: no single region reaches the joint context, which is what
+        // makes the binding query unreachable without direct region
+        // interaction.
+        //
+        // THE TENSION: the premise therefore holds BY ENUMERATION ORDER, not by
+        // a rule, so any change to this ordering can move the privilege onto the
+        // joint context and let one region reach it.  Measured: adding
+        // `|| a.anchor - b.anchor` — the lowest-id tie-break that AGENTS.md §2
+        // sanctions as an equivalent corpus-determined tie-break — does exactly
+        // that: "red" then attends to `red circle`, test/34 fails 6/1, and the
+        // canonical suite reports 1 failure.
+        //
+        // TWO ATTEMPTS TO MAKE IT A RULE, BOTH REFUTED BY MEASUREMENT:
+        //
+        //  1. EVIDENCE SEPARATION.  Grant the privilege only when the first
+        //     candidate's evidence is separated from the next distinct
+        //     candidate's by more than the co-dominant band (sqrt(k) *
+        //     estimatorNoise(D)).  Refuted: that band exists to ADMIT the
+        //     anchors the estimator cannot separate from the dominant — its own
+        //     documented purpose — so withholding the privilege on ties removes
+        //     the very case it was written for.  Suite: 4 failures (the two
+        //     co-dominant band laws, breadth/scale invariance, test/29 D2).
+        //
+        //  2. QUERY-OWNED CONTENT.  Grant the privilege only to a candidate
+        //     that IS a recognised region's identity (regions.some(r => r.id ===
+        //     point.anchor)).  Measured: for "circle" that identity IS the
+        //     ranked candidate, so the privilege stays and `circle` grounds; for
+        //     "red" the identity is the `red` node itself while the candidates
+        //     are the conjunctions, so neither is privileged; for "red then
+        //     circle" the composed context carries idf 3.958 and clears both
+        //     gates on its own evidence.  All four control queries came out
+        //     right — and the suite: 10 failures, six of them in the
+        //     analogy/counterfactual/CAST suites ("an analogy still transfers
+        //     from a structure the query never names"; "a substitute the query
+        //     NAMES may still be voiced").  Refuted: the privilege exists to
+        //     admit what the query does NOT contain, so identity is the wrong
+        //     axis.
+        //
+        // WHAT A FUTURE ATTEMPT MUST RESPECT: whatever allocates this privilege
+        // has to (a) keep it available to candidates the query does not contain
+        // — analogies, substitutions, compositions — and (b) not depend on the
+        // estimator's ordering among anchors of equal evidence, because that
+        // ordering is not a fact about the corpus.  No lever satisfying both has
+        // been found.  Until one is, this premise rests on the enumeration order
+        // recorded above, and test/34 is the only test that notices if it
+        // moves.
         dominant = true;
         if (pastLeading) {
           status = "root";
