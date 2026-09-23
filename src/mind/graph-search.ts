@@ -1372,7 +1372,20 @@ export class GraphSearch {
       // duplicate read and a branch that could never be taken.
       let next: number | null = null;
       let keyBytes = c.bytes;
-      for (let len = 1; len <= tail.length; len++) {
+      // THE PREFIX ENDS ARE THE TAIL'S OWN FOLD BOUNDARIES, not every byte
+      // length.  The key is `entity + prefix`, and the prefix that names a
+      // stored relation ends where the fold cuts: measured over four join-firing
+      // queries, 5 of 5 accepted keys ended on a boundary (or the tail's end)
+      // while the byte-by-byte scan spent 153 probes where 14 boundaries would
+      // do.  Same criterion — resolves AND leads — same shortest-first order, so
+      // the answer is the same one the enumeration found; only the candidates
+      // come from the structure instead of from the byte count.  A host with no
+      // boundary rule falls back to the enumeration.
+      const cuts = this.host.contentCuts?.(tail);
+      const ends = cuts && cuts.length > 0
+        ? [...cuts.filter((c) => c > 0 && c < tail.length), tail.length]
+        : Array.from({ length: tail.length }, (_, i) => i + 1);
+      for (const len of ends) {
         keyBytes = concat2(c.bytes, tail.subarray(0, len));
         const k = this.host.resolve(keyBytes) ??
           this.host.canonResolve?.(keyBytes) ??

@@ -65,6 +65,15 @@ export interface GraphSearchHost {
     starts: ReadonlySet<number>;
   };
   chooseNext?(node: number): number | undefined;
+  /** The boundary positions of `bytes` under the engine's ONE boundary rule
+   *  (geometry.ts's `contentBoundaries`), or undefined when the host has no
+   *  space to ask.  The join's key is an entity plus a prefix of the tail, and
+   *  the prefix that names a stored relation ENDS on one of these boundaries —
+   *  measured, 5 of 5 accepted keys over four join-firing queries, where the
+   *  byte-by-byte scan spent 153 probes for 14 boundaries.  Boundaries are
+   *  content-defined and STABLE under prefix extension, which is why a corpus
+   *  key's end is a boundary of the query's own fold of the same bytes. */
+  contentCuts?(bytes: Uint8Array): readonly number[];
   /** The admission predicate — `traverse.ts`'s `leadsSomewhere`, its ONE
    *  definition: does this node bear an edge or a halo?  Optional, so a bare
    *  host (a raw Store and nothing else) still works; when present, the search

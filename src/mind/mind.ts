@@ -21,8 +21,7 @@ import {
   gridToTree,
   hilbertBytes,
   reachThreshold,
-  stackGrids,
-} from "../geometry.js";
+  stackGrids, contentBoundaries } from "../geometry.js";
 import type { ContentFold } from "../geometry.js";
 import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
@@ -440,6 +439,11 @@ export class Mind implements MindContext {
    *  with the most distributional evidence (highest `prevOf` count — the
    *  structural manifestation of its halo).  When evidence is equal the
    *  first-inserted edge wins. */
+  /** See {@link GraphSearchHost.contentCuts}. */
+  contentCuts(bytes: Uint8Array): readonly number[] {
+    return contentBoundaries(this.space, bytes);
+  }
+
   chooseNext(node: number): number | undefined {
     return chooseNext(this, node, this._edgeGuide);
   }
