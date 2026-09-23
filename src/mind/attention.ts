@@ -1247,15 +1247,18 @@ export async function voteRegions(
       }
       contrastiveMargin = margin;
       // Scaled by what this region does NOT address — see `cov` above.
-      const noiseFloor = estimatorNoise(ctx.store.D) * (1 - cov);
-      if (margin <= noiseFloor) {
+      // The bar THIS gate applies: the estimator's noise scaled by what the
+      // region does NOT address (`cov`).  ONE definition, used by the rejection
+      // path below and by the voted payload — the trace reports the applied bar.
+      const appliedFloor = estimatorNoise(ctx.store.D) * (1 - cov);
+      if (margin <= appliedFloor) {
         recordRegion("contrastive-margin-rejection", {
           selected,
           reachNode: voterId,
           idf,
           dfWeight: wf,
           contrastiveMargin: margin,
-          contrastiveNoiseFloor: noiseFloor,
+          contrastiveNoiseFloor: appliedFloor,
           ...(contrastiveRival ? { contrastiveRival } : {}),
         });
         continue;
@@ -1309,7 +1312,12 @@ export async function voteRegions(
       ...(contrastiveMargin !== undefined
         ? {
           contrastiveMargin,
-          contrastiveNoiseFloor: estimatorNoise(ctx.store.D),
+          // THE BAR THE GATE ACTUALLY APPLIED — the same expression
+          // the rejection path's `appliedFloor` defines, inline here because
+          // this payload is built in a scope that does not carry that local.
+          // Publishing the raw estimatorNoise(D) instead made a region that
+          // PASSED look closer to its limit than it was.
+          contrastiveNoiseFloor: estimatorNoise(ctx.store.D) * (1 - cov),
           ...(contrastiveRival ? { contrastiveRival } : {}),
         }
         : {}),
