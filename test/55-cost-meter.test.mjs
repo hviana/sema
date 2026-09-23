@@ -491,3 +491,59 @@ test("13. the fusion is counted when it FUSES, and claimed only then", async () 
     "and no step may CLAIM a fusion that did not happen",
   );
 });
+
+test("14. the climb publishes the peak that recall's gate reads", async () => {
+  // `Attention.peak` (types.ts) is the LARGEST single-region contribution behind
+  // an anchor, and mechanisms/recall.ts gates on it (`forest[0].peak > LN2`).
+  // The climb computed it, carried it into `ranked`, and the rationale showed
+  // everything EXCEPT it — the one decision-making quantity that was invisible.
+  //
+  // FAIL BEFORE: `anchor.peak` did not exist.  The assertions below are a real
+  // relation, not a magic number: one contribution cannot exceed the sum of
+  // contributions, so `peak <= pooledVote`, and at least one anchor must have
+  // peak > 0 or the fixture never reached the quantity at all.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+  ];
+  const findAnchors = (o, depth = 0) => {
+    if (o === null || typeof o !== "object" || depth > 5) return null;
+    if (Array.isArray(o.anchors) && o.anchors.length) return o;
+    for (const v of Object.values(o)) {
+      const r = findAnchors(v, depth + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CORPUS);
+  const steps = [];
+  await mind.respondText(
+    "capital of France and the tallest tower in Paris",
+    (s) => steps.push(s),
+  );
+  await store.close();
+  const step = steps.find((s) => findAnchors(s.data ?? s) !== null);
+  const td = step ? findAnchors(step.data ?? step) : null;
+  assert.ok(td, "the climb must report its anchors");
+  assert.ok(
+    td.anchors.every((a) => typeof a.peak === "number"),
+    "every anchor must publish its peak",
+  );
+  assert.ok(
+    td.anchors.some((a) => a.peak > 0),
+    `at least one anchor must have a real peak (got ${
+      JSON.stringify(td.anchors.map((a) => a.peak))
+    })`,
+  );
+  assert.ok(
+    td.anchors.every((a) => a.peak <= a.pooledVote),
+    "one contribution cannot exceed the sum of contributions",
+  );
+});

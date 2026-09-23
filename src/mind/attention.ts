@@ -180,6 +180,10 @@ export interface ConsensusAnchorTrace {
 
   pooledVote: number;
   idfVote: number;
+  /** The LARGEST single-region contribution behind this anchor — the bar
+   *  recall's own gate reads (mechanisms/recall.ts).  Published so the one
+   *  decision-making quantity the climb computes is not invisible. */
+  peak: number;
 
   candidateBreadth: number;
   contributingVotes: number;
@@ -1719,6 +1723,13 @@ export function commitVotes(
       rank,
       pooledVote: point.vote,
       idfVote: votesIdf.get(point.anchor) ?? 0,
+      // The LARGEST single-region contribution behind this anchor — the bar
+      // recall's own gate reads (mechanisms/recall.ts: forest[0].peak > LN2),
+      // and until now the only decision-making quantity the climb computed and
+      // did not publish.  `regionPeak` reached `ranked` (see its build below)
+      // and stopped there.  Published, not recomputed: the value is the one the
+      // climb already carries.
+      peak: point.peak,
       candidateBreadth: regions.length,
       contributingVotes: regionAxioms.get(point.anchor) ?? 0,
       contributingEvidence: regionSupport.get(point.anchor) ?? 0,
