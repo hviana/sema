@@ -8,10 +8,10 @@ a truth value) are declared here once.
 
 It joins the mind as a `PipelineMechanism`
 ([`../mind/pipeline-mechanism.ts`](../mind/pipeline-mechanism.ts)) whose only
-special role is the optional `parse(query)` method every mechanism may
-implement. The mind knows nothing about what the ALU computes; it only knows
-that `parse` returns `ComputedSpan[]`, which enter the one lightest-derivation
-search as authoritative axioms (at `STEP` cost, like a learned edge).
+special role is the optional `parse(query)` every mechanism may implement. The
+mind knows nothing about what the ALU computes; it only knows that `parse`
+returns `ComputedSpan[]`, which enter the one lightest-derivation search as
+authoritative axioms (at `STEP`, like a learned edge).
 
 It has no dependency on the rest of the codebase except the pure byte helpers in
 `../bytes.ts`, and is intended to be reused as a self-contained sublibrary in
@@ -166,7 +166,7 @@ The ALU is completely decoupled from Sema. It joins the mind through
 re-exported from [`../mind/pipeline.ts`](../mind/pipeline.ts)), a thin adapter
 that wraps the ALU's `parse` in a `PipelineMechanism` — the same uniform
 interface every grounding mechanism (CAST, confluence, cover, extraction,
-recall) implements, so nothing about the ALU is special-cased in the pipeline.
+recall) implements, so nothing about the ALU is special-cased.
 
 ### The contract
 
@@ -175,7 +175,7 @@ recall) implements, so nothing about the ALU is special-cased in the pipeline.
 ```ts
 interface PipelineMechanism {
   parse?(query: Uint8Array): Promise<ComputedSpan[]>;
-  floor(ctx, query, pre): Promise<number | null>;
+  floor(ctx, query, pre, worthRunning): Promise<number | null>;
   run(ctx, query, pre): Promise<MechanismResult[]>;
 }
 ```
