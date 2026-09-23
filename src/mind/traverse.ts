@@ -10,6 +10,13 @@ import { cosine, Vec } from "../vec.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { gistOf, read } from "./primitives.js";
 import { canonicalWindows, leafIdPrefix, leafIdRun } from "./canonical.js";
+// Imported at the TOP, where every other import is.  They used to sit 800 lines
+// down under a note claiming the position mattered ("before trace module is
+// loaded") — it does not: an ES module's static imports are HOISTED, so the
+// file's line order never decides load order.  The note described an intention
+// the runtime does not honour; the imports move and the claim goes.
+import { decodeText } from "./rationale.js";
+import type { RationaleItem } from "./rationale.js";
 
 // ── Session structural memo ─────────────────────────────────────────────
 //
@@ -823,11 +830,6 @@ export function chooseAmong(
     ? { id: found.item, score: found.score }
     : { id: candidates[0], score: -Infinity };
 }
-
-// ── Trace shim (used by chooseNext before trace module is loaded) ────────
-
-import { decodeText } from "./rationale.js";
-import type { RationaleItem } from "./rationale.js";
 
 function rItemShort(
   ctx: MindContext,
