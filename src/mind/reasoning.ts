@@ -290,6 +290,24 @@ export async function reason(
         // the check disabled, test/110 and test/116 fail — so this brake is the
         // only thing keeping the extension honest until the pivot reports its
         // own accounted spans and the ladder can judge it instead.
+        //
+        // THE PROMISE IS NOW KEPT, AND THE BRAKE TURNS OUT TO BE THE LADDER'S
+        // OWN CONSEQUENCE.  The extension reports what it carried (`carried`,
+        // the span each step was justified by) and what it cost (`steps`), both
+        // counted in the meter (`reasonCarriedBytes`, `reasonSteps`), so the
+        // ladder CAN judge it: it accepts while
+        //
+        //     steps · STEP  <  PASS · carried
+        //
+        // and this brake accepts whenever the step carries a `W`-window, i.e.
+        // whenever `carried ≥ W ≥ 1`.  With `PASS/STEP = 1000` the two therefore
+        // agree on every extension with `steps ≤ 1000 · carried` — and every
+        // extension this repository produces takes 0 or 1 steps (measured on
+        // chains of 3, 8, 20 and 40 links).  Above that bound the ladder would
+        // refuse what this brake accepts, which is the corner named in the
+        // closure report's limits: a chain of thousands of links explaining a
+        // handful of bytes.  No guard is added for it — a limit without a
+        // derivation is exactly what the brake must not become.
         const left = uncovered.reduce((n, [a, b]) => n + (b - a), 0);
         ctx.trace?.step(
           "pivotRefused",

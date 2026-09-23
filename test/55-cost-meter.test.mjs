@@ -393,3 +393,44 @@ test("11. the pivot's probe cap is visible: what it spent, and what it withheld"
     "the cap withheld capacity, not the answer",
   );
 });
+
+test("12. the extension's cost obeys the ladder's own inequality", async () => {
+  // The extension (reason()) is bounded by the material gate but was never
+  // PRICED.  It now reports both facts — steps taken, and the bytes of
+  // uncovered material it was justified by — so the inequality the ladder
+  // would apply is checkable:
+  //
+  //     steps · STEP  <  PASS · carried
+  //
+  // The gate accepts whenever a step carries a W-window, so the two agree for
+  // every extension with `steps ≤ (PASS/STEP) · carried`.  This pins that
+  // inequality on a fixture where the extension really runs (the anti-vacuity
+  // guard below), and derives both constants from the ladder instead of
+  // spelling them out.
+  const { PASS, STEP } = await import("../dist/src/mind/graph-search.js");
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest([
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+  ]);
+  await mind.respondText("What is the capital of France famous for");
+  const c = mind.lastCost.counters;
+  await store.close();
+
+  const steps = c.reasonSteps ?? 0;
+  const carried = c.reasonCarriedBytes ?? 0;
+  assert.ok(
+    steps >= 1,
+    `the extension must run for this to mean anything (got ${steps})`,
+  );
+  assert.ok(
+    carried >= 1,
+    `and it must be justified by real material (got ${carried})`,
+  );
+  assert.ok(
+    steps * STEP < PASS * carried,
+    `the extension spent ${steps} step(s) on ${carried} carried byte(s) — the ` +
+      `ladder would refuse that (STEP·${steps} vs PASS·${carried})`,
+  );
+});
