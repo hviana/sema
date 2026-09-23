@@ -7,13 +7,13 @@ what sits between them.
 
 ## Matcher — `skillExemplar` / `isSpanShaped` / `containsSpan` (`src/mind/match.ts`)
 
-An exemplar is span-shaped when its answer is an in-order embedding of its
-context. `isSpanShaped` is the open reading (sparse subsequence, any gaps) used
-to accept candidates; `answerRunsInContext` is the strong reading (greedy
-longest contiguous runs) used to decompose the answer for projection. Candidates
-are ranked anchors from `climbAttentionAll` (`Precomputed.spanShapedOf`), tried
-in order up to `pre.k`; sub-quantum (`< W = maxGroup`) or unanchored results are
-skipped.
+An exemplar is span-shaped when its answer embeds in order. `isSpanShaped` is
+the open reading (sparse subsequence, any gaps) for acceptance; `containsSpan`
+is the strict reading (contiguous run, or a resolved node) that fusion gates on,
+extraction decomposes with `answerRunsInContext` (greedy longest runs).
+Candidates are ranked anchors from `climbAttentionAll`
+(`Precomputed.spanShapedOf`), tried up to `pre.k`; sub-quantum (`< W`) or
+unanchored results are skipped.
 
 ## Projection — read between located frames (`src/mind/mechanisms/extraction.ts`)
 
