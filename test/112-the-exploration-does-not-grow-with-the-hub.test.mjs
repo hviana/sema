@@ -57,7 +57,9 @@ test("ten times the hub's continuations is not ten times the offered work", asyn
   assert.ok(
     offers(big) <= offers(small) + slack,
     "what a chain hop OFFERS must be bounded by the question, not by the " +
-      `corpus's fan-out: small=${offers(small)} big=${offers(big)} slack=${slack}`,
+      `corpus's fan-out: small=${offers(small)} big=${
+        offers(big)
+      } slack=${slack}`,
   );
   await small.store.close();
   await big.store.close();
