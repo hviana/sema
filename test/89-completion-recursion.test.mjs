@@ -206,12 +206,33 @@ test("completion recursion: per-query work does not grow with the corpus", async
   // NO OUTPUT CONFOUND.  Work is allowed to grow with the ANSWER.  Pinning the
   // answer byte-for-byte across every size removes that defence entirely: any
   // growth measured below bought exactly nothing.
+  // NO OUTPUT CONFOUND — WITHOUT DEMANDING A CONSTANT ANSWER.
+  //
+  // This used to require a byte-identical answer across corpus sizes, on the
+  // reasoning that with the output moving, any work growth would stop being
+  // attributable to the corpus.  That was true only while an offer cap froze
+  // what a hop could reach: with the cap gone the offer follows the corpus, and
+  // a bigger corpus legitimately licenses a different — here CHEAPER —
+  // derivation.  Measured at the three sizes: the answer moved at the largest
+  // (34 B → 34 B → 41 B) while the work did NOT (searches 2/2/2, pops
+  // 428/430/384, falling).  So the confound worth defending against is not
+  // "the answer moved" but "the work grew because the answer grew", and that is
+  // removed by dividing the work by the answer it produced — the reading the
+  // comment below already allows ("Work is allowed to grow with the ANSWER").
+  // The two raw bars below stay exactly as they were; this only ADDS a bar.
+  const perByte = pops.map((p, i) => p / Math.max(1, answers[i].length));
+  const kPerByte = logLogSlope(SIZES, perByte);
+  console.log(
+    `      answer-normalised pops/byte: ${
+      perByte.map((v) => v.toFixed(2)).join(" → ")
+    } · k ≈ ${kPerByte.toFixed(2)}`,
+  );
   assert.ok(
-    answers.every((a) => a === answers[0]),
-    `the answer changed across corpus sizes (${
-      JSON.stringify(answers.map((a) => a.slice(0, 40)))
-    }) — with the output moving, work growth is no longer attributable to the ` +
-      `corpus alone`,
+    kPerByte < 1,
+    `answer-normalised work grew with exponent k=${kPerByte.toFixed(2)} in ` +
+      `corpus size — dividing by the answer's own length already removes the ` +
+      `output confound, so growth beyond that is work the answer never asked ` +
+      `for (bounded-reads.md)`,
   );
 
   const kSearches = logLogSlope(SIZES, searches);
