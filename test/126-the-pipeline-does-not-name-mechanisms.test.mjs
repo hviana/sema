@@ -1,13 +1,13 @@
-// 126 — a pipeline NÃO conhece mecanismos pelo nome.
+// 126 — the pipeline does NOT know mechanisms by name.
 //
-// `pipeline-mechanism.ts` promete, no cabeçalho: "it never imports a
+// `pipeline-mechanism.ts` promises, in its header: "it never imports a
 // mechanism-specific type and never has a special-case branch for any
-// mechanism".  A pós-grounding violava-o: decidia por NOME de proveniência
-// (cast/join/recall/recall-echo) em vez de pelo que o mecanismo DECLARA no seu
-// resultado.  O contrato já tem o molde certo — `MechanismResult.complete`, cujo
-// doc diz "the decider honours the property and never asks which mechanism set
-// it".  Este teste pina a propriedade, não a implementação: nenhuma comparação
-// contra um nome de mecanismo no código compilado da pipeline.
+// mechanism".  Post-grounding broke that: it decided on a provenance NAME
+// (cast/join/recall/recall-echo) rather than on what the mechanism
+// DECLARES in its result.  The contract already has the right mould:
+// `MechanismResult.complete`, whose doc says "the decider honours the
+// property and never asks which mechanism set it".  This test pins the
+// property, not the implementation — no mechanism name in pipeline.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -20,8 +20,8 @@ test("126. the pipeline branches on what a mechanism DECLARES, not on its name",
     new URL("../dist/src/mind/pipeline.js", import.meta.url),
     "utf8",
   );
-  // ANTI-VACUITY: o ficheiro tem de ser o certo e tem de falar de proveniência —
-  // senão o teste passaria por o ficheiro estar vazio.
+  // ANTI-VACUITY: the file has to be the right one and has to talk about
+  // provenance — otherwise the test would pass on an empty file.
   assert.ok(src.length > 2000, `pipeline.js looks wrong (${src.length} bytes)`);
   assert.ok(
     src.includes("provenance"),
