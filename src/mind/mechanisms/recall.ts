@@ -629,6 +629,7 @@ export const recallMechanism: PipelineMechanism = {
       moves: r.moves,
       unexplained: r.unexplained,
       provenance: r.echoed ? "recall-echo" : "recall",
+      used: new Set<number>(),
       ...(r.complete ? { complete: true } : {}),
     }];
   },

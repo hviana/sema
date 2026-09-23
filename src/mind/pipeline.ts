@@ -503,14 +503,11 @@ export async function think(
   }
   const answer: Uint8Array = decided.bytes;
   const provenance = decided.provenance as Provenance;
-  const castUsed: ReadonlySet<number> = decided.used ?? new Set();
+  const declaredUsed = decided.used;
 
   // ── Post-grounding, gated by provenance ──────────────────────────────
-  const preConsumed = provenance === "cast" || provenance === "join"
-    ? castUsed
-    : provenance === "recall" || provenance === "recall-echo"
-    ? new Set<number>()
-    : new Set(recognise(ctx, answer).sites.map((s) => s.payload));
+  const preConsumed = declaredUsed ??
+    new Set(recognise(ctx, answer).sites.map((s) => s.payload));
   // A grounding that DECLARED itself complete is not extended: the answer is
   // already a trained form's own continuation, reached through an identity
   // claim about the query, so a multi-hop pivot could only chain past the
@@ -539,11 +536,9 @@ export async function think(
   // `preConsumed` is derived by re-recognising the answer — "everything in
   // it", not "what it voiced" — and a containment rule over that would
   // suppress every pivot the answer legitimately contains.
-  const voiced = (provenance === "cast" || provenance === "join")
-    ? [...castUsed].flatMap((id) =>
-      ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n))
-    )
-    : [];
+  const voiced = declaredUsed === undefined ? [] : [...declaredUsed].flatMap(
+    (id) => ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n)),
+  );
   // WHAT THIS BRANCH READ, published where it was read.  Post-grounding decides
   // by `decided.used` and by the provenance NAME; the operands were invisible in
   // the trace, so a change to the branching could not be shown equivalent or
