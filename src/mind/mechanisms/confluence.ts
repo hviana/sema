@@ -146,6 +146,19 @@ export async function confluenceJoin(
   const bindsAConstituent = (cover: Array<[number, number]>): boolean =>
     cover.some(([cs, ce]) => ce - cs >= 2 * W);
 
+  // THE VOTE ENTERS AS ORDER, NEVER AS A BAR.  This is the only one of the
+  // climb's four consumers (recall, fuseAttention, cast, here) that uses the
+  // evidence's MAGNITUDE without a floor, and it is legitimate by construction:
+  // `ranked` answers "which anchor is stronger" — a question about votes, so the
+  // comparison stays within one dimension — and the vote is otherwise only
+  // REPORTED (Stream.vote travels to the rationale's constraint nodes).  What
+  // actually SELECTS a constraint is byte-structural and never the magnitude: a
+  // run of at least 2W (`bindsAConstituent`, with its accidental-sharing
+  // counter-examples above), disjoint covers (`disjoint`), and scaffolding never
+  // binds at all (`dominates(reachOf(…), N)`).  The only cut in this loop is a
+  // BUDGET, and it is measured: stopping the scan at 2W anchors saves 50-70% of
+  // confluence's cost on non-conjunctive queries while preserving every genuinely
+  // conjunctive case, whose top anchors ARE its constraints.
   const streams: Stream[] = [];
   const rankedCapped = ranked.length > pre.k ? ranked.slice(0, pre.k) : ranked;
   // CONJUNCTIVITY EARLY-EXIT: a conjunctive query's top-ranked anchors
