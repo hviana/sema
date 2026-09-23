@@ -1488,12 +1488,24 @@ export function poolVotes(
   // The LARGEST single region's contribution to this anchor's pooled vote.
   // The pool is a SUM (deliberately — see the pooling note above), so it says
   // how much evidence there is in total, never whether any ONE place in the
-  // query carries evidence on its own.  Consumers that hold an anchor to
-  // consensusFloor(N) = ln(N) + 1/2 need the latter: that bar prices ONE
-  // region's maximally-discriminative evidence (ln N is the IDF of content
-  // reaching a single context), so comparing a six-region sum against it is a
-  // dimensional error.  Recorded here, beside the count, because this is the
-  // only place the per-region contributions are still separable.
+  // query carries evidence on its own.  Recorded here, beside the count,
+  // because this is the only place the per-region contributions are still
+  // separable.
+  //
+  // THE BAR IS THE POOLED FLOOR, AND IT WAS ONCE CLAIMED OTHERWISE HERE.
+  // This comment used to say that holding an anchor to consensusFloor(N)
+  // "prices ONE region's evidence", so comparing a six-region sum against it
+  // was "a dimensional error".  THAT WAS FALSE.  `thresholds.md` §2 derives
+  // `consensusFloor` as the POOLED-vote significance floor ("each region
+  // contributes at most ln(N/c) <= ln(N); ln(N) + 1/2 demands ..."), and the
+  // climb weights by IDF, so the sum and the floor are in ONE dimension —
+  // which is exactly why `recall.ts` gates `forest[0].idfVote` against it and
+  // why `commitVotes` does too.  The other two weighting modes DO leave that
+  // dimension (by at most ln 2, two-sided: `direct` deflates a region and
+  // `combined` inflates it), and the gates therefore read the IDF sum, which
+  // is mode-independent; `test/55` tests 19 and 20 pin both halves — the sum
+  // as the reading the bar is derived for, and the absence of any gate
+  // inversion across the three modes.
   const regionPeak = new Map<number, number>();
   const steps: DerivationStep[] = [];
   let order = 0;

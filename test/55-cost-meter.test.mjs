@@ -944,7 +944,6 @@ test("20. the non-IDF weighting modes never flip a gate verdict", async () => {
   );
 });
 
-
 test("21. the price's second term has one definition, and it is the complement", async () => {
   // `unaccountedBytes` collapsed four copies of the same `reduce` (audit, etapa 6).
   // Since the value did NOT change, the lot is only pinned if something would
@@ -964,10 +963,17 @@ test("21. the price's second term has one definition, and it is the complement",
   //   would answer 12 (or 6+6) and fail.
   const overlapping = [[0, 6], [4, 10]];
   const gaps = unexplainedSpans(10, overlapping);
-  assert.equal(gaps.length, 0, `the union fully covers: gaps=${JSON.stringify(gaps)}`);
+  assert.equal(
+    gaps.length,
+    0,
+    `the union fully covers: gaps=${JSON.stringify(gaps)}`,
+  );
   assert.equal(unaccountedBytes(gaps), 0);
   // And the complement is additive against the covered union: half-covered.
   assert.equal(unaccountedBytes(unexplainedSpans(10, [[0, 4], [2, 6]])), 4);
   // Nothing is ever negative or double-counted on a mixed input.
-  assert.equal(unaccountedBytes(unexplainedSpans(20, [[5, 8], [5, 8], [12, 15]])), 14);
+  assert.equal(
+    unaccountedBytes(unexplainedSpans(20, [[5, 8], [5, 8], [12, 15]])),
+    14,
+  );
 });

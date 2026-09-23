@@ -112,9 +112,6 @@ export function decodeText(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes.filter((b) => b !== 0x00));
 }
 
-/** The `[start, end)` gaps of `[0, queryLen)` NOT covered by `accounted` —
- *  the same union-of-spans reading think's grounding decider prices at PASS
- *  per byte, exposed here so a mechanism can turn it into a human label. */
 /** The BYTE COUNT of the complement — what the currency calls `unaccounted`
  *  in `weight = moves + PASS·unaccounted`.  It lives here, beside the function
  *  that produces the gaps, because the price's second term has ONE definition:
@@ -129,6 +126,9 @@ export function unaccountedBytes(
   return total;
 }
 
+/** The `[start, end)` gaps of `[0, queryLen)` NOT covered by `accounted` —
+ *  the same union-of-spans reading think's grounding decider prices at PASS
+ *  per byte, exposed here so a mechanism can turn it into a human label. */
 export function unexplainedSpans(
   queryLen: number,
   accounted: ReadonlyArray<[number, number]>,
