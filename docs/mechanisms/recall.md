@@ -24,16 +24,15 @@ W = `maxGroup` (river window); bars from `src/geometry.ts`.
 ## Echo — the refusing tail
 
 If no tier grounded, the exact cosine of the top hit is re-folded (`gistOf` on
-its bytes). Decision uses that exact value in the same query-relative,
-chance-corrected fraction — never the RaBitQ estimate. Below `reach` → silence;
-restating → silence; otherwise the hit's own bytes are returned as an ungrounded
-echo.
+its bytes). It uses that exact value in the same chance-corrected fraction —
+never the RaBitQ estimate. Below `reach` → silence; restating → silence;
+otherwise the hit's own bytes are returned as an ungrounded echo.
 
 ## Provenance
 
 Grounded answers carry `recall`; the echo carries `recall-echo` (`echoed: true`
-on `RecallResult`). Consumers distinguish a continuation through learned edges
-from a near-identity echo.
+on `RecallResult`); it declares `used: ∅`. Consumers distinguish a continuation
+through learned edges from a near-identity echo.
 
 ## Substitution bridge — refusal-path only (`src/mind/bridge.ts`)
 
@@ -47,13 +46,13 @@ unanimous, and the raw gap is length-balanced. Coverage must dominate the query
 and no dismissed gap may hide known content (`dismissedKnownContent` gate). Cost
 is `CONCEPT` per substitution plus `STEP`; accounted spans include matched and
 substituted ranges (so a 28/29-byte paraphrase is not charged `PASS` per
-substituted byte — observed double-charge that let `cast` outbid the bridge).
+substituted byte — the double-charge that let `cast` outbid the bridge).
 Zero-substitution identity bridges carry `complete: true` (the whole read-out);
 substituted bridges do not.
 
-Scaffolding-only queries abstain: when every stored window that could anchor is
+Scaffolding-only queries abstain: when every window that could anchor is
 saturated (corpus-global scaffolding, `allWindowsAreScaffolding`), the bridge
-returns nothing — a single substituted word cannot carry the semantic load.
+returns nothing — one substituted word cannot carry the load.
 
 ## Cost
 
