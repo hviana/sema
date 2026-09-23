@@ -17,11 +17,11 @@ it. Harness: `bench/profile-inference.mjs`.
    non-deterministic hints reported separately — never use them to gate
    behaviour.
 
-3. **Phases nest, they do not partition.** `think` contains every mechanism
-   phase; a mechanism's `floor` contains whatever shared analysis it
-   first-touched; `recall.run` contains `substitutionBridge`. Read a phase as
-   inclusive wall-clock — never sum phases and expect the total.
-   `CostReport.elapsedMs` is the only whole.
+3. **Phases nest, they do not partition.** Each phase is charged by the layer
+   doing the work (`recognise`, the climb's two, the bridge), and a mechanism's
+   `floor` contains whatever shared analysis it first-touched. Read a phase as
+   inclusive wall-clock; never sum phases. `CostReport.elapsedMs` is the only
+   whole.
 
 4. **Count once.** Off by default and free when off
    (`new Mind({ profile:
