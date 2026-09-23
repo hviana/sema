@@ -1,11 +1,11 @@
-// 125 — a ramificação da pós-grounding publica O QUE LEU.
+// 125 — the post-grounding branch publishes WHAT IT READ.
 //
-// A pós-grounding decide por `decided.used` e pelo NOME da proveniência.  Os
-// operandos não estavam no traço, e por isso uma mudança na ramificação não
-// podia ser mostrada equivalente (ou não) de fora: três investigações
-// separadas falharam exactamente nesse intervalo.  Um intervalo na
-// instrumentação é um defeito NA instrumentação (AGENTS.md §6) — fechado no
-// sítio, uma vez, como CONTAGENS, nunca conteúdo.
+// Post-grounding decides on `decided.used` and on the provenance NAME.  Those
+// operands were not in the trace, so a change to the branch could not be shown
+// equivalent (or not) from outside: three separate investigations failed in
+// exactly that interval.  A gap in instrumentation is a defect IN the
+// instrumentation (AGENTS.md §6) — closed on the spot, once, as COUNTS, never
+// content.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -19,15 +19,15 @@ test("125. the post-grounding branch publishes its operand", async () => {
     ["2+2", "2+2 equals 4"],
     ["Gustaf Molander", "Gustaf Molander was a Swedish film director"],
   ]);
-  const passos = [];
-  await mind.respondText("who was Gustaf Molander", (s) => passos.push(s));
+  const steps = [];
+  await mind.respondText("who was Gustaf Molander", (s) => steps.push(s));
   await store.close();
-  const pg = passos.filter((p) => p.data && p.data.usedDeclared !== undefined);
+  const pg = steps.filter((p) => p.data && p.data.usedDeclared !== undefined);
   assert.ok(
     pg.length >= 1,
     `the response must emit a postGrounding step carrying the operand ` +
       `(steps with data: ${
-        passos.filter((p) => p.data).map((p) => String(p.note).slice(0, 24))
+        steps.filter((p) => p.data).map((p) => String(p.note).slice(0, 24))
           .join(" | ")
       })`,
   );
