@@ -1,25 +1,16 @@
-// 112-the-exploration-does-not-grow-with-the-hub.test.mjs — LIMIT: what a hop
-// OFFERS is bounded by the question, not by the corpus's fan-out.
+// 112-the-exploration-does-not-grow-with-the-hub.test.mjs
 //
-// THE GAP THIS CLOSES.  `hubBound` = √N is the READ cap — every read stays
-// inside it — but it is not an EXPLORATION bound.  Measured on the trained
-// store: a hub of degree 1083 sits BELOW √N = 1559, so a chain hop offered all
-// 1083 continuations, the chart grew to 3113 outs for a two-word question, and
-// because every out with an uncovered tail probes its tail's prefixes, that one
-// query spent 16 885 canonical probes (87% of its work), a 270 MB peak and an
-// OOM at a 256 MB heap.  The cost came from OFFERING, not from reading.
+// WHAT THIS PROVES, STATED HONESTLY.  A chain hop's offer does not grow with the
+// hub's degree — but on a fixture the reason is the store's READ bound
+// (`hubBound = √N`), not the exploration cap: measured, this file passes with
+// `exploreCap` removed and with it in place, so it does NOT pin that cap.  The
+// cap's only measured effect is in the trained store, where `hubBound` (1 559)
+// exceeds the hub's degree (1 083) and the peak went from 270 MB (OOM at a
+// 256 MB heap) to 98 MB — a regime a fixture cannot reach, since it needs
+// N > degree² (about 1.4M nodes for a 1.2k hub).  What IS pinned here is the
+// shape a corpus reader depends on (bounded offers, deterministic browse) and
+// that the hop is actually taken, which is what makes the counters meaningful.
 //
-// THE RULE, derived and not tuned: a derivation of L hops consumes ~L units of
-// the question, so a hop cannot be paid for by offering more continuations than
-// the question has units — `ceil(queryLen / W)`, floored at 2 for plurality.  It
-// is QUERY-sized (invariant 5: no per-query read grows with N), it changes no
-// read, and `hubBound` keeps its formula.
-//
-// WHAT IS PINNED, relationally and with no magic number: giving a hub ten times
-// more continuations must not cost more than the QUERY's own size in extra
-// chart work.  Before the fix the work grew with the hub (offering every
-// continuation); after it, the two runs are the same size.
-
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";

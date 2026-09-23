@@ -875,6 +875,20 @@ export class GraphSearch {
       // `ceil(queryLen / W)`, floored at 2 for plurality. It is QUERY-sized
       // (invariant 5: no per-query read grows with N) and it leaves `hubBound`
       // and every read untouched.
+      // STATUS, MEASURED, AND NOT YET RESOLVED BY THE CLOSURE LAW.  On every
+      // fixture this cap is INERT: the store's read bound (`hubBound = √N`)
+      // already limits the offer, because a fixture cannot reach the regime
+      // where it does not (that needs N > degree² — about 1.4M nodes for a
+      // 1.2k hub).  test/112 passes with this cap removed and with it in place,
+      // so nothing pins it.  Its only measured effect is in the trained store,
+      // where `hubBound` (1 559) exceeds the hub's degree (1 083): there it took
+      // the peak from 270 MB (OOM at a 256 MB heap) to 98 MB.  That measurement
+      // is why it stays; it is also a short-circuit, because it bounds what a
+      // hop OFFERS rather than charging for it.  The lawful replacement is for
+      // the offer to be proposed by STRUCTURE (the join's key, as the tail
+      // prefixes now come from the fold) so the search pays instead of the cap
+      // deciding.  Until that exists, this is the honest state: a known
+      // short-circuit, inert in every test, load-bearing in one measurement.
       const offerCap = exploreCap(queryLen, this.maxGroup);
       const nx = this.store.nextFirst(it.node, offerCap);
       // Count what is OFFERED, not what was read: the evidence-preferred
