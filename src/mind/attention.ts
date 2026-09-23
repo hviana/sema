@@ -1442,7 +1442,15 @@ export function poolVotes(
     },
     pool,
   };
-  lightestDerivation(system);
+  // A BUSCA ERA A ÚNICA CAMADA SEM TEMPO.  As fases do climb são medidas
+  // (voteRegions, structuralResonance, crossRegion) mas a derivação pooled
+  // não era, e por isso qualquer custo ou ganho dentro dela era invisível.
+  // `timeSync`, não `time`: a busca é SÍNCRONA, e envolvê-la numa promessa só
+  // para a medir faria o caminho perfilado esperar onde o não-perfilado não
+  // espera (o contrato do próprio meter.ts).
+  if (ctx.meter) {
+    ctx.meter.timeSync("climb.derivation", () => lightestDerivation(system));
+  } else lightestDerivation(system);
 
   const votes = new Map<number, number>();
   const votesIdf = new Map<number, number>();

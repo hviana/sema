@@ -625,3 +625,52 @@ test("15. the live record tells the two refusal gates apart", async () => {
     );
   }
 });
+
+test("16. the climb's own search is timed", async () => {
+  // Item 3 of the open list: the climb's phases were timed
+  // (`climb.voteRegions`, `climb.structuralResonance`, `climb.crossRegion`) but
+  // the pooled derivation itself was NOT — `lightestDerivation(system)` ran
+  // outside any phase, so any cost or gain inside it was invisible.  It is now
+  // wrapped in `meter.timeSync` (the synchronous seam: the graph search is
+  // synchronous, and wrapping it in a promise just to measure it would make the
+  // profiled path await where the unprofiled one does not).
+  //
+  // MEASURED: climb.derivation = 0.1-0.2 ms, i.e. ~0.2% of a ~85 ms response —
+  // the climb's cost is in voteRegions (5.8 ms), not in the search.  The
+  // wall-clock min over 5 runs moved 43.1 → 43.0, 84.8 → 84.6, 27.7 → 27.8 ms:
+  // the two-snapshot overhead is not measurable.
+  //
+  // FAIL BEFORE: `climb.derivation` did not exist.  The sibling assertion is the
+  // anti-vacuity guard — without it this would pass on a fixture that never
+  // climbed at all.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+  ];
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CORPUS);
+  await mind.respondText("capital of France and the tallest tower in Paris");
+  const phases = mind.lastCost.phases;
+  await store.close();
+
+  const sibling = phases["climb.voteRegions"];
+  assert.ok(
+    sibling && sibling.calls >= 1,
+    `the fixture must reach the climb (phases: ${
+      Object.keys(phases).join(", ")
+    })`,
+  );
+  const search = phases["climb.derivation"];
+  assert.ok(search, "the climb's own search must be a timed phase");
+  assert.equal(search.calls, 1);
+  assert.ok(
+    typeof search.ms === "number" && search.ms >= 0,
+    `and it must carry a real duration (got ${search.ms})`,
+  );
+});
