@@ -223,6 +223,12 @@ export class Meter {
   joinNoKey = 0;
   /** Refused: the fact contains no entity that leads anywhere. */
   joinNoEntity = 0;
+  /** `recompleteNode` re-covered a produced form — the descent that decomposes
+   *  a completion by ITS OWN kids.  Without this the descent is invisible: a
+   *  caller could see the chain's result but not whether the recomposition
+   *  happened, so "the recursion stopped" and "the recursion never ran" were
+   *  indistinguishable from the counters alone. */
+  recompletes = 0;
 
   // ── Mind: the multi-hop pivot (EXTENSION) ───────────────────────────────
   //

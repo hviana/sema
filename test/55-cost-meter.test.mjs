@@ -282,3 +282,47 @@ test("10. sumReports and formatReport aggregate a battery", async () => {
   assert.match(text, /perceptions/);
   await mind.store.close();
 });
+
+test("10. the recompose descent is counted, and its zero is omitted", async () => {
+  // `recompleteNode` decomposes a completion by ITS OWN kids, and that descent
+  // was invisible: a caller could read the chain's result but not whether the
+  // recomposition ran, so "the recursion stopped" and "it never ran" looked the
+  // same from the counters alone.
+  //
+  // Measured on this fixture: the simple queries deepen (recompletes = 1) while
+  // "eva director country" is answered by the JOIN and never descends — the same
+  // store, one counter, both directions.
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  const F1 = "The director of Eva is Gustaf Molander.";
+  const F2 = "The country of Gustaf Molander is Sweden.";
+  await mind.ingest([
+    ["eva", F1],
+    ["eva director", F1],
+    ["gustaf molander", F2],
+    ["gustaf molander country", F2],
+  ]);
+
+  await mind.respondText("eva director");
+  const descended = mind.lastCost.counters.recompletes ?? 0;
+
+  await mind.respondText("eva director country");
+  const joined = mind.lastCost.counters;
+
+  await store.close();
+
+  assert.ok(
+    descended >= 1,
+    `the recompose descent must be counted (got ${descended}) — without it the ` +
+      `recursion is unobservable`,
+  );
+  assert.ok(
+    (joined.joinFired ?? 0) >= 1,
+    `the control query must be the join's, not the descent's (joinFired=${joined.joinFired})`,
+  );
+  assert.equal(
+    joined.recompletes,
+    undefined,
+    "a response that never descends must omit the counter (test 6's convention)",
+  );
+});

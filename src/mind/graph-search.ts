@@ -1135,6 +1135,7 @@ export class GraphSearch {
       // concepts/connectors either (those need the caller's async
       // pre-resolution) — the recursion follows edges and fusion, which is what
       // a deeper rewrite chain is made of.
+      if (this.host.meter) this.host.meter.recompletes++;
       const rec = this.host.recogniseSpan(bytes);
       const kids = new Set(nrec.kids);
       // THE NODE'S OWN KIDS ARE SITES BY STRUCTURE — recognition cannot be the
