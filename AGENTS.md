@@ -2,8 +2,8 @@
 
 The working manual for anyone (human or AI agent) changing Sema. For pattern
 detail, see `docs/INDEX.md` → `docs/architecture/*.md`. You should be able to
-develop against this document and docs/ alone; read the theory in
-`docs/architecture/` when you need why a pattern holds, not to get work done.
+develop against this document and docs/ alone; read `docs/architecture/` for why
+a pattern holds.
 
 ## 1. Orientation
 
@@ -14,7 +14,7 @@ accelerators), and a cost-based search that composes answers from stored facts
 the only runtime dependency.
 
 ```bash
-npm install        # dev tooling + parquet reader used by one example
+npm install        # dev tooling + parquet reader for one example
 npm run build      # tsc → dist/
 npm test           # tsc && node --test test/**/*.test.mjs
 npm run demo       # example/demo.ts — the four-note README demo
@@ -62,6 +62,7 @@ shared content-addressed ascent; `Precomputed` in
 `src/mind/pipeline-mechanism.ts` is the per-response lazy memo; `src/meter.ts`
 is the write-only work accounting surface. See `docs/INDEX.md` for the full
 contract table and `docs/architecture/factored-machinery.md` for ownership.
+Tie-breaks are corpus-determined, but not interchangeable (`determinism.md`).
 
 ## 3. Where things live
 
@@ -89,7 +90,7 @@ contract table and `docs/architecture/factored-machinery.md` for ownership.
 | Sublibraries (own READMEs)           | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                                                       |
 
 Mind functions are free functions over `MindContext` (`src/mind/types.ts`), not
-methods — `mind.ts` is a thin assembly that delegates.
+methods; `mind.ts` is a thin assembly.
 
 ## 4. Recipes
 
@@ -97,7 +98,7 @@ methods — `mind.ts` is a thin assembly that delegates.
 
 Implement `PipelineMechanism` (`floor` → admissible bound or `null`; `run` →
 candidates with `bytes`/`accounted`/`moves`/`unexplained` + optional
-`scaffolding`/`complete`). Register via
+`scaffolding`/`complete`/`used`). Register via
 `new Mind({ mechanismFactories: [host => yourMechanism(host)] })`. Verify the
 four market constraints (decoupled, declared competence, visible budget,
 evidence travels). → `docs/architecture/mechanism-market.md`
@@ -125,14 +126,13 @@ Run the full suite with your store substituted. → `docs/architecture/store.md`
 ## 5. Testing norms
 
 Tests are `node:test` suites in `test/*.test.mjs`, numbered by theme, run
-against built `dist/` (`npm test`; single suite:
-`node --test test/22-multihop.test.mjs` after `tsc`). New behaviour ⇒ test in
-the matching numbered suite or a new one. Many tests pin contracts that look
-like implementation details (ladder order, span-shape readings,
-`MechanismResult.complete`, fold invariance, recognition idempotence, honest
-silence). A simplification that fails an existing test is wrong until the test
-is proven wrong. Sublibraries test themselves in
-`src/{alu,derive,rabitq-ivf}/test/` with zero Sema dependency.
+against built `dist/` (`npm test`; one suite:
+`node --test test/22-multihop.test.mjs`). New behaviour ⇒ a test in the matching
+numbered suite. Many tests pin contracts that look like implementation details
+(ladder order, span-shape readings, `MechanismResult.complete`, fold invariance,
+recognition idempotence, honest silence). A simplification that fails an
+existing test is wrong until the test is proven wrong. Sublibraries test
+themselves in `src/{alu,derive,rabitq-ivf}/test/` with zero Sema dependency.
 
 ## 6. Instrumentation — the meter and the rationale ARE the dev surface
 
@@ -143,17 +143,17 @@ instrumentation, and the only ones. Both are read through the public path —
 and the `inspectRationale` callback on `respond`/`respondText`/`respondTurn`.
 
 When a change needs to be seen, measured, or proved, EXTEND THEM: a counter in
-`meter.ts` (the one place a counter name exists — keep its four contracts true),
-a step or note where the mechanism emits it (`src/mind/trace.ts` holds the move
-vocabulary). A gap in instrumentation is a defect IN the instrumentation: close
-it there, once, so the next person sees it too. Never add a parallel channel for
-a single investigation — no ad-hoc logging or timing probes left in `src/`
-(`performance.now()` belongs in `meter.ts`, not at a call site), no private
-per-layer counter where a `meter.ts` field belongs, and no trace channel of your
-own: a callback threaded through a call chain must FEED the rationale, the way
-`GraphSearch`'s `onDerivation` feeds `traceDerivation`. (`store.ts`'s
-`danglingReads`/`compactFailures` and the `console.warn`s that report them
-predate this and stay: session-lifetime HEALTH counters, not per-response work.)
+`meter.ts` (the one place a counter name exists), a step or note where the
+mechanism emits it (`src/mind/trace.ts` holds the move vocabulary). A gap in
+instrumentation is a defect IN the instrumentation: close it there, once, so the
+next person sees it too. Never add a parallel channel for a single investigation
+— no ad-hoc logging or timing probes left in `src/` (`performance.now()` belongs
+in `meter.ts`, not at a call site), no private per-layer counter where a
+`meter.ts` field belongs, and no trace channel of your own: a callback threaded
+through a call chain must FEED the rationale, the way `GraphSearch`'s
+`onDerivation` feeds `traceDerivation`. (`store.ts`'s
+`danglingReads`/`compactFailures` and the `console.warn`s that report them stay:
+session-lifetime HEALTH counters, not per-response work.)
 
 ## 7. Dependencies and licensing
 
@@ -161,8 +161,8 @@ PolyForm Noncommercial 1.0.0 with separate commercial licensing (see
 `LICENSE.md`, `COMMERCIAL-LICENSE.md`, `TRADEMARKS.md`). The library has **no
 runtime dependencies** — pinned by `test/88-dependency-footprint.test.mjs`
 (`dist/src` may import only `node:` builtins and relative paths; `package.json`
-has no `dependencies`). Examples may use dev dependencies lazily via dynamic
-import only on the code path that needs them (`example/train_base` + `hyparquet`
-is the reference). Training corpora: a store retains text verbatim, so upstream
-licences apply in full — NonCommercial and ShareAlike corpora cannot enter a
-trainer; see `DATASETS.md`.
+has no `dependencies`). Examples may use dev dependencies via dynamic import
+only where needed (`example/train_base` + `hyparquet` is the reference).
+Training corpora: a store retains text verbatim, so upstream licences apply in
+full — NonCommercial and ShareAlike corpora cannot enter a trainer; see
+`DATASETS.md`.
