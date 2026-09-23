@@ -49,6 +49,17 @@ export interface RationaleItem {
    *  caller asked to carry it (off by default — a D-float array per item would
    *  bury the reasoning it is meant to explain). */
   v?: Vec;
+  /** The element's OWN bytes, attached BY REFERENCE when the step was built from
+   *  bytes (a `rationale.ts` item made from a node carries none: read it back
+   *  through `node`).  `text` is a RENDERING and cannot stand in for them — it
+   *  decodes UTF-8 and DROPS NUL bytes, so a key containing one is unrecoverable
+   *  from it, which is exactly how a join refusal (`deriveThroughMiss`) became
+   *  impossible to test exactly without re-encoding.  Treat as READ-ONLY: the
+   *  array belongs to the caller (and may be a view into the query).
+   *
+   *  Costs nothing when nothing inspects: items exist only while a rationale
+   *  sink is attached, and this holds a reference rather than a copy. */
+  bytes?: Uint8Array;
 }
 
 /** A single completed act of inference — one mechanism, run once.

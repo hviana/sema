@@ -18,6 +18,7 @@ export function rItem(
 ): RationaleItem {
   return {
     text: decodeText(bytes),
+    bytes,
     role,
     node: node ?? undefined,
     span,

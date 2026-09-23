@@ -73,6 +73,30 @@ test("the join's refusal is reported, naming the candidate and tail it tried", a
     got.some((s) => /#\d+, from the .* source/.test(String(s.note))),
     "the report must name the candidate's node and its source",
   );
+  // …and the bytes it actually tried, EXACTLY.  The `text` rendering cannot
+  // stand in for them: it decodes UTF-8 and DROPS NUL bytes, so a key carrying
+  // one is unrecoverable from it — which is why a refusal could not be tested
+  // exactly without re-encoding, and why this assertion reads BYTES.
+  //
+  // The relation is the rule's own: key = fact ‖ prefix(tail).
+  const carried = got.filter((s) => {
+    const raw = (s.inputs ?? []).map((i) => i.bytes);
+    if (raw.length < 3) return false;
+    const [fact, tail, key] = raw;
+    if (![fact, tail, key].every((b) => b instanceof Uint8Array)) return false;
+    if (key.length < fact.length) return false;
+    if (!fact.every((b, k) => key[k] === b)) return false;
+    const rest = key.subarray(fact.length);
+    return rest.every((b, k) => tail[k] === b);
+  });
+  assert.equal(
+    carried.length,
+    got.length,
+    `every refusal must carry its OWN bytes (key = fact ‖ prefix of tail), not ` +
+      `only a rendering — ${
+        got.length - carried.length
+      } of ${got.length} did not`,
+  );
   await mind.store.close();
 });
 
