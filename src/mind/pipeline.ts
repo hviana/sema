@@ -644,7 +644,13 @@ export async function think(
 
   done(
     fused,
-    "grounded, reasoned forward, fused across points of attention",
+    // NO CLAIM ABOUT FUSION HERE.  `fuseAttention` is entered whenever a
+    // remainder ≥ W exists and returns early when there is nothing to bridge, so
+    // this note used to assert a fusion that frequently did not happen (measured:
+    // "What is the capital of France famous for" fuses 0 times).  The fusion is
+    // reported by `fuseAttention`'s own `done` when it happens — the layer that
+    // did the work is the layer that says so.
+    "grounded, reasoned forward",
   );
   return { bytes: fused, provenance };
 }

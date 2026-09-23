@@ -239,6 +239,13 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
+  /** Times `fuseAttention` produced a FUSED answer — not times it was called.
+   *  It is entered whenever the query has a remainder ≥ W and returns early when
+   *  there is nothing to bridge (`containsSpan`, a lone root, an empty pass), so
+   *  the call and the fact are different things and only the fact is counted.
+   *  Its own rationale step reports the fusion; this is the untraced view, and
+   *  its cost is one bridging edge: `fuseRuns · STEP`. */
+  fuseRuns = 0;
   /** Steps the post-grounding EXTENSION took — pivots plus forward-absorbs.
    *  `pivotSteps` counts only the former, so before this the extension's COST was
    *  not computable at all.  With it, the price of extending the answer is

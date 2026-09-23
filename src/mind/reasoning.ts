@@ -543,6 +543,9 @@ export async function fuseAttention(
     [rItem(out, "answer", resolve(ctx, out) ?? undefined)],
     `fused ${pieces.length} independent points of attention into one answer`,
   );
+  // THE FACT IS THE FUSED ANSWER, not the call: every early return above hands
+  // back `primary` untouched.  Untraced on purpose (meter.ts contract 1).
+  if (ctx.meter) ctx.meter.fuseRuns++;
   return out;
 }
 

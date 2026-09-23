@@ -434,3 +434,60 @@ test("12. the extension's cost obeys the ladder's own inequality", async () => {
       `ladder would refuse that (STEP·${steps} vs PASS·${carried})`,
   );
 });
+
+test("13. the fusion is counted when it FUSES, and claimed only then", async () => {
+  // `fuseAttention` is ENTERED whenever the query has a remainder ≥ W and
+  // returns `primary` untouched when there is nothing to bridge (`pieces.length
+  // === 1`).  Entering and fusing are different facts — the rationale's own
+  // `enter` step fires on every call, so before `fuseRuns` the untraced view
+  // could not tell them apart — and the pipeline's outer note claimed the fusion
+  // REGARDLESS, measured false on 4 of the 5 queries below.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+  ];
+  const run = async (q) => {
+    const store = new SQliteStore({ path: ":memory:" });
+    const mind = new Mind({ seed: 7, store, profile: true });
+    await mind.ingest(CORPUS);
+    const steps = [];
+    await mind.respondText(q, (s) => steps.push(s));
+    const c = mind.lastCost.counters;
+    await store.close();
+    const pipelineSteps = steps.filter((s) =>
+      String(s.note ?? "").includes("reasoned forward")
+    );
+    return {
+      fused: c.fuseRuns,
+      claims:
+        pipelineSteps.filter((s) =>
+          String(s.note ?? "").includes("fused across")
+        ).length,
+    };
+  };
+
+  // The one query that really fuses (measured: four entries, one fusion).
+  const fusing = await run("2+2 and the Eiffel Tower");
+  assert.ok(
+    (fusing.fused ?? 0) >= 1,
+    `a query that fuses must be counted (fuseRuns=${fusing.fused})`,
+  );
+
+  // The one that enters and bails — the anti-vacuity pair.
+  const bailing = await run("What is the capital of France famous for");
+  assert.equal(
+    bailing.fused,
+    undefined,
+    "a call that fused nothing must not be counted (zeros are dropped)",
+  );
+  assert.equal(
+    bailing.claims,
+    0,
+    "and no step may CLAIM a fusion that did not happen",
+  );
+});
