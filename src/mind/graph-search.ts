@@ -383,10 +383,15 @@ export class GraphSearch {
    *  country is Berlin.`).  Cached by query identity, because the search is
    *  reused across responses. */
   private canonicalQueryNodes(query: Uint8Array): ReadonlySet<number> {
-    if (
-      this.queryCanonCache !== undefined &&
-      this.queryCanonCache.query === query
-    ) {
+    // KEYED BY CONTENT, not by array identity: a re-cover hands this method a
+    // FRESH `queryBytes` over the same bytes (recompleteNode builds its own), so
+    // an identity-keyed slot missed on every nested solve and re-ran the whole
+    // O(queryLen x form) scan.  Content is the convention every other memo here
+    // uses, and one slot is enough — the same query within a response hits, a
+    // different one recomputes — so the cache cannot grow and needs no clearing.
+    const contentKey = latin1(query);
+    if (this.queryCanonCache?.key === contentKey) {
+      if (this.host.meter) this.host.meter.canonQueryCacheHits++;
       return this.queryCanonCache.nodes;
     }
     const nodes = new Set<number>();
@@ -402,10 +407,10 @@ export class GraphSearch {
         }
       }
     }
-    this.queryCanonCache = { query, nodes };
+    this.queryCanonCache = { key: contentKey, nodes };
     return nodes;
   }
-  private queryCanonCache?: { query: Uint8Array; nodes: Set<number> };
+  private queryCanonCache?: { key: string; nodes: ReadonlySet<number> };
 
   /* * The hub bound √N (bounded-reads.md) — the ONE
    *  fan-out cap, stated here rather than imported from `traverse.ts` because
