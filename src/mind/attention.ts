@@ -1707,7 +1707,17 @@ export function commitVotes(
         ),
       };
     })
-    .sort((a, b) => b.vote - a.vote);
+    // ORDERED BY THE QUANTITY THE GATES BELOW ACTUALLY READ.  The first
+    // non-overlapping point becomes the DOMINANT — it bypasses both vote gates
+    // ("it always grounds") while the runner-up is held to the absolute
+    // ln(N)+1/2 floor — so THIS ORDER decides who gets that privilege.
+    // Ordering by `vote` let the weighting MODE choose it: measured, under
+    // `direct` the first point carried idf 1.52 while another had 2.01, and the
+    // `tiedWithDominant` test just below already reads `votesIdf`.  One
+    // quantity, one reading.  Ties by lowest id, so the corpus decides and the
+    // iteration order does not (determinism.md).  Pinned by test/127, which
+    // runs all three modes.
+    .sort((a, b) => b.idfVote - a.idfVote || a.anchor - b.anchor);
   const overlaps = (a: Attention, b: Attention) =>
     a.start < b.end && b.start < a.end;
   // Read the root cut from the anchors the QUERY pointed at.  A vote standing
