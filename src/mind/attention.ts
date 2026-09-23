@@ -1450,12 +1450,12 @@ export function poolVotes(
     },
     pool,
   };
-  // A BUSCA ERA A ÚNICA CAMADA SEM TEMPO.  As fases do climb são medidas
-  // (voteRegions, structuralResonance, crossRegion) mas a derivação pooled
-  // não era, e por isso qualquer custo ou ganho dentro dela era invisível.
-  // `timeSync`, não `time`: a busca é SÍNCRONA, e envolvê-la numa promessa só
-  // para a medir faria o caminho perfilado esperar onde o não-perfilado não
-  // espera (o contrato do próprio meter.ts).
+  // THE SEARCH WAS THE ONE LAYER WITH NO TIME.  The climb's phases are timed
+  // (voteRegions, structuralResonance, crossRegion) but the pooled derivation
+  // was not, so any cost or gain inside it stayed invisible.
+  // `timeSync`, not `time`: the search is SYNCHRONOUS, and wrapping it in a
+  // promise only to time it would make the profiled path wait where the
+  // unprofiled one does not (meter.ts's own contract).
   if (ctx.meter) {
     ctx.meter.timeSync("climb.derivation", () => lightestDerivation(system));
   } else lightestDerivation(system);
