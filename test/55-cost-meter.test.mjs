@@ -547,3 +547,81 @@ test("14. the climb publishes the peak that recall's gate reads", async () => {
     "one contribution cannot exceed the sum of contributions",
   );
 });
+
+test("15. the live record tells the two refusal gates apart", async () => {
+  // Item 2 of the open list: `below-natural-break` and `below-consensus-floor`
+  // always travelled TOGETHER in the fixtures measured before, so the margin
+  // proved the bar was tight but not that it was the cause.  Measured over 53
+  // anchors on 12 queries, they DO separate: 9 anchors have the bar refusing
+  // what the natural break would accept, and none the other way round — but in
+  // every case both `passes*` flags were false, so the reasons alone could not
+  // show WHICH gate refused.
+  //
+  // This pins the one gate that refused, from the live commit record
+  // (`recordAnchor`, spec §8: decisions recorded as the gates apply them, never
+  // reconstructed).  It asserts a PROPERTY, not an anchor id: at least one
+  // anchor must be rejected with the floor failing and the break PASSING —
+  // otherwise the fixture never reached the divergence it is here to pin.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    [
+      "The tallest tower in Paris",
+      "The tallest tower in Paris is the Eiffel Tower",
+    ],
+    ["Gustaf Molander", "Gustaf Molander was a Swedish film director"],
+    ["Stockholm", "Stockholm is the capital of Sweden"],
+  ];
+  const findAnchors = (o, depth = 0) => {
+    if (o === null || typeof o !== "object" || depth > 5) return null;
+    if (Array.isArray(o.anchors) && o.anchors.length) return o;
+    for (const v of Object.values(o)) {
+      const r = findAnchors(v, depth + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CORPUS);
+  const steps = [];
+  await mind.respondText(
+    "Gustaf Molander and the tallest tower in Paris and 2+2",
+    (s) => steps.push(s),
+  );
+  await store.close();
+  const step = steps.find((s) => findAnchors(s.data ?? s) !== null);
+  const td = step ? findAnchors(step.data ?? step) : null;
+  assert.ok(td, "the climb must report its anchors");
+
+  const barRefusedOnly = td.anchors.filter((a) =>
+    (a.commit ?? {}).passesConsensusFloor === false &&
+    (a.commit ?? {}).passesNaturalBreak === true
+  );
+  assert.ok(
+    barRefusedOnly.length >= 1,
+    `the fixture must contain a floor-only refusal (got ${
+      JSON.stringify(
+        td.anchors.map((
+          a,
+        ) => [
+          a.anchor,
+          a.commit?.passesNaturalBreak,
+          a.commit?.passesConsensusFloor,
+        ]),
+      )
+    })`,
+  );
+  for (const a of barRefusedOnly) {
+    assert.equal((a.commit ?? {}).status, "rejected");
+    assert.ok(
+      (a.commit ?? {}).rejectionReasons.includes("below-consensus-floor"),
+      "the reason must name the floor",
+    );
+    assert.ok(
+      !(a.commit ?? {}).rejectionReasons.includes("below-natural-break"),
+      "and must NOT name a gate that passed",
+    );
+  }
+});
