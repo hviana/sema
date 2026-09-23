@@ -15,9 +15,8 @@ consumes them directly; any site whose bytes overlap a computed span is masked
 - `formRules` follow continuation edges (`GraphSearch.formRules`): each hop
   costs `STEP` (1). Forks across all continuations up to the hub bound;
   disambiguation is distributional, not heuristic.
-- Edge-less forms may hop via a halo sibling (`conceptHop` / `resolveConcepts`
-  in `src/mind/mechanisms/cover.ts`) at `CONCEPT` (10), borrowing a synonym's
-  continuation.
+- Edge-less forms may hop via a halo sibling (`conceptHop` / `resolveConcepts`)
+  at `CONCEPT` (10), borrowing a synonym's continuation.
 
 ## Gate — `leadsSomewhere` (`src/mind/traverse.ts`)
 
