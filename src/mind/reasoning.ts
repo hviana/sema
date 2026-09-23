@@ -284,7 +284,15 @@ export async function reason(
   if (ctx.meter && !stopped) ctx.meter.reasonHopsExhausted++;
   t?.done(
     [rItem(cur, "answer", resolve(ctx, cur) ?? undefined)],
-    "the multi-hop chain's fixpoint",
+    // A FIXPOINT IS WHERE NO STEP WAS POSSIBLE — the two exits are different
+    // facts and the note must not merge them.  When the allowance ran out, all
+    // that is known is that it ran out: whether a further step existed is not
+    // known, because the loop never looked.  Saying so is the honest report; the
+    // counter cannot say it (meter.ts contract 1) and neither can a claim of
+    // reach lost.
+    stopped
+      ? "the multi-hop chain's fixpoint"
+      : "the hop allowance was spent; whether a further step existed is not known",
   );
   return cur;
 }

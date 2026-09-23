@@ -241,14 +241,15 @@ export class Meter {
   pivotSteps = 0;
   /** Times the multi-hop chain consumed its hop allowance to the end
    *  (`recallQueryK`) instead of stopping.  The two exits were indistinguishable
-   *  — the chain's `done` note says "fixpoint" either way, which is true only
+   *  — the chain's `done` note said "fixpoint" either way, which is true only
    *  for the stopping one — so this says the hops ran out.
    *
    *  Necessary but NOT sufficient to call it a cut: an answer can be complete
-   *  with the allowance spent to the last hop.  What separates "the reach was
-   *  cut" from "the count ran out on a finished chain" is whether a further step
-   *  existed, which only the rationale can say (the note).  Counters state
-   *  facts; interpretation stays with the reader.
+   *  with the allowance spent to the last hop.  Left open, and it stays open:
+   *  whether a further step EXISTED cannot be answered by anything here or in
+   *  the rationale, because the loop never looked.  The note now reports exactly
+   *  that state (see `reason()`'s `done`), and this counter reports the spend.
+   *  Counters state facts; interpretation stays with the reader.
    *
    *  NO FIXTURE IN THE SUITE REACHES THIS EXIT — measured, not assumed: the
    *  3-link chain of test/110 still stops by structure after one pivot with
