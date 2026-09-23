@@ -115,10 +115,18 @@ export function keyEnds(
   const ids = leafIdPrefix(ctx, joined);
   if (ids.length < prefix.length) return [];
   const ends: number[] = [];
-  for (let p = 1; p <= tail.length && prefix.length + p <= ids.length; p++) {
-    if (ctx.store.findBranch(ids.slice(0, prefix.length + p)) !== null) {
-      ends.push(p);
-    }
+  // The kid run GROWS by one id per offset; `findBranch` wants an array, so the
+  // run is built once and pushed into, never re-sliced.  Re-slicing
+  // `ids.slice(0, prefix.length + p)` per offset made this O(|tail| ·
+  // (|prefix| + |tail|)) — quadratic in the tail, where the learning path this
+  // follows slices a run that SHRINKS.  Same ends, linear copying.
+  const run = ids.slice(0, prefix.length);
+  // The loop ENDS at the first byte that was never interned (`ids.length`):
+  // every later prefix contains it, so none of them can be a node either — this
+  // is where the scan stops, not a silent truncation of the answer.
+  for (let p = 1; prefix.length + p <= ids.length; p++) {
+    run.push(ids[prefix.length + p - 1]);
+    if (ctx.store.findBranch(run) !== null) ends.push(p);
   }
   return ends;
 }
