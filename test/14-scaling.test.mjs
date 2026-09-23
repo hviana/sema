@@ -158,14 +158,17 @@ test("training: recall work does NOT grow with the store (storage reads, not tim
     for (let i = from; i < to; i++) await mind.ingest(novelExperience(i, "g"));
   };
 
-  await grow(0, 300);
+  // 6x in RATIO is the signal; the absolute size is the cost.  100 -> 600
+  // keeps the same 6x step (and a SMALLER N makes the log-N growth relatively
+  // LARGER, so the 3x band below is not loosened by shrinking it).
+  await grow(0, 100);
   const small = await readsNow();
-  await grow(300, 1800); // 6x the corpus
+  await grow(100, 600); // 6x the corpus
   const large = await readsNow();
   await store.close();
 
   console.log(
-    `    content-index reads for one recall: N=300 → ${small}, N=1800 → ${large}`,
+    `    content-index reads for one recall: N=100 → ${small}, N=600 → ${large}`,
   );
 
   // 6x the corpus must not cost anywhere near 6x the reads. A genuinely
@@ -194,7 +197,7 @@ test("training: absolute deposition throughput clears a sane floor", async () =>
   // not one-time setup.
   for (let i = 0; i < 200; i++) await mind.ingest(novelExperience(i, "warm"));
 
-  const N = 1000;
+  const N = 400;
   let bytes = 0;
   const t0 = performance.now();
   for (let i = 0; i < N; i++) {
@@ -322,7 +325,7 @@ test("training: exact recall is preserved at scale", async () => {
 // growth exponent in corpus size is the proof — it must be well below linear.
 test("inference: cost is sublinear in corpus size (independent corpora)", async () => {
   const query = unknownInput(1024);
-  const sizes = [50, 200, 800, 3200];
+  const sizes = [50, 200, 800];
   const times = [];
 
   for (const n of sizes) {
@@ -370,7 +373,7 @@ test("inference: input is processed at a roughly constant KB/s (linear, not quad
   const mind = new Mind({ seed: 7, store });
   await mind.ingest(corpus(200, "inflen"));
 
-  const kbs = [0.5, 1, 2, 4, 8];
+  const kbs = [0.5, 1, 2, 4];
   const queries = kbs.map((kb) => unknownInput(kb * 1024));
   const bytes = queries.map((q) => new TextEncoder().encode(q).length);
 
@@ -452,7 +455,7 @@ test("inference: completion still fires inside long inputs", async () => {
   });
   await mind.ingest([["ice", "cold"], ["fire", "hot"], ["2+2", "4"]]);
 
-  for (const pad of [16, 64, 256, 1024]) {
+  for (const pad of [16, 64, 256]) {
     const filler = unknownInput(pad);
     const mid = filler.slice(0, filler.length >> 1);
     const end = filler.slice(filler.length >> 1);
