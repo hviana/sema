@@ -20,7 +20,7 @@ flaky, the contract was broken, not the test.
 entropy root. Subsystems derive deterministically:
 
 - **Alphabet** — `Alphabet` (`src/alphabet.ts`) via `rng` (`src/vec.ts:rng`)
-  seeded as `seed ^ seedMask`; builds 16→64→256 vectors by refinement.
+  seeded as `seed ^ seedMask`; builds 16→64→256 vectors.
 - **Keyring / Space** — `Space.seats` (`src/sema.ts:Space`) via `makeKeyring`
   (`src/vec.ts:makeKeyring`) and `rng` seeded from `seed` in `Mind`
   (`src/mind/mind.ts`); `fold`/`twoEndedSeat`/`companySignature` are pure over
@@ -34,8 +34,8 @@ derived from `D`/`W`/`N`, not sampled.
 
 ## Tie-breaks are corpus-determined
 
-Every choice among equals bottoms out in a fixed ordering — insertion order or
-lowest node id. The universal no-evidence fallback is **first-inserted**:
+Every choice bottoms out in a fixed ordering — insertion order or lowest node id
+— not interchangeable (`test/34`). The fallback is **first-inserted**:
 
 - `guidedFirst` (`src/mind/traverse.ts:guidedFirst`) — guided pick via
   `chooseNext` else first-inserted edge (`nextFirst` LIMIT 1).
@@ -46,7 +46,7 @@ lowest node id. The universal no-evidence fallback is **first-inserted**:
 - `companySignature` (`src/sema.ts:companySignature`) — `rng(id ^ 0x9e3779b9)`,
   i.e. seeded by node id, not observation order.
 
-Last-inserted was once used in one place; it was a bug. Never reintroduce it.
+Never use last-inserted.
 
 ## Memoization and trace must not break identity
 
@@ -56,7 +56,7 @@ Per-response memos (`Precomputed`, `perceiveMemo`, `recogniseMemo`, `climbMemo`,
 `src/mind/primitives.ts`) are sound because asking never writes. Only
 `guidedNext`/`sharedReachMemo` are trace-bypassed;
 `perceiveMemo`/`recogniseMemo`/`climbMemo` are always consulted — `foldTree`'s
-subtree fast path skips `visit` (and thus site emission) for cached subtrees, so
+subtree fast path skips `visit` (and site emission) for cached subtrees, so
 bypassing makes `recognise` non-idempotent.
 
 ## Follow it
@@ -69,5 +69,5 @@ call `Math.random`/`Date.now` on a behavioural path.
 
 - `test/42` pins recognition idempotence under trace — traced and untraced
   `recognise` must return the same cached object and site count.
-- Determinism suites — `test/03`, `test/04`, `test/08`, `test/20` and others
-  assert same seed + same training ⇒ byte-identical answers and stores.
+- Determinism suites — `test/03`, `test/04`, `test/08`, `test/20` — assert same
+  seed + same training ⇒ byte-identical answers and stores.
