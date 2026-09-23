@@ -383,35 +383,6 @@ export class GraphSearch {
    *  measured: that is the trap's wrong answer (`The capital of Eiffel Tower
    *  country is Berlin.`).  Cached by query identity, because the search is
    *  reused across responses. */
-  private canonicalQueryNodes(query: Uint8Array): ReadonlySet<number> {
-    // KEYED BY CONTENT, not by array identity: a re-cover hands this method a
-    // FRESH `queryBytes` over the same bytes (recompleteNode builds its own), so
-    // an identity-keyed slot missed on every nested solve and re-ran the whole
-    // O(queryLen x form) scan.  Content is the convention every other memo here
-    // uses, and one slot is enough — the same query within a response hits, a
-    // different one recomputes — so the cache cannot grow and needs no clearing.
-    const contentKey = latin1(query);
-    if (this.queryCanonCache?.key === contentKey) {
-      if (this.host.meter) this.host.meter.canonQueryCacheHits++;
-      return this.queryCanonCache.nodes;
-    }
-    const nodes = new Set<number>();
-    const canon = this.host.canonResolve?.bind(this.host);
-    if (canon !== undefined) {
-      const W = this.maxGroup;
-      for (let start = 0; start < query.length; start++) {
-        for (let end = query.length; end - start >= W; end--) {
-          const id = canon(query.subarray(start, end));
-          if (id === null) continue;
-          nodes.add(id);
-          break;
-        }
-      }
-    }
-    this.queryCanonCache = { key: contentKey, nodes };
-    return nodes;
-  }
-  private queryCanonCache?: { key: string; nodes: ReadonlySet<number> };
 
   /* * The hub bound √N (bounded-reads.md) — the ONE
    *  fan-out cap, stated here rather than imported from `traverse.ts` because
@@ -1295,7 +1266,19 @@ export class GraphSearch {
     // store's nodes are canonical, so `Eiffel Tower country` in the query did
     // not match the deposited `eiffel tower country` — measured, that is the
     // trap's wrong answer.
-    const queryNodes = this.canonicalQueryNodes(queryBytes);
+    //
+    // TAKEN FROM THE RECOGNITION THE RESPONSE ALREADY COMPUTED — the host's
+    // `recogniseSpan`, the same surface the rest of this search uses — not from
+    // a second offset scan.  `canonicalQueryNodes` re-derived, per byte offset,
+    // what `recognise` had already resolved once per query (its memo is keyed by
+    // content), and that scan was the largest single cost the DIANOT join added:
+    // measured against the pre-change tree, the same fixture and the same test
+    // were 21 s slower with the scan than without it.  A recognised site IS a
+    // canonical node of the query that can lead somewhere, which is exactly the
+    // set this filter wants, and it costs nothing to read.
+    const queryNodes = new Set<number>(
+      (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) => s.payload),
+    );
     // TWO SOURCES, ONE ADMISSION.  The recognition of a STORED WHOLE returns the
     // whole and stops — measured: for `The director of Eva is Gustaf Molander.`
     // it yields exactly ONE site, the fact's own node — so the entity a join
