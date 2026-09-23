@@ -57,7 +57,10 @@ test("reason(): a forward hop landing on bytes already present in the query is r
     queryResolved: resolve(m, query),
   };
 
-  const out = await reason(m, query, answer, new Set(), pre);
+  // `reason()` reports the WHOLE extension (bytes + what it carried + how many
+  // steps) so a caller can price it; these assertions measure the bytes, and
+  // that is all this change touches — the law they pin is untouched.
+  const out = (await reason(m, query, answer, new Set(), pre)).bytes;
   assert.equal(
     dec(out),
     "bridge context",
@@ -82,7 +85,10 @@ test("reason(): an ordinary forward hop onto genuinely new content is unaffected
     queryResolved: resolve(m, query),
   };
 
-  const out = await reason(m, query, answer, new Set(), pre);
+  // `reason()` reports the WHOLE extension (bytes + what it carried + how many
+  // steps) so a caller can price it; these assertions measure the bytes, and
+  // that is all this change touches — the law they pin is untouched.
+  const out = (await reason(m, query, answer, new Set(), pre)).bytes;
   assert.equal(
     dec(out),
     "a wholly new fact never mentioned in any query",
