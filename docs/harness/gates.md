@@ -3,7 +3,7 @@
 Four executable gates. Each: run the command, check what it guards, follow its
 §.
 
-## 1 — Correctness (all 90 suites)
+## 1 — Correctness (all suites)
 
 ```bash
 npm test
@@ -24,7 +24,7 @@ node bench/profile-inference.mjs --trace # trace is a debugging aid, not product
 ```
 
 Guards without trace: counters deterministic and diffable between runs; phases
-nest (not disjoint — `think` contains every mechanism phase); shared analyses
+nest (not disjoint — each phase is charged by its own layer); shared analyses
 charged to themselves, not to the first toucher; millisecond fields are
 non-deterministic hints only. With `--trace`, recognition idempotence still
 holds (`test/42`). `src/meter.ts`, `docs/architecture/meter.md`, §55,
