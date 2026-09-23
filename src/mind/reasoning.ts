@@ -8,10 +8,10 @@ import { bytesEqual, indexOf } from "../bytes.js";
 import type { Attention, MindContext } from "./types.js";
 import { resolve } from "./primitives.js";
 import { corpusN, hubBound } from "./traverse.js";
-import { follow, haloSiblings, project } from "./match.js";
+import { containsSpan, follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
-import type { Rationale } from "./rationale.js";
+import { type Rationale, unaccountedBytes } from "./rationale.js";
 
 /** Whether `bytes` is a proper byte-subspan of `query` — already present in
  *  the question, so voicing it back only restates part of what was asked,
@@ -545,8 +545,3 @@ export async function fuseAttention(
   if (ctx.meter) ctx.meter.fuseRuns++;
   return out;
 }
-
-// (resonance.js is already a static dependency above — `bridge` — so the old
-// dynamic import of pivotInto guarded against a cycle that does not exist.)
-import { containsSpan } from "./match.js";
-import { unaccountedBytes } from "./rationale.js";
