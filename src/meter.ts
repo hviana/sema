@@ -247,11 +247,6 @@ export class Meter {
    *  hub of degree 1083, offering every continuation grew the chart to 3113 outs
    *  and cost a 270 MB peak / 256 MB OOM for a two-word question. */
   chainOffers = 0;
-  /** Times the canonical-query-nodes scan was answered from its CONTENT cache
-   *  instead of re-scanned — the quantity that makes the cache's keying
-   *  observable (an identity key never hit: a re-cover hands over fresh bytes
-   *  over the same query). */
-  canonQueryCacheHits = 0;
   /** Σ byte-allowance the n-ary interior passes those bridges.  The allowance
    *  is `middleBytes + (m + 1) * W` — every intermediate answer's bytes plus
    *  one window of glue per joint — so it is the quantity that grows with a hub
