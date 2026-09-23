@@ -55,6 +55,22 @@ test("123. the duplicated derived formulas agree, home by home", () => {
     "the hub-bound formula has drifted between traverse.ts and graph-search.ts",
   );
 
+  // ── (2) atomReach = max(1, ⌈N·W/256⌉), in traverse.ts and in graph-search.ts ──
+  // Each home names N and W differently (a parameter and `ctx.space.maxGroup`
+  // against the store's edge-source count and the local `W`), so the PAIR is the
+  // arithmetic shape — the `256` and the floor.
+  const reachShape = (file, what) =>
+    extract(
+      file,
+      /Math\.max\(1,\s*Math\.ceil\(\((?:[^()]|\([^()]*\))*\*\s*[A-Za-z_.]+\)\s*\/\s*(256)\)\)/,
+      what,
+    );
+  assert.equal(
+    reachShape("mind/traverse.js", "atomReach's shape"),
+    reachShape("mind/graph-search.js", "the atomsAreHubs shape"),
+    "the atom-reach formula has drifted between traverse.ts and graph-search.ts",
+  );
+
   // ── (4) the interior phrase-scale allowance, in resonance.ts and attention.ts ──
   const resonance = extract(
     "mind/resonance.js",
