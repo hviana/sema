@@ -4,7 +4,7 @@
 // exported from mind/mind.ts directly.
 
 export { Mind } from "./mind.js";
-export type { Input, Response } from "./mind.js";
+export type { CorpusTextPair, CorpusTextResult, Input, Response } from "./mind.js";
 export type { ComputedSpan, ExtensionHost } from "./mind.js";
 export type {
   MechanismResult,
@@ -38,3 +38,9 @@ export type {
   NarrowDecisionData,
   Provenance,
 } from "./pipeline.js";
+export { sampleCorpus, searchCorpus } from "./corpus.js";
+export type {
+  CorpusMiss,
+  CorpusPair,
+  CorpusResult,
+} from "./corpus.js";

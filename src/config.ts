@@ -116,6 +116,18 @@ export interface MindConfig {
   seed: number;
   recallQueryK: number;
   haloQueryK: number;
+  /** Corpus reading (see src/mind/corpus.ts): results per call, resolved
+   *  nodes climbed from, contexts requested per climb, probes used to stride
+   *  the id space when browsing, bytes of each side a preview keeps, and the
+   *  smallest deposited note browsing will show.  Capacities and budgets only —
+   *  the one material floor (a resolved node must account for W bytes) is
+   *  derived from the geometry, not declared here. */
+  corpusLimitMax: number;
+  corpusClimbs: number;
+  corpusContextsPerClimb: number;
+  corpusSampleProbes: number;
+  corpusPreviewBytes: number;
+  corpusSampleFloorBytes: number;
   /** Items one rationale step may ITEMISE (the whole field is still counted in
    *  the step's note).  A capacity of the rationale, not of recall: sharing
    *  `recallQueryK` meant `new Mind({recallQueryK: 100000})` un-bounded the very
@@ -144,6 +156,12 @@ export const DEFAULT_CONFIG: MindConfig = {
   recallQueryK: 12,
   haloQueryK: 12,
   rationaleSampleK: 12,
+  corpusLimitMax: 24,
+  corpusClimbs: 24,
+  corpusContextsPerClimb: 6,
+  corpusSampleProbes: 6000,
+  corpusPreviewBytes: 220,
+  corpusSampleFloorBytes: 12,
   alignGapPairs: 4096,
   normalizeEpsilon: 1e-12,
   cosineEpsilon: 1e-12,
@@ -188,6 +206,16 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     haloQueryK: opts.haloQueryK ?? DEFAULT_CONFIG.haloQueryK,
     rationaleSampleK:
       opts.rationaleSampleK ?? DEFAULT_CONFIG.rationaleSampleK,
+    corpusLimitMax: opts.corpusLimitMax ?? DEFAULT_CONFIG.corpusLimitMax,
+    corpusClimbs: opts.corpusClimbs ?? DEFAULT_CONFIG.corpusClimbs,
+    corpusContextsPerClimb:
+      opts.corpusContextsPerClimb ?? DEFAULT_CONFIG.corpusContextsPerClimb,
+    corpusSampleProbes:
+      opts.corpusSampleProbes ?? DEFAULT_CONFIG.corpusSampleProbes,
+    corpusPreviewBytes:
+      opts.corpusPreviewBytes ?? DEFAULT_CONFIG.corpusPreviewBytes,
+    corpusSampleFloorBytes:
+      opts.corpusSampleFloorBytes ?? DEFAULT_CONFIG.corpusSampleFloorBytes,
     alignGapPairs: opts.alignGapPairs ?? DEFAULT_CONFIG.alignGapPairs,
     normalizeEpsilon: opts.normalizeEpsilon ?? DEFAULT_CONFIG.normalizeEpsilon,
     cosineEpsilon: opts.cosineEpsilon ?? DEFAULT_CONFIG.cosineEpsilon,

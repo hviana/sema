@@ -11,6 +11,8 @@
 
 import { cosine, makeKeyring, rng, setVecConfig, Vec } from "../vec.js";
 import { bindSeat, fold, Sema, Space } from "../sema.js";
+import { sampleCorpus, searchCorpus } from "./corpus.js";
+import type { CorpusPair, CorpusResult } from "./corpus.js";
 import { Alphabet } from "../alphabet.js";
 import {
   bytesToTree,
@@ -193,12 +195,61 @@ import { type CostReport, Meter } from "../meter.js";
 
 // ── MindOptions ───────────────────────────────────────────────────────────
 
+/** A stored pair as TEXT — the text helper's view of {@link CorpusPair}. */
+export interface CorpusTextPair {
+  context: string;
+  continuation: string;
+  contextId: number;
+  continuationId: number;
+  matchedBytes: number;
+  contextTruncated: boolean;
+  continuationTruncated: boolean;
+}
+
+/** {@link CorpusResult} as text, plus the prose for why nothing matched.  The
+ *  byte layer reports a STATE; saying it in words belongs to the text layer. */
+export interface CorpusTextResult {
+  query: string;
+  pairs: CorpusTextPair[];
+  resolved: number;
+  reached: number;
+  totalContexts: number;
+  browsed: boolean;
+  note?: string;
+}
+
+/** What the text helper says when the byte layer reports a miss. */
+const CORPUS_NOTE: Record<string, string> = {
+  "nothing-resolved":
+    "No trained note sits above the parts of that text the mind recognised. " +
+    "It addresses content exactly, so try wording closer to something it was " +
+    "actually given — or browse the examples instead.",
+  "no-continuations":
+    "That text reaches stored nodes, but none of them carries a learnt " +
+    "continuation.",
+};
+
+/** UTF-8 of bytes for display: reuse {@link decodeText} (the mind's own text
+ *  conversion), then drop the replacement character a byte-boundary cut leaves
+ *  behind.  Much of a real corpus is non-Latin, so that trailing U+FFFD is the
+ *  common case, not an exotic one — and it is the ONLY thing added here. */
+function previewCorpusText(bytes: Uint8Array): string {
+  return decodeText(bytes).replace(/\uFFFD+$/, "").replace(/\s+/g, " ").trim();
+}
+
 export interface MindOptions {
   seed?: number;
   recallQueryK?: number;
   haloQueryK?: number;
   /** Items one rationale step may itemise — see {@link MindConfig}. */
   rationaleSampleK?: number;
+  /** Corpus-reading capacities and budgets — see {@link MindConfig}. */
+  corpusLimitMax?: number;
+  corpusClimbs?: number;
+  corpusContextsPerClimb?: number;
+  corpusSampleProbes?: number;
+  corpusPreviewBytes?: number;
+  corpusSampleFloorBytes?: number;
   /** Gap pairs one alignment call may examine — see {@link MindConfig}. */
   alignGapPairs?: number;
   normalizeEpsilon?: number;
@@ -752,6 +803,55 @@ export class Mind implements MindContext {
   ): Promise<string> {
     const r = await this.respond(input, inspectRationale);
     return decodeText(r.bytes);
+  }
+
+  // ── Reading the trained memory back ─────────────────────────────────────
+
+  /** Which stored notes does this query REACH?  BYTES in, BYTES out — this
+   *  method has no notion of text or encoding; the text case is
+   *  {@link searchCorpusText}, which is one caller of this.
+   *
+   *  Exact content addressing through the machinery an answer already uses
+   *  (see src/mind/corpus.ts): the query's recognised sites are the resolved
+   *  subtrees, the climb goes up from the biggest, and a result is a context
+   *  that carries a learnt continuation.  Nothing is written and nothing is
+   *  indexed. */
+  searchCorpus(queryBytes: Uint8Array, limit?: number): CorpusResult {
+    return searchCorpus(this, queryBytes, limit);
+  }
+
+  /** Browse real pairs.  Deterministic: `from` is the caller's own offset in
+   *  [0,1), so browsing twice with different offsets shows different notes
+   *  without a random draw. */
+  sampleCorpus(limit?: number, from?: number): CorpusResult {
+    return sampleCorpus(this, limit, from);
+  }
+
+  /** The TEXT case of {@link searchCorpus}: encode, search, decode.  The search
+   *  itself exists once, in the byte layer above; only the rendering lives
+   *  here, with the rest of this class's text modality. */
+  searchCorpusText(query: string, limit?: number): CorpusTextResult {
+    const result = this.searchCorpus(
+      new TextEncoder().encode(query),
+      limit,
+    );
+    return {
+      query,
+      pairs: result.pairs.map((p: CorpusPair): CorpusTextPair => ({
+        context: previewCorpusText(p.context),
+        continuation: previewCorpusText(p.continuation),
+        contextId: p.contextId,
+        continuationId: p.continuationId,
+        matchedBytes: p.matchedBytes,
+        contextTruncated: p.contextTruncated,
+        continuationTruncated: p.continuationTruncated,
+      })),
+      resolved: result.resolved,
+      reached: result.reached,
+      totalContexts: result.totalContexts,
+      browsed: result.browsed,
+      note: result.miss === "matched" ? undefined : CORPUS_NOTE[result.miss],
+    };
   }
 
   // ── Conversation API ────────────────────────────────────────────────────
