@@ -977,3 +977,102 @@ test("21. the price's second term has one definition, and it is the complement",
     14,
   );
 });
+
+test("22. the trace publishes the bar the margin gate ACTUALLY applied", async () => {
+  // The margin gate scales its bar by what the region does NOT address:
+  // `estimatorNoise(D) * (1 - cov)`.  The REJECTION path recorded that scaled
+  // bar; the "voted" path recorded the RAW `estimatorNoise(D)` — so a region
+  // that PASSED was reported closer to its limit than it was.  The field lives
+  // on the REGION trace (`recordRegion`), which is where the gate runs.
+  //
+  // ANTI-VACUITY, two guards: (1) the fixture must contain at least one region
+  // that reached the margin gate at all — on a corpus where no approximate
+  // region gets there, this test would pin nothing; (2) among those, at least
+  // one VOTED region must have been judged with a bar BELOW the raw one
+  // (cov > 0 on the passing side).  On the old code every voted floor was raw,
+  // so guard (2) fails — which is what makes this test discriminating.
+  const { Mind, SQliteStore } = await import("../dist/src/index.js");
+  const { estimatorNoise } = await import("../dist/src/geometry.js");
+  const achar = (o, d = 0) => {
+    if (o === null || typeof o !== "object" || d > 5) return null;
+    if (Array.isArray(o.regions) && o.regions.length) return o;
+    for (const v of Object.values(o)) {
+      const r = achar(v, d + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  const P = [
+    "France",
+    "Sweden",
+    "Japan",
+    "Peru",
+    "Kenya",
+    "Nepal",
+    "Chile",
+    "Oman",
+    "Fiji",
+    "Malta",
+    "Cuba",
+    "Laos",
+  ];
+  const CORPUS = [];
+  for (const p of P) {
+    CORPUS.push([
+      `What is the capital of ${p}`,
+      `The capital of ${p} is the city of ${p}town`,
+    ]);
+    CORPUS.push([
+      `The capital of ${p} is the city of ${p}town`,
+      `The ${p}town parliament sits by the river`,
+    ]);
+  }
+  CORPUS.push([
+    "What is the tallest tower in Paris",
+    "The tallest tower in Paris is the Eiffel Tower",
+  ]);
+  CORPUS.push(["2+2", "2+2 equals 4"]);
+  await mind.ingest(CORPUS);
+  const q =
+    "how do you say thank you in the language of Nepal and in the language of Oman";
+  const passos = [];
+  await mind.respondText(q, (x) => passos.push(x));
+  const st = passos.find((x) => achar(x.data ?? x) !== null);
+  const td = st ? achar(st.data ?? st) : null;
+  const raw = estimatorNoise(store.D);
+  const regions = td?.regions ?? [];
+  const withFloor = regions.filter((r) =>
+    r.contrastiveNoiseFloor !== undefined
+  );
+  assert.ok(
+    withFloor.length >= 1,
+    `the fixture must reach the margin gate at all (regions=${regions.length}, ` +
+      `withFloor=${withFloor.length})`,
+  );
+  for (const r of withFloor) {
+    assert.ok(
+      r.contrastiveNoiseFloor <= raw + 1e-12,
+      `the applied bar never exceeds the raw one (${r.contrastiveNoiseFloor} > ${raw})`,
+    );
+  }
+  // guard (2): the outcome field names which regions PASSED.
+  const voted = withFloor.filter((r) => r.ordinaryVoteProduced === true);
+  assert.ok(
+    voted.length >= 1,
+    `the fixture must contain a region that PASSED the gate and reached the margin ` +
+      `(withFloor=${withFloor.length}); fields present: ${
+        JSON.stringify(Object.keys(withFloor[0] ?? {}))
+      }`,
+  );
+  assert.ok(
+    voted.some((r) => r.contrastiveNoiseFloor < raw - 1e-12),
+    `at least one VOTED region must carry a bar BELOW the raw one (cov > 0 on the ` +
+      `passing side); otherwise this test pins nothing ` +
+      `(voted=${voted.length}, floors=${
+        voted.map((r) => r.contrastiveNoiseFloor).join(",")
+      } raw=${raw})`,
+  );
+  await store.close();
+});
