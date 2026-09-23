@@ -737,3 +737,51 @@ test("17. the bar and the climb's vote are in one dimension", async () => {
     );
   }
 });
+
+test("18. the remainder the pipeline decides on is visible", async () => {
+  // The remainder that licenses an extension or a fusion was computed at the
+  // decision point and never published: the reasoner's own counters say what it
+  // CARRIED, not what the grounding LEFT.  Two write-only counters close that,
+  // and they are the instrument the structural question about the climb needs —
+  // "does an elected anchor's span fall inside what the cover left open?".
+  //
+  // FAIL BEFORE: the counters did not exist.
+  const CORPUS = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+  ];
+  const run = async (q) => {
+    const store = new SQliteStore({ path: ":memory:" });
+    const mind = new Mind({ seed: 7, store, profile: true });
+    await mind.ingest(CORPUS);
+    await mind.respondText(q);
+    const c = mind.lastCost.counters;
+    await store.close();
+    return {
+      spans: c.postGroundingRemainderSpans,
+      bytes: c.postGroundingRemainderBytes,
+      steps: c.reasonSteps,
+    };
+  };
+
+  // The pivoting query: the reasoner runs, so the remainder is non-empty
+  // (measured: reasonSteps 1, reasonCarriedBytes 11).
+  const pivot = await run("What is the capital of France famous for");
+  assert.ok(
+    (pivot.steps ?? 0) >= 1,
+    `the fixture must reach the post-grounding stage (reasonSteps=${pivot.steps})`,
+  );
+  assert.ok(
+    (pivot.spans ?? 0) >= 1,
+    `a licence to extend needs a remainder (spans=${pivot.spans})`,
+  );
+  assert.ok(
+    (pivot.bytes ?? 0) >= 1,
+    `and it is measured in bytes (bytes=${pivot.bytes})`,
+  );
+
+  // The directly-answered query: no remainder, so the zero convention drops both.
+  const direct = await run("What is the capital of France");
+  assert.equal(direct.spans, undefined);
+  assert.equal(direct.bytes, undefined);
+});

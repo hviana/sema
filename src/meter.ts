@@ -239,6 +239,15 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
+  /** The pipeline's remainder AT THE DECISION POINT, in bytes: what the grounded
+   *  answer plus the pre-computed spans left unexplained, after the same W floor
+   *  the fuse gate uses.  This is the quantity that licenses (or refuses) the
+   *  post-grounding extension and the fusion — it was computed, used, and never
+   *  published, so nothing could measure what a search had LEFT when it decided.
+   *  Read with {@link postGroundingRemainderSpans}. */
+  postGroundingRemainderBytes = 0;
+  /** How many spans that remainder consists of (each at least one W window). */
+  postGroundingRemainderSpans = 0;
   /** Times `fuseAttention` produced a FUSED answer — not times it was called.
    *  It is entered whenever the query has a remainder ≥ W and returns early when
    *  there is nothing to bridge (`containsSpan`, a lone root, an empty pass), so

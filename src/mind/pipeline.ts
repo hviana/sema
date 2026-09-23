@@ -573,6 +573,16 @@ export async function think(
   ];
   const uncovered = unexplainedSpans(query.length, explained)
     .filter(([a, b]) => b - a >= ctx.space.maxGroup);
+  // PUBLISHED, NOT RECOMPUTED: the same `uncovered` the gates below read.  A
+  // write-only accounting (meter contract 1), so the number that licenses an
+  // extension or a fusion stops being invisible.
+  if (meter) {
+    meter.postGroundingRemainderSpans += uncovered.length;
+    meter.postGroundingRemainderBytes += uncovered.reduce(
+      (n, [a, b]) => n + (b - a),
+      0,
+    );
+  }
   // The extension is kept as a WHOLE (bytes + what it carried + how many steps),
   // not just its bytes: pricing it — `steps · STEP` against `PASS · unaccounted`
   // — is the caller's job, one comparison away.  `reasoned` stays the bytes so
