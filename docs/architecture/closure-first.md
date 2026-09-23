@@ -63,10 +63,73 @@ Along the way the following were tried and must not be repeated:
   stopped being reachable) and was reverted. Moving a number into `geometry.ts`
   did not make it a budget.
 
-## What this means for the next change
+## The closure law
 
-State the closure law first — what it means for a derivation to be **closed**,
-in terms of the structure the engine already has (bounds, reach, accounted
-bytes, the ladder) — and then let the reach of an alignment gap, the offer of a
-hop, the depth of a join and the scope of a substitution be **consequences** of
-it. If a change cannot be expressed that way, it is not ready.
+> **A derivation is closed for a query when the structure it built accounts for
+> the query's remainder under the engine's own identity and admission rules, and
+> every step pays for the bytes it leaves unaccounted in the one currency.**
+
+Written in the quantities the engine already has, and checkable in the code:
+
+| quantity | where | what it means |
+| --- | --- | --- |
+| `accounted` | pipeline.ts (candidate field) | the query spans the candidate's structural evidence touched |
+| `unexplainedSpans(queryLen, spans)` | rationale.ts | the reading the rationale shows: what those spans leave |
+| `weight = moves + PASS · unaccounted(accounted)` | pipeline.ts:255–261 | the price of a candidate; `PASS = 1000` (graph-search.ts:146) |
+| `resolve` / `canonLeaf` / `canonResolve` | primitives.ts | identity: exact first, then canonical — this is what "accounts for" means |
+| `leadsSomewhere` | traverse.ts | admission: an edge or a halo — the ONE predicate |
+| `hubBound = √N` | traverse.ts:529 | the read cap |
+
+The answer **is** a closure. A byte the structure does not account for is charged,
+so the search itself prefers the closure that leaves less unexplained.
+
+**The one mechanical requirement.** Work the accounting cannot see —
+enumeration, scans, sweeps — must be **proportional to the bytes it is given**,
+by choosing an algorithm whose cost is structural. Capping such work is not a
+budget: it is a short-circuit, and it silently removes capability.
+
+## Consequences — each one derived, none decided
+
+1. **Scope of a substitution.** A substitution spans exactly the **unaccounted
+   interval between two accounted anchors**; its extent is that interval's own,
+   and its price is PASS per byte of it — already on the ladder. So an alignment
+   gap needs **no cap at all**: a 24-byte slot is spanned when it is worth
+   paying, and a longer one costs more, so the search decides. What the
+   alignment's *sweep* needs is not a bound but a **structural algorithm**:
+   walking outward from the anchors costs O(bytes), while enumerating
+   `(gapQ, gapC)` pairs costs O(bytes²). The shape is the defect, not its cap.
+   *(Open debt: `alignGapPairs`. `alignSweepPairs` was wrong precisely here — it
+   bounded the enumeration instead of replacing it, and lost reach.)*
+2. **Offer of a hop.** A hop offers **the continuations the corpus holds** — its
+   structure — and the search pays for exploring each. A continuation that
+   accounts for none of the remainder costs a move and buys nothing, so the
+   search stops by price, not by a cap. *(Open debt: `exploreCap` with its
+   invented `PLURALITY` floor is the short-circuit; the honest form charges the
+   offer on the ladder, where the rationale shows what was paid.)*
+3. **Depth of a join.** A join consumes the query's tail; a step that accounts
+   for nothing is paid and loses, so the chain's length follows from the
+   remainder shrinking. No "max hops", and no shortest-prefix rule invented for
+   a fixture: the tail prefix that is the relation is the one the accounting
+   rewards.
+4. **Extension (pivot).** A hop is closed only if its step is charged for what it
+   leaves of the remainder. A hop that ignores the question's material is
+   expensive *by the ladder*, not filtered by a local window test.
+5. **Produced parts.** A produced composite is decomposed by its own tree
+   (`recompleteNode`), because that tree is the structure that accounts for its
+   bytes — the form's own structure is the authority, and it decides what the
+   bytes mean. This one has no performance cost: duplicating the recomputation
+   was, and removing that duplication recovered a measured 27% of runtime with
+   no constant, cap or cutoff (see the evidence above).
+6. **Reads.** `hubBound = √N` bounds every read; the law adds that no per-query
+   *work* grows with N either — which is why the work in 1–4 must be structural
+   in the bytes, never in the corpus.
+
+## How a change must be judged
+
+- Name which consequence it is, and show the accounting that changes (meter and
+  rationale), not just a passing fixture.
+- No number may appear that is not a quoted existing quantity. A bound must be
+  the *price* of something, visible in the rationale.
+- If a change makes the engine **unable** to reach something it reached before,
+  that must be said and proved to be required by the law. Losing reach silently
+  is forbidden.
