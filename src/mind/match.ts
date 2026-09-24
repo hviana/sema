@@ -565,7 +565,7 @@ export function alignAround(
  *  answer; worse, it hides what actually VARIES, which is the only thing a
  *  cohort can agree about.  Returns null when nothing is left on either side —
  *  a pure insertion or deletion, which names no slot. */
-export function contractGap(
+function contractGap(
   q: Uint8Array,
   c: Uint8Array,
   g: AlignGap,
@@ -1004,6 +1004,8 @@ export function spanHalo(
   return found ? normalize(out) : null;
 }
 
+/** A TEST SURFACE: exported for the tests that pin the synonym strength ladder
+ *  (they are its only consumers); nothing in `src/` calls it. */
 /** Distributional synonym evidence between arbitrary byte spans. Whole words
  *  need not be independently interned: their stored W-window occurrences are
  *  lifted to episode halos, bundled, and compared. The caller chooses the
@@ -1076,7 +1078,7 @@ export async function analogyStrength(
  *  a fraction, comparable to the cosine tiers above.  Derived: the window
  *  is maxGroup, the same quantum differsByOneWindow and canonicalChunkId
  *  measure by; no tuned constants. */
-export function sharedFrameStrength(
+function sharedFrameStrength(
   ctx: MindContext,
   a: number,
   b: number,

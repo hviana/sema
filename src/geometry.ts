@@ -180,18 +180,6 @@ export function consensusFloor(N: number): number {
   return Math.log(N) + 1 / 2;
 }
 
-/** The coverage bar for the reach (interior) index, when vector-similarity
- *  gating is used.  Returns the concept threshold — the structural midpoint
- *  (~0.5 at D=1024) where two forms are "more similar than not."
- *
- *  Currently UNUSED in the hot training path: interior nodes are indexed
- *  unconditionally (hash-cons dedup bounds the index naturally).
- *  Post-hoc structural compaction ({@link Store.compactContentIndex})
- *  replaces runtime coverage gating with a batch pass that removes
- *  structurally-isolated entries.  Derived, never tuned. */
-export function coverageBar(_maxGroup: number, D: number): number {
-  return conceptThreshold(D);
-}
 
 // ---- types ----
 

@@ -66,7 +66,7 @@ export interface JoinResult {
  *  identity, and return the discriminative content the streams share — the
  *  entity that satisfies all constraints at once.  Null when the query is
  *  not conjunctive or nothing lies in the intersection. */
-export async function confluenceJoin(
+async function confluenceJoin(
   ctx: MindContext,
   query: Uint8Array,
   pre: Precomputed,

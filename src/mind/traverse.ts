@@ -671,7 +671,7 @@ export function guidedFirst(
   return nx.length > 0 ? nx[0] : undefined;
 }
 
-export function guidedNext(
+function guidedNext(
   ctx: MindContext,
   node: number,
 ): number | undefined {
