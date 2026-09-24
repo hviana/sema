@@ -29,8 +29,8 @@ never probes the store.
 in, or `null`; `advance(state, continuation, witnesses)` is the only transition.
 The remainder is consumed only by a declared move, and only by the material that
 move CARRIES: `carries` admits by ENGAGEMENT and consumes nothing, a move consumes
-what its window proves.  Whole-span draining was refuted by `test/110`; draining the
-window alone closed a derivation a cycle had produced.
+what its window proves.  Whole-span draining was refuted by `test/110`, the window
+alone by `test/138`.  The state is BORN owing what its product does not carry.
 
 ## One cost home
 
@@ -58,7 +58,7 @@ vocabulary, not the tracer's.
 
 ## Pins
 
-- `test/133`–`137` — the law's home and readings, its refusal, its two limits.
+- `test/133`–`137` — the law's home, readings, refusal, limits.
 - `test/138` — a cycle cannot close it; a carried move can.
 - `test/139` — carrying is ENGAGEMENT, not explanation.
-- `test/140` — irrelevant supply does not change an answer.
+- `test/140` — irrelevant supply changes no answer.
