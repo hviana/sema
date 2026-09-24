@@ -73,3 +73,4 @@ vocabulary, not the tracer's.
 - `test/138` — a cycle cannot close it, a carried move can.
 - `test/139` — carrying is ENGAGEMENT, not explanation.
 - `test/140` — irrelevant supply changes nothing.
+- `test/142`, `test/143` — the offer's contract, and the cycles.

@@ -15,4 +15,4 @@
 | 11 | Honest degradation                   | `src/mind/pipeline.ts:weight=moves+PASS*unaccounted` `src/store.ts:BoundedMap:miss→re-derive`                                         | `test/28` `test/84` | `store.md`+`caches.md`    |
 | 12 | Meter contracts                      | `src/meter.ts:Meter,PhaseCost,time` `src/mind/pipeline-mechanism.ts:Precomputed.shared`                                               | `test/55`           | `meter.md`                |
 | 13 | Saturation                           | `traverse.ts:edgeAncestors,types.ts:SaturationReason` `src/mind/junction.ts:junctionContainersFrom` `src/mind/resonance.ts:pivotInto` | `test/27` `test/16` | `saturation.md`           |
-| 14 | Closure                              | `src/mind/derivation.ts:closed,admissible,advance`                                                                                    | `test/133`–`140`    | `closure.md`              |
+| 14 | Closure                              | `src/mind/derivation.ts:closed,admissible,advance`                                                                                    | `test/133`–`143`    | `closure.md`              |
