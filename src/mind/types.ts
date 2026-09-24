@@ -34,6 +34,7 @@ export interface DepositCacheEntry {
   content: ContentFold;
 }
 import { bytesEqual, concatBytes, indexOf } from "../bytes.js";
+import { restates } from "./derivation.js";
 import { dominates } from "../geometry.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -486,11 +487,13 @@ export function segRestatesQuery(
   W: number,
 ): boolean {
   if (!s.rec) return false;
+  // THE LITERAL EXEMPTION IS THE CALLER'S.  A span that IS the site's own bytes
+  // at its own position is naming what is already there, not substituting for
+  // it — and only this caller knows that, so it says so by not asking.
   const literal = s.j - s.i === s.bytes.length &&
     bytesEqual(s.bytes, query.subarray(s.i, s.j));
   if (literal) return false;
-  return s.bytes.length >= W && s.bytes.length < queryLen &&
-    indexOf(query, s.bytes, 0) >= 0;
+  return restates(query, s.bytes, W, { proper: true });
 }
 
 /** Lift the answer out of the cover for think: the recognised region, free of

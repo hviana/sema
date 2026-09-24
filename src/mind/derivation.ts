@@ -141,6 +141,60 @@ export function carries(
   return null;
 }
 
+// ── The restatement reading ─────────────────────────────────────────────────
+
+/** Whether `bytes` RESTATES the question — says nothing the asker did not just
+ *  say — and is therefore not an answer.  This is a closure condition: a
+ *  derivation whose product is already the question has added nothing, and the
+ *  engine asks it in five places.  ONE definition, asked everywhere, with the
+ *  DIFFERENCES between those places supplied as WITNESSES by the caller — never
+ *  as a mechanism or a producer.  If this function ever needs to know who
+ *  produced the bytes to decide, the right conclusion is that a witness is
+ *  missing, not that it should dispatch.
+ *
+ *  `floor` is one river-fold quantum: below it, byte overlap is chance, not
+ *  evidence — the same line `identityBar`, the bridge's `attestedQ` and
+ *  recognition's site floor all draw.  `0` disables the floor, which is the
+ *  reading the callers that ask before any structure exists use.
+ *
+ *  THE THREE READINGS the callers need, and why each is a witness rather than a
+ *  branch here:
+ *
+ *   • `proper` — a PROPER part of the question (strictly shorter).  This is the
+ *     reading every tier that rejects a fragment uses.
+ *   • `whole` — the EQUALITY reading: only "the answer IS the question" counts,
+ *     because the caller has already handled a proper fragment elsewhere (a
+ *     recall tier's own subspan tests).
+ *   • `equate` — the response's own notion of "the same text" (whatever
+ *     `src/canon.ts` equates: case, width, whitespace).  A caller that has one
+ *     passes it; a caller that does not gets the byte-exact reading.  It is the
+ *     same fallback `resolve` already makes when an exact lookup misses.
+ *
+ *  The LITERAL EXEMPTION is deliberately NOT here: whether a span is the site's
+ *  own bytes at its own position is the CALLER's knowledge, and a caller states
+ *  it by not asking (see `segRestatesQuery` in types.ts, which returns false for
+ *  a literal span before reaching this). */
+export function restates(
+  query: Uint8Array,
+  bytes: Uint8Array,
+  floor = 0,
+  witnesses: {
+    equate?: ((b: Uint8Array) => Uint8Array) | null;
+    proper?: boolean;
+    whole?: boolean;
+  } = {},
+): boolean {
+  const equate = witnesses.equate ?? null;
+  const q = equate === null ? query : equate(query);
+  const b = equate === null ? bytes : equate(bytes);
+  if (b.length > q.length || b.length < floor) return false;
+  if (witnesses.whole === true) {
+    return b.length === q.length && indexOf(q, b, 0) >= 0;
+  }
+  if (witnesses.proper === true && b.length === q.length) return false;
+  return indexOf(q, b, 0) >= 0;
+}
+
 // ── The unit ────────────────────────────────────────────────────────────────
 
 /** THE derivation state — the unit that crosses one inference.

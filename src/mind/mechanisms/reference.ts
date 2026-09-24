@@ -40,6 +40,7 @@ import { carriesFillers, distinct, follow, substituteAll } from "../match.js";
 import { dominates } from "../../geometry.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
 import { unexplainedLabel } from "../rationale.js";
+import { restates } from "../derivation.js";
 import { STEP } from "../graph-search.js";
 import type {
   MechanismResult,
@@ -231,7 +232,7 @@ export async function bindReference(
   if (bytes.length === 0) return fail("the binding produced nothing");
   // Answering with the question is not answering — the same restated-fragment
   // guard every recall tier applies.
-  if (bytes.length < query.length && indexOf(query, bytes, 0) >= 0) {
+  if (restates(query, bytes, 0, { proper: true })) {
     return fail("the binding restates part of the question");
   }
   const carried = !bytesEqual(bytes, first);

@@ -25,6 +25,7 @@ import {
 } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
+import { restates as lawRestates } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 import { substitutionBridge } from "../bridge.js";
@@ -156,7 +157,7 @@ export async function recallByResonance(
       // conversation reads as if it were the next thing to say.
       if (
         g !== null && g.length > 0 &&
-        !(g.length < query.length && indexOf(query, g, 0) >= 0)
+        !lawRestates(query, g, 0, { proper: true })
       ) {
         return ground(
           g,
@@ -196,10 +197,11 @@ export async function recallByResonance(
   // same principle that keeps cast from voicing stored questions), and
   // projecting them forward is reverse recall's containment failure in the
   // other direction — "whatever followed these bytes in some document".
-  const qKey = ctx.canon ? ctx.canon(query) : query;
+  // THE EQUALITY READING of the restatement law: this tier rejects an answer
+  // that IS the question (an echo), and a proper fragment is handled by the
+  // tier's own subspan tests further down — so the law is asked with `whole`.
   const restates = (b: Uint8Array): boolean =>
-    bytesEqual(b, query) ||
-    (ctx.canon !== null && bytesEqual(ctx.canon(b), qKey));
+    lawRestates(query, b, 0, { equate: ctx.canon, whole: true });
   const idBar = identityBar(ctx.store.D, ctx.space.maxGroup, query.length);
   if (top.score >= idBar) {
     for (const h of whole) {

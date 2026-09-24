@@ -30,7 +30,6 @@ import {
   sharedFrameStrengthOf,
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
-import { restatesQuery } from "../reasoning.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { concat2, indexOf } from "../../bytes.js";
 import { consensusFloor, dominates } from "../../geometry.js";
@@ -38,7 +37,7 @@ import {
   decodeText,
   unexplainedLabel,
 } from "../rationale.js";
-import { unexplainedSpans } from "../derivation.js";
+import { restates, unexplainedSpans } from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";
 import { leafIdRun } from "../canonical.js";
@@ -129,7 +128,7 @@ export interface CastResult {
  *  describes id ("...painted by Leonardo da Vinci." contains "Leonardo da
  *  Vinci").  An incidental adjacency predecessor never does — it merely
  *  preceded id in some unrelated document without ever mentioning it.  No
- *  new tuned constant: containment is the same primitive `restatesQuery`
+ *  new tuned constant: containment is the same primitive `restates`
  *  and `dominates`-style checks already use throughout this codebase.
  *
  *  `allowForward` (default true) gates the FORWARD branch specifically —
@@ -613,7 +612,7 @@ export async function counterfactualTransfer(
     const fwd = await follow(ctx, proj.anchor, qv);
     if (
       fwd !== null && indexOf(answer, fwd, 0) < 0 &&
-      !restatesQuery(query, fwd)
+      !restates(query, fwd, 0, { proper: true })
     ) {
       // THROUGH THE SHARED JOINER, not a bare concatenation.
       //
@@ -1286,13 +1285,16 @@ export async function counterfactualTransfer(
     // consulting it here is the same fallback `resolve` already makes when an
     // exact content lookup misses, and it keeps this mechanism from carrying
     // any idea of its own about what a character is.
-    const echoesQuery = (x: Uint8Array): boolean => {
-      if (restatesQuery(query, x)) return true;
-      const canon = ctx.canon;
-      if (canon === null) return false;
-      const cq = canon(query), cx = canon(x);
-      return cx.length < cq.length && indexOf(cq, cx, 0) >= 0;
-    };
+    // TWO WITNESSES, ONE LAW: the byte reading, and — when the response carries
+    // one — the same reading under the response's own equivalence.  Asked twice
+    // rather than branched on, because the equivalence is a property of the
+    // injected canonicalizer (a substring-monotone function is the usual case,
+    // not a guarantee), and the two readings are OR-ed here exactly as they were
+    // before this became one definition.
+    const echoesQuery = (x: Uint8Array): boolean =>
+      restates(query, x, 0, { proper: true }) ||
+      (ctx.canon !== null &&
+        restates(query, x, 0, { equate: ctx.canon, proper: true }));
     if (echoesQuery(b)) {
       const fwd = await follow(ctx, bestAnalog.anchor, qv);
       if (fwd !== null && fwd.length > 0 && !echoesQuery(fwd)) b = fwd;

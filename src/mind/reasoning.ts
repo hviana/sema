@@ -17,23 +17,10 @@ import {
   type Offer,
   type Span,
   closure,
+  restates,
   unaccountedBytes,
 } from "./derivation.js";
 import { STEP } from "./graph-search.js";
-
-/** Whether `bytes` is a proper byte-subspan of `query` — already present in
- *  the question, so voicing it back only restates part of what was asked,
- *  never answers it.  The exact guard recallByResonance already applies to
- *  its OWN grounding candidates (tier 1's `restates`, tier 2's subspan
- *  check, tier 0b's argument-binding subspan check) — every mechanism that
- *  walks a LEARNT CONTINUATION EDGE past an already-vetted grounding
- *  (reason()'s own hops below, and CAST's `projectCounterfactual` seat
- *  substitution — see cast.ts) needs the same guard applied to what the
- *  walk turns up, since `follow()`/`chooseNext`/`pivotInto` know nothing of
- *  the query at all — only of what structurally continues what. */
-export function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
-  return bytes.length < query.length && indexOf(query, bytes, 0) >= 0;
-}
 
 /** Extend a grounded answer forward across facts (multi-hop reasoning).
  *  Pivots on the longest unconsumed learnt context each answer contains,
@@ -90,7 +77,7 @@ export async function reason(
   // is nothing left to chain for.
   //
   // Every stopping condition in the loop below judges the ANSWER (`consumed` /
-  // `restatesQuery` / `bytesEqual`); none asks whether the QUESTION was
+  // the law's `restates` / `bytesEqual`); none asks whether the QUESTION was
   // satisfied.  So a single-hop question whose answer happens to name another
   // learnt context extends past a correct answer and REPLACES it:
   //
@@ -241,7 +228,7 @@ export async function reason(
       if (
         fwd !== null && !bytesEqual(fwd, cur) &&
         (fwdId === null || !consumed.has(fwdId)) &&
-        !restatesQuery(query, fwd)
+        !restates(query, fwd, 0, { proper: true })
       ) {
         consumeAll(curId);
         pending = { kind: "absorb", cur, curId, fwd };
@@ -255,7 +242,7 @@ export async function reason(
     if (pivot === null) return null;
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
-    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) {
+    if (fc === null || bytesEqual(fc, cur) || restates(query, fc, 0, { proper: true })) {
       return null;
     }
     pending = { kind: "pivot", cur, pivot, fc };

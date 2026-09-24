@@ -60,7 +60,17 @@ test("reason(): a forward hop landing on bytes already present in the query is r
   // `reason()` reports the WHOLE extension (bytes + what it carried + how many
   // steps) so a caller can price it; these assertions measure the bytes, and
   // that is all this change touches — the law they pin is untouched.
-  const out = (await reason(m, query, answer, new Set(), pre)).bytes;
+  // `reason()` now consumes and returns the derivation STATE; with no remainder
+  // the derivation is CLOSED, so the law admits any contained continuation —
+  // which is exactly what these two cases exercise.  The assertions below are
+  // untouched.
+  const state = {
+    product: answer,
+    accounted: [],
+    remainder: [],
+    cost: 0,
+  };
+  const out = (await reason(m, query, state, new Set(), pre)).product;
   assert.equal(
     dec(out),
     "bridge context",
@@ -88,7 +98,17 @@ test("reason(): an ordinary forward hop onto genuinely new content is unaffected
   // `reason()` reports the WHOLE extension (bytes + what it carried + how many
   // steps) so a caller can price it; these assertions measure the bytes, and
   // that is all this change touches — the law they pin is untouched.
-  const out = (await reason(m, query, answer, new Set(), pre)).bytes;
+  // `reason()` now consumes and returns the derivation STATE; with no remainder
+  // the derivation is CLOSED, so the law admits any contained continuation —
+  // which is exactly what these two cases exercise.  The assertions below are
+  // untouched.
+  const state = {
+    product: answer,
+    accounted: [],
+    remainder: [],
+    cost: 0,
+  };
+  const out = (await reason(m, query, state, new Set(), pre)).product;
   assert.equal(
     dec(out),
     "a wholly new fact never mentioned in any query",
