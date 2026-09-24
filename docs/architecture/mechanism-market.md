@@ -14,12 +14,12 @@ interface PipelineMechanism {
 }
 interface MechanismResult {
   bytes: Uint8Array;
-  accounted: [number, number][];
+  accounted: Array<[number, number]>;
   moves: number;
-  unexplained: string;
-  scaffolding?: number;
-  complete?: boolean;
   used?: ReadonlySet<number>;
+  scaffolding?: number;
+  provenance?: string;
+  complete?: boolean;
 }
 ```
 
@@ -53,11 +53,11 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
    `√N` via `hubBound`/`hubCap` and `k = 2·recallQueryK` (`Precomputed.k`).
    Enforced at the store.
 4. **Evidence travels** — every candidate carries `accounted` (query spans
-   explained), `moves` (priced on `MICRO/STEP/CONCEPT/PASS`), `unexplained`
-   (diagnostic label); optionally `scaffolding` (answer bytes from unrecognised
-   spans — equal-grade tie-break) and `complete` (trained-form continuation
-   reached via identity; post-grounding must not extend). The decider honours
-   all three without knowing who set them.
+   explained) and `moves` (priced on `MICRO/STEP/CONCEPT/PASS`); optionally
+   `scaffolding` (answer bytes from unrecognised spans — equal-grade tie-break),
+   `complete` (trained-form continuation reached via identity; post-grounding must
+   not extend) and `provenance`. The decider honours them without knowing who set
+   them.
 
 ## Two disciplines
 
@@ -86,8 +86,8 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
   same act is charged twice (`PASS`/byte dominates).
 
 `accounted` is a cost-ladder quantity; `cover.ts` leaves masked computed spans
-out so `PASS`-bridged bytes are still charged. `unexplained`, `narrowDecision`,
-`thinGrounding` are observational only.
+out so `PASS`-bridged bytes are still charged. `narrowDecision` and `thinGrounding`
+are observational only.
 
 ## Pins
 

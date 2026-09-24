@@ -19,8 +19,8 @@ with that order give the same derivations.
 
 ## Pipeline weighing (`src/mind/pipeline.ts:think`)
 
-Candidates are weighed in ONE place — a mechanism reports `moves` and `accounted`,
-never a price:
+Candidates are weighed in ONE place — a mechanism reports `moves` and
+`accounted`, never a price:
 
 ```
 weight = moves + PASS * unaccounted_bytes
@@ -28,8 +28,8 @@ grade  = floor(weight / STEP)
 ```
 
 `unaccounted` is what no `accounted` span covers. Comparison is at `STEP`
-resolution: lowest `grade` wins; at equal grade fewer `scaffolding` bytes (answer
-bytes lifted from unrecognised spans) wins; then list order.
+resolution: lowest `grade` wins; at equal grade fewer `scaffolding` bytes
+(answer bytes lifted from unrecognised spans) wins; then list order.
 
 ## Two semirings
 
