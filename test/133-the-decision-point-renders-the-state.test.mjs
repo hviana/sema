@@ -142,3 +142,49 @@ test("133.3 the law has one home and one definition", async () => {
       `src/mind — found ${scans}`,
   );
 });
+
+test("133.4 the law costs nothing the meter can see", async () => {
+  // THE ZERO-COST CLAIM, on one tree and through the official instrumentation.
+  // The formal A/B (ten diverse fixtures against the pre-extraction tree,
+  // comparing every answer, every move and all 480 counter values) is recorded
+  // in the commit that extracted the law; what lives here is the invariant that
+  // makes it reproducible: asking the law moves NO counter, because the law has
+  // nothing to read them through.
+  const law = await import("../dist/src/mind/derivation.js");
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(CHAIN);
+  await mind.respondText("What is the capital of France famous for");
+  const before = JSON.stringify(mind.lastCost?.counters ?? {});
+  const query = new TextEncoder().encode("What is the capital of France famous for");
+  const W = mind.space.maxGroup;
+  const state = {
+    product: new TextEncoder().encode("qqqqqqqqqqqq"),
+    accounted: [],
+    remainder: law.remainderOf(query.length, [[0, 5]], W),
+    cost: 0,
+  };
+  const t = { product: query.subarray(0, 3 * W), contains: true, cost: 1 };
+  for (let i = 0; i < 200; i++) {
+    const w = law.admissible(state, t, query, W);
+    if (w !== null) law.advance(state, t, w);
+    law.closed(state);
+    law.carries(state.remainder, t.product, query, W);
+    law.restates(query, state.product, 0, { proper: true });
+    law.insideAnsweredTurn([[0, 5]], { at: 0 }, 1, 2);
+    law.unexplainedSpans(query.length, [[0, 5]]);
+  }
+  assert.equal(
+    JSON.stringify(mind.lastCost?.counters ?? {}),
+    before,
+    "the law moved a meter counter — it must perform no work the instrumentation " +
+      "can see, which is what makes the extraction free",
+  );
+  // AND IT TAKES NO CONTEXT.  The arity is the structural statement: there is no
+  // parameter through which a store, a mind or a producer could be consulted.
+  assert.equal(law.admissible.length, 4, "admissible(state, continuation, query, W)");
+  assert.equal(law.advance.length, 3, "advance(state, continuation, witness)");
+  assert.equal(law.closed.length, 1, "closed(state)");
+  assert.equal(law.carries.length, 4, "carries(remainder, product, query, W)");
+  await store.close();
+});
