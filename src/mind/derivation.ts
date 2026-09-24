@@ -368,10 +368,14 @@ export function admissible(
   // the shape of its answer.  Reading coverage first would attribute to such a
   // step material it was never asked to account for.
   if (t.reaches) {
-    return (t.explains ?? []).map((span) => {
-      const window = windowOf(span, t.product, query, W);
-      return window === null ? { span } : { span, window };
-    });
+    // A MOVE IS ITS OWN GROUND — it needs no question material to be admitted.
+    // What it CARRIES is nonetheless the one thing the question's remainder may
+    // be consumed by, and it is read here by the SAME reading the carries
+    // admission uses: one definition, so the law cannot be told a span it does
+    // not hold.  A move that carries nothing consumes nothing.
+    const carried = carries(d.remainder, t.product, query, W);
+    if (carried !== null) return carried;
+    return (t.explains ?? []).map((span) => ({ span }));
   }
   return carries(d.remainder, t.product, query, W);
 }
