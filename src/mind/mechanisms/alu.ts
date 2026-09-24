@@ -9,7 +9,6 @@
 
 import type { Alu } from "../../alu/src/alu.js";
 import { STEP } from "../graph-search.js";
-import { unexplainedLabel } from "../rationale.js";
 import type { PipelineMechanism } from "../pipeline-mechanism.js";
 
 /** Wrap the ALU as a {@link PipelineMechanism}. */
@@ -35,7 +34,6 @@ export function aluToMechanism(alu: Alu): PipelineMechanism {
         bytes: u.bytes,
         accounted: [[u.i, u.j]],
         moves: STEP,
-        unexplained: unexplainedLabel(query, [[u.i, u.j]]),
       }));
     },
   };

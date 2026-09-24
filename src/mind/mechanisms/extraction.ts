@@ -11,7 +11,7 @@ import type { MindContext } from "../types.js";
 import { read } from "../primitives.js";
 import { follow, isSpanShaped, locate, skillExemplar } from "../match.js";
 import { concatBytes, indexOf } from "../../bytes.js";
-import { decodeText, unexplainedLabel } from "../rationale.js";
+import { decodeText } from "../rationale.js";
 import type {
   PipelineMechanism,
   Precomputed,
@@ -46,7 +46,6 @@ export async function extractBySkill(
   {
     bytes: Uint8Array;
     accounted: Array<[number, number]>;
-    unexplained: string;
   } | null
 > {
   const t = ctx.trace?.enter("extractBySkill", [
@@ -170,7 +169,6 @@ export async function extractBySkill(
     return {
       bytes: built.bytes,
       accounted: built.accounted,
-      unexplained: unexplainedLabel(query, built.accounted),
     };
   }
   if (shapeMisses === searched.length) {
@@ -403,7 +401,6 @@ export const extractionMechanism: PipelineMechanism = {
       bytes: ex.bytes,
       accounted: ex.accounted,
       moves: CONCEPT + STEP * ex.accounted.length,
-      unexplained: ex.unexplained,
     }];
   },
 };

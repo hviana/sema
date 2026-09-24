@@ -24,7 +24,6 @@ import {
   voicesDisplacedFiller,
 } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
-import { unexplainedLabel } from "../rationale.js";
 import { restates as lawRestates } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
@@ -36,7 +35,6 @@ export interface RecallResult {
   echoed: boolean;
   accounted: Array<[number, number]>;
   moves: number;
-  unexplained: string;
   /** See {@link import("../pipeline-mechanism.js").MechanismResult.complete}
    *  — set by the IDENTITY-bridge tier alone. */
   complete?: boolean;
@@ -72,7 +70,6 @@ export async function recallByResonance(
       echoed,
       accounted,
       moves,
-      unexplained: unexplainedLabel(query, accounted),
       ...(complete ? { complete } : {}),
     };
   };
@@ -629,7 +626,6 @@ export const recallMechanism: PipelineMechanism = {
       bytes: r.bytes,
       accounted: r.accounted,
       moves: r.moves,
-      unexplained: r.unexplained,
       provenance: r.echoed ? "recall-echo" : "recall",
       used: new Set<number>(),
       ...(r.complete ? { complete: true } : {}),

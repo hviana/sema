@@ -677,13 +677,12 @@ export interface MechanismResult {
   moves: number;
   /** WHAT THIS ANSWER SPEAKS FOR — the anchors it voices, and therefore the
    *  content the reasoner must not pivot back through.  Declared by the
-   *  mechanism about its OWN result, exactly like `accounted`/`unexplained`/
+   *  mechanism about its OWN result, exactly like `accounted`/`used`/
    *  `complete`: post-grounding honours the property and NEVER ASKS WHICH
    *  MECHANISM SET IT, so the market stays uniform.  An EMPTY set is a real
    *  declaration — "this answer voices nothing" (recall) — and withholds
    *  nothing; omit the field and the pipeline re-recognises the answer. */
   used?: ReadonlySet<number>;
-  unexplained: string;
   /** Explicit weight override.  When absent, weight = moves + PASS·unaccounted. */
   weight?: number;
   /** Bytes of `bytes` that came from spans nothing recognised — the asker's

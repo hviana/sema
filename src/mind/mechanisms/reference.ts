@@ -39,7 +39,6 @@ import type { FrameInstance } from "../match.js";
 import { carriesFillers, distinct, follow, substituteAll } from "../match.js";
 import { dominates } from "../../geometry.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
-import { unexplainedLabel } from "../rationale.js";
 import { restates } from "../derivation.js";
 import { STEP } from "../graph-search.js";
 import type {
@@ -279,7 +278,6 @@ export async function bindReference(
     // binding claims strictly more than a one-slot binding, so where both are
     // licensed the smaller claim wins.
     moves: STEP * slots.length + STEP,
-    unexplained: unexplainedLabel(query, accounted),
     // NOT scaffolding.  That field counts answer bytes carried through BECAUSE
     // NOTHING EXPLAINED THEM; a referent is carried because the frame's slot
     // explains it, and it is accounted above.  Reporting it would make every

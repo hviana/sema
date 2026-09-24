@@ -16,7 +16,7 @@ import { guidedFirst, hubBound } from "../traverse.js";
 import { conceptHop } from "../match.js";
 import { bridge } from "../resonance.js";
 import { liftAnswer, liftedScaffolding, segRestatesQuery } from "../types.js";
-import { decodeText, unexplainedLabel } from "../rationale.js";
+import { decodeText } from "../rationale.js";
 import {
   insideAnsweredTurn,
   restates,
@@ -329,7 +329,6 @@ export const coverMechanism: PipelineMechanism = {
       accounted,
       moves: 0,
       weight: solved!.cost, // A*LD derivation's g-value IS the weight
-      unexplained: unexplainedLabel(query, accounted),
       // How much of the composed answer is the asker's own unexplained words
       // (the spans the liftAnswer trace above labels "scaffolding").  Cover is
       // the mechanism that can carry them, because a PASS span still lands in

@@ -44,7 +44,6 @@ import { read } from "../primitives.js";
 import { corpusN, reachOf } from "../traverse.js";
 import { dominates } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
-import { unexplainedLabel } from "../rationale.js";
 import { insideAnsweredTurn } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
@@ -59,9 +58,6 @@ export interface JoinResult {
   used: ReadonlySet<number>;
   accounted: Array<[number, number]>;
   moves: number;
-  /** A human-readable label for the query bytes the meet left unexplained —
-   *  purely diagnostic, never priced. */
-  unexplained: string;
 }
 
 /** The main confluence entry point.  Given a query, detect whether it weaves
@@ -311,7 +307,6 @@ export async function confluenceJoin(
     used: new Set([met.a.anchor, met.b.anchor]),
     accounted,
     moves: 3 * STEP,
-    unexplained: unexplainedLabel(query, accounted),
   };
 }
 
@@ -340,7 +335,6 @@ export const confluenceMechanism: PipelineMechanism = {
       accounted: met.accounted,
       moves: met.moves,
       used: met.used,
-      unexplained: met.unexplained,
     }];
   },
 };

@@ -23,6 +23,7 @@ import {
   unexplainedSpans,
 } from "./derivation.js";
 import { rItem } from "./trace.js";
+import { unexplainedLabel } from "./rationale.js";
 import { hubBound } from "./traverse.js";
 import { type PipelineMechanism, Precomputed } from "./pipeline-mechanism.js";
 import { coverMechanism } from "./mechanisms/cover.js";
@@ -250,7 +251,6 @@ export async function think(
     weight: number;
     used?: ReadonlySet<number>;
     accounted: ReadonlyArray<[number, number]>;
-    unexplained: string;
     complete?: boolean;
     /** Bytes of this candidate's ANSWER that came from spans nothing
      *  recognised — query words carried through verbatim (see
@@ -406,7 +406,6 @@ export async function think(
         weight,
         used: r.used,
         accounted: r.accounted,
-        unexplained: r.unexplained,
         complete: r.complete,
         scaffolding: r.scaffolding,
       });
@@ -439,14 +438,21 @@ export async function think(
       : null;
     ctx.trace?.step(
       "decideGrounding",
-      candidates.map((c) =>
-        rItem(
+      // THE LABEL IS RENDERED WHERE IT IS SHOWN.  It was a field on every
+      // mechanism's result, and at every one of them it was exactly
+      // `unexplainedLabel(query, accounted)` — a second representation of a
+      // quantity one pure function already yields, computed on every response
+      // whether or not anyone looked.  Here it is computed only when a rationale
+      // is attached, because `trace?.step` short-circuits its arguments.
+      candidates.map((c) => {
+        const label = unexplainedLabel(query, c.accounted);
+        return rItem(
           c.bytes,
           `${c.provenance} (weight ${c.weight.toFixed(3)}${
-            c.unexplained ? `, unexplained: "${c.unexplained}"` : ""
+            label ? `, unexplained: "${label}"` : ""
           })`,
-        )
-      ),
+        );
+      }),
       decided ? [rItem(decided.bytes, decided.provenance)] : [],
       "the lightest grounding derivation wins — every mechanism weighed in the one cost ladder",
       undefined,

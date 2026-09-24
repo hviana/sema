@@ -300,7 +300,6 @@ export const prefixMechanism: PipelineMechanism = {
       // IDENTITY bridge takes.
       accounted: [[0, query.length]],
       moves: STEP,
-      unexplained: "",
       // NOT complete: the query is a proper PREFIX, so the form may carry more
       // past the remainder this voiced.
     }];

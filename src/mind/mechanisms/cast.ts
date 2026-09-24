@@ -33,10 +33,7 @@ import { joinWithBridge } from "../resonance.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { concat2, indexOf } from "../../bytes.js";
 import { consensusFloor, dominates } from "../../geometry.js";
-import {
-  decodeText,
-  unexplainedLabel,
-} from "../rationale.js";
+import { decodeText } from "../rationale.js";
 import { restates, unexplainedSpans } from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";
@@ -91,7 +88,6 @@ export interface CastResult {
   /** A human-readable label for the query bytes this schema left
    *  unexplained — purely diagnostic, never priced (see the module's
    *  Task 2 note in pipeline.ts's Candidate interface). */
-  unexplained: string;
 }
 
 /** The seat that establishes a node's role in an analogical comparison:
@@ -498,7 +494,6 @@ export async function counterfactualTransfer(
       used: used ?? new Set(),
       accounted,
       moves,
-      unexplained: unexplainedLabel(query, accounted),
     });
   };
   ctx.trace?.step(
@@ -1408,7 +1403,6 @@ export const castMechanism: PipelineMechanism = {
       accounted: c.accounted,
       moves: c.moves,
       used: c.used,
-      unexplained: c.unexplained,
     }));
   },
 };
