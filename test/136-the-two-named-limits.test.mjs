@@ -114,3 +114,59 @@ test("136.2 the extension is not priced", async () => {
       "extension does to the suite's answers and counters, then update this test",
   );
 });
+
+
+test("136.3 the gate's total and the law's per-span reading agree — measured, not argued", async () => {
+  // GAP 1 of the §22 register.  The two readings WOULD diverge if a gap below one
+  // quantum could survive into the accounting — a total >= W while every gap < W —
+  // and the register kept that as an unmeasured limit.  It is measured here and it
+  // does not happen: on every construction below the response either reports NO
+  // remainder or one whose gaps are each >= W, because the ACCOUNTING applies the
+  // same W floor the gate does.  Sub-quantum material between recognised spans sits
+  // INSIDE the composed spans, so it never becomes a gap; and material the cover
+  // cannot compose stays unrecognised in runs the recognition's own floor already
+  // treats as non-evidence.  The gate's total reading is therefore not a second,
+  // laxer condition: it is the same condition, which is what makes 136.1's source
+  // pin safe rather than a hazard.
+  const { Mind, SQliteStore } = await import("../dist/src/index.js");
+  const corpus = [
+    ["What is 2 + 2?", "What is 2 + 2? 4"],
+    ["What is 3 + 3?", "What is 3 + 3? 6"],
+    ["Paris", "Paris is the capital of France"],
+    ["Hamlet", "Hamlet was written by Shakespeare"],
+    ["Romeo", "Romeo loves Juliet"],
+    ["Macbeth", "Macbeth is a Scottish play"],
+  ];
+  const queries = [
+    "Paris,Hamlet,Romeo,Macbeth", // four 1-byte gaps: total 4 = W
+    "Paris; Hamlet; Romeo; Macbeth", // four 2-byte gaps: total 8
+    "Paris - Hamlet - Romeo - Macbeth", // four 3-byte gaps: total 12
+    "2+2, 3+3, 4+4", // sub-quantum separators inside a composition
+    "Paris and Hamlet and Romeo and Macbeth", // 5-byte gaps: a genuine remainder
+  ];
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(corpus);
+  const W = mind.space.maxGroup;
+  let closed = 0;
+  let open = 0;
+  for (const q of queries) {
+    const steps = [];
+    await mind.respondText(q, (s) => steps.push(s));
+    const pg = steps.filter((s) => s.data && s.data.fixed !== undefined).pop()?.data;
+    const spans = pg?.remainderSpans ?? 0;
+    const bytes = pg?.remainderBytes ?? 0;
+    assert.equal(
+      bytes >= W,
+      spans > 0,
+      `${JSON.stringify(q)}: the gate's total reading says ${bytes >= W ? "open" : "closed"} ` +
+        `(${bytes} bytes vs W=${W}) while the law's per-span reading says ` +
+        `${spans > 0 ? "open" : "closed"} (${spans} spans) — they diverged, so the ` +
+        `accounting no longer applies the W floor and the gate IS a laxer second reading`,
+    );
+    if (bytes > 0) open++;
+    else closed++;
+  }
+  assert.ok(open > 0 && closed > 0, `the set must exercise both sides, got open=${open} closed=${closed}`);
+  await store.close();
+});
