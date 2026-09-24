@@ -17,6 +17,7 @@ import { recognise } from "./recognition.js";
 import { fuseAttention, reason } from "./reasoning.js";
 import {
   type DerivationState,
+  type Span,
   remainderOf,
   unaccountedBytes,
   unexplainedSpans,
@@ -626,17 +627,18 @@ export async function think(
     meter.postGroundingRemainderSpans += uncovered.length;
     meter.postGroundingRemainderBytes += unaccountedBytes(uncovered);
   }
-  // The extension is kept as a WHOLE (bytes + what it carried + how many steps),
-  // not just its bytes: pricing it — `steps · STEP` against `PASS · unaccounted`
-  // — is the caller's job, one comparison away.  `reasoned` stays the bytes so
-  // everything downstream is untouched.
+  // THE WALK CONSUMES AND RETURNS A STATE.  It is handed the derivation's own —
+  // the grounding's product, accounting, remainder and cost — and hands back the
+  // state it advanced to, so what follows reads a state rather than bytes plus a
+  // tuple rebuilt here.  A supplied fixed point is the one case where the walk
+  // does not run at all, and then the state is the grounding's own.
   const extension = decided.complete ? undefined : meter
     ? await meter.time(
       "reason",
-      () => reason(ctx, query, answer, preConsumed, pre, voiced, uncovered),
+      () => reason(ctx, query, state, preConsumed, pre, voiced),
     )
-    : await reason(ctx, query, answer, preConsumed, pre, voiced, uncovered);
-  const reasoned = extension?.bytes ?? answer;
+    : await reason(ctx, query, state, preConsumed, pre, voiced);
+  const reasoned = extension ?? state;
 
   // Fuse only when the query has a genuine REMAINDER no mechanism's
   // structural evidence touched at all.  `decided.accounted` alone
@@ -664,8 +666,8 @@ export async function think(
   // `unclimbed` parameter, gated there by Attention.breadth so a
   // coincidental echo (which this flag alone cannot distinguish) is still
   // rejected.
-  const unclimbed = decided.accounted.length > 0 &&
-    decided.accounted.every(([i, j]) =>
+  const unclimbed = state.accounted.length > 0 &&
+    state.accounted.every(([i, j]) =>
       pre.computed.some((u) => u.i === i && u.j === j)
     );
   // Where the winning grounding stands in the query — fusion places primary
@@ -675,10 +677,9 @@ export async function think(
   // Exactly the cost-ladder-vs-coverage distinction `explained` above draws,
   // read here for POSITION instead of for coverage — and resolved here, where
   // both readings are in hand, rather than inside fuseAttention.
-  const primarySpans: ReadonlyArray<[number, number]> =
-    decided.accounted.length > 0
-      ? decided.accounted
-      : pre.computed.map((u): [number, number] => [u.i, u.j]);
+  const primarySpans: ReadonlyArray<Span> = state.accounted.length > 0
+    ? state.accounted
+    : pre.computed.map((u): [number, number] => [u.i, u.j]);
   const fused = remainder < ctx.space.maxGroup
     ? reasoned
     : meter
@@ -696,7 +697,7 @@ export async function think(
     );
 
   done(
-    fused,
+    fused.product,
     // NO CLAIM ABOUT FUSION HERE.  `fuseAttention` is entered whenever a
     // remainder ≥ W exists and returns early when there is nothing to bridge, so
     // this note used to assert a fusion that frequently did not happen (measured:
@@ -705,5 +706,5 @@ export async function think(
     // did the work is the layer that says so.
     "grounded, reasoned forward",
   );
-  return { bytes: fused, provenance };
+  return { bytes: fused.product, provenance };
 }

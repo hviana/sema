@@ -15,6 +15,7 @@ import { type Rationale } from "./rationale.js";
 import {
   type DerivationState,
   type Offer,
+  type Span,
   closure,
   unaccountedBytes,
 } from "./derivation.js";
@@ -49,31 +50,19 @@ export function restatesQuery(query: Uint8Array, bytes: Uint8Array): boolean {
  *  when it declared one — see the pivot's own containment rule.  `pre` is the
  *  response's shared pre-computation — the post-grounding stages read the
  *  same container the mechanisms did. */
-/** What the multi-hop extension produced, and what it cost: the bytes (the
- *  answer), the spans of the grounding's UNCOVERED material that each step was
- *  justified by, and how many steps were taken.  The last two exist so the
- *  caller can price the extension in the ladder's own currency — `steps · STEP`
- *  against `PASS · unaccounted` — instead of taking it unconditionally.  Both
- *  are FACTS, not verdicts: nothing here says whether the extension was worth
- *  it; that is the comparison's job, one layer up. */
-export interface ReasonedAnswer {
-  bytes: Uint8Array;
-  carried: Array<[number, number]>;
-  steps: number;
-}
-
 export async function reason(
   ctx: MindContext,
   query: Uint8Array,
-  answer: Uint8Array,
+  d0: DerivationState,
   preConsumed: ReadonlySet<number>,
   pre: Precomputed,
   voiced: readonly Uint8Array[] = [],
-  /** The query material the GROUNDING left uncovered — the cost ladder's own
-   *  `unaccounted` spans.  Only the reasoner's OWN extensions are judged
-   *  against it; a mechanism carrying its own `used` set owns its shape. */
-  uncovered: readonly (readonly [number, number])[] = [],
-): Promise<ReasonedAnswer> {
+): Promise<DerivationState> {
+  const answer = d0.product;
+  /** The query material the GROUNDING left uncovered — the state's own
+   *  remainder.  Only the reasoner's OWN extensions are judged against it; a
+   *  mechanism carrying its own `used` set owns its shape. */
+  const uncovered = d0.remainder;
   // Echo guard: a query that is ITSELF a learnt continuation (some context's
   // answer) is being asked back at the system — hopping forward from it would
   // chain through the very fact that produced it and echo the conversation
@@ -81,7 +70,7 @@ export async function reason(
   // broad structural gate; pinned by test/31-audit.
   const qId = pre.queryResolved;
   if (qId !== null && ctx.store.prevCount(qId) > 0) {
-    return { bytes: answer, carried: [], steps: 0 };
+    return d0;
   }
 
   // Consume a node and its neighbours for pivot-cycle prevention — CAPPED at
@@ -141,7 +130,7 @@ export async function reason(
     ? null
     : ctx.store.prevFirst(groundedId, bound);
   if (qId !== null && groundedPrev !== null && groundedPrev.includes(qId)) {
-    return { bytes: answer, carried: [], steps: 0 };
+    return d0;
   }
 
   const consumed = new Set<number>();
@@ -206,12 +195,6 @@ export async function reason(
   // `pivotSteps` on the chain fixtures.
   const qv = pre.guide; // the response-wide guide IS the query's gist
   const W = ctx.space.maxGroup;
-  const d0: DerivationState = {
-    product: answer,
-    accounted: [],
-    remainder: uncovered,
-    cost: 0,
-  };
   // WHOSE EXTENSION IS THIS?  `voiced` is what the mechanism WITHHELD (the
   // pipeline sends the used anchors' CONTINUATIONS, not their bytes), so a
   // non-empty `voiced` means exactly what that note says: the grounding came
@@ -359,7 +342,7 @@ export async function reason(
     // construction.
     "the multi-hop chain's fixpoint",
   );
-  return { bytes: closed_.product, carried, steps };
+  return closed_;
 }
 
 /** Fuse independent points of attention into one answer (multi-topic).
@@ -369,7 +352,7 @@ export async function reason(
 export async function fuseAttention(
   ctx: MindContext,
   query: Uint8Array,
-  primary: Uint8Array,
+  state: DerivationState,
   pre: Precomputed,
   /** True when `primary` never touched the consensus climb at all — e.g. a
    *  pure ALU computation, which has no anchor of its own.  commitVotes
@@ -384,8 +367,13 @@ export async function fuseAttention(
    *  which is the layer that knows how a given grounding records its evidence;
    *  fuseAttention just reads a position from it.  Empty or absent preserves
    *  the original behaviour exactly. */
-  primarySpans: ReadonlyArray<readonly [number, number]> = [],
-): Promise<Uint8Array> {
+  primarySpans: ReadonlyArray<Span> = [],
+): Promise<DerivationState> {
+  // THE STATE, NOT BARE BYTES: fusion is one more transition of the derivation
+  // the walk returned, so it reads that state's product and hands back a state.
+  // Its own structural gates stay here — this is the layer that can resolve
+  // those witnesses, and the law never re-derives one.
+  const primary = state.product;
   // When the answer is structurally drawn from the query itself
   // (extraction), it already spans all the query's pieces — fusion
   // would only add noise from unrelated stored contexts.  The gate is
@@ -393,7 +381,7 @@ export async function fuseAttention(
   // byte run): the old sparse-subsequence test was trivially satisfied by
   // short answers over long queries, silently starving multi-topic queries
   // of fusion.
-  if (containsSpan(ctx, query, primary)) return primary;
+  if (containsSpan(ctx, query, primary)) return state;
 
   // The committed points of attention ARE the shared climb's roots (same
   // query, same k, same DF mode) — read them from Precomputed instead of
@@ -436,7 +424,7 @@ export async function fuseAttention(
   const lonePromotes = unclimbed && forest.length === 1 &&
     forest[0].breadth > 0.5 && independentOfPrimary(forest[0]);
   if (forest.length === 0 || (forest.length <= 1 && !lonePromotes)) {
-    return primary;
+    return state;
   }
 
   // WHERE THE QUERY ASKED FOR IT.  The sort below orders the fused pieces by
@@ -539,7 +527,7 @@ export async function fuseAttention(
       [rItem(primary, "answer")],
       "no further independent point grounded",
     );
-    return primary;
+    return state;
   }
 
   pieces.sort((a, b) => a.start - b.start);
@@ -556,5 +544,5 @@ export async function fuseAttention(
   // THE FACT IS THE FUSED ANSWER, not the call: every early return above hands
   // back `primary` untouched.  Untraced on purpose (meter.ts contract 1).
   if (ctx.meter) ctx.meter.fuseRuns++;
-  return out;
+  return { ...state, product: out };
 }

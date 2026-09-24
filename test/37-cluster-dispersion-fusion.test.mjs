@@ -127,7 +127,16 @@ test("fuseAttention: 2 clusters, low breadth — dispersion alone is enough (gap
     }),
     guide,
   };
-  const out = dec(await fuseAttention(m, q, primary, pre));
+  // fusion consumes and returns the derivation STATE; these cases exercise the
+  // mechanism's own gates, so the state is the minimum one for them.
+  const out = dec(
+    (await fuseAttention(m, q, {
+      product: primary,
+      accounted: [],
+      remainder: [],
+      cost: 0,
+    }, pre)).product,
+  );
   assert.equal(
     out,
     "answer alpha" + dec(primary),
@@ -154,7 +163,16 @@ test("fuseAttention: 1 cluster, dominant breadth — dominance alone is enough (
     }),
     guide,
   };
-  const out = dec(await fuseAttention(m, q, primary, pre));
+  // fusion consumes and returns the derivation STATE; these cases exercise the
+  // mechanism's own gates, so the state is the minimum one for them.
+  const out = dec(
+    (await fuseAttention(m, q, {
+      product: primary,
+      accounted: [],
+      remainder: [],
+      cost: 0,
+    }, pre)).product,
+  );
   assert.equal(
     out,
     "answer alpha" + dec(primary),
@@ -180,7 +198,16 @@ test("fuseAttention: 1 cluster, low breadth — neither measure saves it (the li
     }),
     guide,
   };
-  const out = dec(await fuseAttention(m, q, primary, pre));
+  // fusion consumes and returns the derivation STATE; these cases exercise the
+  // mechanism's own gates, so the state is the minimum one for them.
+  const out = dec(
+    (await fuseAttention(m, q, {
+      product: primary,
+      accounted: [],
+      remainder: [],
+      cost: 0,
+    }, pre)).product,
+  );
   assert.equal(
     out,
     dec(primary),

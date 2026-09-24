@@ -94,7 +94,16 @@ test("fuseAttention: a root whose continuation is already answered in the query 
     }),
     guide,
   };
-  const out = dec(await fuseAttention(m, q, primary, pre));
+  // fusion consumes and returns the derivation STATE; these cases exercise the
+  // mechanism's own gates, so the state is the minimum one for them.
+  const out = dec(
+    (await fuseAttention(m, q, {
+      product: primary,
+      accounted: [],
+      remainder: [],
+      cost: 0,
+    }, pre)).product,
+  );
   assert.ok(
     !out.includes("reply-greet"),
     `a root whose continuation is already answered in the query must not fuse in, got "${out}"`,
@@ -126,7 +135,16 @@ test("fuseAttention: ordinary multi-topic fusion (no embedded answers) is comple
     }),
     guide,
   };
-  const out = dec(await fuseAttention(m, q, primary, pre));
+  // fusion consumes and returns the derivation STATE; these cases exercise the
+  // mechanism's own gates, so the state is the minimum one for them.
+  const out = dec(
+    (await fuseAttention(m, q, {
+      product: primary,
+      accounted: [],
+      remainder: [],
+      cost: 0,
+    }, pre)).product,
+  );
   assert.ok(
     out.includes("answer alpha"),
     `an ordinary further topic must still fuse in, got "${out}"`,
