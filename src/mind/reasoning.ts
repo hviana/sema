@@ -12,7 +12,13 @@ import { containsSpan, follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
 import { type Rationale } from "./rationale.js";
-import { unaccountedBytes } from "./derivation.js";
+import {
+  type DerivationState,
+  type Offer,
+  closure,
+  unaccountedBytes,
+} from "./derivation.js";
+import { STEP } from "./graph-search.js";
 
 /** Whether `bytes` is a proper byte-subspan of `query` — already present in
  *  the question, so voicing it back only restates part of what was asked,
@@ -177,41 +183,72 @@ export async function reason(
     await preconsume();
   }
 
-  let cur = answer;
-  const qv = pre.guide; // the response-wide guide IS the query's gist
-  let t: ReturnType<Rationale["enter"]> | undefined;
-  const startedFrom = answer;
-  // INSTRUMENTATION ONLY — the two facts the extension's own decision already
-  // used and threw away: the spans of uncovered material each step was
-  // JUSTIFIED by (the gate below computes which span carries it and kept only a
-  // boolean), and how many steps were taken.  Nothing here decides anything:
-  // both are read after the loop, to bump counters and to let the caller compare
-  // the extension's cost against what it explains, in the ladder's own currency.
-  const carried: Array<[number, number]> = [];
-  let steps = 0;
+  // ── THE WALK, AS THE LAW'S ───────────────────────────────────────────
+  //
+  // This function no longer decides whether a step may be taken: it OFFERS a
+  // continuation — a forward step from the answer's own learnt edge, or a pivot
+  // on a learnt context the answer contains — and `derivation.ts`'s law admits
+  // or refuses it.  The state it offers against is the pipeline's own: the
+  // grounding's remainder (what the question still owes), its accounting, its
+  // cost.
+  //
   // NO ALLOWANCE: THE CHAIN ENDS WHEN IT STOPS.  Every exit below is the law —
   // no pivot, no forward step, no question material carried — and the walk is
-  // bounded by the material and the graph rather than by a count: each taken
-  // step must carry a W-window of the uncovered material (finite), and
-  // `consumed` refuses to revisit a node.  `recallQueryK` no longer bounds the
-  // reasoner here; it keeps its other roles (the bridge's candidate reads, the
-  // pivot's probe budget, the resonance limits).
+  // bounded by the material and the graph rather than by a count: the law
+  // requires each step to engage what is left (or to move to new structure),
+  // and `consumed` refuses to revisit a node.  `recallQueryK` no longer bounds
+  // the reasoner here; it keeps its other roles (the bridge's candidate reads,
+  // the pivot's probe budget, the resonance limits).
   //
-  // Measured before removing it: test/89 — the corpus-cost guard, the heaviest
-  // case in the suite — is green and no slower without the allowance (27 s
-  // against 30 s); and raising it from 12 to 200 changed neither the answer nor
+  // Measured before removing the allowance: test/89 — the corpus-cost guard, the
+  // heaviest case in the suite — is green and no slower without it (27 s against
+  // 30 s); and raising it from 12 to 200 changed neither the answer nor
   // `pivotSteps` on the chain fixtures.
-  for (let hop = 0;; hop++) {
-    // Hop 0's `cur` IS `answer`, so the guard above already resolved it and
-    // read its reverse edges — reuse both rather than repeat them.
+  const qv = pre.guide; // the response-wide guide IS the query's gist
+  const W = ctx.space.maxGroup;
+  const d0: DerivationState = {
+    product: answer,
+    accounted: [],
+    remainder: uncovered,
+    cost: 0,
+  };
+  // WHOSE EXTENSION IS THIS?  `voiced` is what the mechanism WITHHELD (the
+  // pipeline sends the used anchors' CONTINUATIONS, not their bytes), so a
+  // non-empty `voiced` means exactly what that note says: the grounding came
+  // from a mechanism that carries its own short `used` set (cast/join) and
+  // therefore OWNS the shape of its answer.  The further terms inside such a
+  // seat are legitimately followable (test/29 C3's `Mona Lisa` lives inside the
+  // voiced seat and leads on to a fact about neither analog), which the law
+  // expresses as the identity species of progress — `moves` — declared by the
+  // reporter and never inferred from the mechanism's name.
+  const producerOwnsShape = voiced.length > 0;
+  const startedFrom = answer;
+  let hop = 0;
+  let t: ReturnType<Rationale["enter"]> | undefined;
+  // WHAT THE OFFERED STEP WOULD BE.  The law decides, so the accepted step is
+  // traced where the decision went (`onTaken`) and a refused one is reported as
+  // the law's refusal (`onRefused`) — a step is never reported before it is
+  // admitted.
+  let pending:
+    | { kind: "absorb"; cur: Uint8Array; curId: number | null; fwd: Uint8Array }
+    | { kind: "pivot"; cur: Uint8Array; pivot: number; fc: Uint8Array }
+    | null = null;
+
+  const offer: Offer = async (d) => {
+    const cur = d.product;
+    // The first step's `cur` IS the grounding's product, so the guard above
+    // already resolved it and read its reverse edges — reuse both.
     const curId = hop === 0 ? groundedId : resolve(ctx, cur);
     consumeNode(curId, hop === 0 ? groundedPrev ?? undefined : undefined);
+    hop++;
 
     // Forward-absorb: follow only UNCONSUMED continuations.  The gate below
-    // checks an unconsumed edge EXISTS, but follow()'s chooseNext knows
-    // nothing of `consumed` and may still walk to a consumed fixpoint —
-    // absorbing it would repeat content the grounding stage already spoke
-    // for, so a consumed fixpoint falls through to the pivot step instead.
+    // checks an unconsumed edge EXISTS, but follow()'s chooseNext knows nothing
+    // of `consumed` and may still walk to a consumed fixpoint — absorbing it
+    // would repeat content the grounding stage already spoke for, so a consumed
+    // fixpoint falls through to the pivot step instead.  Offered with `moves`:
+    // completing the answer's OWN learnt form is an identity step, not a claim
+    // about the asker's material.
     if (
       curId !== null &&
       ctx.store.nextFirst(curId, bound).some((n) => !consumed.has(n))
@@ -224,130 +261,105 @@ export async function reason(
         !restatesQuery(query, fwd)
       ) {
         consumeAll(curId);
-        t ??= ctx.trace?.enter("reason", [
-          rItem(startedFrom, "grounded"),
-        ]);
-        ctx.trace?.step(
-          "absorbForward",
-          [rItem(cur, "answer", curId)],
-          [rItem(fwd, "answer", resolve(ctx, fwd) ?? undefined)],
-          "the answer is itself a learnt fact — follow its continuation to the fixpoint",
-        );
-        cur = fwd;
-        steps++;
-        continue;
+        pending = { kind: "absorb", cur, curId, fwd };
+        return { product: fwd, contains: true, moves: true, cost: STEP };
       }
     }
 
-    // Pivot: find the longest unconsumed learnt context the answer contains.
+    // Pivot: the longest unconsumed learnt context the answer contains.
     consumeAll(curId);
     const pivot = await pivotInto(ctx, cur, consumed, voiced);
-    if (pivot === null) break;
-
+    if (pivot === null) return null;
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
-    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) break;
-    // WHOSE EXTENSION IS THIS?
-    //
-    // `voiced` is what the mechanism WITHHELD (the pipeline sends the used
-    // anchors' CONTINUATIONS, not their bytes — see pipeline's own note), so a
-    // non-empty `voiced` means exactly what that note says: the grounding came
-    // from a mechanism that carries its own short `used` set (cast/join) and
-    // therefore owns the shape of its answer.  The further terms inside such a
-    // seat are legitimately followable — test/29 C3's `Mona Lisa` lives inside
-    // the voiced seat and leads on to a fact about neither analog.
-    //
-    // Every other grounding is ordinary, and an extension of it is the
-    // reasoner's own inference: it is taken only while question material the
-    // grounding left uncovered remains AND the step carries some of it, judged
-    // by the mind's own line between chance and evidence — one W-byte window,
-    // no word notion, no character class, no threshold.  Measured: the drift's
-    // second step (`the Eiffel Tower is in Paris` after `Paris is famous for
-    // the Eiffel Tower`) carries no window of `" famous for"` and is refused,
-    // while the first carries it.  Terminates by a real argument: the uncovered
-    // material is finite and each taken extension must carry some of it.
-    const producerOwnsShape = voiced.length > 0;
-    if (!producerOwnsShape && uncovered.length > 0) {
-      const W = ctx.space.maxGroup;
-      let progress = false;
-      let justified: [number, number] | undefined;
-      for (const [a, b] of uncovered) {
-        for (let i = a; i + W <= b && !progress; i++) {
-          if (indexOf(fc, query.subarray(i, i + W), 0) >= 0) {
-            progress = true;
-            justified = [a, b];
-          }
-        }
-        if (progress) break;
-      }
-      if (progress && justified !== undefined) carried.push(justified);
-      if (!progress) {
-        // THE BRAKE, MADE VISIBLE.  The reasoner declines a step that carries
-        // none of the material the grounding left uncovered — the drift the
-        // extension tests pin.  A refusal that leaves no trace is the kind of
-        // silent cut AGENTS §6 forbids: the rationale is where a reader learns
-        // that an extension was declined for want of question material, and
-        // where the next person sees why the chain stopped here.  Measured with
-        // the check disabled, test/110 and test/116 fail — so this brake is the
-        // only thing keeping the extension honest until the pivot reports its
-        // own accounted spans and the ladder can judge it instead.
-        //
-        // THE PROMISE IS NOW KEPT, AND THE BRAKE TURNS OUT TO BE THE LADDER'S
-        // OWN CONSEQUENCE.  The extension reports what it carried (`carried`,
-        // the span each step was justified by) and what it cost (`steps`), both
-        // counted in the meter (`reasonCarriedBytes`, `reasonSteps`), so the
-        // ladder CAN judge it: it accepts while
-        //
-        //     steps · STEP  <  PASS · carried
-        //
-        // and this brake accepts whenever the step carries a `W`-window, i.e.
-        // whenever `carried ≥ W ≥ 1`.  With `PASS/STEP = 1000` the two therefore
-        // agree on every extension with `steps ≤ 1000 · carried` — and every
-        // extension this repository produces takes 0 or 1 steps (measured on
-        // chains of 3, 8, 20 and 40 links).  Above that bound the ladder would
-        // refuse what this brake accepts, which is the corner named in the
-        // closure report's limits: a chain of thousands of links explaining a
-        // handful of bytes.  No guard is added for it — a limit without a
-        // derivation is exactly what the brake must not become.
-        const left = unaccountedBytes(uncovered);
-        ctx.trace?.step(
-          "pivotRefused",
-          [rItem(cur, "answer"), rItem(query, "query")],
-          uncovered.map(([a, b]) => rItem(query.subarray(a, b), "uncovered")),
-          `the step carries none of the question material the grounding left ` +
-            `uncovered (${left} byte(s) in ${uncovered.length} span(s)) — refused`,
-        );
-        break;
-      }
+    if (fc === null || bytesEqual(fc, cur) || restatesQuery(query, fc)) {
+      return null;
     }
-    if (ctx.meter) ctx.meter.pivotSteps++;
-    t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
-    ctx.trace?.step(
-      "pivotStep",
-      [rItem(cur, "answer"), rNode(ctx, pivot, "pivot")],
-      [rItem(fc, "answer", resolve(ctx, fc) ?? undefined)],
-      "pivot on the shared span this answer contains, then step forward across that fact",
-    );
-    cur = fc;
-    steps++;
-  }
+    pending = { kind: "pivot", cur, pivot, fc };
+    // Offered with the identity species ONLY when the grounding declared what it
+    // speaks for; otherwise the law requires this step to carry question
+    // material the grounding left unaccounted, which is the drift the extension
+    // tests pin — refused by the law's own measure, not by a private window
+    // test.
+    return {
+      product: fc,
+      contains: true,
+      moves: producerOwnsShape,
+      cost: STEP,
+    };
+  };
+
+  const closed_ = await closure(
+    d0,
+    query,
+    W,
+    offer,
+    () => {
+      const p = pending;
+      pending = null;
+      if (p === null) return;
+      t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
+      if (p.kind === "absorb") {
+        ctx.trace?.step(
+          "absorbForward",
+          [rItem(p.cur, "answer", p.curId ?? undefined)],
+          [rItem(p.fwd, "answer", resolve(ctx, p.fwd) ?? undefined)],
+          "the answer is itself a learnt fact — follow its continuation to the fixpoint",
+        );
+      } else {
+        if (ctx.meter) ctx.meter.pivotSteps++;
+        ctx.trace?.step(
+          "pivotStep",
+          [rItem(p.cur, "answer"), rNode(ctx, p.pivot, "pivot")],
+          [rItem(p.fc, "answer", resolve(ctx, p.fc) ?? undefined)],
+          "pivot on the shared span this answer contains, then step forward across that fact",
+        );
+      }
+    },
+    (at) => {
+      const p = pending;
+      pending = null;
+      if (p === null || p.kind !== "pivot") return;
+      // THE BRAKE, MADE VISIBLE — and it is now the LAW's refusal, reported
+      // where it happened.  The reasoner declines a step that carries none of
+      // the material the grounding left unaccounted.  A refusal that leaves no
+      // trace is the kind of silent cut AGENTS §6 forbids: the rationale is
+      // where a reader learns that an extension was declined for want of
+      // question material, and where the next person sees why the chain stopped
+      // here.  Measured with the check disabled, test/110 and test/116 fail.
+      const left = unaccountedBytes(at.remainder);
+      ctx.trace?.step(
+        "pivotRefused",
+        [rItem(p.cur, "answer"), rItem(query, "query")],
+        at.remainder.map(([a, b]) => rItem(query.subarray(a, b), "uncovered")),
+        `the step carries none of the question material the grounding left ` +
+          `unaccounted (${left} byte(s) in ${at.remainder.length} span(s)) — refused`,
+      );
+    },
+  );
+
   // INSTRUMENTATION ONLY — the extension's two facts, untraced (meter.ts
   // contract 1: a counter never reaches a decision).  They are what a caller
-  // needs to PRICE the extension instead of taking it unconditionally: the work
-  // it did (`steps · STEP`) and the uncovered material it carried.
+  // needs to PRICE the extension instead of taking it unconditionally, and both
+  // are now read off the state the law advanced rather than accumulated beside
+  // it: the work it did is the cost it accumulated, and the material it carried
+  // is the accounting the law's witnesses added.
+  const steps = closed_.cost - d0.cost;
+  const carried: Array<[number, number]> = closed_.accounted
+    .slice(d0.accounted.length)
+    .map(([a, b]): [number, number] => [a, b]);
   if (ctx.meter) {
     ctx.meter.reasonSteps += steps;
     ctx.meter.reasonCarriedBytes += unaccountedBytes(carried);
   }
   t?.done(
-    [rItem(cur, "answer", resolve(ctx, cur) ?? undefined)],
-    // A FIXPOINT: no further step was possible.  This note used to also cover an
-    // exhausted hop allowance — a different fact, and the reason F1 added a
-    // counter for it.  The allowance is gone, so the only way out of the loop is
-    // a refusal, and the note is true again by construction.
+    [rItem(closed_.product, "answer", resolve(ctx, closed_.product) ?? undefined)],
+    // A FIXPOINT: no further step was offered, or the law refused the one that
+    // was.  There is no allowance to exhaust, so the note is true by
+    // construction.
     "the multi-hop chain's fixpoint",
   );
-  return { bytes: cur, carried, steps };
+  return { bytes: closed_.product, carried, steps };
 }
 
 /** Fuse independent points of attention into one answer (multi-topic).

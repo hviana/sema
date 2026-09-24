@@ -17,11 +17,12 @@
 //         identical verdicts for every continuation.  Fails today at import —
 //         the law has no home yet.
 //
-// Neither accepts `answer === expected` as proof: the first reads the official
-// instrumentation and its agreement with the meter's own reading of the same
-// remainder; the second is an invariant over states.  The existing suites remain
-// the GUARDS that the relocation changes no answer — measured: answers,
-// transitions and every meter counter identical before and after the wiring.
+// Nor does any accept `answer === expected` as proof: the first reads the
+// official instrumentation and its agreement with the meter's own reading of the
+// same remainder; the second is an invariant over states; the third reads the
+// source.  The existing suites remain the GUARDS that the extractions change no
+// answer — measured, before and after each step: answers, transition sequences
+// and every meter counter identical.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -113,3 +114,31 @@ test("133.2 the law reads no producer, as an invariant over states", async () =>
   }
 });
 
+
+test("133.3 the law has one home and one definition", async () => {
+  const mind = join(here, "..", "src", "mind");
+  const files = await readdir(mind);
+  assert.ok(
+    files.includes("derivation.ts"),
+    `the law's module must exist in the lowest mind layer; src/mind holds ${files.length} file(s)`,
+  );
+  const src = await readFile(join(mind, "derivation.ts"), "utf8");
+  const imports = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(
+    imports,
+    ["../bytes.js"],
+    `the law may import byte helpers only — it imported ${JSON.stringify(imports)}`,
+  );
+  let scans = 0;
+  for (const f of files) {
+    if (!f.endsWith(".ts")) continue;
+    const text = await readFile(join(mind, f), "utf8");
+    scans += (text.match(/i \+ W <= b/g) ?? []).length;
+  }
+  assert.equal(
+    scans,
+    1,
+    `the coverage scan (the law's own measure) must exist exactly once in ` +
+      `src/mind — found ${scans}`,
+  );
+});

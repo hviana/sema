@@ -222,6 +222,14 @@ export function admissible(
   if (d.fixed) return null;
   if (!t.contains) return null;
   if (closed(d)) return t.explains ?? [];
+  // MOVES BEFORE CARRIES, and that order is not arbitrary: a transition that
+  // DECLARES it moves (the walker's forward-absorb, and a pivot whose producing
+  // mechanism declared the anchors it speaks for) is admitted on that ground
+  // alone and records no coverage witness — which is exactly how the code it
+  // replaces behaved, where the brake was skipped whenever the producer owned
+  // the shape of its answer.  Reading coverage first would attribute to such a
+  // step material it was never asked to account for.
+  if (t.moves) return t.explains ?? [];
   return carries(d.remainder, t.product, query, W);
 }
 
@@ -245,4 +253,41 @@ export function advance(
     cost: d.cost + t.cost,
     used: d.used,
   };
+}
+
+/** What a layer offers the law: the next continuation of a state, or null when
+ *  it has none.  A layer OFFERS; the law disposes. */
+export type Offer = (d: DerivationState) => Promise<Continuation | null>;
+
+/** THE CLOSURE — the walk of {@link advance} over the continuations `offer`
+ *  proposes, run until the layer has nothing further to offer or the law refuses
+ *  the one it offered.
+ *
+ *  ADMISSION is entirely the law's; TERMINATION is the layer's, and deliberately
+ *  so.  The remainder does not descend (draining it was implemented and refuted
+ *  — see the module note), so a walk cannot run forever only because the layer
+ *  offering continuations keeps its own cycle protection over a finite graph.
+ *  Nothing here counts steps, and nothing here decides admissibility. */
+export async function closure(
+  d: DerivationState,
+  query: Uint8Array,
+  W: number,
+  offer: Offer,
+  /** Called for each step the law admits, with the state before and after. */
+  onTaken?: (before: DerivationState, after: DerivationState) => void,
+  /** Called when the law refused the continuation the layer offered. */
+  onRefused?: (at: DerivationState) => void,
+): Promise<DerivationState> {
+  for (;;) {
+    const t = await offer(d);
+    if (t === null) return d;
+    const explains = admissible(d, t, query, W);
+    if (explains === null) {
+      onRefused?.(d);
+      return d;
+    }
+    const next = advance(d, t, explains);
+    onTaken?.(d, next);
+    d = next;
+  }
 }
