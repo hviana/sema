@@ -270,8 +270,8 @@ export async function reason(
     offer,
     (before, after) => {
       if (ctx.meter) {
-        ctx.meter.closureDrainedBytes +=
-          unaccountedBytes(before.remainder) - unaccountedBytes(after.remainder);
+        ctx.meter.closureDrainedBytes += unaccountedBytes(before.remainder) -
+          unaccountedBytes(after.remainder);
       }
       const p = pending;
       pending = null;
@@ -570,8 +570,8 @@ export async function fuseAttention(
   if (fusedWitness === null) return { ...state, product: out };
   const fused = advance(state, fusedT, fusedWitness);
   if (ctx.meter) {
-    ctx.meter.closureDrainedBytes +=
-      unaccountedBytes(state.remainder) - unaccountedBytes(fused.remainder);
+    ctx.meter.closureDrainedBytes += unaccountedBytes(state.remainder) -
+      unaccountedBytes(fused.remainder);
   }
   return fused;
 }

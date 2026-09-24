@@ -32,7 +32,12 @@ test("139.1 holding the question's window admits the step, and answers nothing",
   // The law takes the step — and the question is no better answered for it, so
   // the remainder is untouched.
   const after = advance(
-    { product: new Uint8Array(0), accounted: [], remainder: REMAINDER, cost: 0 },
+    {
+      product: new Uint8Array(0),
+      accounted: [],
+      remainder: REMAINDER,
+      cost: 0,
+    },
     { product, contains: true, cost: 1 },
     witness,
   );

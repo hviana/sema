@@ -28,7 +28,10 @@ const CHAIN = [
 ];
 const FUSING = [
   ["2+2", "2+2 equals 4"],
-  ["The tallest tower in Paris", "The tallest tower in Paris is the Eiffel Tower"],
+  [
+    "The tallest tower in Paris",
+    "The tallest tower in Paris is the Eiffel Tower",
+  ],
 ];
 const JOIN = [
   ["eva", "The director of Eva is Gustaf Molander."],
@@ -44,13 +47,20 @@ async function counters(corpus, query) {
   const out = await mind.respond(query);
   const c = mind.lastCost?.counters ?? {};
   await store.close();
-  return { text: new TextDecoder().decode(out.bytes).replace(/\0+/g, "").trim(), c };
+  return {
+    text: new TextDecoder().decode(out.bytes).replace(/\0+/g, "").trim(),
+    c,
+  };
 }
 
 test("141.1 the fusion answers a query that was already paid for", async () => {
   const { text, c } = await counters(FUSING, "2+2 and the Eiffel Tower");
   assert.ok((c.fuseRuns ?? 0) >= 1, "the fusion ran");
-  assert.equal(c.remainderBytes ?? 0, 0, "the question was paid at construction");
+  assert.equal(
+    c.remainderBytes ?? 0,
+    0,
+    "the question was paid at construction",
+  );
   assert.ok(
     (c.closureDrainedBytes ?? 0) > 0,
     "the fusion carried a window of what the construction owed, and consumed it",
@@ -60,14 +70,29 @@ test("141.1 the fusion answers a query that was already paid for", async () => {
 });
 
 test("141.2 the walk extends over structure the question never wrote", async () => {
-  const { text, c } = await counters(CHAIN, "What is the capital of France famous for");
+  const { text, c } = await counters(
+    CHAIN,
+    "What is the capital of France famous for",
+  );
   assert.ok((c.reasonSteps ?? 0) >= 1, "the walk took a step");
-  assert.equal(c.closureDrainedBytes ?? 0, 0, "the step carried no question material");
-  assert.equal(text, "Paris is famous for the Eiffel Tower", "the chain answer");
+  assert.equal(
+    c.closureDrainedBytes ?? 0,
+    0,
+    "the step carried no question material",
+  );
+  assert.equal(
+    text,
+    "Paris is famous for the Eiffel Tower",
+    "the chain answer",
+  );
 });
 
 test("141.3 the join reaches through a subject the question never wrote", async () => {
   const { text, c } = await counters(JOIN, "eva director country");
-  assert.equal(c.closureDrainedBytes ?? 0, 0, "the join carries nothing to consume");
+  assert.equal(
+    c.closureDrainedBytes ?? 0,
+    0,
+    "the join carries nothing to consume",
+  );
   assert.equal(text, "The country of Gustaf Molander is Sweden.");
 });

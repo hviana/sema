@@ -28,9 +28,10 @@ never probes the store.
 `admissible(state, continuation, query, W)` returns the witnesses the step pays
 in, or `null`; `advance(state, continuation, witnesses)` is the only transition.
 The remainder is consumed only by a declared move, and only by the material that
-move CARRIES: `carries` admits by ENGAGEMENT and consumes nothing, a move consumes
-what its window proves.  Whole-span draining was refuted by `test/110`, the window
-alone by `test/138`.  The state is BORN owing what its product does not carry.
+move CARRIES: `carries` admits by ENGAGEMENT and consumes nothing, a move
+consumes what its window proves. Whole-span draining was refuted by `test/110`,
+the window alone by `test/138`. The state is BORN owing what its product does
+not carry.
 
 ## One cost home
 
@@ -41,8 +42,8 @@ a price; `cover` reports its chart derivation's work.
 ## Two limits, proved and left out
 
 1. **The chart cannot evaluate accounting** — its interface has no parameter for
-   it, and carrying it per item was measured and rejected. The chart reads
-   the same law off an item: identity is its `key`, continuation the rule's
+   it, and carrying it per item was measured and rejected. The chart reads the
+   same law off an item: identity is its `key`, continuation the rule's
    existence, progress the frontier advancing, closure the goal test, `fix` is
    `fixed`.
 2. **Closure by the query's position in the graph is not a term of the unit** —

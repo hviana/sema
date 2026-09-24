@@ -19,10 +19,10 @@ import {
   closed,
   type DerivationState,
   remainderOf,
-  windowOf,
   type Span,
   unaccountedBytes,
   unexplainedSpans,
+  windowOf,
 } from "./derivation.js";
 import { rItem } from "./trace.js";
 import { unexplainedLabel } from "./rationale.js";
@@ -547,19 +547,24 @@ export async function think(
   const explained: Array<[number, number]> = [
     ...decided.accounted,
     ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-  ].filter(([a, b]) => windowOf([a, b], answer, query, ctx.space.maxGroup) !== null);
+  ].filter(([a, b]) =>
+    windowOf([a, b], answer, query, ctx.space.maxGroup) !== null
+  );
   // WHAT THE CONSTRUCTION WITHHOLDS, at or above one quantum: the difference between
   // the remainder paid in full and the remainder paid by carrying.  Both readings
   // are the law's, so the floor is applied once and in one place.
   const paidInFull = remainderOf(
     query.length,
-    [...decided.accounted, ...pre.computed.map((u): [number, number] => [u.i, u.j])],
+    [
+      ...decided.accounted,
+      ...pre.computed.map((u): [number, number] => [u.i, u.j]),
+    ],
     ctx.space.maxGroup,
   );
   const paid = remainderOf(query.length, explained, ctx.space.maxGroup);
   if (ctx.meter) {
-    ctx.meter.groundingWithheldBytes +=
-      unaccountedBytes(paid) - unaccountedBytes(paidInFull);
+    ctx.meter.groundingWithheldBytes += unaccountedBytes(paid) -
+      unaccountedBytes(paidInFull);
   }
   const state: DerivationState = {
     product: answer,

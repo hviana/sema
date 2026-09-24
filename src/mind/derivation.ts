@@ -414,10 +414,9 @@ export function advance(
   explains: ReadonlyArray<Witness>,
 ): DerivationState {
   const spans = explains.map((w) => w.span);
-  const carried =
-    t.reaches === true
-      ? explains.flatMap((w) => (w.window ? [w.window] : []))
-      : [];
+  const carried = t.reaches === true
+    ? explains.flatMap((w) => (w.window ? [w.window] : []))
+    : [];
   return {
     product: t.product,
     accounted: spans.length === 0 ? d.accounted : [...d.accounted, ...spans],

@@ -15,7 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { advance, admissible, closed } from "../dist/src/mind/derivation.js";
+import { admissible, advance, closed } from "../dist/src/mind/derivation.js";
 
 /** The question, in bytes: ten of them, one quantum being four. */
 const QUERY = new TextEncoder().encode("ABCDEFGHIJ");
@@ -36,7 +36,11 @@ test("138.1 a cycle cannot close the derivation by carrying the question's bytes
     if (witness === null) break;
     d = advance(d, t, witness);
   }
-  assert.equal(closed(d), false, "carrying question material is engagement, not progress");
+  assert.equal(
+    closed(d),
+    false,
+    "carrying question material is engagement, not progress",
+  );
   assert.deepEqual(d.remainder, [[0, 10]]);
 });
 
