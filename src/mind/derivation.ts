@@ -43,7 +43,7 @@
 // the question's leftover; it does not consume it.  Termination is therefore not
 // the law's: it is the walker's cycle protection over a finite graph.
 //
-// TWO LIMITS ARE PROVED AND LEFT OUT (docs/architecture/closure.md, §13.3):
+// TWO LIMITS ARE PROVED AND LEFT OUT (test/136 pins both, with the measurements):
 //   1. the CHART cannot evaluate accounting — its interface has no parameter for
 //      it, and carrying it per chart item was measured and rejected.  The chart
 //      evaluates the same law read off an item: identity is the item's `key`,
