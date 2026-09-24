@@ -31,19 +31,43 @@ const state = () => ({
 test("142.1 the law refuses what neither carries nor reaches, and admits both species", () => {
   // neither: no window held, no move declared
   assert.equal(
-    admissible(state(), { product: new TextEncoder().encode("Paris"), contains: true, cost: 1 }, QUERY, W),
+    admissible(
+      state(),
+      { product: new TextEncoder().encode("Paris"), contains: true, cost: 1 },
+      QUERY,
+      W,
+    ),
     null,
     "an offer that neither carries nor reaches is refused — so offering one is not free",
   );
   // carries: the product holds a window of the remainder
   assert.notEqual(
-    admissible(state(), { product: new TextEncoder().encode("ZZZZABCDZZ"), contains: true, cost: 1 }, QUERY, W),
+    admissible(
+      state(),
+      {
+        product: new TextEncoder().encode("ZZZZABCDZZ"),
+        contains: true,
+        cost: 1,
+      },
+      QUERY,
+      W,
+    ),
     null,
     "carrying admits",
   );
   // reaches: a declared move, which needs no question material
   assert.notEqual(
-    admissible(state(), { product: new TextEncoder().encode("Paris"), contains: true, reaches: true, cost: 1 }, QUERY, W),
+    admissible(
+      state(),
+      {
+        product: new TextEncoder().encode("Paris"),
+        contains: true,
+        reaches: true,
+        cost: 1,
+      },
+      QUERY,
+      W,
+    ),
     null,
     "a declared move admits on its own ground",
   );
@@ -61,5 +85,9 @@ test("142.2 the walk ends at the refusal, with the satisfying answer untouched",
   const out = await mind.respond("What is the capital of France famous for");
   const text = new TextDecoder().decode(out.bytes).replace(/\0+/g, "").trim();
   await store.close();
-  assert.equal(text, LINKS[1][1], "the layer's last offer was refused, and the answer stands");
+  assert.equal(
+    text,
+    LINKS[1][1],
+    "the layer's last offer was refused, and the answer stands",
+  );
 });

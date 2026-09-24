@@ -25,10 +25,11 @@ never probes the store.
 
 ## The boundary
 
-`product` (what it stands on, its identity being `resolve(product)`), `accounted` (the price
-its steps summed) and `remainder` (the question's debt, at one quantum) are the derivation's
-own.  What it REACHED and what it SPENT are the layer's (`reaches`, `consumed`), never a field
-here: the law decides admission and consumption, the layer decides frontier and termination.
+`product` (what it stands on, its identity being `resolve(product)`),
+`accounted` (the price its steps summed) and `remainder` (the question's debt,
+at one quantum) are the derivation's own. What it REACHED and what it SPENT are
+the layer's (`reaches`, `consumed`), never a field here: the law decides
+admission and consumption, the layer decides frontier and termination.
 
 ## The transition
 
@@ -40,8 +41,9 @@ consumes what its window proves. Whole-span draining was refuted by `test/110`,
 the window alone by `test/138`. The state is BORN owing what its product does
 not carry.
 
-The walk ends when the layer stops offering or the law refuses; owning no search, the law
-cannot prevent a cycle — that is the layer's, over the structure it holds.
+The walk ends when the layer stops offering or the law refuses; owning no
+search, the law cannot prevent a cycle — that is the layer's, over the structure
+it holds.
 
 ## One cost home
 

@@ -45,11 +45,17 @@ for (const [name, corpus] of Object.entries(TOPOLOGIES)) {
   test(`143 ${name} terminates and answers from the corpus`, async () => {
     const first = await ask(corpus, "Alice knows");
     const second = await ask(corpus, "Alice knows");
-    assert.equal(second, first, "two runs agree: no order-dependent wander around the loop");
+    assert.equal(
+      second,
+      first,
+      "two runs agree: no order-dependent wander around the loop",
+    );
     if (first.length > 0) {
       assert.ok(
         corpus.some(([, fact]) => first.includes(fact) || fact.includes(first)),
-        `the answer is one of the corpus's own facts, not a composition typed around the loop: ${JSON.stringify(first)}`,
+        `the answer is one of the corpus's own facts, not a composition typed around the loop: ${
+          JSON.stringify(first)
+        }`,
       );
     }
   });
