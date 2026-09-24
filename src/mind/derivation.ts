@@ -147,8 +147,9 @@ export interface Witness {
 }
 
 /** The window of `span` that `product` holds, or null: the ONE reading of
- *  coverage, used by {@link carries} and by the move branch alike. */
-function windowOf(
+ *  coverage — used by {@link carries}, by the move branch, and by the GROUNDING
+ *  when it decides what its answer has actually paid for. */
+export function windowOf(
   span: Span,
   product: Uint8Array,
   query: Uint8Array,

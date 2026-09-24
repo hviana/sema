@@ -19,6 +19,7 @@ import {
   closed,
   type DerivationState,
   remainderOf,
+  windowOf,
   type Span,
   unaccountedBytes,
   unexplainedSpans,
@@ -538,10 +539,15 @@ export async function think(
   // both are kept), `cost` is the ladder position, and the two declarations are
   // the producer's own (`fixed`, `used`).  What follows reads THIS state rather
   // than a tuple rebuilt at each call site.
+  // A DERIVATION IS BORN OWING WHAT ITS ANSWER DOES NOT CARRY.  The winning
+  // transition PRICED these spans, and pricing is not carrying: coverage claimed
+  // without evidence stays owed, and a later transition pays it only by carrying
+  // it (the law reads the window; see derivation.ts).  Same reading, one
+  // definition — not a second spelling of it here.
   const explained: Array<[number, number]> = [
     ...decided.accounted,
     ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-  ];
+  ].filter(([a, b]) => windowOf([a, b], answer, query, ctx.space.maxGroup) !== null);
   const state: DerivationState = {
     product: answer,
     accounted: decided.accounted,
