@@ -33,8 +33,8 @@ and are filtered during recognition.
 | `PASS`    | 1000 / byte | each unaccounted byte                           |
 | `MICRO`   | 1e-3        | per-byte A* heuristic (`h = (len-right)*MICRO`) |
 
-Mechanism weight is `moves + PASS * unaccounted_bytes`; comparison is at `STEP`
-grade, then by `scaffolding` bytes, then list order.
+The cover reports `moves` (its derivation's discrete work) and `accounted`; the
+ladder prices both.
 
 ## Pre-resolution (`src/mind/mechanisms/cover.ts`)
 
