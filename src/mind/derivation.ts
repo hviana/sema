@@ -359,6 +359,15 @@ export function admissible(
   W: number,
 ): ReadonlyArray<Witness> | null {
   if (d.fixed) return null;
+  // THE GATE THAT NEVER FIRES, AND WHY IT STAYS.  `contains` is the step's claim
+  // to BE a continuation of this product at all, and the formula is stated with
+  // it (see the doc above).  Every producer in the engine declares it true — the
+  // three literals in reasoning.ts are constants, measured — so this line cannot
+  // reject anything today.  It stays because the claim is what makes an `Offer`
+  // answerable: a layer that handed over something it does not call a
+  // continuation would be refused here rather than trusted.  What it must NOT be
+  // is a place where a producer says "false" to end a walk: the walk ends by
+  // offering nothing (`null`), which is the contract.
   if (!t.contains) return null;
   if (closed(d)) return (t.explains ?? []).map((span) => ({ span }));
   // MOVES BEFORE CARRIES, and that order is not arbitrary: a transition that
