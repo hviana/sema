@@ -12,9 +12,9 @@ npm test
 Guards honest silence, determinism, and every pinned contract. Silence:
 unrelated queries ground to nothing (`test/28`, `50`, `56`, `67`, `76`, `84`).
 Determinism: same seed + deposit order + query gives byte-identical answer
-(`test/20`). Every invariant is pinned — a simplification that fails a test is
-wrong until the test is shown wrong. §14–25 (pipeline), §64 (derived
-thresholds), AGENTS.md §2 invariants 1–5.
+(`test/20`). Every invariant is pinned, the closure law included
+(`test/133`–`137`). §14–25 (pipeline), §64 (derived thresholds), AGENTS.md §2
+invariants 1–5.
 
 ## 2 — Work accounting (profiler)
 
@@ -23,7 +23,7 @@ node bench/profile-inference.mjs        # add [n] to limit probes
 node bench/profile-inference.mjs --trace # trace is a debugging aid, not product
 ```
 
-Guards without trace: counters deterministic and diffable between runs; phases
+Guards without trace: counters exact and diffable between COLD runs; phases
 nest (not disjoint — each phase is charged by its own layer); shared analyses
 charged to themselves, not to the first toucher; millisecond fields are
 non-deterministic hints only. With `--trace`, recognition idempotence still
