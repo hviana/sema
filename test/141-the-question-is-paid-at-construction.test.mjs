@@ -1,18 +1,20 @@
-// 141 — the question is paid at construction; a post-grounding step faces no debt.
+// 141 — what the construction owes, the transition that carries it pays.
 //
 // WHAT THIS PINS, measured on the three archetypes the engine has: a query the
-// FUSION answers (four entries, one fusion), a query the WALK extends (the
-// three-link chain), and a query the JOIN reaches through a subject the question
-// never wrote.  In all three the remainder AT THE DECISION POINT is empty — the
-// grounding consumed the question when it built the state — so the law's drain
-// (what a move CARRIES) has nothing to consume and reads zero.
+// FUSION answers, a query the WALK extends, and a query the JOIN reaches through
+// a subject the question never wrote.
 //
-// That is the architecture, not a defect: consumption belongs to the grounding,
-// and the post-grounding tiers run over a paid question to improve the answer.
-// The drain is the GUARD that keeps a step from consuming what it does not carry
-// (test/138), and it fires exactly when a step does carry question material — a
-// state this engine does not reach, which is why the number is zero and not
-// because the reading fails.
+//   the FUSION pays: the grounding priced a span of the question its answer does
+//   not hold (the ALU's surface form is not in its result), so the derivation was
+//   born OWING it, and the fused step — offered to the law as a transition —
+//   carried a window of it and consumed it.  Four bytes, one quantum.
+//
+//   the WALK does not: its step follows the answer's own learnt continuation,
+//   structure the question never wrote, so it carries nothing to consume.
+//
+// So consumption is not the grounding's alone any more: it belongs to whichever
+// transition CARRIES the owed material, read by the one reading (windowOf), and
+// test/138 keeps a step from consuming what it does not carry.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -49,22 +51,23 @@ test("141.1 the fusion answers a query that was already paid for", async () => {
   const { text, c } = await counters(FUSING, "2+2 and the Eiffel Tower");
   assert.ok((c.fuseRuns ?? 0) >= 1, "the fusion ran");
   assert.equal(c.remainderBytes ?? 0, 0, "the question was paid at construction");
-  assert.equal(c.closureDrainedBytes ?? 0, 0, "so nothing was consumed later");
+  assert.ok(
+    (c.closureDrainedBytes ?? 0) > 0,
+    "the fusion carried a window of what the construction owed, and consumed it",
+  );
   assert.match(text, /4/);
   assert.match(text, /Eiffel Tower/);
 });
 
-test("141.2 the walk extends an answer over a paid question", async () => {
+test("141.2 the walk extends over structure the question never wrote", async () => {
   const { text, c } = await counters(CHAIN, "What is the capital of France famous for");
   assert.ok((c.reasonSteps ?? 0) >= 1, "the walk took a step");
-  assert.equal(c.remainderBytes ?? 0, 0, "the question was paid at construction");
-  assert.equal(c.closureDrainedBytes ?? 0, 0, "the step consumed none of it");
+  assert.equal(c.closureDrainedBytes ?? 0, 0, "the step carried no question material");
   assert.equal(text, "Paris is famous for the Eiffel Tower", "the chain answer");
 });
 
 test("141.3 the join reaches through a subject the question never wrote", async () => {
   const { text, c } = await counters(JOIN, "eva director country");
-  assert.equal(c.remainderBytes ?? 0, 0, "the question was paid at construction");
-  assert.equal(c.closureDrainedBytes ?? 0, 0);
+  assert.equal(c.closureDrainedBytes ?? 0, 0, "the join carries nothing to consume");
   assert.equal(text, "The country of Gustaf Molander is Sweden.");
 });
