@@ -429,14 +429,19 @@ export function advance(
 /** What a layer offers the law: the next continuation of a state, or null when
  *  it has none.  A layer OFFERS; the law disposes.
  *
- *  ONE OFFER, AND IT IS THE LAYER'S LAST: {@link closure} stops when the law
- *  refuses what was offered, so a refusal is read as "no continuation exists".
- *  A layer must not offer candidates one at a time and expect the walk to
- *  continue after a refusal — its own fallbacks belong inside this function.
- *  The producers do exactly that: they choose between the forward absorb and the
- *  pivot before offering, and return null only when neither exists, which is why
- *  the one offer the law can still refuse (a pivot without ownership, whose
- *  material the answer does not carry) really is the last one. */
+ *  ONE OFFER AT A TIME: {@link closure} asks again only while the law admits what
+ *  was offered, so a refusal ends the walk.  A layer must not offer candidates
+ *  one at a time and expect the walk to continue after a refusal — its own
+ *  fallbacks belong inside this function, and the producers do exactly that:
+ *  they choose between the forward absorb and the pivot before offering.
+ *
+ *  WHAT `null` DOES NOT SAY: it is not a claim of exhaustion.  A layer returns
+ *  null for several distinct reasons — it exhausted its enumeration, it refused a
+ *  candidate it had reached, or a read bound cut one off — and the law cannot tell
+ *  them apart: it reads every one as "no continuation exists".  The layer's reasons
+ *  are therefore made OBSERVABLE where they happen, on the rationale's own channel
+ *  (`enumerationExhausted`, `pivotCandidateRefused`, `absorbCandidateRefused`), and
+ *  it is there — not here — that a reader learns which of them stopped the walk. */
 export type Offer = (d: DerivationState) => Promise<Continuation | null>;
 
 /** THE CLOSURE — the walk of {@link advance} over the continuations `offer`
