@@ -26,7 +26,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,7 +56,10 @@ async function profile(facts, query) {
 }
 
 test("133.1 the decision point renders the state it decides on", async () => {
-  const { steps, counters } = await profile(CHAIN, "What is the capital of France famous for");
+  const { steps, counters } = await profile(
+    CHAIN,
+    "What is the capital of France famous for",
+  );
   const pg = steps.filter((s) => s.data && s.data.preConsumed !== undefined);
   assert.ok(pg.length >= 1, "the post-grounding step must exist");
   const d = pg[pg.length - 1].data;
@@ -86,7 +89,9 @@ test("133.2 the law reads no producer, as an invariant over states", async () =>
         "live in one lowest-layer module so every tier can ask it",
     );
   }
-  const query = new TextEncoder().encode("What is the capital of France famous for");
+  const query = new TextEncoder().encode(
+    "What is the capital of France famous for",
+  );
   const W = 4;
   const product = new TextEncoder().encode("qqqqqqqqqqqq");
   const open = {
@@ -102,7 +107,9 @@ test("133.2 the law reads no producer, as an invariant over states", async () =>
   ];
   for (const t of continuations) {
     const a = law.admissible(open, t, query, W);
-    for (const label of ["cast", "cover", "recall", "reference", "alu", "prefix"]) {
+    for (
+      const label of ["cast", "cover", "recall", "reference", "alu", "prefix"]
+    ) {
       const b = law.admissible({ ...open, provenance: label }, t, query, W);
       assert.deepEqual(
         b,
@@ -113,7 +120,6 @@ test("133.2 the law reads no producer, as an invariant over states", async () =>
     }
   }
 });
-
 
 test("133.3 the law has one home and one definition", async () => {
   const mind = join(here, "..", "src", "mind");
@@ -127,7 +133,9 @@ test("133.3 the law has one home and one definition", async () => {
   assert.deepEqual(
     imports,
     ["../bytes.js"],
-    `the law may import byte helpers only — it imported ${JSON.stringify(imports)}`,
+    `the law may import byte helpers only — it imported ${
+      JSON.stringify(imports)
+    }`,
   );
   let scans = 0;
   for (const f of files) {
@@ -156,7 +164,9 @@ test("133.4 the law costs nothing the meter can see", async () => {
   await mind.ingest(CHAIN);
   await mind.respondText("What is the capital of France famous for");
   const before = JSON.stringify(mind.lastCost?.counters ?? {});
-  const query = new TextEncoder().encode("What is the capital of France famous for");
+  const query = new TextEncoder().encode(
+    "What is the capital of France famous for",
+  );
   const W = mind.space.maxGroup;
   const state = {
     product: new TextEncoder().encode("qqqqqqqqqqqq"),
@@ -182,7 +192,11 @@ test("133.4 the law costs nothing the meter can see", async () => {
   );
   // AND IT TAKES NO CONTEXT.  The arity is the structural statement: there is no
   // parameter through which a store, a mind or a producer could be consulted.
-  assert.equal(law.admissible.length, 4, "admissible(state, continuation, query, W)");
+  assert.equal(
+    law.admissible.length,
+    4,
+    "admissible(state, continuation, query, W)",
+  );
   assert.equal(law.advance.length, 3, "advance(state, continuation, witness)");
   assert.equal(law.closed.length, 1, "closed(state)");
   assert.equal(law.carries.length, 4, "carries(remainder, product, query, W)");

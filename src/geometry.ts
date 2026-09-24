@@ -180,7 +180,6 @@ export function consensusFloor(N: number): number {
   return Math.log(N) + 1 / 2;
 }
 
-
 // ---- types ----
 
 export interface Folded {

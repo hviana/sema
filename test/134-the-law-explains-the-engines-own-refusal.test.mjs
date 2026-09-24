@@ -44,8 +44,15 @@ async function run() {
   const mind = new Mind({ seed: 7, store, profile: true });
   await mind.ingest(LINKS);
   const steps = [];
-  const answer = String(await mind.respondText(QUERY, (s) => steps.push(s))).trim();
-  const out = { mind, store, steps, answer, counters: mind.lastCost?.counters ?? {} };
+  const answer = String(await mind.respondText(QUERY, (s) => steps.push(s)))
+    .trim();
+  const out = {
+    mind,
+    store,
+    steps,
+    answer,
+    counters: mind.lastCost?.counters ?? {},
+  };
   return out;
 }
 
@@ -54,11 +61,25 @@ test("134.1 the law is total, and every clause holds over the matrix", async () 
   const W = 4;
   const none = enc("qqqqqqqqqqqqqqqq");
   const owed = law.remainderOf(query.length, [], W);
-  assert.ok(owed.length > 0, "the fixture must owe material, else this pins nothing");
+  assert.ok(
+    owed.length > 0,
+    "the fixture must owe material, else this pins nothing",
+  );
   const states = {
     open: { product: query, accounted: [], remainder: owed, cost: 0 },
-    closed: { product: none, accounted: [[0, query.length]], remainder: [], cost: 3 },
-    fixed: { product: query, accounted: [], remainder: owed, cost: 0, fixed: true },
+    closed: {
+      product: none,
+      accounted: [[0, query.length]],
+      remainder: [],
+      cost: 3,
+    },
+    fixed: {
+      product: query,
+      accounted: [],
+      remainder: owed,
+      cost: 0,
+      fixed: true,
+    },
   };
   const conts = {
     carries: { product: query.subarray(0, 3 * W), contains: true, cost: 1 },
@@ -129,7 +150,11 @@ test("134.2 advance is the transition it says it is", async () => {
     before.remainder,
     "THE REMAINDER TRAVELS UNCHANGED — a step engages it, it does not drain it",
   );
-  assert.equal(after.fixed, undefined, "the result is no longer a supplied fixed point");
+  assert.equal(
+    after.fixed,
+    undefined,
+    "the result is no longer a supplied fixed point",
+  );
   assert.equal(after.used, before.used, "the declaration travels");
   assert.deepEqual(
     after.accounted,
@@ -155,9 +180,16 @@ test("134.3 the engine's own refusal is the law's refusal", async () => {
     `the fixture takes exactly one extension step (got ${pivots.length}; answer "${answer}")`,
   );
   assert.equal(refusals.length, 1, "and declines the next one");
-  assert.equal(counters.pivotSteps, pivots.length, "the meter agrees with the trace");
+  assert.equal(
+    counters.pivotSteps,
+    pivots.length,
+    "the meter agrees with the trace",
+  );
   const admitted = pivots[0].outputs[0].bytes;
-  assert.ok(admitted && admitted.length > 0, "the admitted step reports its product");
+  assert.ok(
+    admitted && admitted.length > 0,
+    "the admitted step reports its product",
+  );
 
   // THE REMAINDER, from the meter's own counts and the fixture's structure: the
   // grounding accounts for "What is the capital of France" and owes the rest.

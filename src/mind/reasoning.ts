@@ -13,11 +13,11 @@ import { joinWithBridge, pivotInto } from "./resonance.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
 import { type Rationale } from "./rationale.js";
 import {
+  closure,
   type DerivationState,
   type Offer,
-  type Span,
-  closure,
   restates,
+  type Span,
   unaccountedBytes,
 } from "./derivation.js";
 import { STEP } from "./graph-search.js";
@@ -242,7 +242,10 @@ export async function reason(
     if (pivot === null) return null;
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
-    if (fc === null || bytesEqual(fc, cur) || restates(query, fc, 0, { proper: true })) {
+    if (
+      fc === null || bytesEqual(fc, cur) ||
+      restates(query, fc, 0, { proper: true })
+    ) {
       return null;
     }
     pending = { kind: "pivot", cur, pivot, fc };
@@ -326,7 +329,11 @@ export async function reason(
     );
   }
   t?.done(
-    [rItem(closed_.product, "answer", resolve(ctx, closed_.product) ?? undefined)],
+    [rItem(
+      closed_.product,
+      "answer",
+      resolve(ctx, closed_.product) ?? undefined,
+    )],
     // A FIXPOINT: no further step was offered, or the law refused the one that
     // was.  There is no allowance to exhaust, so the note is true by
     // construction.

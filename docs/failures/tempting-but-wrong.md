@@ -1,7 +1,17 @@
 # Tempting but Wrong — 13 Traps
 
 Thirteen shortcuts that look plausible and break an invariant. Each states what
-not to do, why it fails, and what to do instead.
+not to do, why it fails, and what to do instead. **Some things are universal:
+discovering bugs:**
+
+- A bug must be pinned by a test that shows it.
+- This test cannot be accidental; it is subtle and requires deep analysis. That
+  is, it is not the test itself that reveals the bug, but rather the class of
+  errors to which the bug belongs.
+- This is difficult to do because the suite's small synthetic corpus easily
+  leads to accidental bugs, and real-world corpus must not be compromised.
+- Something that happens due to deduplication, a tie-breaking rule, etc., isn't
+  a bug—and that’s a subtle point.
 
 ### 1. `score >= threshold` decides identity
 

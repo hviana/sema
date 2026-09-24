@@ -16,10 +16,10 @@ import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { fuseAttention, reason } from "./reasoning.js";
 import {
-  type DerivationState,
-  type Span,
   closed,
+  type DerivationState,
   remainderOf,
+  type Span,
   unaccountedBytes,
   unexplainedSpans,
 } from "./derivation.js";
@@ -701,9 +701,7 @@ export async function think(
   const primarySpans: ReadonlyArray<Span> = state.accounted.length > 0
     ? state.accounted
     : pre.computed.map((u): [number, number] => [u.i, u.j]);
-  const fused = closed(state)
-    ? reasoned
-    : meter
+  const fused = closed(state) ? reasoned : meter
     ? await meter.time(
       "fuse",
       () => fuseAttention(ctx, query, reasoned, pre, unclimbed, primarySpans),

@@ -25,7 +25,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,7 +62,12 @@ async function graph() {
     text.set(relative(join(here, ".."), f), stripComments(s));
     const targets = [];
     for (const m of s.matchAll(/from\s+"(\.[^"]+)"/g)) {
-      targets.push(relative(join(here, ".."), join(dirname(f), m[1])).replace(/\.js$/, ".ts"));
+      targets.push(
+        relative(join(here, ".."), join(dirname(f), m[1])).replace(
+          /\.js$/,
+          ".ts",
+        ),
+      );
     }
     g.set(relative(join(here, ".."), f), targets);
   }
@@ -105,10 +110,20 @@ test("137.2 every unified reading has exactly one definition", async () => {
     all.reduce((n, [, s]) => n + (s.match(re) ?? []).length, 0);
 
   // the law's own functions, each defined once in all of src/
-  for (const fn of [
-    "unaccountedBytes", "unexplainedSpans", "remainderOf", "carries", "closed",
-    "admissible", "advance", "closure", "restates", "insideAnsweredTurn",
-  ]) {
+  for (
+    const fn of [
+      "unaccountedBytes",
+      "unexplainedSpans",
+      "remainderOf",
+      "carries",
+      "closed",
+      "admissible",
+      "advance",
+      "closure",
+      "restates",
+      "insideAnsweredTurn",
+    ]
+  ) {
     assert.equal(
       count(new RegExp(`export (?:async )?function ${fn}\\(`, "g")),
       1,
@@ -145,7 +160,9 @@ test("137.2 every unified reading has exactly one definition", async () => {
 });
 
 test("137.3 the law is a function, end to end", async () => {
-  const query = new TextEncoder().encode("What is the capital of France famous for");
+  const query = new TextEncoder().encode(
+    "What is the capital of France famous for",
+  );
   const W = 4;
   const state = {
     product: query,
@@ -155,8 +172,16 @@ test("137.3 the law is a function, end to end", async () => {
   };
   const conts = [
     { product: query.subarray(0, 3 * W), contains: true, cost: 1 },
-    { product: new TextEncoder().encode("qqqqqqqqqqqq"), contains: true, cost: 1 },
-    { product: new TextEncoder().encode("qqqqqqqqqqqq"), contains: false, cost: 1 },
+    {
+      product: new TextEncoder().encode("qqqqqqqqqqqq"),
+      contains: true,
+      cost: 1,
+    },
+    {
+      product: new TextEncoder().encode("qqqqqqqqqqqq"),
+      contains: false,
+      cost: 1,
+    },
   ];
   for (const t of conts) {
     const a = law.admissible(state, t, query, W);
@@ -180,10 +205,12 @@ test("137.3 the law is a function, end to end", async () => {
     const mind = new Mind({ seed: 7, store, profile: true });
     await mind.ingest(CHAIN);
     const steps = [];
-    const answer = String(await mind.respondText(
-      "What is the capital of France famous for",
-      (s) => steps.push(s),
-    )).trim();
+    const answer = String(
+      await mind.respondText(
+        "What is the capital of France famous for",
+        (s) => steps.push(s),
+      ),
+    ).trim();
     const out = {
       answer,
       moves: steps.map((s) => s.mechanism.join("/")),
@@ -194,7 +221,6 @@ test("137.3 the law is a function, end to end", async () => {
   };
   assert.deepEqual(await run(), await run(), "two identical runs must agree");
 });
-
 
 test("137.4 a repeated query answers identically and does no more work", async () => {
   // THE CONTRACT, and the measurement that settles what it means.  AGENTS invariant
@@ -210,9 +236,18 @@ test("137.4 a repeated query answers identically and does no more work", async (
   // time: asserting equal counters would assert that the caches never warm.
   const { Mind, SQliteStore } = await import("../dist/src/index.js");
   const cases = [
-    [[["The capital of France is", "The capital of France is Paris."], ["The capital of France is", "The capital of France is Lyon."]], "The capital of France is"],
-    [[["paris", "paris is the capital of france"], ["paris", "paris is famous for the eiffel tower"]], "paris"],
-    [[["What is the capital of France", "The capital of France is Paris"], ["2+2", "2+2 equals 4"]], "What is the capital of France and what is 2 + 2?"],
+    [[["The capital of France is", "The capital of France is Paris."], [
+      "The capital of France is",
+      "The capital of France is Lyon.",
+    ]], "The capital of France is"],
+    [[["paris", "paris is the capital of france"], [
+      "paris",
+      "paris is famous for the eiffel tower",
+    ]], "paris"],
+    [[["What is the capital of France", "The capital of France is Paris"], [
+      "2+2",
+      "2+2 equals 4",
+    ]], "What is the capital of France and what is 2 + 2?"],
   ];
   for (const [pairs, q] of cases) {
     const store = new SQliteStore({ path: ":memory:" });
@@ -224,7 +259,11 @@ test("137.4 a repeated query answers identically and does no more work", async (
     const s2 = [];
     const a2 = String(await mind.respondText(q, (s) => s2.push(s))).trim();
     const c2 = mind.lastCost?.counters ?? {};
-    assert.equal(a1, a2, `q=${JSON.stringify(q)}: the repeated query answered differently`);
+    assert.equal(
+      a1,
+      a2,
+      `q=${JSON.stringify(q)}: the repeated query answered differently`,
+    );
     assert.deepEqual(
       s2.map((s) => s.mechanism.join("/")),
       s1.map((s) => s.mechanism.join("/")),
@@ -234,15 +273,15 @@ test("137.4 a repeated query answers identically and does no more work", async (
       if (c2[k] === undefined) continue;
       assert.ok(
         c2[k] <= c1[k],
-        `q=${JSON.stringify(q)}: the repeated query did MORE work on ${k} (${c1[k]} -> ${c2[k]}) — ` +
+        `q=${JSON.stringify(q)}: the repeated query did MORE work on ${k} (${
+          c1[k]
+        } -> ${c2[k]}) — ` +
           `a cache or memo is not warming, which is a cost regression, not determinism`,
       );
     }
     await store.close();
   }
 });
-
-
 
 test("137.5 the positional reading is the law's, and the offset caller asks it", async () => {
   // The reading that says "the query already says this AT OR AFTER this point" is a
@@ -252,7 +291,11 @@ test("137.5 the positional reading is the law's, and the offset caller asks it",
   const enc = (s) => new TextEncoder().encode(s);
   const query = enc("ab cd ef");
   const tail = enc("cd ef");
-  assert.equal(law.restates(query, tail, 0), true, "the plain reading finds it anywhere");
+  assert.equal(
+    law.restates(query, tail, 0),
+    true,
+    "the plain reading finds it anywhere",
+  );
   assert.equal(
     law.restates(query, tail, 0, { from: 3 }),
     true,
@@ -271,7 +314,10 @@ test("137.5 the positional reading is the law's, and the offset caller asks it",
 
   const { text } = await graph();
   const reasoning = text.get("src/mind/reasoning.ts");
-  assert.ok(reasoning !== undefined, "reasoning.ts must be in the scanned tree");
+  assert.ok(
+    reasoning !== undefined,
+    "reasoning.ts must be in the scanned tree",
+  );
   assert.match(
     reasoning,
     /restates\(query, cont, 0, \{ from: root\.end \}\)/,
@@ -302,7 +348,9 @@ test("137.6 no export is genuinely dead — the triage, as a guard", async () =>
   //     even when only prose references it.
   const indexSrc = text.get("src/index.ts") ?? "";
   const publicModules = new Set(
-    [...indexSrc.matchAll(/export \* from "\.\/([^"]+)\.js"/g)].map((m) => `src/${m[1]}.ts`),
+    [...indexSrc.matchAll(/export \* from "\.\/([^"]+)\.js"/g)].map((m) =>
+      `src/${m[1]}.ts`
+    ),
   );
   const docsDir = join(here, "..", "docs");
   const docsText = [];
@@ -318,17 +366,24 @@ test("137.6 no export is genuinely dead — the triage, as a guard", async () =>
   const testDir = join(here, "..", "test");
   const testText = [];
   for (const f of await readdir(testDir)) {
-    if (f.endsWith(".mjs")) testText.push(await readFile(join(testDir, f), "utf8"));
+    if (f.endsWith(".mjs")) {
+      testText.push(await readFile(join(testDir, f), "utf8"));
+    }
   }
   const tests = testText.join("\n");
   const dead = [];
   for (const [file, src] of entries) {
-    const others = entries.filter(([f]) => f !== file).map(([, t]) => t).join("\n");
-    for (const m of src.matchAll(
-      /^export\s+(?:async\s+)?(?:abstract\s+)?(?:function|const|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
-    )) {
+    const others = entries.filter(([f]) => f !== file).map(([, t]) => t).join(
+      "\n",
+    );
+    for (
+      const m of src.matchAll(
+        /^export\s+(?:async\s+)?(?:abstract\s+)?(?:function|const|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+      )
+    ) {
       const name = m[1];
-      const count = (hay) => (hay.match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
+      const count = (hay) =>
+        (hay.match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
       if (count(src) > 1) continue;
       if (count(others) > 0) continue;
       if (count(tests) > 0) continue;

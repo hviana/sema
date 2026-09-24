@@ -48,11 +48,22 @@ test("136.1 the fuse gate asks the LAW — one condition, one home, one less sum
   const len = 12;
   const explained = [[0, 3], [6, 9]];
   const gaps = law.unexplainedSpans(len, explained);
-  assert.deepEqual(gaps, [[3, 6], [9, 12]], "the construction must leave exactly the two sub-quantum gaps");
+  assert.deepEqual(
+    gaps,
+    [[3, 6], [9, 12]],
+    "the construction must leave exactly the two sub-quantum gaps",
+  );
   const total = law.unaccountedBytes(gaps);
   const perSpan = law.remainderOf(len, explained, W);
-  assert.ok(total >= W, `on the raw spans the total reading opens: ${total} >= ${W}`);
-  assert.deepEqual(perSpan, [], "and the per-span reading closes — the difference is real at this level");
+  assert.ok(
+    total >= W,
+    `on the raw spans the total reading opens: ${total} >= ${W}`,
+  );
+  assert.deepEqual(
+    perSpan,
+    [],
+    "and the per-span reading closes — the difference is real at this level",
+  );
 
   // AND IT CANNOT REACH A RESPONSE, which 136.3 measures: the ACCOUNTING applies
   // the same W floor, so a sub-quantum gap never survives into `explained`.  The
@@ -60,7 +71,10 @@ test("136.1 the fuse gate asks the LAW — one condition, one home, one less sum
   // `remainderOf` is already computed for the state, while the total the gate used
   // to sum (`unaccounted(explained)`) was one more pass over the spans per
   // response, for the same answer.
-  const src = await readFile(join(here, "..", "src", "mind", "pipeline.ts"), "utf8");
+  const src = await readFile(
+    join(here, "..", "src", "mind", "pipeline.ts"),
+    "utf8",
+  );
   assert.match(
     src,
     /const fused = closed\(state\)/,
@@ -84,7 +98,10 @@ test("136.2 the extension is not priced — and it pays for itself", async () =>
     ["the Eiffel Tower", "the Eiffel Tower is in Paris"],
   ]);
   const steps = [];
-  await mind.respondText("What is the capital of France famous for", (s) => steps.push(s));
+  await mind.respondText(
+    "What is the capital of France famous for",
+    (s) => steps.push(s),
+  );
   const counters = mind.lastCost?.counters ?? {};
   const dg = steps.filter((s) => Array.isArray(s.data?.candidates)).pop()?.data;
   const winner = dg?.candidates.find((c) => c.decided);
@@ -107,7 +124,8 @@ test("136.2 the extension is not priced — and it pays for itself", async () =>
   // would refuse the IDENTITY steps the law admits, which is the documented
   // failure of the (c) remedy (material lost: "hot" for "cold hot").
   assert.ok(
-    (counters.reasonCarriedBytes ?? 0) * PASS > (counters.reasonSteps ?? 0) * STEP,
+    (counters.reasonCarriedBytes ?? 0) * PASS >
+      (counters.reasonSteps ?? 0) * STEP,
     "the extension is carrying less than its steps are worth — measured 11 bytes " +
       "against 1 step here.  If this ever fails, the absent price comparison HAS " +
       "teeth and the register's GAP 2 is real: measure what pricing the extension " +
@@ -122,7 +140,6 @@ test("136.2 the extension is not priced — and it pays for itself", async () =>
       "extension does to the suite's answers and counters, then update this test",
   );
 });
-
 
 test("136.3 the gate's total and the law's per-span reading agree — measured, not argued", async () => {
   // GAP 1 of the §22 register.  The two readings WOULD diverge if a gap below one
@@ -161,20 +178,28 @@ test("136.3 the gate's total and the law's per-span reading agree — measured, 
   for (const q of queries) {
     const steps = [];
     await mind.respondText(q, (s) => steps.push(s));
-    const pg = steps.filter((s) => s.data && s.data.fixed !== undefined).pop()?.data;
+    const pg = steps.filter((s) => s.data && s.data.fixed !== undefined).pop()
+      ?.data;
     const spans = pg?.remainderSpans ?? 0;
     const bytes = pg?.remainderBytes ?? 0;
     assert.equal(
       bytes >= W,
       spans > 0,
-      `${JSON.stringify(q)}: the gate's total reading says ${bytes >= W ? "open" : "closed"} ` +
+      `${JSON.stringify(q)}: the gate's total reading says ${
+        bytes >= W ? "open" : "closed"
+      } ` +
         `(${bytes} bytes vs W=${W}) while the law's per-span reading says ` +
-        `${spans > 0 ? "open" : "closed"} (${spans} spans) — they diverged, so the ` +
+        `${
+          spans > 0 ? "open" : "closed"
+        } (${spans} spans) — they diverged, so the ` +
         `accounting no longer applies the W floor and the gate IS a laxer second reading`,
     );
     if (bytes > 0) open++;
     else closed++;
   }
-  assert.ok(open > 0 && closed > 0, `the set must exercise both sides, got open=${open} closed=${closed}`);
+  assert.ok(
+    open > 0 && closed > 0,
+    `the set must exercise both sides, got open=${open} closed=${closed}`,
+  );
   await store.close();
 });

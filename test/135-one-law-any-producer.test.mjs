@@ -41,8 +41,13 @@ const FIVE = [
         "The mayor of Stockholm is Karin Wanngard.",
         "The party of Karin Wanngard is the Social Democrats.",
       ];
-      const K = [["eva director", 0], ["gustaf molander country", 1],
-        ["sweden capital", 2], ["stockholm mayor", 3], ["karin wanngard party", 4]];
+      const K = [
+        ["eva director", 0],
+        ["gustaf molander country", 1],
+        ["sweden capital", 2],
+        ["stockholm mayor", 3],
+        ["karin wanngard party", 4],
+      ];
       const out = [];
       for (const [key, i] of K) {
         out.push([key.split(" ").slice(0, -1).join(" "), F[i]], [key, F[i]]);
@@ -86,21 +91,28 @@ const FIVE = [
   },
 ];
 
-const WALK = new Set(["pivotStep", "absorbForward", "pivotRefused", "fuseAttention"]);
+const WALK = new Set([
+  "pivotStep",
+  "absorbForward",
+  "pivotRefused",
+  "fuseAttention",
+]);
 
 async function observe(f) {
   const store = new SQliteStore({ path: ":memory:" });
   const mind = new Mind({ seed: 7, store, profile: true });
   await mind.ingest(f.pairs);
   const steps = [];
-  const answer = String(await mind.respondText(f.query, (s) => steps.push(s))).trim();
+  const answer = String(await mind.respondText(f.query, (s) => steps.push(s)))
+    .trim();
   // The winner's provenance is read from the POST-GROUNDING step, which every
   // response emits.  It is deliberately NOT read from the decision payload: that
   // step is `narrowDecision` (which carries only a margin) when the market held
   // one candidate, so reading it left the producer null on two of these five
   // fixtures -- and a `Set` of producers then counted that null as a producer,
   // which is how an earlier version of this file passed for the wrong reason.
-  const pg = steps.filter((s) => s.data && s.data.fixed !== undefined).pop()?.data;
+  const pg = steps.filter((s) => s.data && s.data.fixed !== undefined).pop()
+    ?.data;
   const counters = mind.lastCost?.counters ?? {};
   const observed = {
     name: f.name,
@@ -125,7 +137,9 @@ test("135. the law decides real states the same way, whoever produced them", asy
   // (1) THE FIXTURES MUST EXERCISE SEVERAL PRODUCERS, or nothing below is a test.
   assert.ok(
     seen.every((o) => o.provenance !== null),
-    `every fixture must report its winner: got ${JSON.stringify(seen.map((o) => o.provenance))}`,
+    `every fixture must report its winner: got ${
+      JSON.stringify(seen.map((o) => o.provenance))
+    }`,
   );
   const producers = new Set(seen.map((o) => o.provenance));
   assert.ok(
@@ -188,21 +202,37 @@ test("135. the law decides real states the same way, whoever produced them", asy
     for (const [cn, t] of Object.entries(conts)) {
       const verdict = law.admissible(state, t, query, o.W);
       if (o.fixed) {
-        assert.equal(verdict, null, `${o.name}: a supplied fixed point stops ${cn}`);
+        assert.equal(
+          verdict,
+          null,
+          `${o.name}: a supplied fixed point stops ${cn}`,
+        );
         continue;
       }
       if (cn === "alien") {
-        assert.equal(verdict, null, `${o.name}: identity comes before progress`);
+        assert.equal(
+          verdict,
+          null,
+          `${o.name}: identity comes before progress`,
+        );
         continue;
       }
       if (closed) {
-        assert.notEqual(verdict, null, `${o.name}: a closed state admits ${cn}`);
+        assert.notEqual(
+          verdict,
+          null,
+          `${o.name}: a closed state admits ${cn}`,
+        );
         continue;
       }
       if (cn === "carries" || cn === "moves") {
         assert.notEqual(verdict, null, `${o.name}: ${cn} is progress`);
       } else {
-        assert.equal(verdict, null, `${o.name}: ${cn} is neither progress nor closed`);
+        assert.equal(
+          verdict,
+          null,
+          `${o.name}: ${cn} is neither progress nor closed`,
+        );
       }
     }
 

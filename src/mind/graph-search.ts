@@ -193,7 +193,9 @@ function readBridgedBytes(derivation: Derivation<GItem>): number {
   let node: Derivation<GItem> | undefined = derivation;
   while (node && node.rule) {
     const o = node.premises[1]?.item;
-    if (o !== undefined && o.kind === "out" && o.rec === false) bytes += o.j - o.i;
+    if (o !== undefined && o.kind === "out" && o.rec === false) {
+      bytes += o.j - o.i;
+    }
     node = node.premises[0];
   }
   return bytes;
@@ -484,9 +486,11 @@ export class GraphSearch {
     // continuations instead of following the chain the answer itself licensed.
     // With deepening only at the top, `recompleteNode` walks the accepted chain
     // one link at a time (its own memo and stack), so the work is the answer's.
-    return solved === null
-      ? null
-      : { segs: this.deepen(solved.segs), cost: solved.cost, moves: solved.moves };
+    return solved === null ? null : {
+      segs: this.deepen(solved.segs),
+      cost: solved.cost,
+      moves: solved.moves,
+    };
   }
   /** Build the deduction system for one span and return its lightest cover's
    *  chosen spans — the SINGLE routine the query and every produced composite
