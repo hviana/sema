@@ -241,3 +241,105 @@ test("137.4 a repeated query answers identically and does no more work", async (
     await store.close();
   }
 });
+
+
+
+test("137.5 the positional reading is the law's, and the offset caller asks it", async () => {
+  // The reading that says "the query already says this AT OR AFTER this point" is a
+  // closure reading like the others, so it lives with them.  Pinned: that the witness
+  // behaves as a SEARCH START, and that the one caller which needs it asks the law
+  // instead of spelling the containment itself.
+  const enc = (s) => new TextEncoder().encode(s);
+  const query = enc("ab cd ef");
+  const tail = enc("cd ef");
+  assert.equal(law.restates(query, tail, 0), true, "the plain reading finds it anywhere");
+  assert.equal(
+    law.restates(query, tail, 0, { from: 3 }),
+    true,
+    "and the positional reading finds it at or after the offset",
+  );
+  assert.equal(
+    law.restates(query, tail, 0, { from: 4 }),
+    false,
+    "one byte past the occurrence, it is not found",
+  );
+  assert.equal(
+    law.restates(query, tail, 0, { from: query.length }),
+    false,
+    "and from the end nothing is found",
+  );
+
+  const { text } = await graph();
+  const reasoning = text.get("src/mind/reasoning.ts");
+  assert.ok(reasoning !== undefined, "reasoning.ts must be in the scanned tree");
+  assert.match(
+    reasoning,
+    /restates\(query, cont, 0, \{ from: root\.end \}\)/,
+    "the alreadyAnswered guard must ask the law's positional reading",
+  );
+  assert.ok(
+    !/indexOf\(query, cont, root\.end\)/.test(reasoning),
+    "the containment is spelled inline again: the offset reading belongs to the law",
+  );
+});
+
+test("137.6 no export is genuinely dead — the triage, as a guard", async () => {
+  // The scan that once reported "35 exports with no consumer" was fooled by TYPES used
+  // as declared shapes inside their own file.  Asked as three questions — used in its
+  // own file, by other modules, by tests — exactly ONE export was genuinely dead, and
+  // it was removed.  This pins that state, so a future dead export must be noticed
+  // rather than accumulate: a declaration appearing ONCE in its own file and nowhere
+  // in `src/` or in `test/` is dead by definition.
+  const { text } = await graph();
+  const entries = [...text.entries()];
+  // TWO EXEMPTIONS, both "deliberately offered" rather than forgotten:
+  //   * PUBLIC SURFACE — a module `src/index.ts` re-exports by wildcard ships every
+  //     one of its exports to callers, so an export nothing inside this repo calls
+  //     (a library class, a derived bar) is API, not dead.  `coverageBar` is exactly
+  //     that: `docs/architecture/thresholds.md` lists it as "currently unused
+  //     hot-path; batch compaction replaces it".
+  //   * DOCUMENTED — a name the architecture docs describe is part of the contract
+  //     even when only prose references it.
+  const indexSrc = text.get("src/index.ts") ?? "";
+  const publicModules = new Set(
+    [...indexSrc.matchAll(/export \* from "\.\/([^"]+)\.js"/g)].map((m) => `src/${m[1]}.ts`),
+  );
+  const docsDir = join(here, "..", "docs");
+  const docsText = [];
+  const walkDocs = async (d) => {
+    for (const e of await readdir(d, { withFileTypes: true })) {
+      const q = join(d, e.name);
+      if (e.isDirectory()) await walkDocs(q);
+      else if (e.name.endsWith(".md")) docsText.push(await readFile(q, "utf8"));
+    }
+  };
+  await walkDocs(docsDir);
+  const docs = docsText.join("\n");
+  const testDir = join(here, "..", "test");
+  const testText = [];
+  for (const f of await readdir(testDir)) {
+    if (f.endsWith(".mjs")) testText.push(await readFile(join(testDir, f), "utf8"));
+  }
+  const tests = testText.join("\n");
+  const dead = [];
+  for (const [file, src] of entries) {
+    const others = entries.filter(([f]) => f !== file).map(([, t]) => t).join("\n");
+    for (const m of src.matchAll(
+      /^export\s+(?:async\s+)?(?:abstract\s+)?(?:function|const|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+    )) {
+      const name = m[1];
+      const count = (hay) => (hay.match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
+      if (count(src) > 1) continue;
+      if (count(others) > 0) continue;
+      if (count(tests) > 0) continue;
+      if (publicModules.has(file)) continue; // shipped to callers
+      if (count(docs) > 0) continue; // described by the architecture docs
+      dead.push(`${file}: ${name}`);
+    }
+  }
+  assert.deepEqual(
+    dead,
+    [],
+    "genuinely dead exports found — remove them, or state where they are consumed",
+  );
+});

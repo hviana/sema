@@ -565,7 +565,7 @@ export function alignAround(
  *  answer; worse, it hides what actually VARIES, which is the only thing a
  *  cohort can agree about.  Returns null when nothing is left on either side —
  *  a pure insertion or deletion, which names no slot. */
-function contractGap(
+export function contractGap(
   q: Uint8Array,
   c: Uint8Array,
   g: AlignGap,
@@ -1078,7 +1078,7 @@ export async function analogyStrength(
  *  a fraction, comparable to the cosine tiers above.  Derived: the window
  *  is maxGroup, the same quantum differsByOneWindow and canonicalChunkId
  *  measure by; no tuned constants. */
-function sharedFrameStrength(
+export function sharedFrameStrength(
   ctx: MindContext,
   a: number,
   b: number,
