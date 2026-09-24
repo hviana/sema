@@ -19,17 +19,17 @@ with that order give the same derivations.
 
 ## Pipeline weighing (`src/mind/pipeline.ts:think`)
 
-Mechanism candidates are weighed in the same ladder:
+Candidates are weighed in ONE place — a mechanism reports `moves` and `accounted`,
+never a price:
 
 ```
 weight = moves + PASS * unaccounted_bytes
 grade  = floor(weight / STEP)
 ```
 
-`unaccounted` is the query bytes no `accounted` span covers. Comparison is at
-`STEP` resolution: lowest `grade` wins. At equal grade the candidate with fewer
-`scaffolding` bytes (answer bytes lifted from unrecognised spans) wins; only
-then does mechanism list order decide.
+`unaccounted` is what no `accounted` span covers. Comparison is at `STEP`
+resolution: lowest `grade` wins; at equal grade fewer `scaffolding` bytes (answer
+bytes lifted from unrecognised spans) wins; then list order.
 
 ## Two semirings
 
