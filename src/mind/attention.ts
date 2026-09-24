@@ -347,6 +347,11 @@ export interface ClimbConsensusData {
   };
 
   regions?: ConsensusRegionTrace[];
+  /** A NAME SHARED WITH THE LAW, AND NOT THE SAME THING: these are the reaches
+   *  the consensus climb took, for the trace.  The law's `Continuation.reaches`
+   *  (derivation.ts) is a producer's claim that a step moves — different type,
+   *  different owner, no relation.  Kept distinct rather than renamed because the
+   *  trace's own vocabulary is about the climb, not about derivation. */
   reaches?: ConsensusReachTrace[];
 
   crossRegion?: {

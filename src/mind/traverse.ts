@@ -563,7 +563,13 @@ export function hubCap<T>(
 /** Whether `descendant` lies within `ancestor`'s subtree — a structural DAG
  *  relation read off the hash-consed `kids` lists, by a bounded explicit-stack
  *  descent.  Used by articulation to keep a voice from revoicing a fragment
- *  OF that voice. */
+ *  OF that voice.
+ *
+ *  A HOMONYM, NOT A RELATIVE: the law's `Continuation.contains` (derivation.ts) is
+ *  a producer's claim that its step IS a continuation, a boolean on one step.  This
+ *  is a structural relation between two nodes in the DAG.  The shared word is
+ *  deliberate vocabulary — "containment" is what both name — and the two must not be
+ *  read as one. */
 export function contains(
   ctx: MindContext,
   ancestor: number,
