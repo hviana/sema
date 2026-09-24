@@ -18,6 +18,7 @@ import { fuseAttention, reason } from "./reasoning.js";
 import {
   type DerivationState,
   type Span,
+  closed,
   remainderOf,
   unaccountedBytes,
   unexplainedSpans,
@@ -665,7 +666,15 @@ export async function think(
   // observed: a single space between two fully-computed arithmetic spans
   // ("2+2 3+3") registered as "unaccounted" and pulled in an unrelated
   // corpus fact, corrupting "4 6" into "4 63".
-  const remainder = unaccounted(explained);
+  // THE GATE ASKS THE LAW, and that is an OPTIMISATION, not a tidy-up: the state
+  // above ALREADY carries the remainder (`remainderOf`, per-span, with the W
+  // floor applied), so asking it costs nothing, while the total this line used to
+  // compute (`unaccounted(explained)`) was one more sum over the spans on every
+  // response.  The two readings are the same condition, not two: the ACCOUNTING
+  // applies the same W floor the gate does, so a gap below one quantum never
+  // survives into `explained` and the total cannot reach W without some single
+  // gap reaching it.  Measured over twelve constructions at W = 4 (test/136.3,
+  // which pins the equivalence and both sides of it).
   // Whether the winning candidate's entire recognised substance is
   // COMPUTED — every accounted span exactly a pre.computed span, nothing
   // from a genuinely recognised/climbed site.  fuseAttention's lone-root
@@ -689,7 +698,7 @@ export async function think(
   const primarySpans: ReadonlyArray<Span> = state.accounted.length > 0
     ? state.accounted
     : pre.computed.map((u): [number, number] => [u.i, u.j]);
-  const fused = remainder < ctx.space.maxGroup
+  const fused = closed(state)
     ? reasoned
     : meter
     ? await meter.time(

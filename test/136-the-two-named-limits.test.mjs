@@ -39,47 +39,39 @@ const law = await import("../dist/src/mind/derivation.js");
 const { STEP, PASS } = await import("../dist/src/mind/graph-search.js");
 const { Mind, SQliteStore } = await import("../dist/src/index.js");
 
-test("136.1 the fuse gate keeps its own reading, and the two readings differ", async () => {
+test("136.1 the fuse gate asks the LAW — one condition, one home, one less sum", async () => {
   // THE DISCRIMINATING CONSTRUCTION, from the law's own functions: a query whose
   // accounted spans leave only sub-quantum gaps, whose SUM is at or above one
-  // quantum.  The total reading opens the gate; the per-span reading closes it.
+  // quantum.  The two READINGS differ here — that is why the register kept them
+  // apart — and the question is whether the difference can reach a real response.
   const W = 4;
   const len = 12;
   const explained = [[0, 3], [6, 9]];
   const gaps = law.unexplainedSpans(len, explained);
-  assert.deepEqual(
-    gaps,
-    [[3, 6], [9, 12]],
-    "the construction must leave exactly the two sub-quantum gaps",
-  );
+  assert.deepEqual(gaps, [[3, 6], [9, 12]], "the construction must leave exactly the two sub-quantum gaps");
   const total = law.unaccountedBytes(gaps);
   const perSpan = law.remainderOf(len, explained, W);
-  assert.ok(total >= W, `the total reading opens the gate: ${total} >= ${W}`);
-  assert.deepEqual(
-    perSpan,
-    [],
-    "the per-span reading closes it — which is the whole reason this is not a cleanup",
-  );
+  assert.ok(total >= W, `on the raw spans the total reading opens: ${total} >= ${W}`);
+  assert.deepEqual(perSpan, [], "and the per-span reading closes — the difference is real at this level");
 
-  // AND THE GATE STILL USES THE TOTAL.  A source-shape pin, in the shape test/126
-  // and test/123 already establish: the gate's condition must not be the state's
-  // `closed`.
+  // AND IT CANNOT REACH A RESPONSE, which 136.3 measures: the ACCOUNTING applies
+  // the same W floor, so a sub-quantum gap never survives into `explained`.  The
+  // gate therefore asks the law, and that is an OPTIMISATION and not a tidy-up —
+  // `remainderOf` is already computed for the state, while the total the gate used
+  // to sum (`unaccounted(explained)`) was one more pass over the spans per
+  // response, for the same answer.
   const src = await readFile(join(here, "..", "src", "mind", "pipeline.ts"), "utf8");
   assert.match(
     src,
-    /const remainder = unaccounted\(explained\);/,
-    "the fuse gate's own reading (TOTAL unaccounted bytes) is gone — if it was " +
-      "replaced by the state's per-span `closed`, build the discriminating " +
-      "fixture above in a real corpus, measure both readings' answers, and then " +
-      "update this test",
+    /const fused = closed\(state\)/,
+    "the fuse gate must ask the law's `closed(state)` — the condition the state " +
+      "already carries.  If it went back to summing `unaccounted(explained)`, that " +
+      "is a second reading of one condition AND an extra sum per response: 136.3 " +
+      "measures the equivalence, so re-read it before restoring the total",
   );
-  const gate = src.slice(src.indexOf("const remainder = unaccounted(explained);"));
-  const fused = gate.slice(0, gate.indexOf("? reasoned"));
   assert.ok(
-    !/closed\(/.test(fused),
-    "the fuse gate now asks the state's `closed`, which is the per-span reading: " +
-      "that is a BEHAVIOUR change on the construction above, and it needs the " +
-      "measurement before the test",
+    !/const remainder = unaccounted\(explained\);/.test(src),
+    "the total-bytes sum is back: the gate has two readings of one condition again",
   );
 });
 
