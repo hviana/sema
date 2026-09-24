@@ -36,7 +36,7 @@ proof in `test/` (pins that fail when the law is broken).
 | 11  | `docs/architecture/memoization.md`          | `Precomputed` is per-response lazy cache (promise-cached async); `beginResponse`/`endResponse` lifecycle        | `test/42`            |
 | 12  | `docs/architecture/saturation.md`           | Every walk names a deciding saturation beside its cap; cap is safety net, not decision                          | `test/27`, `test/16` |
 | 13  | `docs/architecture/meter.md`                | `meter.ts` is write-only work accounting; counts are exact, phases nest                                         | `test/55`            |
-| 14  | `docs/architecture/closure.md`              | A derivation is closed when its structure accounts for the question's remainder; every transition asks that law | `test/133`–`137`     |
+| 14  | `docs/architecture/closure.md`              | A derivation is closed when its structure accounts for the question's remainder; every transition asks that law | `test/133`–`140`     |
 
 ## Mechanisms (8)
 
