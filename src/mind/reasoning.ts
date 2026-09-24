@@ -567,7 +567,11 @@ export async function fuseAttention(
     cost: STEP,
   };
   const fusedWitness = admissible(state, fusedT, query, ctx.space.maxGroup);
-  return fusedWitness === null
-    ? { ...state, product: out }
-    : advance(state, fusedT, fusedWitness);
+  if (fusedWitness === null) return { ...state, product: out };
+  const fused = advance(state, fusedT, fusedWitness);
+  if (ctx.meter) {
+    ctx.meter.closureDrainedBytes +=
+      unaccountedBytes(state.remainder) - unaccountedBytes(fused.remainder);
+  }
+  return fused;
 }
