@@ -949,8 +949,11 @@ test("21. the price's second term has one definition, and it is the complement",
   // Since the value did NOT change, the lot is only pinned if something would
   // fail when the helper sums the wrong thing — so this test uses an input where
   // the two candidate readings DIFFER.
+  // PATH ONLY: the span algebra moved to the closure law's home
+  // (src/mind/derivation.ts) when the law was extracted; the assertions below
+  // are untouched and still pin the same contract.
   const { unexplainedSpans, unaccountedBytes } = await import(
-    "../dist/src/mind/rationale.js"
+    "../dist/src/mind/derivation.js"
   );
   // Empty accounted ⇒ the whole query is unaccounted.
   assert.equal(unaccountedBytes(unexplainedSpans(10, [])), 10);

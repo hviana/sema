@@ -21,6 +21,7 @@
 // fan-out / fan-in is visible in their lengths.
 
 import type { Vec } from "../vec.js";
+import { unexplainedSpans } from "./derivation.js";
 
 /** One element of a step's input or output vector.
  *
@@ -112,42 +113,11 @@ export function decodeText(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes.filter((b) => b !== 0x00));
 }
 
-/** The BYTE COUNT of the complement — what the currency calls `unaccounted`
- *  in `weight = moves + PASS·unaccounted`.  It lives here, beside the function
- *  that produces the gaps, because the price's second term has ONE definition:
- *  this was four copies of the same `reduce` (two in reasoning.ts, two in
- *  pipeline.ts) before the architecture audit of `../auditoria-arquitectura-sema.md`
- *  collapsed them.  Same value at every site — the control diff is identical. */
-export function unaccountedBytes(
-  spans: ReadonlyArray<readonly [number, number]>,
-): number {
-  let total = 0;
-  for (const [a, b] of spans) total += b - a;
-  return total;
-}
-
-/** The `[start, end)` gaps of `[0, queryLen)` NOT covered by `accounted` —
- *  the same union-of-spans reading think's grounding decider prices at PASS
- *  per byte, exposed here so a mechanism can turn it into a human label. */
-export function unexplainedSpans(
-  queryLen: number,
-  accounted: ReadonlyArray<[number, number]>,
-): Array<[number, number]> {
-  const sorted = accounted
-    .map(([s, e]) =>
-      [Math.max(0, s), Math.min(queryLen, e)] as [number, number]
-    )
-    .filter(([s, e]) => e > s)
-    .sort((a, b) => a[0] - b[0]);
-  const gaps: Array<[number, number]> = [];
-  let reach = 0;
-  for (const [s, e] of sorted) {
-    if (s > reach) gaps.push([reach, s]);
-    if (e > reach) reach = e;
-  }
-  if (reach < queryLen) gaps.push([reach, queryLen]);
-  return gaps;
-}
+// THE SPAN ALGEBRA LIVES IN derivation.ts.  `unaccountedBytes` and
+// `unexplainedSpans` are the closure law's vocabulary — gap arithmetic over the
+// asker's own bytes — and they moved to the layer that owns the law, so they
+// have ONE home and are no longer asked of the tracer.  This module keeps the
+// inference TOLD as it happens, and reads the gaps only to render a label.
 
 /** A human-readable label for the query bytes a mechanism's `accounted`
  *  spans leave unexplained — purely diagnostic (Task 2's negative evidence):

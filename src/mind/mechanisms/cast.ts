@@ -37,8 +37,8 @@ import { consensusFloor, dominates } from "../../geometry.js";
 import {
   decodeText,
   unexplainedLabel,
-  unexplainedSpans,
 } from "../rationale.js";
+import { unexplainedSpans } from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";
 import { leafIdRun } from "../canonical.js";

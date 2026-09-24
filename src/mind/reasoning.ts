@@ -11,7 +11,8 @@ import { corpusN, hubBound } from "./traverse.js";
 import { containsSpan, follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
-import { type Rationale, unaccountedBytes } from "./rationale.js";
+import { type Rationale } from "./rationale.js";
+import { unaccountedBytes } from "./derivation.js";
 
 /** Whether `bytes` is a proper byte-subspan of `query` — already present in
  *  the question, so voicing it back only restates part of what was asked,
