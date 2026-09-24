@@ -11,11 +11,10 @@ it. Harness: `bench/profile-inference.mjs`.
    an ordering. Determinism survives only because the meter is observed, never
    consulted. Every call site is `meter?.x++` on a nullable field.
 
-2. **Counters vs hints.** Counters are deterministic and diffable between runs;
-   the same query on the same store meters identically, so a regression is
-   visible in a diff. Millisecond fields (`elapsedMs`, per-phase `ms`) are
-   non-deterministic hints reported separately — never use them to gate
-   behaviour.
+2. **Counters vs hints.** Counters are exact and diffable: a regression shows in a
+   diff of two COLD runs; a repeated query meters less, as memos warm. Millisecond
+   fields (`elapsedMs`, per-phase `ms`) are non-deterministic hints reported
+   separately — never use them to gate behaviour.
 
 3. **Phases nest, they do not partition.** Each phase is charged by the layer
    doing the work (`recognise`, the climb's two, the bridge), and a mechanism's
