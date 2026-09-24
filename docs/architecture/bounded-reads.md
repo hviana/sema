@@ -3,10 +3,9 @@
 > **Law:** the cost of one query is proportional to the query, not to how much
 > was learned. No per-query read may grow with corpus size N.
 
-Every fan-out, walk, and disambiguation is capped at `hubBound` —
-`ceil(sqrt(N))` — derived once from `corpusN` and floored at 2 so `sqrt` and
-`ln` stay meaningful on a near-empty store. There is no second convention; do
-not invent one.
+Every fan-out, walk, and disambiguation reads at most the OLDEST `hubBound` —
+`ceil(sqrt(N))`, floored at 2 for a near-empty store. A better-supported candidate
+beyond that prefix is invisible: a trade, and there is no second convention.
 
 ## Scale
 
