@@ -683,8 +683,6 @@ export interface MechanismResult {
    *  declaration — "this answer voices nothing" (recall) — and withholds
    *  nothing; omit the field and the pipeline re-recognises the answer. */
   used?: ReadonlySet<number>;
-  /** Explicit weight override.  When absent, weight = moves + PASS·unaccounted. */
-  weight?: number;
   /** Bytes of `bytes` that came from spans nothing recognised — the asker's
    *  own words carried through verbatim rather than derived (see
    *  {@link liftedScaffolding}).  Reported, not priced: the ladder prices what

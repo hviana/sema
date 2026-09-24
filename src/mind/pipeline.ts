@@ -399,7 +399,10 @@ export async function think(
       ? await meter.time(`${mech.name}.run`, () => mech.run(ctx, query, pre))
       : await mech.run(ctx, query, pre);
     for (const r of results) {
-      const weight = r.weight ?? weigh(r.accounted, r.moves);
+      // ONE FORMULA, EVERY CANDIDATE: the chart's derivation reports how many
+      // discrete moves it made and which bytes it could not recognise; the
+      // currency prices both.  No mechanism passes a price of its own.
+      const weight = weigh(r.accounted, r.moves);
       consider({
         bytes: r.bytes,
         provenance: r.provenance ?? mech.provenance,

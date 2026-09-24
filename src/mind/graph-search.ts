@@ -177,6 +177,28 @@ export interface Seg {
 /** Read the chosen spans back off a derivation: the goal is a chain of bridge
  *  steps, each whose second premise is the `out` it crossed.  Walk the chain to
  *  the axiom and reverse into left-to-right order. */
+/** The BYTE TERM of a derivation's cost: how many bytes its bridge rule charged
+ *  at PASS each — read back off the rule that charged them (`bridgeRule`:
+ *  `o.rec ? MICRO : PASS * (o.j - o.i)`), so the split exists in ONE place and
+ *  the engine's generic accumulator is left alone.
+ *
+ *  `derivation.cost - PASS * readBridgedBytes(derivation)` is therefore the
+ *  derivation's DISCRETE work — the number a mechanism reports as `moves`, which
+ *  the pipeline's one formula then prices together with `PASS * unaccounted`.
+ *  The two readings of the byte term coincide by construction: the spans this
+ *  sums are exactly the ones the chart could not recognise (`rec === false`),
+ *  which are the spans the candidate leaves unaccounted. */
+function readBridgedBytes(derivation: Derivation<GItem>): number {
+  let bytes = 0;
+  let node: Derivation<GItem> | undefined = derivation;
+  while (node && node.rule) {
+    const o = node.premises[1]?.item;
+    if (o !== undefined && o.kind === "out" && o.rec === false) bytes += o.j - o.i;
+    node = node.premises[0];
+  }
+  return bytes;
+}
+
 function readCover(derivation: Derivation<GItem>): Seg[] {
   const segs: Seg[] = [];
   let node: Derivation<GItem> | undefined = derivation;
@@ -436,7 +458,7 @@ export class GraphSearch {
      *  the rationale instead of stopping at the first layer.  Off by default, so
      *  the search pays nothing when no one inspects. */
     onDerivation?: (steps: DerivationStep[]) => void,
-  ): { segs: Seg[]; cost: number } | null {
+  ): { segs: Seg[]; cost: number; moves: number } | null {
     // Top-level entry: reset the per-call recursion state, then run the one
     // {@link solve} routine that both the query and any produced composite go
     // through (completion is cover, recursively — see {@link recompleteNode}).
@@ -464,7 +486,7 @@ export class GraphSearch {
     // one link at a time (its own memo and stack), so the work is the answer's.
     return solved === null
       ? null
-      : { segs: this.deepen(solved.segs), cost: solved.cost };
+      : { segs: this.deepen(solved.segs), cost: solved.cost, moves: solved.moves };
   }
   /** Build the deduction system for one span and return its lightest cover's
    *  chosen spans — the SINGLE routine the query and every produced composite
@@ -491,7 +513,7 @@ export class GraphSearch {
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
     onDerivation?: (steps: DerivationStep[]) => void,
-  ): { segs: Seg[]; cost: number } | null {
+  ): { segs: Seg[]; cost: number; moves: number } | null {
     const system = this.buildSearch(
       spanLen,
       recognition.sites,
@@ -520,7 +542,11 @@ export class GraphSearch {
       onDerivation(readDerivation(derivation, substitutions !== undefined));
     }
     return derivation
-      ? { segs: readCover(derivation), cost: derivation.cost }
+      ? {
+        segs: readCover(derivation),
+        cost: derivation.cost,
+        moves: derivation.cost - PASS * readBridgedBytes(derivation),
+      }
       : null;
   }
 

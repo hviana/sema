@@ -327,8 +327,12 @@ export const coverMechanism: PipelineMechanism = {
     return [{
       bytes: composed,
       accounted,
-      moves: 0,
-      weight: solved!.cost, // A*LD derivation's g-value IS the weight
+      // The derivation's DISCRETE work.  The bytes the chart could not
+      // recognise are NOT priced here: they are exactly the spans `accounted`
+      // leaves uncovered, and the pipeline's one formula charges them at PASS —
+      // the same formula that prices every other mechanism's candidate.  No
+      // mechanism spells a cost of its own.
+      moves: solved!.moves,
       // How much of the composed answer is the asker's own unexplained words
       // (the spans the liftAnswer trace above labels "scaffolding").  Cover is
       // the mechanism that can carry them, because a PASS span still lands in
