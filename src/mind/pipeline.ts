@@ -552,7 +552,7 @@ export async function think(
   };
   const uncovered = state.remainder;
 
-  // ── Post-grounding, gated by provenance ──────────────────────────────
+  // ── Post-grounding, gated by the declaration and the remainder ────────
   const preConsumed = declaredUsed ??
     new Set(recognise(ctx, answer).sites.map((s) => s.payload));
   // A grounding that DECLARED itself complete is not extended: the answer is
@@ -587,10 +587,13 @@ export async function think(
     (id) => ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n)),
   );
   // WHAT THIS BRANCH READ, published where it was read.  Post-grounding decides
-  // by `decided.used` and by the provenance NAME; the operands were invisible in
-  // the trace, so a change to the branching could not be shown equivalent or
-  // otherwise from outside — three separate investigations failed on exactly
-  // that gap.  A gap in instrumentation is a defect IN the instrumentation
+  // by the DECLARATION (`decided.used`, which becomes `voiced`), by what the
+  // recognition already consumed (`preConsumed`) and by the derivation's own
+  // remainder — never by the provenance NAME, which is REPORTED throughout and
+  // compared nowhere (a stale comment here claimed otherwise; the register caught
+  // it, and this is the correction).  The operands were invisible in the trace, so
+  // a change to the branching could not be shown equivalent or otherwise from
+  // outside — three separate investigations failed on exactly that gap.  A gap in instrumentation is a defect IN the instrumentation
   // (AGENTS.md §6): closed here, once, as counts only — never content.
   ctx.trace?.step(
     "postGrounding",

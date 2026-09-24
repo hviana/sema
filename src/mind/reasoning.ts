@@ -315,12 +315,15 @@ export async function reason(
   // it: the work it did is the cost it accumulated, and the material it carried
   // is the accounting the law's witnesses added.
   const steps = closed_.cost - d0.cost;
-  const carried: Array<[number, number]> = closed_.accounted
-    .slice(d0.accounted.length)
-    .map(([a, b]): [number, number] => [a, b]);
   if (ctx.meter) {
     ctx.meter.reasonSteps += steps;
-    ctx.meter.reasonCarriedBytes += unaccountedBytes(carried);
+    // The accounting the law's witnesses added, summed by the law's own function
+    // over the tail of the state's list — and computed ONLY when a meter is
+    // attached: this used to slice and MAP a fresh array on every response, for a
+    // counter that usually does not exist.  One allocation, under the meter.
+    ctx.meter.reasonCarriedBytes += unaccountedBytes(
+      closed_.accounted.slice(d0.accounted.length),
+    );
   }
   t?.done(
     [rItem(closed_.product, "answer", resolve(ctx, closed_.product) ?? undefined)],
