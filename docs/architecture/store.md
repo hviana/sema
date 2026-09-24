@@ -37,8 +37,8 @@ root never costs a full walk.
 ## Gist, halo, dedup
 
 On `put*`, content dedup (`hashOf`→probe→mint) gates first. Short keys are
-cached (`DEDUP_KEY_MAX` bypass). Near-dedup merges by `mergeThreshold(D)` on
-unit gist cosine. Gists sit in `_pendingGist` (byte-budgeted `BoundedMap`);
+cached (`DEDUP_KEY_MAX` bypass). Near-dedup: `identityBar(D, W, len)`, one window
+apart. Gists sit in `_pendingGist` (byte-budgeted `BoundedMap`);
 `indexSubtree` & `pourHalo` promote via `_vecContentUpsert`/`_vecHaloUpsert` in
 `batchSize` batches. Buffers flush on cadence, `commit()`, and close. Halo mass
 re-indexes geometrically (`mass<=4 || powerOfTwo`) and encodes 2-bit quantized.
