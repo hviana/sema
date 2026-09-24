@@ -27,20 +27,21 @@ never probes the store.
 
 `admissible(state, continuation, query, W)` returns the witnesses the step pays
 in, or `null`; `advance(state, continuation, witnesses)` is the only transition.
-The remainder TRAVELS UNCHANGED — a step engages what is left, it does not
-consume it (measured: draining it let `test/110`'s chain drift one hop past its
-answer).
+The remainder is consumed only by a declared move, and only by the material that
+move CARRIES: `carries` admits by ENGAGEMENT and consumes nothing, a move consumes
+what its window proves.  Whole-span draining was refuted by `test/110`; draining the
+window alone closed a derivation a cycle had produced.
 
 ## One cost home
 
 `moves + PASS · unaccountedBytes` is computed in ONE place (`pipeline.ts`,
 `weigh`). A mechanism reports `moves` and `accounted` — what it did — and never
-a price; `cover` reports the discrete work of its chart derivation.
+a price; `cover` reports its chart derivation's work.
 
 ## Two limits, proved and left out
 
 1. **The chart cannot evaluate accounting** — its interface has no parameter for
-   it, and carrying it per chart item was measured and rejected. The chart reads
+   it, and carrying it per item was measured and rejected. The chart reads
    the same law off an item: identity is its `key`, continuation the rule's
    existence, progress the frontier advancing, closure the goal test, `fix` is
    `fixed`.
@@ -57,9 +58,7 @@ vocabulary, not the tracer's.
 
 ## Pins
 
-- `test/133` — the state is rendered where it is decided; the law reads no
-  producer.
-- `test/134` — the law explains the engine's own refusal.
-- `test/135` — one law over real states from three producers.
-- `test/136` — the two limits above, with the measurements.
-- `test/137` — the law lives once, and below everything that asks it.
+- `test/133`–`137` — the law's home and readings, its refusal, its two limits.
+- `test/138` — a cycle cannot close it; a carried move can.
+- `test/139` — carrying is ENGAGEMENT, not explanation.
+- `test/140` — irrelevant supply does not change an answer.
