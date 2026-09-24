@@ -221,10 +221,29 @@ export async function reason(
     // fixpoint falls through to the pivot step instead.  Offered with `moves`:
     // completing the answer's OWN learnt form is an identity step, not a claim
     // about the asker's material.
+    // THE READ, KEPT — its LENGTH is free and it is the only instrument the
+    // bound has: a read that came back full may have been cut off, and a read
+    // that came back short did not.  No second read is paid for this.
+    const outs = curId !== null ? ctx.store.nextFirst(curId, bound) : [];
+    const saturated = outs.length >= bound;
+    // THE RE-REACH, NAMED — the audit's structural-identity case, and the silent
+    // path it hid in.  When every successor of the current product has already
+    // been spoken for, the absorb above is skipped WITHOUT a word and the walk
+    // falls to the pivot: the same structure reached again is indistinguishable
+    // from having none.  This note does not change the decision — it makes the
+    // state observable first, because the distinction between a legitimate
+    // convergence and a cycle cannot be implemented responsibly until it is seen.
     if (
-      curId !== null &&
-      ctx.store.nextFirst(curId, bound).some((n) => !consumed.has(n))
+      curId !== null && outs.length > 0 && !outs.some((n) => !consumed.has(n))
     ) {
+      ctx.trace?.step(
+        "reachAlreadySpokenFor",
+        [rItem(cur, "answer")],
+        [],
+        `every continuation of this product (${outs.length}) has already been spoken for — the same structure, reached again`,
+      );
+    }
+    if (curId !== null && outs.some((n) => !consumed.has(n))) {
       const fwd = await follow(ctx, curId, qv);
       const fwdId = fwd !== null ? resolve(ctx, fwd) : null;
       if (
@@ -254,6 +273,20 @@ export async function reason(
         [rItem(cur, "answer")],
         [],
         `${whyAbsorb} — falling through to the pivot`,
+      );
+    }
+
+    if (saturated) {
+      // THE BUDGET, NAMED — the audit's point 2.  `nextFirst` is read with a cap
+      // (`hubBound`), so a saturated read may have hidden a continuation, and the
+      // walk would end as if none existed.  The note says MAY, because the length
+      // cannot tell a full read from a truncated one; it can only tell that this
+      // is where a cut would have happened.
+      ctx.trace?.step(
+        "readBoundSaturated",
+        [rItem(cur, "answer")],
+        [],
+        "the read came back full — a continuation may have been cut off by the bound",
       );
     }
 
