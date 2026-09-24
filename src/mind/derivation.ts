@@ -195,6 +195,28 @@ export function restates(
   return indexOf(q, b, 0) >= 0;
 }
 
+/** Whether the query span `[from, to)` lies inside a COMPLETED ASSISTANT TURN —
+ *  material the engine has already produced, so it is context rather than
+ *  something the asker is asserting.  Recognition and attention still see the
+ *  full transcript; what excludes these spans is the closure reading "this was
+ *  already answered", and it is a closure reading rather than a budget: a window
+ *  inside a prior reply is not a fresh constraint.
+ *
+ *  ONE definition of it.  `cursor` is the CALLER's own progress through `turns`
+ *  (they are ascending and each caller scans its candidates in ascending order),
+ *  so the amortised search is preserved exactly and a caller passes the same
+ *  holder for a whole scan: extracting the reading must not cost the scan. */
+export function insideAnsweredTurn(
+  turns: ReadonlyArray<Span>,
+  cursor: { at: number },
+  from: number,
+  to: number,
+): boolean {
+  while (cursor.at < turns.length && turns[cursor.at][1] <= from) cursor.at++;
+  const turn = turns[cursor.at];
+  return turn !== undefined && turn[0] <= from && to <= turn[1];
+}
+
 // ── The unit ────────────────────────────────────────────────────────────────
 
 /** THE derivation state — the unit that crosses one inference.

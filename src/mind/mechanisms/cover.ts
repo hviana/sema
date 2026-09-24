@@ -17,6 +17,10 @@ import { conceptHop } from "../match.js";
 import { bridge } from "../resonance.js";
 import { liftAnswer, liftedScaffolding, segRestatesQuery } from "../types.js";
 import { decodeText, unexplainedLabel } from "../rationale.js";
+import {
+  insideAnsweredTurn,
+  restates,
+} from "../derivation.js";
 import { indexOf } from "../../bytes.js";
 import type { RationaleItem } from "../rationale.js";
 import { rItem, rNode, traceDerivation } from "../trace.js";
@@ -62,16 +66,13 @@ export async function resolveConnectors(
   // discarded — a semantically neutral gate (it removes work whose product
   // liftAnswer throws away), and a cumulative (multi-turn) query is exactly
   // where such already-answered continuations recur.
-  let answered = 0;
+  const answered = { at: 0 };
   const ordered = [...sites]
     .sort((a, b) => a.start - b.start)
     .filter((s) => {
-      while (
-        answered < ctx.answeredSpans.length &&
-        ctx.answeredSpans[answered][1] <= s.start
-      ) answered++;
-      const span = ctx.answeredSpans[answered];
-      if (span && span[0] <= s.start && s.end <= span[1]) return false;
+      if (insideAnsweredTurn(ctx.answeredSpans, answered, s.start, s.end)) {
+        return false;
+      }
       if (query === undefined || ctx.answeredSpans.length === 0) return true;
       const continuations = ctx.store.nextFirst(s.payload, hubBound(ctx));
       return !continuations.some((answer) => {
@@ -93,7 +94,11 @@ export async function resolveConnectors(
         // 3 bytes this reads 4 bytes per candidate instead of the ~231 it
         // averaged before.
         const bytes = read(ctx, answer, query.length + 1);
-        return bytes.length <= query.length && indexOf(query, bytes, 0) >= 0;
+        // THE CONTENT READING of the same exclusion: the site's own
+        // continuation already occurs in the query, so voicing it back adds
+        // nothing.  It is the restatement law with no `proper` flag — the
+        // containment reading that also admits the whole query.
+        return restates(query, bytes, 0);
       });
     });
   const bridgePair = async (l: number, r: number) => {

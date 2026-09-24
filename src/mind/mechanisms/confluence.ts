@@ -45,6 +45,7 @@ import { corpusN, reachOf } from "../traverse.js";
 import { dominates } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
 import { unexplainedLabel } from "../rationale.js";
+import { insideAnsweredTurn } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 
@@ -98,14 +99,9 @@ export async function confluenceJoin(
   // Recognition and attention still see the full transcript; only this
   // mechanism's constraint population excludes answered spans.
   const queryWin = new Map<number, number>();
-  let answered = 0;
+  const answered = { at: 0 };
   for (const [off, id] of pre.queryWindows) {
-    while (
-      answered < ctx.answeredSpans.length &&
-      ctx.answeredSpans[answered][1] <= off
-    ) answered++;
-    const span = ctx.answeredSpans[answered];
-    if (span && span[0] <= off && off + W <= span[1]) continue;
+    if (insideAnsweredTurn(ctx.answeredSpans, answered, off, off + W)) continue;
     queryWin.set(off, id);
   }
   const queryIds = new Set(queryWin.values());
