@@ -101,6 +101,12 @@ export async function extractBySkill(
   const searched = ranked.slice(0, pre.k);
   let shapeMisses = 0;
   let subQuantum = 0;
+  // A SECOND refusal counter, because the note below used to call an UNANCHORED
+  // read "sub-quantum" — which is false, and it is the kind of instrumentation
+  // defect AGENTS §6 says to close where it lives: a reader could not tell from
+  // the trace which of the two gates refused.  Neither counter reaches a
+  // decision (meter.ts contract 1); they exist so the refusal is legible.
+  let unanchored = 0;
   for (const cand of searched) {
     const exemplar = await pre.spanShapedOf(cand.anchor);
     if (!exemplar) {
@@ -136,22 +142,23 @@ export async function extractBySkill(
     // Here the field is this mechanism's own output and carries its documented
     // meaning, so the test is sound exactly where the convention does not reach.
     if (built.accounted.length === 0) {
-      subQuantum++;
+      unanchored++;
       continue;
     }
-    if (shapeMisses > 0 || subQuantum > 0) {
+    if (shapeMisses > 0 || subQuantum > 0 || unanchored > 0) {
       ctx.trace?.step(
         "trySkillAnchors",
         [
           rItem(
             query.subarray(0, 0),
-            `skipped ${shapeMisses + subQuantum}`,
+            `skipped ${shapeMisses + subQuantum + unanchored}`,
           ),
           rNode(ctx, cand.anchor, "chosen"),
         ],
         [],
-        `skipped ${shapeMisses} non-exemplar and ${subQuantum} sub-quantum ` +
-          `anchor(s) before one yielded a usable extraction`,
+        `skipped ${shapeMisses} non-exemplar, ${subQuantum} sub-quantum and ` +
+          `${unanchored} unanchored anchor(s) before one yielded a usable ` +
+          `extraction`,
       );
     }
     t?.done(
