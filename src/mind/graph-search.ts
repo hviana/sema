@@ -426,7 +426,6 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
-    starts: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
@@ -449,12 +448,7 @@ export class GraphSearch {
     this.derivationSink = onDerivation;
     const solved = this.solve(
       queryLen,
-      {
-        sites,
-        leaves,
-        splits,
-        starts,
-      },
+      { sites, leaves, splits },
       conceptTarget,
       substitutions,
       connectors,
@@ -491,7 +485,6 @@ export class GraphSearch {
       sites: ReadonlyArray<Site>;
       leaves: ReadonlyArray<Leaf>;
       splits: ReadonlySet<number>;
-      starts: ReadonlySet<number>;
     },
     conceptTarget: ReadonlyMap<number, number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
@@ -505,7 +498,6 @@ export class GraphSearch {
       conceptTarget,
       recognition.leaves,
       recognition.splits,
-      recognition.starts,
       substitutions,
       connectors,
       computedResults,
@@ -568,7 +560,6 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
-    starts: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
@@ -730,7 +721,6 @@ export class GraphSearch {
         return this.outRules(it, {
           W,
           splits,
-          starts,
           atomsAreHubs,
           coversDone,
           outsByStart,
@@ -1190,7 +1180,6 @@ export class GraphSearch {
           sites: [...recognised, ...structural],
           leaves: rec.leaves,
           splits: rec.splits,
-          starts: rec.starts,
         },
         new Map(),
         undefined,
@@ -1484,7 +1473,6 @@ export class GraphSearch {
     ctx: {
       W: number;
       splits: ReadonlySet<number>;
-      starts: ReadonlySet<number>;
       atomsAreHubs: boolean;
       coversDone: Set<number>;
       outsByStart: Map<number, OutItem[]>;
@@ -1647,7 +1635,6 @@ export class GraphSearch {
     r: OutItem,
     ctx: {
       W: number;
-      starts: ReadonlySet<number>;
       atomsAreHubs: boolean;
       findLeafU: (b: Uint8Array) => number | undefined;
       findBranchU: (k: number[]) => number | undefined;
