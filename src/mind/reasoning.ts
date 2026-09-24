@@ -236,18 +236,65 @@ export async function reason(
         pending = { kind: "absorb", cur, curId, fwd };
         return { product: fwd, contains: true, reaches: true, cost: STEP };
       }
+      // THE ABSORB'S OWN REFUSALS, TOLD APART — a learnt continuation existed
+      // and was declined, so the walk falls through to the pivot rather than
+      // ending.  Which of the four reasons it was is exactly what the rationale
+      // could not say before: `null` at the end of the walk is one state, and
+      // this is another (AGENTS §6 — the note belongs where the mechanism emits
+      // it, not in a counter beside it).
+      const whyAbsorb = fwd === null
+        ? "the unconsumed edge led nowhere"
+        : bytesEqual(fwd, cur)
+        ? "the continuation reached was the product already in hand"
+        : fwdId !== null && consumed.has(fwdId)
+        ? "the continuation reached had already been spoken for"
+        : "this continuation only restates the question";
+      ctx.trace?.step(
+        "absorbCandidateRefused",
+        [rItem(cur, "answer")],
+        [],
+        `${whyAbsorb} — falling through to the pivot`,
+      );
     }
 
     // Pivot: the longest unconsumed learnt context the answer contains.
     consumeAll(curId);
     const pivot = await pivotInto(ctx, cur, consumed, voiced);
-    if (pivot === null) return null;
+    if (pivot === null) {
+      // THE ENUMERATION, DECLARED — the one duty the law cannot perform for the
+      // layer: only the layer knows that it has nothing left to offer.  Before
+      // this note the walk ended in a bare `null`, indistinguishable from the
+      // causes below it; a reader of the rationale could not tell "exhausted"
+      // from "the candidate was refused" (AGENTS §6: a gap in instrumentation
+      // is a defect IN the instrumentation).
+      ctx.trace?.step(
+        "enumerationExhausted",
+        [rItem(cur, "answer")],
+        [],
+        "the layer has no further candidate — its enumeration is exhausted",
+      );
+      return null;
+    }
     const fc = await follow(ctx, pivot, qv);
     consumeAll(pivot);
     if (
       fc === null || bytesEqual(fc, cur) ||
       restates(query, fc, 0, { proper: true })
     ) {
+      // THE THREE REFUSALS, TOLD APART — a candidate was reached and declined,
+      // which is NOT the same state as having none: the law reads both as "no
+      // continuation", but the rationale should not.
+      const why = fc === null
+        ? "the pivot's context carried no continuation"
+        : bytesEqual(fc, cur)
+        ? "the continuation reached was the product already in hand"
+        : "this continuation only restates the question";
+      ctx.trace?.step(
+        "pivotCandidateRefused",
+        [rItem(cur, "answer")],
+        [],
+        `${why} — refused`,
+      );
       return null;
     }
     pending = { kind: "pivot", cur, pivot, fc };
