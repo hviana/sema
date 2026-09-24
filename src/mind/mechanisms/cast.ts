@@ -689,7 +689,7 @@ export async function counterfactualTransfer(
   // cap the test reads "none of the established continuations appears".
   const domNext = ctx.store.nextFirst(dominant.anchor, hubBound(ctx));
   const displaced = domNext
-    .every((n) => indexOf(query, read(ctx, n), 0) < 0);
+    .every((n) => !restates(query, read(ctx, n), 0));
   // The SUBSTITUTE is what redirection speaks — the answer IS `project(last)`,
   // its own fact — so the same bar applies.  The displaced structure is only
   // recognised as the slot being overridden and is never voiced, so it is
@@ -785,7 +785,7 @@ export async function counterfactualTransfer(
       queryScale(p.ctx.length) &&
       indexOf(dominant.ctx, p.ctx, 0) < 0 &&
       indexOf(p.ctx, dominant.ctx, 0) < 0 &&
-      indexOf(query, p.ctx, 0) < 0
+      !restates(query, p.ctx, 0)
     ) {
       analogs.push({ anchor: p.anchor, point: p, src: p });
     }
@@ -804,7 +804,7 @@ export async function counterfactualTransfer(
         !queryScale(nctx.length) ||
         indexOf(dominant.ctx, nctx, 0) >= 0 ||
         indexOf(nctx, dominant.ctx, 0) >= 0 ||
-        indexOf(query, nctx, 0) >= 0
+        restates(query, nctx, 0)
       ) continue;
       analogs.push({ anchor: nid, point: null, src: p });
     }

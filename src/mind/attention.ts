@@ -64,6 +64,7 @@ import {
 } from "./junction.js";
 import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
+import { restates } from "./derivation.js";
 import type { RationaleItem } from "./rationale.js";
 import { rDeriv, rItem, rNode, traceDerivation } from "./trace.js";
 
@@ -3129,7 +3130,7 @@ async function crossRegionVotes(
               Math.min(li, ri),
               Math.max(li + left.length, ri + right.length),
             );
-            if (indexOf(query, joined, 0) >= 0) {
+            if (restates(query, joined, 0)) {
               if (structuralTrace) structuralTrace.selfEvidenceRejected++;
               continue; // query says it itself
             }

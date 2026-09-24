@@ -407,7 +407,7 @@ export async function recallByResonance(
       // — never an answer (the same principle as `restates` above, extended
       // to fragments).  Genuine anchor groundings — longer than the query,
       // or disjoint from it — pass untouched.
-      else if (g && !(g.length < query.length && indexOf(query, g, 0) >= 0)) {
+      else if (g && !lawRestates(query, g, 0, { proper: true })) {
         return ground(
           g,
           "scaffolding-dominated query — ground the consensus-climb anchor",
