@@ -36,6 +36,28 @@
 // contract: `provenance` is observability and nothing compares it); and no
 // count of any kind — no depth, hop, visited, once or cap.
 //
+// FIVE QUESTIONS, FIVE OWNERS — and no two of them may be answered by one fact:
+//
+//   ENGAGEMENT   does the step touch the question's material?   `carries`: admits,
+//                                                              consumes nothing
+//   PROGRESS     does it reach structure not yet consumed?      `reaches`: admits
+//                                                              AND consumes what the
+//                                                              step's window carries
+//   ACCOUNTING   what does the step price?                      the span, into
+//                                                              `accounted`
+//   CLOSURE      is the question's material all accounted for?  `closed` — the law
+//   TERMINATION  why does the walk stop at all?                 the LAYER: its offer
+//                                                              ends, or the law refuses
+//                                                              one; never a depth
+//   CYCLES       why is a loop not a walk?                      the LAYER's consumed
+//                                                              set; the law only sees
+//                                                              that a cycle never
+//                                                              closes it (test/138.1)
+//
+// A step can progress without closing the derivation; a derivation can be closed
+// with no further transition (the grounding built it closed); and neither of those
+// is termination.
+//
 // THE REMAINDER TRAVELS UNCHANGED, and this was measured, not assumed: letting
 // `advance` drain the witness made a step that engaged the gap CLOSE the
 // derivation, the next step was admitted unconstrained, and test/110's
