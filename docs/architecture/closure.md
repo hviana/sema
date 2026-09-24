@@ -33,6 +33,9 @@ consumes what its window proves. Whole-span draining was refuted by `test/110`,
 the window alone by `test/138`. The state is BORN owing what its product does
 not carry.
 
+The walk ends when the layer stops offering or the law refuses; owning no search, the law
+cannot prevent a cycle — that is the layer's, over the structure it holds.
+
 ## One cost home
 
 `moves + PASS · unaccountedBytes` is computed in ONE place (`pipeline.ts`,
@@ -62,4 +65,4 @@ vocabulary, not the tracer's.
 - `test/133`–`137` — the law's home, readings, refusal, limits.
 - `test/138` — a cycle cannot close it; a carried move can.
 - `test/139` — carrying is ENGAGEMENT, not explanation.
-- `test/140` — irrelevant supply changes no answer.
+- `test/140` — irrelevant supply changes nothing.
