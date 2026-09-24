@@ -282,7 +282,18 @@ export interface Continuation {
   /** The structure the transition would make the derivation's product. */
   readonly product: Uint8Array;
   /** CONTAINS — the transition's structure holds the product: a node in its
-   *  tree, or one contiguous byte run of it.  Resolved by the reporter. */
+   *  tree, or one contiguous byte run of it.  Resolved by the reporter.
+   *
+   *  SUFFICIENT FOR EVERY DECISION THIS CORE MAKES, and a boolean is the minimum:
+   *  the law reads it ONCE, as the admission gate, and that decision is binary —
+   *  may this state be consumed by this transition at all?  Every other decision
+   *  is fed by other witnesses, never by this one: the product's identity is
+   *  `resolve(product)`, progress is the window a move carries or the
+   *  `reaches` declaration, accounting is the span.  Carrying the reporter's
+   *  structure here would therefore be a dump of mechanism internals bought for
+   *  nothing.  The producers make it true by construction — a continuation is
+   *  built from the CURRENT product's own structure, never from a different one
+   *  — and test/133 pins the refusal when a reporter declares false. */
   readonly contains: boolean;
   /** REACHES — the transition MOVES: it reaches structure this derivation has
    *  not consumed
