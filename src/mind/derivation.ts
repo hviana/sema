@@ -115,6 +115,30 @@ export function remainderOf(
   return unexplainedSpans(queryLen, explained).filter(([a, b]) => b - a >= W);
 }
 
+/** A WITNESS — what a transition carries, in one reading: the SPAN it accounts
+ *  for, and the WINDOW of the question the product itself holds.  The window is
+ *  present only when the product holds question material, and it is the ONLY
+ *  thing the question's remainder may be consumed by. */
+export interface Witness {
+  readonly span: Span;
+  readonly window?: Span;
+}
+
+/** The window of `span` that `product` holds, or null: the ONE reading of
+ *  coverage, used by {@link carries} and by the move branch alike. */
+function windowOf(
+  span: Span,
+  product: Uint8Array,
+  query: Uint8Array,
+  W: number,
+): Span | null {
+  const [a, b] = span;
+  for (let i = a; i + W <= b; i++) {
+    if (indexOf(product, query.subarray(i, i + W), 0) >= 0) return [i, i + W];
+  }
+  return null;
+}
+
 /** PROGRESS, by coverage: the first member of `remainder` that `product` carries
  *  a whole quantum of, or null when it carries none.  The window is taken from
  *  `query`, the asker's own bytes, so the test is "this product restates a
@@ -129,14 +153,10 @@ export function carries(
   product: Uint8Array,
   query: Uint8Array,
   W: number,
-): Array<[number, number]> | null {
-  for (const [a, b] of remainder) {
-    for (let i = a; i + W <= b; i++) {
-      if (indexOf(product, query.subarray(i, i + W), 0) >= 0) {
-        const witness: [number, number] = [a, b];
-        return [witness];
-      }
-    }
+): Array<Witness> | null {
+  for (const span of remainder) {
+    const window = windowOf(span, product, query, W);
+    if (window !== null) return [{ span, window }];
   }
   return null;
 }
@@ -302,10 +322,10 @@ export function admissible(
   t: Continuation,
   query: Uint8Array,
   W: number,
-): ReadonlyArray<Span> | null {
+): ReadonlyArray<Witness> | null {
   if (d.fixed) return null;
   if (!t.contains) return null;
-  if (closed(d)) return t.explains ?? [];
+  if (closed(d)) return (t.explains ?? []).map((span) => ({ span }));
   // MOVES BEFORE CARRIES, and that order is not arbitrary: a transition that
   // DECLARES it moves (the walker's forward-absorb, and a pivot whose producing
   // mechanism declared the anchors it speaks for) is admitted on that ground
@@ -313,7 +333,12 @@ export function admissible(
   // replaces behaved, where the brake was skipped whenever the producer owned
   // the shape of its answer.  Reading coverage first would attribute to such a
   // step material it was never asked to account for.
-  if (t.moves) return t.explains ?? [];
+  if (t.moves) {
+    return (t.explains ?? []).map((span) => {
+      const window = windowOf(span, t.product, query, W);
+      return window === null ? { span } : { span, window };
+    });
+  }
   return carries(d.remainder, t.product, query, W);
 }
 
@@ -347,16 +372,17 @@ function drain(
 export function advance(
   d: DerivationState,
   t: Continuation,
-  explains: ReadonlyArray<Span>,
+  explains: ReadonlyArray<Witness>,
 ): DerivationState {
+  const spans = explains.map((w) => w.span);
+  const carried =
+    t.moves === true
+      ? explains.flatMap((w) => (w.window ? [w.window] : []))
+      : [];
   return {
     product: t.product,
-    accounted: explains.length === 0
-      ? d.accounted
-      : [...d.accounted, ...explains],
-    remainder: t.moves === true
-      ? drain(d.remainder, explains)
-      : d.remainder,
+    accounted: spans.length === 0 ? d.accounted : [...d.accounted, ...spans],
+    remainder: carried.length === 0 ? d.remainder : drain(d.remainder, carried),
     cost: d.cost + t.cost,
     used: d.used,
   };

@@ -28,7 +28,7 @@ test("139.1 holding the question's window admits the step, and answers nothing",
   const product = new TextEncoder().encode("ZZZZABCDZZ");
   const witness = carries(REMAINDER, product, QUERY, W);
   assert.notEqual(witness, null, "the window is held");
-  assert.deepEqual(witness, [[0, 10]]);
+  assert.deepEqual(witness, [{ span: [0, 10], window: [0, 4] }]);
   // The law takes the step — and the question is no better answered for it, so
   // the remainder is untouched.
   const after = advance(

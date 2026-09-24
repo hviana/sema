@@ -148,7 +148,7 @@ test("134.2 advance is the transition it says it is", async () => {
   assert.deepEqual(
     after.remainder,
     before.remainder,
-    "THE REMAINDER TRAVELS UNCHANGED — a step engages it, it does not drain it",
+    "CARRIES ENGAGES: a step that carries question material consumes none of it",
   );
   assert.equal(
     after.fixed,
@@ -158,8 +158,26 @@ test("134.2 advance is the transition it says it is", async () => {
   assert.equal(after.used, before.used, "the declaration travels");
   assert.deepEqual(
     after.accounted,
-    [...before.accounted, ...witness],
+    [...before.accounted, ...witness.map((w) => w.span)],
     "the accounting accumulates what the step accounted for",
+  );
+  // A DECLARED MOVE CONSUMES WHAT IT CARRIES, and only that (test/138): the same
+  // product, offered this time by a step that moves and accounts for the span it
+  // holds.  This is the one thing the remainder responds to.
+  const movedT = {
+    product: t.product,
+    contains: true,
+    moves: true,
+    explains: [[0, 3 * W]],
+    cost: 1,
+  };
+  const movedWitness = law.admissible(before, movedT, query, W);
+  assert.ok(movedWitness !== null);
+  const drained = law.advance(before, movedT, movedWitness);
+  assert.notDeepEqual(
+    drained.remainder,
+    before.remainder,
+    "a declared move consumes the question material it carries",
   );
   // and the state it came from is untouched (the law is pure)
   assert.deepEqual(before.accounted, []);
