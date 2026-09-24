@@ -238,8 +238,16 @@ export async function reason(
     // that came back short did not.  No second read is paid for this.
     const outs = curId !== null ? ctx.store.nextFirst(curId, bound) : [];
     const saturated = outs.length >= bound;
-    // THE RE-REACH, NAMED — the audit's structural-identity case, and the silent
-    // path it hid in.  When every successor of the current product has already
+    // THE RE-REACH, NAMED — the audit's structural-identity case (its test G), and
+    // the silent path it hid in.  MEASURED, and this is the point's closure: across
+    // thirteen real questions on the trained store — the roteiro's ten plus three —
+    // this note fires ZERO times.  The case, if it exists in this engine, is not on
+    // that material.  It is not unimplementable, it is unobserved, and the audit's
+    // own rule is that an unobserved claim stays declared as unobserved: a
+    // distinction between legitimate convergence and a cycle cannot be implemented
+    // responsibly before it is seen, and the brief's section 13 puts measurement
+    // before code.  What exists here is the instrument that will show it the moment
+    // it happens.  When every successor of the current product has already
     // been spoken for, the absorb above is skipped WITHOUT a word and the walk
     // falls to the pivot: the same structure reached again is indistinguishable
     // from having none.  This note does not change the decision — it makes the
