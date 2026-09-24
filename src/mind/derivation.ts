@@ -319,10 +319,31 @@ export function admissible(
 
 /** ADVANCE — the transition itself: the state that results from consuming `t`
  *  with the witness {@link admissible} returned.  The product moves, the
- *  accounting accumulates what the step engaged, the cost is added, and the
- *  remainder — the question's leftover — travels UNCHANGED (see the module note:
- *  draining it was implemented and refuted).  The result is no longer a supplied
- *  fixed point. */
+ *  accounting accumulates what the step engaged, and the cost is added.
+ *
+ *  THE REMAINDER DRAINS ONLY ON A DECLARED MOVE, and that is measured, not
+ *  assumed: a step admitted by CARRIES holds question material, which any
+ *  repetition also holds — draining on it let a cycle empty the remainder and
+ *  close a derivation whose product never changed.  A MOVE (structure this
+ *  derivation has not consumed) cannot be produced by repetition, so it is the
+ *  one evidence on which the question's leftover may be consumed.  The result is
+ *  no longer a supplied fixed point. */
+function drain(
+  remainder: ReadonlyArray<Span>,
+  explains: ReadonlyArray<Span>,
+): Array<[number, number]> {
+  return remainder.flatMap(([a, b]): Array<[number, number]> => {
+    const cut = explains.find(([x, y]) => x >= a && y <= b);
+    if (!cut) return [[a, b]];
+    const [x, y] = cut;
+    const w = y - x;
+    const out: Array<[number, number]> = [];
+    if (x - a >= w) out.push([a, x]);
+    if (b - y >= w) out.push([y, b]);
+    return out;
+  });
+}
+
 export function advance(
   d: DerivationState,
   t: Continuation,
@@ -333,7 +354,9 @@ export function advance(
     accounted: explains.length === 0
       ? d.accounted
       : [...d.accounted, ...explains],
-    remainder: d.remainder,
+    remainder: t.moves === true
+      ? drain(d.remainder, explains)
+      : d.remainder,
     cost: d.cost + t.cost,
     used: d.used,
   };
