@@ -1,8 +1,6 @@
 # INVARIANTS — Laws, Proofs, Derivations
 
-> Law in `docs/architecture/*.md`, proof in `test/*.test.mjs`.
-
-| #  | Law                                  | Where defined (src symbol)                                                                                                            | Pins (test/N)       | Doc (docs/architecture/*.md) |
+| #  | Law                                  | Defined in                                                                                                                          | Pins                | Doc                          |
 | -- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ---------------------------- |
 | 1  | Determinism                          | `src/config.ts:seed` `src/alphabet.ts:Alphabet` `src/mind/traverse.ts:guidedFirst`                                                    | `test/20` `test/42` | `determinism.md`             |
 | 2  | Derived thresholds                   | `src/geometry.ts:mergeThreshold,identityBar,reachThreshold,significanceBar,consensusFloor,dominates`                                  | `test/64` `test/40` | `thresholds.md`              |
@@ -17,3 +15,4 @@
 | 11 | Honest degradation                   | `src/mind/pipeline.ts:weight=moves+PASS*unaccounted` `src/store.ts:BoundedMap:miss→re-derive`                                         | `test/28` `test/84` | `store.md`+`caches.md`       |
 | 12 | Meter contracts                      | `src/meter.ts:Meter,PhaseCost,time` `src/mind/pipeline-mechanism.ts:Precomputed.shared`                                               | `test/55`           | `meter.md`                   |
 | 13 | Saturation                           | `traverse.ts:edgeAncestors,types.ts:SaturationReason` `src/mind/junction.ts:junctionContainersFrom` `src/mind/resonance.ts:pivotInto` | `test/27` `test/16` | `saturation.md`              |
+| 14 | Closure                              | `src/mind/derivation.ts:closed,admissible,advance`                                                                                    | `test/133`–`137`    | `factored-machinery.md`      |
