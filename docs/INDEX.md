@@ -8,10 +8,10 @@ proof in `test/` (pins that fail when the law is broken).
 
 | Task                        | Read                                                                               | Why                                                                                   |
 | --------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Add a mechanism             | `docs/architecture/mechanism-market.md` + `docs/mechanisms/*.md`                   | Market contract: decoupled, declared competence, visible budget, evidence travels     |
-| Add a threshold             | `docs/architecture/thresholds.md`                                                  | All cutoffs are formulas over D/W/N in `geometry.ts`; `config.ts` holds only budgets  |
-| Debug an answer             | `docs/architecture/cost-model.md` + `src/meter.ts`                                 | One cost ladder (`MICRO`/`STEP`/`CONCEPT`/`PASS`) decides every grounding choice      |
-| Understand the fold         | `docs/architecture/fold-contract.md`                                               | Deposit and inference must compute the same tree; boundaries are not turn metadata    |
+| Add a mechanism             | `docs/architecture/mechanism-market.md` + `docs/mechanisms/*.md`                   | Market contract: the four constraints     |
+| Add a threshold             | `docs/architecture/thresholds.md`                                                  | All cutoffs are formulas over D/W/N; `config.ts` holds budgets only  |
+| Debug an answer             | `docs/architecture/cost-model.md` + `src/meter.ts`                                 | One ladder decides every grounding choice      |
+| Understand the fold         | `docs/architecture/fold-contract.md`                                               | Deposit and inference compute the same tree    |
 | Add a store backend         | `docs/architecture/store.md` + `docs/architecture/bounded-reads.md`                | `AbstractStore` owns domain logic; backends are thin wrappers with capped reads       |
 | Add an ALU operation        | `src/alu/README.md`                                                                | One `registry.derive` per op composing existing ops; no new `derive` needed           |
 | Add a matcher or projection | `docs/architecture/match-project.md`                                               | Mechanisms are `(matcher, direction, gate)` configs over the shared `match.ts` family |
@@ -19,7 +19,7 @@ proof in `test/` (pins that fail when the law is broken).
 | Change vector search        | `docs/architecture/exact-vs-approximate.md` + `docs/architecture/bounded-reads.md` | Scores propose, bytes dispose; ANN is bounded by `hubBound`                           |
 | Profile or bound work       | `docs/architecture/meter.md` + `docs/architecture/bounded-reads.md`                | `meter.ts` is write-only; counters are product, phases are hints                      |
 
-## Architecture laws (13)
+## Architecture laws (14)
 
 | Law | File                                        | Summary                                                                                                     | Pins                 |
 | --- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------- |
@@ -36,6 +36,7 @@ proof in `test/` (pins that fail when the law is broken).
 | 11  | `docs/architecture/memoization.md`          | `Precomputed` is per-response lazy cache (promise-cached async); `beginResponse`/`endResponse` lifecycle    | `test/42`            |
 | 12  | `docs/architecture/saturation.md`           | Every walk names a deciding saturation beside its cap; cap is safety net, not decision                      | `test/27`, `test/16` |
 | 13  | `docs/architecture/meter.md`                | `meter.ts` is write-only work accounting; counts are deterministic, phases nest                             | `test/55`            |
+| 14  | `docs/architecture/factored-machinery.md`   | A derivation is closed when its structure accounts for the question's remainder; every transition asks that law | `test/133`–`137`     |
 
 ## Mechanisms (8)
 
@@ -63,9 +64,7 @@ proof in `test/` (pins that fail when the law is broken).
 - `docs/INVARIANTS.md` — the five invariants (determinism, derived thresholds,
   exact-decides, one cost currency, bounded reads) with file-level routing.
 - `docs/failures/tempting-but-wrong.md` — refuted simplifications that passed
-  review but failed pins (e.g. reordering ladders, flattening attention
-  asymmetries, one-cone-exhausted stop).
+  review but failed pins.
 - `docs/harness/gates.md` — how `AGENTS.md` recipes,
   `bench/profile-inference.mjs`, and `test/*.test.mjs` enforce the laws.
-- `docs/architecture/` — full per-law derivation (each file states why the law
-  is this way; no separate HOW).
+- `docs/architecture/` — per-law derivation: each file says why, not how.
