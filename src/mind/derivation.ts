@@ -284,12 +284,13 @@ export interface Continuation {
   /** CONTAINS — the transition's structure holds the product: a node in its
    *  tree, or one contiguous byte run of it.  Resolved by the reporter. */
   readonly contains: boolean;
-  /** MOVES — the transition reaches structure this derivation has not consumed
+  /** REACHES — the transition MOVES: it reaches structure this derivation has
+   *  not consumed
    *  (a node outside the walker's own set).  The second species of progress: a
    *  step need not excuse itself with question material when it moves to new
    *  structure.  Resolved by the reporter, declared by the transition — never
    *  inferred from its producer. */
-  readonly moves?: boolean;
+  readonly reaches?: boolean;
   /** What the transition accounts for, when it declares it.  A transition
    *  taken from a CLOSED state has nothing to progress on, so it is the one
    *  case that must say what it accounts for; a transition that carries the
@@ -333,7 +334,7 @@ export function admissible(
   // replaces behaved, where the brake was skipped whenever the producer owned
   // the shape of its answer.  Reading coverage first would attribute to such a
   // step material it was never asked to account for.
-  if (t.moves) {
+  if (t.reaches) {
     return (t.explains ?? []).map((span) => {
       const window = windowOf(span, t.product, query, W);
       return window === null ? { span } : { span, window };
@@ -376,7 +377,7 @@ export function advance(
 ): DerivationState {
   const spans = explains.map((w) => w.span);
   const carried =
-    t.moves === true
+    t.reaches === true
       ? explains.flatMap((w) => (w.window ? [w.window] : []))
       : [];
   return {

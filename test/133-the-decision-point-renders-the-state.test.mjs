@@ -102,7 +102,7 @@ test("133.2 the law reads no producer, as an invariant over states", async () =>
   };
   const continuations = [
     { product, contains: true, cost: 1 },
-    { product, contains: true, moves: true, cost: 1 },
+    { product, contains: true, reaches: true, cost: 1 },
     { product, contains: false, cost: 1 },
   ];
   for (const t of continuations) {

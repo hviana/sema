@@ -170,7 +170,7 @@ test("135. the law decides real states the same way, whoever produced them", asy
     const alien = enc("qqqqqqqqqqqqqqqq");
     return {
       carries: { product: query, contains: true, cost: 1 },
-      moves: { product: alien, contains: true, moves: true, cost: 1 },
+      moves: { product: alien, contains: true, reaches: true, cost: 1 },
       plain: { product: alien, contains: true, cost: 1 },
       alien: { product: alien, contains: false, cost: 1 },
     };

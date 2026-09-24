@@ -83,7 +83,7 @@ test("134.1 the law is total, and every clause holds over the matrix", async () 
   };
   const conts = {
     carries: { product: query.subarray(0, 3 * W), contains: true, cost: 1 },
-    moves: { product: none, contains: true, moves: true, cost: 1 },
+    moves: { product: none, contains: true, reaches: true, cost: 1 },
     plain: { product: none, contains: true, cost: 1 },
     alien: { product: none, contains: false, cost: 1 },
   };
@@ -167,7 +167,7 @@ test("134.2 advance is the transition it says it is", async () => {
   const movedT = {
     product: t.product,
     contains: true,
-    moves: true,
+    reaches: true,
     explains: [[0, 3 * W]],
     cost: 1,
   };

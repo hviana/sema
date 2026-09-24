@@ -213,7 +213,7 @@ test("137.3 the law is a function, end to end", async () => {
     ).trim();
     const out = {
       answer,
-      moves: steps.map((s) => s.mechanism.join("/")),
+      reaches: steps.map((s) => s.mechanism.join("/")),
       counters: mind.lastCost?.counters ?? {},
     };
     await store.close();

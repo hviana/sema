@@ -46,7 +46,7 @@ test("138.2 a declared move drains what it accounts for and closes the derivatio
     const t = {
       product: QUERY,
       contains: true,
-      moves: true,
+      reaches: true,
       explains: [[i * W, (i + 1) * W]],
       cost: 1,
     };

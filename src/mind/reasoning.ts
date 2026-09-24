@@ -232,7 +232,7 @@ export async function reason(
       ) {
         consumeAll(curId);
         pending = { kind: "absorb", cur, curId, fwd };
-        return { product: fwd, contains: true, moves: true, cost: STEP };
+        return { product: fwd, contains: true, reaches: true, cost: STEP };
       }
     }
 
@@ -257,7 +257,7 @@ export async function reason(
     return {
       product: fc,
       contains: true,
-      moves: producerOwnsShape,
+      reaches: producerOwnsShape,
       cost: STEP,
     };
   };
