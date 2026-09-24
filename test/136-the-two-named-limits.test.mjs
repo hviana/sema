@@ -83,7 +83,7 @@ test("136.1 the fuse gate keeps its own reading, and the two readings differ", a
   );
 });
 
-test("136.2 the extension is not priced", async () => {
+test("136.2 the extension is not priced — and it pays for itself", async () => {
   const store = new SQliteStore({ path: ":memory:" });
   const mind = new Mind({ seed: 7, store, profile: true });
   await mind.ingest([
@@ -105,6 +105,22 @@ test("136.2 the extension is not priced", async () => {
     `the fixture must take at least one extension step, got ${counters.reasonSteps}`,
   );
   assert.ok(winner, "the response must publish its decided candidate");
+  // AND THE EXTENSION PAYS FOR ITSELF, measured: the walk's steps are answered by
+  // the material its witnesses carried, by orders of magnitude (this fixture takes
+  // ONE extension: 1 step against 11 bytes carried — 1 against 11000 in the one
+  // currency).  That is why no price DECISION is added for the extension: its
+  // warrant is already the closure law's (a step must engage the remainder or
+  // move), its cost is counted and reported (`reasonSteps`), and a second,
+  // price-shaped admission would be a second home for the same decision — one that
+  // would refuse the IDENTITY steps the law admits, which is the documented
+  // failure of the (c) remedy (material lost: "hot" for "cold hot").
+  assert.ok(
+    (counters.reasonCarriedBytes ?? 0) * PASS > (counters.reasonSteps ?? 0) * STEP,
+    "the extension is carrying less than its steps are worth — measured 11 bytes " +
+      "against 1 step here.  If this ever fails, the absent price comparison HAS " +
+      "teeth and the register's GAP 2 is real: measure what pricing the extension " +
+      "does to the suite before touching this",
+  );
   assert.equal(
     winner.weight,
     STEP + PASS * winner.unexplainedBytes,
