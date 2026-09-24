@@ -389,7 +389,16 @@ export function advance(
 }
 
 /** What a layer offers the law: the next continuation of a state, or null when
- *  it has none.  A layer OFFERS; the law disposes. */
+ *  it has none.  A layer OFFERS; the law disposes.
+ *
+ *  ONE OFFER, AND IT IS THE LAYER'S LAST: {@link closure} stops when the law
+ *  refuses what was offered, so a refusal is read as "no continuation exists".
+ *  A layer must not offer candidates one at a time and expect the walk to
+ *  continue after a refusal — its own fallbacks belong inside this function.
+ *  The producers do exactly that: they choose between the forward absorb and the
+ *  pivot before offering, and return null only when neither exists, which is why
+ *  the one offer the law can still refuse (a pivot without ownership, whose
+ *  material the answer does not carry) really is the last one. */
 export type Offer = (d: DerivationState) => Promise<Continuation | null>;
 
 /** THE CLOSURE — the walk of {@link advance} over the continuations `offer`
