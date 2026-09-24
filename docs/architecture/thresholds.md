@@ -17,7 +17,7 @@ perception window), or `N` (corpus size). No threshold is tuned or added to
 
 | Symbol                  | Definition                                                                   | Formula                             |
 | ----------------------- | ---------------------------------------------------------------------------- | ----------------------------------- |
-| `mergeThreshold(D)`     | Cosine below which two gists are near enough to consider merging            | `1 - 1/√D`                          |
+| `mergeThreshold(D)`     | Cosine below which two gists are near enough to consider merging             | `1 - 1/√D`                          |
 | `identityBar(D,W,len)`  | Scale-aware whole-span identity claim                                        | `max(mergeThreshold(D), 1 - W/len)` |
 | `reachThreshold(W)`     | Recall confidence floor — half a river quantum                               | `1 - 1/(2·W)`                       |
 | `estimatorNoise(D)`     | RaBitQ noise floor — 1σ of random cosine                                     | `1/√D`                              |

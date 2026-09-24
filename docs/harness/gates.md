@@ -23,9 +23,9 @@ node bench/profile-inference.mjs        # add [n] to limit probes
 node bench/profile-inference.mjs --trace # trace is a debugging aid, not product
 ```
 
-Guards without trace: counters exact and diffable between COLD runs; phases
-nest (not disjoint — each phase is charged by its own layer); shared analyses
-charged to themselves, not to the first toucher; millisecond fields are
+Guards without trace: counters exact and diffable between COLD runs; phases nest
+(not disjoint — each phase is charged by its own layer); shared analyses charged
+to themselves, not to the first toucher; millisecond fields are
 non-deterministic hints only. With `--trace`, recognition idempotence still
 holds (`test/42`). `src/meter.ts`, `docs/architecture/meter.md`, §55,
 `AGENTS.md` §6.

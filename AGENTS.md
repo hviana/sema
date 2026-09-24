@@ -55,14 +55,15 @@ Five invariants. Violate one and the system degrades silently — tests pin them
 | 4 | One cost currency                   | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`; compare at `STEP` grade                                            | `docs/architecture/cost-model.md` → `src/mind/graph-search.ts`, `src/derive/`               |
 | 5 | Bounded reads                       | No per-query read grows with N; cap is `hubBound = √N` enforced at the store via `LIMIT` reads, existence probes, and `bytesPrefix` caps               | `docs/architecture/bounded-reads.md` → `src/store.ts`, `src/mind/traverse.ts`               |
 
-Cross-cutting contracts (single-definition, imported everywhere): `contentLevels`
-in `src/geometry.ts` is the one boundary rule; `src/mind/derivation.ts` is the
-closure law; `src/mind/canonical.ts` is the canonical segmentation contract;
-`src/mind/junction.ts` is the shared content-addressed ascent; `Precomputed` in
-`src/mind/pipeline-mechanism.ts` is the per-response memo; `src/meter.ts` is the
-write-only work accounting surface. See `docs/INDEX.md` and `factored-machinery.md`
-for the contract table and ownership. Tie-breaks are corpus-determined, not
-interchangeable (`determinism.md`).
+Cross-cutting contracts (single-definition, imported everywhere):
+`contentLevels` in `src/geometry.ts` is the one boundary rule;
+`src/mind/derivation.ts` is the closure law; `src/mind/canonical.ts` is the
+canonical segmentation contract; `src/mind/junction.ts` is the shared
+content-addressed ascent; `Precomputed` in `src/mind/pipeline-mechanism.ts` is
+the per-response memo; `src/meter.ts` is the write-only work accounting surface.
+See `docs/INDEX.md` and `factored-machinery.md` for the contract table and
+ownership. Tie-breaks are corpus-determined, not interchangeable
+(`determinism.md`).
 
 ## 3. Where things live
 

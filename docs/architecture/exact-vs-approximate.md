@@ -2,16 +2,16 @@
 
 Vector scores (`resonate` / `resonateHalo`) are RaBitQ **estimates**. They rank
 candidates and gate broad regions; they never decide identity. Identity is
-content-addressed lookup — `resolve` / `findLeaf` / `findBranch` / `canonResolve` —
-with ONE exception: the store's near-merge (`store.ts`).
+content-addressed lookup — `resolve` / `findLeaf` / `findBranch` /
+`canonResolve` — with ONE exception: the store's near-merge (`store.ts`).
 
 ## The law
 
 > Scores propose, bytes dispose.
 
 Even recall's echo decision re-folds the top hit's bytes rather than trusting
-the estimate. No OTHER `score >= threshold` path may mint an identity; thresholds
-gate breadth, not truth.
+the estimate. No OTHER `score >= threshold` path may mint an identity;
+thresholds gate breadth, not truth.
 
 ## Graded evidence ladders
 

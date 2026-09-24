@@ -55,9 +55,9 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
 4. **Evidence travels** — every candidate carries `accounted` (query spans
    explained) and `moves` (priced on `MICRO/STEP/CONCEPT/PASS`); optionally
    `scaffolding` (answer bytes from unrecognised spans — equal-grade tie-break),
-   `complete` (trained-form continuation reached via identity; post-grounding must
-   not extend) and `provenance`. The decider honours them without knowing who set
-   them.
+   `complete` (trained-form continuation reached via identity; post-grounding
+   must not extend) and `provenance`. The decider honours them without knowing
+   who set them.
 
 ## Two disciplines
 
@@ -86,8 +86,8 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
   same act is charged twice (`PASS`/byte dominates).
 
 `accounted` is a cost-ladder quantity; `cover.ts` leaves masked computed spans
-out so `PASS`-bridged bytes are still charged. `narrowDecision` and `thinGrounding`
-are observational only.
+out so `PASS`-bridged bytes are still charged. `narrowDecision` and
+`thinGrounding` are observational only.
 
 ## Pins
 

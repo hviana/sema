@@ -8,10 +8,10 @@ proof in `test/` (pins that fail when the law is broken).
 
 | Task                        | Read                                                                               | Why                                                                                   |
 | --------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Add a mechanism             | `docs/architecture/mechanism-market.md` + `docs/mechanisms/*.md`                   | Market contract: the four constraints     |
-| Add a threshold             | `docs/architecture/thresholds.md`                                                  | All cutoffs are formulas over D/W/N; `config.ts` holds budgets only  |
-| Debug an answer             | `docs/architecture/cost-model.md` + `src/meter.ts`                                 | One ladder decides every grounding choice      |
-| Understand the fold         | `docs/architecture/fold-contract.md`                                               | Deposit and inference compute the same tree    |
+| Add a mechanism             | `docs/architecture/mechanism-market.md` + `docs/mechanisms/*.md`                   | Market contract: the four constraints                                                 |
+| Add a threshold             | `docs/architecture/thresholds.md`                                                  | All cutoffs are formulas over D/W/N; `config.ts` holds budgets only                   |
+| Debug an answer             | `docs/architecture/cost-model.md` + `src/meter.ts`                                 | One ladder decides every grounding choice                                             |
+| Understand the fold         | `docs/architecture/fold-contract.md`                                               | Deposit and inference compute the same tree                                           |
 | Add a store backend         | `docs/architecture/store.md` + `docs/architecture/bounded-reads.md`                | `AbstractStore` owns domain logic; backends are thin wrappers with capped reads       |
 | Add an ALU operation        | `src/alu/README.md`                                                                | One `registry.derive` per op composing existing ops; no new `derive` needed           |
 | Add a matcher or projection | `docs/architecture/match-project.md`                                               | Mechanisms are `(matcher, direction, gate)` configs over the shared `match.ts` family |
@@ -21,22 +21,22 @@ proof in `test/` (pins that fail when the law is broken).
 
 ## Architecture laws (14)
 
-| Law | File                                        | Summary                                                                                                     | Pins                 |
-| --- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------- |
-| 1   | `docs/architecture/determinism.md`          | No `Math.random`/`Date.now` in behaviour; seed-derived randomness; corpus-determined tie-breaks             | `test/20`            |
-| 2   | `docs/architecture/thresholds.md`           | Every decision cutoff derived in `geometry.ts` over D/W/N; no tunable knobs                                 | `test/40`, `test/64` |
-| 3   | `docs/architecture/exact-vs-approximate.md` | Vector scores rank only; identity via content-addressed lookup; five graded ladders                         | `test/51`            |
-| 4   | `docs/architecture/cost-model.md`           | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; weight `moves + PASS·unaccounted`; `STEP`-grade compare      | `test/04`, `test/55` |
-| 5   | `docs/architecture/match-project.md`        | Shared `match.ts` family (`locate`/`alignGraded`/`frameSlots`/`project`); voicing gates belong to consumers | `test/24`, `test/76` |
-| 6   | `docs/architecture/mechanism-market.md`     | `PipelineMechanism` (`floor`/`run`/`parse`); admissible-floor pruning and investment discipline             | `test/01`, `test/04` |
+| Law | File                                        | Summary                                                                                                         | Pins                 |
+| --- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------- |
+| 1   | `docs/architecture/determinism.md`          | No `Math.random`/`Date.now` in behaviour; seed-derived randomness; corpus-determined tie-breaks                 | `test/20`            |
+| 2   | `docs/architecture/thresholds.md`           | Every decision cutoff derived in `geometry.ts` over D/W/N; no tunable knobs                                     | `test/40`, `test/64` |
+| 3   | `docs/architecture/exact-vs-approximate.md` | Vector scores rank only; identity via content-addressed lookup; five graded ladders                             | `test/51`            |
+| 4   | `docs/architecture/cost-model.md`           | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; weight `moves + PASS·unaccounted`; `STEP`-grade compare          | `test/04`, `test/55` |
+| 5   | `docs/architecture/match-project.md`        | Shared `match.ts` family (`locate`/`alignGraded`/`frameSlots`/`project`); voicing gates belong to consumers     | `test/24`, `test/76` |
+| 6   | `docs/architecture/mechanism-market.md`     | `PipelineMechanism` (`floor`/`run`/`parse`); admissible-floor pruning and investment discipline                 | `test/01`, `test/04` |
 | 7   | `docs/architecture/commonality.md`          | Three: global (`reachOf`+`dominates`), weave-local (`depth[]`), window rarity                                   | `test/17`, `test/34` |
-| 8   | `docs/architecture/bounded-reads.md`        | No per-query read grows with N; `hubBound=√N` enforced at store via LIMIT/probe/prefix caps                 | `test/77`, `test/90` |
-| 9   | `docs/architecture/store.md`                | `AbstractStore` owns dedup/indexing/batch; `store-sqlite.ts` is thin wrappers; canon index optional         | `test/08`            |
-| 10  | `docs/architecture/fold-contract.md`        | `perceiveDeposit` and `perceive` agree; `contentLevels` is single boundary rule; no W/offset dependence     | `test/59`, `test/63` |
-| 11  | `docs/architecture/memoization.md`          | `Precomputed` is per-response lazy cache (promise-cached async); `beginResponse`/`endResponse` lifecycle    | `test/42`            |
-| 12  | `docs/architecture/saturation.md`           | Every walk names a deciding saturation beside its cap; cap is safety net, not decision                      | `test/27`, `test/16` |
-| 13  | `docs/architecture/meter.md`                | `meter.ts` is write-only work accounting; counts are exact, phases nest                             | `test/55`            |
-| 14  | `docs/architecture/closure.md`             | A derivation is closed when its structure accounts for the question's remainder; every transition asks that law | `test/133`–`137`     |
+| 8   | `docs/architecture/bounded-reads.md`        | No per-query read grows with N; `hubBound=√N` enforced at store via LIMIT/probe/prefix caps                     | `test/77`, `test/90` |
+| 9   | `docs/architecture/store.md`                | `AbstractStore` owns dedup/indexing/batch; `store-sqlite.ts` is thin wrappers; canon index optional             | `test/08`            |
+| 10  | `docs/architecture/fold-contract.md`        | `perceiveDeposit` and `perceive` agree; `contentLevels` is single boundary rule; no W/offset dependence         | `test/59`, `test/63` |
+| 11  | `docs/architecture/memoization.md`          | `Precomputed` is per-response lazy cache (promise-cached async); `beginResponse`/`endResponse` lifecycle        | `test/42`            |
+| 12  | `docs/architecture/saturation.md`           | Every walk names a deciding saturation beside its cap; cap is safety net, not decision                          | `test/27`, `test/16` |
+| 13  | `docs/architecture/meter.md`                | `meter.ts` is write-only work accounting; counts are exact, phases nest                                         | `test/55`            |
+| 14  | `docs/architecture/closure.md`              | A derivation is closed when its structure accounts for the question's remainder; every transition asks that law | `test/133`–`137`     |
 
 ## Mechanisms (8)
 

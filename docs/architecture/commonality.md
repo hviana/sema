@@ -31,20 +31,21 @@ cohort:
 frame(i) ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)
 ```
 
-This powers CAST's frame gate — what the cohort shares vs what differentiates one
-member — and never consults corpus reach.
+This powers CAST's frame gate — what the cohort shares vs what differentiates
+one member — and never consults corpus reach.
 
-The three answer different questions over different populations; CAST's frame must
-not be replaced by a reach check, and the climb must not be driven by weave depth.
+The three answer different questions over different populations; CAST's frame
+must not be replaced by a reach check, and the climb must not be driven by weave
+depth.
 
 ## Container-local — the window's rarity
 
 _Defined in `src/mind/bridge.ts` (`containersSlice(id, 0, bound + 1).length`);
 used by the bridge, and by attention's anchoring._
 
-`rarity` counts how many containers hold a byte window: zero anchors nothing, two
-or more marks it REUSED (`winReused`), and the bridge sorts its anchors by it, so
-the rarest leads. Purpose: choosing what to anchor on.
+`rarity` counts how many containers hold a byte window: zero anchors nothing,
+two or more marks it REUSED (`winReused`), and the bridge sorts its anchors by
+it, so the rarest leads. Purpose: choosing what to anchor on.
 
 ## Pins
 
