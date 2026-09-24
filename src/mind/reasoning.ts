@@ -58,6 +58,18 @@ export async function reason(
   // broad structural gate; pinned by test/31-audit.
   const qId = pre.queryResolved;
   if (qId !== null && ctx.store.prevCount(qId) > 0) {
+    // THE ECHO GUARD, NAMED — the audit's point 1 could not attribute two real
+    // walks that stopped with no note at all, and this is where one of them went:
+    // the query IS a learnt continuation, so the reasoner returns the grounded
+    // read-out and never offers anything.  Without this note the walk looks like
+    // an unexplained stop; with it, "no note" can only mean the offer was never
+    // asked.  No decision changes: the guard returns exactly where it did.
+    ctx.trace?.step(
+      "echoGuard",
+      [rItem(query, "query")],
+      [],
+      "the query is itself a learnt continuation — answering the grounded read-out without walking",
+    );
     return d0;
   }
 
@@ -403,6 +415,34 @@ export async function reason(
       );
     },
   );
+
+  // THE WALK'S OWN ENDING, NAMED — the audit's point 1.  Every stop INSIDE the
+  // offer now has a note, but a walk can also end without the offer ever being
+  // asked, or after a step the law took and then found nothing to follow: those
+  // ended as "no note at all", indistinguishable from a mechanism that never ran.
+  // Two endings cover every remaining case, and together they make a silent stop
+  // impossible — which is what the `Offer` contract needs, because `null` is read
+  // as exhaustion and exhaustion must be a statement, not an absence.
+  t ??= ctx.trace?.enter("reason", [rItem(startedFrom, "grounded")]);
+  if (closed_.remainder.length === 0) {
+    ctx.trace?.step(
+      "walkClosed",
+      [rItem(closed_.product, "answer")],
+      [],
+      "the derivation is closed — nothing is left unaccounted for",
+    );
+  } else {
+    ctx.trace?.step(
+      "walkEndedWithoutOffer",
+      [rItem(closed_.product, "answer")],
+      closed_.remainder.map(([a, b]) =>
+        rItem(query.subarray(a, b), "uncovered")
+      ),
+      `the walk ended with ${
+        unaccountedBytes(closed_.remainder)
+      } byte(s) unaccounted and no further offer — no structural continuation`,
+    );
+  }
 
   // INSTRUMENTATION ONLY — the extension's two facts, untraced (meter.ts
   // contract 1: a counter never reaches a decision).  They are what a caller

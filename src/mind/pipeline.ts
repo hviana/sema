@@ -664,6 +664,15 @@ export async function think(
     meter.postGroundingRemainderSpans += uncovered.length;
     meter.postGroundingRemainderBytes += unaccountedBytes(uncovered);
   }
+  // THE WALK THAT DOES NOT RUN, NAMED — the audit's point 1 could not attribute
+  // real questions that stopped with no note anywhere.  They never reached the
+  // offer: `decided.complete` says the grounding supplied a fixed point, so the
+  // walk is skipped BY DESIGN and the state is the grounding's own.  That state
+  // carries `fixed: true` (the trace already reports it), and the law's first
+  // clause refuses any continuation against it — so there is no `null` here to
+  // read as exhaustion, and the `Offer` contract is not in play at all.  The
+  // silent stop is therefore a NAMED state, not a gap.
+  //
   // THE WALK CONSUMES AND RETURNS A STATE.  It is handed the derivation's own —
   // the grounding's product, accounting, remainder and cost — and hands back the
   // state it advanced to, so what follows reads a state rather than bytes plus a
