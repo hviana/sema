@@ -279,6 +279,11 @@ export class Meter {
    *  the engagement, this is the consumption, and before it the second was
    *  invisible. */
   closureDrainedBytes = 0;
+  /** Bytes of the question the grounding PRICED but whose material its answer does
+   *  NOT carry, at or above one quantum — the debt the construction leaves for the
+   *  walk to pay by carrying it.  Zero means the grounding's coverage is honest:
+   *  everything it priced is either held by the answer or under the W floor. */
+  groundingWithheldBytes = 0;
   /** Branch-node probes the pivot sweep actually spent looking for the learnt
    *  context an answer contains (one `resonate` per probe).  The untraced view
    *  of what the multi-hop's shortlist costs. */
