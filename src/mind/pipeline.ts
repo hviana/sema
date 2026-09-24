@@ -15,7 +15,12 @@ import type { ComputedSpan } from "../extension.js";
 import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { fuseAttention, reason } from "./reasoning.js";
-import { unaccountedBytes, unexplainedSpans } from "./derivation.js";
+import {
+  type DerivationState,
+  remainderOf,
+  unaccountedBytes,
+  unexplainedSpans,
+} from "./derivation.js";
 import { rItem } from "./trace.js";
 import { hubBound } from "./traverse.js";
 import { type PipelineMechanism, Precomputed } from "./pipeline-mechanism.js";
@@ -505,6 +510,37 @@ export async function think(
   const provenance = decided.provenance as Provenance;
   const declaredUsed = decided.used;
 
+  // ── THE DERIVATION STATE ─────────────────────────────────────────────
+  //
+  // THE REASONER JUDGES ITS OWN EXTENSIONS BY THE PIPELINE'S REMAINDER, not by
+  // the ladder's `accounted` — and by the SAME reading the fuse gate below uses,
+  // with the same W floor.  `accounted` is a COST quantity (measured: a query
+  // fully explained by one computed span plus bridged connectors reports
+  // `accounted: []` while nothing is unexplained), and a remainder under one
+  // river-fold quantum is bridging punctuation, never a second topic — so it
+  // licenses no extension and blocks none.
+  //
+  // The state is built HERE, where these quantities are already computed, so it
+  // costs nothing new: `accounted` is what the winning transition priced,
+  // `remainder` is the coverage reading over `accounted ∪ the response's
+  // computed spans` (the union is what makes the two different quantities, and
+  // both are kept), `cost` is the ladder position, and the two declarations are
+  // the producer's own (`fixed`, `used`).  What follows reads THIS state rather
+  // than a tuple rebuilt at each call site.
+  const explained: Array<[number, number]> = [
+    ...decided.accounted,
+    ...pre.computed.map((u): [number, number] => [u.i, u.j]),
+  ];
+  const state: DerivationState = {
+    product: answer,
+    accounted: decided.accounted,
+    remainder: remainderOf(query.length, explained, ctx.space.maxGroup),
+    cost: decided.weight,
+    fixed: decided.complete,
+    used: decided.used,
+  };
+  const uncovered = state.remainder;
+
   // ── Post-grounding, gated by provenance ──────────────────────────────
   const preConsumed = declaredUsed ??
     new Set(recognise(ctx, answer).sites.map((s) => s.payload));
@@ -558,6 +594,14 @@ export async function think(
       usedDeclared: decided.used !== undefined,
       preConsumed: preConsumed.size,
       voiced: voiced.length,
+      // THE STATE THE LAW GOVERNS, rendered where it is decided: what the asker
+      // said that no step has accounted for, in spans at or above one quantum,
+      // and whether the producer supplied a fixed point.  Counts only, like
+      // every other operand here — and the spans are the state's, so a reader
+      // can check them against the meter's aggregate of the same remainder.
+      remainderSpans: state.remainder.length,
+      remainderBytes: unaccountedBytes(state.remainder),
+      fixed: state.fixed === true,
     },
   );
   // REPORTABLE, NOT SILENT.  A declared-complete grounding ends the derivation
@@ -575,19 +619,6 @@ export async function think(
         "post-grounding extension is skipped",
     );
   }
-  // THE REASONER JUDGES ITS OWN EXTENSIONS BY THE PIPELINE'S REMAINDER, not by
-  // the ladder's `accounted` — and by the SAME reading the fuse gate below uses,
-  // with the same W floor.  `accounted` is a COST quantity (measured: a query
-  // fully explained by one computed span plus bridged connectors reports
-  // `accounted: []` while nothing is unexplained), and a remainder under one
-  // river-fold quantum is bridging punctuation, never a second topic — so it
-  // licenses no extension and blocks none.
-  const explained: Array<[number, number]> = [
-    ...decided.accounted,
-    ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-  ];
-  const uncovered = unexplainedSpans(query.length, explained)
-    .filter(([a, b]) => b - a >= ctx.space.maxGroup);
   // PUBLISHED, NOT RECOMPUTED: the same `uncovered` the gates below read.  A
   // write-only accounting (meter contract 1), so the number that licenses an
   // extension or a fusion stops being invisible.
