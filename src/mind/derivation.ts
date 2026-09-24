@@ -454,7 +454,11 @@ export async function closure(
   W: number,
   offer: Offer,
   /** Called for each step the law admits, with the state before and after. */
-  onTaken?: (before: DerivationState, after: DerivationState) => void,
+  onTaken?: (
+    before: DerivationState,
+    after: DerivationState,
+    witnesses: ReadonlyArray<Witness>,
+  ) => void,
   /** Called when the law refused the continuation the layer offered. */
   onRefused?: (at: DerivationState) => void,
 ): Promise<DerivationState> {
@@ -467,7 +471,7 @@ export async function closure(
       return d;
     }
     const next = advance(d, t, explains);
-    onTaken?.(d, next);
+    onTaken?.(d, next, explains);
     d = next;
   }
 }

@@ -274,6 +274,12 @@ export class Meter {
    *  {@link closureDrainedBytes}).  Read with {@link reasonSteps}: one is the
    *  price, the other the accounting. */
   reasonAccountedBytes = 0;
+  /** Bytes of the QUESTION's own material an admitted step CARRIED — the windows
+   *  of the remainder its product holds, read by the law's one reading.  The
+   *  accounting may be larger (a `reaches` step declares spans it holds no window
+   *  of) and the consumption is the window of a step that also reaches, so the
+   *  three form a lattice: consumed ⊆ carried ⊆ accounted. */
+  reasonCarriedBytes = 0;
   /** Bytes of the question's REMAINDER a step CONSUMED — the drop the law's own
    *  `advance` makes when a declared move carries the material it accounts for.
    *  Read with {@link reasonSteps} and {@link reasonAccountedBytes}: carrying is

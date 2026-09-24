@@ -268,8 +268,12 @@ export async function reason(
     query,
     W,
     offer,
-    (before, after) => {
+    (before, after, witnesses) => {
       if (ctx.meter) {
+        ctx.meter.reasonCarriedBytes += witnesses.reduce(
+          (n, w) => n + (w.window ? w.window[1] - w.window[0] : 0),
+          0,
+        );
         ctx.meter.closureDrainedBytes += unaccountedBytes(before.remainder) -
           unaccountedBytes(after.remainder);
       }
@@ -570,6 +574,10 @@ export async function fuseAttention(
   if (fusedWitness === null) return { ...state, product: out };
   const fused = advance(state, fusedT, fusedWitness);
   if (ctx.meter) {
+    ctx.meter.reasonCarriedBytes += fusedWitness.reduce(
+      (n, w) => n + (w.window ? w.window[1] - w.window[0] : 0),
+      0,
+    );
     ctx.meter.closureDrainedBytes += unaccountedBytes(state.remainder) -
       unaccountedBytes(fused.remainder);
   }
