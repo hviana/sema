@@ -13,7 +13,7 @@ Guards honest silence, determinism, and every pinned contract. Silence:
 unrelated queries ground to nothing (`test/28`, `50`, `56`, `67`, `76`, `84`).
 Determinism: same seed + deposit order + query gives byte-identical answer
 (`test/20`). Every invariant is pinned, the closure law included
-(`test/133`–`143`). §14–25 (pipeline), §64 (derived thresholds), AGENTS.md §2
+(`test/133`–`147`). §14–25 (pipeline), §64 (derived thresholds), AGENTS.md §2
 invariants 1–5.
 
 ## 2 — Work accounting (profiler)

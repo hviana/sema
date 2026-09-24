@@ -76,3 +76,5 @@ vocabulary, not the tracer's.
 - `test/139` — carrying is ENGAGEMENT, not explanation.
 - `test/140` — irrelevant supply changes nothing.
 - `test/142`, `test/143` — the offer's contract, and the cycles.
+- `test/144`, `test/146`, `test/147` — identity is content, the `contains` gate,
+  the witness ladder.
