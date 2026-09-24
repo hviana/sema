@@ -3,8 +3,7 @@
 Every shared operation is defined once and imported many times. Duplicating it
 forks the corpus contract; moving it hides who owns the gate.
 
-For the match → project → gate family see `match-project.md`; for the two
-commonality measures see `commonality.md`; for work accounting see `meter.md`.
+Siblings: `match-project.md`, `commonality.md`, `meter.md`.
 
 ## Single-definition contracts
 
@@ -20,6 +19,7 @@ commonality measures see `commonality.md`; for work accounting see `meter.md`.
 | `leadsSomewhere`                                              | `src/mind/traverse.ts`  | Admission predicate: `hasNext` (cached) or `hasHalo`; sites that lead nowhere contribute no derivation.                                                                   |
 | `isChunk`                                                     | `src/sema.ts`           | `kids !== null && kids.every(k=>k.kids===null)` — smallest grouped unit; governs regions, seams, indexing.                                                                |
 | `twoEndedSeat`                                                | `src/sema.ts`           | One seat algebra: first half low seats, second half high seats; shared by perception, `fold`, and canonical folds.                                                        |
+| `closed`/`admissible`/`advance`                               | `src/mind/derivation.ts` | One admission for every derivation step and the readings every tier asks.                                                                                                 |
 
 ## Pins
 
