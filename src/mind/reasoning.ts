@@ -267,7 +267,11 @@ export async function reason(
     query,
     W,
     offer,
-    () => {
+    (before, after) => {
+      if (ctx.meter) {
+        ctx.meter.closureDrainedBytes +=
+          unaccountedBytes(before.remainder) - unaccountedBytes(after.remainder);
+      }
       const p = pending;
       pending = null;
       if (p === null) return;

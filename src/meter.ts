@@ -273,6 +273,12 @@ export class Meter {
    *  this is that fact, accumulated.  Read with {@link reasonSteps}: one is the
    *  price, the other the explanation. */
   reasonCarriedBytes = 0;
+  /** Bytes of the question's REMAINDER a step CONSUMED — the drop the law's own
+   *  `advance` makes when a declared move carries the material it accounts for.
+   *  Read with {@link reasonSteps} and {@link reasonCarriedBytes}: carrying is
+   *  the engagement, this is the consumption, and before it the second was
+   *  invisible. */
+  closureDrainedBytes = 0;
   /** Branch-node probes the pivot sweep actually spent looking for the learnt
    *  context an answer contains (one `resonate` per probe).  The untraced view
    *  of what the multi-hop's shortlist costs. */
