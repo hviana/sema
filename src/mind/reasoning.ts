@@ -206,6 +206,7 @@ export async function reason(
     | null = null;
 
   const offer: Offer = async (d) => {
+    if (ctx.meter) ctx.meter.offerRuns += 1;
     const cur = d.product;
     // The first step's `cur` IS the grounding's product, so the guard above
     // already resolved it and read its reverse edges — reuse both.
@@ -299,6 +300,9 @@ export async function reason(
       }
     },
     (at) => {
+      // THE LAW REFUSED — counted where it happened, before the bookkeeping
+      // below decides whether there is a step to report.
+      if (ctx.meter) ctx.meter.lawRejects += 1;
       const p = pending;
       pending = null;
       if (p === null || p.kind !== "pivot") return;

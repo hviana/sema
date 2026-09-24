@@ -280,6 +280,14 @@ export class Meter {
    *  of) and the consumption is the window of a step that also reaches, so the
    *  three form a lattice: consumed ⊆ carried ⊆ accounted. */
   reasonCarriedBytes = 0;
+  /** Times the layer OFFERED a continuation to the law.  Read with
+   *  {@link lawRejects}: the offers the law refused are the Model X contract being
+   *  exercised, and `offerRuns - lawRejects` is the accepted transitions. */
+  offerRuns = 0;
+  /** Times the law REFUSED the continuation the layer offered.  A refusal is
+   *  terminal by the layer's contract, so this counts the moments the contract
+   *  mattered — zero means the walk never needed it. */
+  lawRejects = 0;
   /** Bytes of the question's REMAINDER a step CONSUMED — the drop the law's own
    *  `advance` makes when a declared move carries the material it accounts for.
    *  Read with {@link reasonSteps} and {@link reasonAccountedBytes}: carrying is
