@@ -267,15 +267,16 @@ export class Meter {
    *  not computable at all.  With it, the price of extending the answer is
    *  `reasonSteps · STEP`, the ladder's own value for following an edge. */
   reasonSteps = 0;
-  /** Bytes of the grounding's UNCOVERED material the extension was justified by
-   *  — the union of the spans each step carried a `W`-window of.  The gate
-   *  already computed WHICH span carried it per step and kept only a boolean;
-   *  this is that fact, accumulated.  Read with {@link reasonSteps}: one is the
-   *  price, the other the explanation. */
-  reasonCarriedBytes = 0;
+  /** Bytes the admitted steps ACCOUNTED for — the witnesses' spans, summed by the
+   *  law's own function over the tail of the state's accounting.  It is NOT what
+   *  they carried: a step admitted by `reaches` may declare spans it holds no
+   *  window of, and then it accounts without carrying and consumes nothing (see
+   *  {@link closureDrainedBytes}).  Read with {@link reasonSteps}: one is the
+   *  price, the other the accounting. */
+  reasonAccountedBytes = 0;
   /** Bytes of the question's REMAINDER a step CONSUMED — the drop the law's own
    *  `advance` makes when a declared move carries the material it accounts for.
-   *  Read with {@link reasonSteps} and {@link reasonCarriedBytes}: carrying is
+   *  Read with {@link reasonSteps} and {@link reasonAccountedBytes}: carrying is
    *  the engagement, this is the consumption, and before it the second was
    *  invisible. */
   closureDrainedBytes = 0;

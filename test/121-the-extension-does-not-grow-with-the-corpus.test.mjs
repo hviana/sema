@@ -9,7 +9,7 @@
 //
 // MEASURED BEFORE THIS TEST EXISTED, one call per size:
 //
-//     N= 250 / 500 / 1000 / 2000  ⇒  reasonSteps 1, reasonCarriedBytes 11,
+//     N= 250 / 500 / 1000 / 2000  ⇒  reasonSteps 1, reasonAccountedBytes 11,
 //                                     pops 338 (k = 0.000), same answer
 //
 // THE BARS ARE THE REPO'S OWN (trap 4 — no new numbers): test/89 asserts k < 1 for
@@ -72,7 +72,7 @@ async function measure(n) {
   return {
     answer,
     steps: c.reasonSteps ?? 0,
-    carried: c.reasonCarriedBytes ?? 0,
+    carried: c.reasonAccountedBytes ?? 0,
     pops: c.searchPops ?? 0,
   };
 }
@@ -91,7 +91,7 @@ test("a bigger corpus does not buy more extension work for the same answer", asy
     steps.push(r.steps);
     answers.push(r.answer);
     console.log(
-      `    N=${n} → reasonSteps ${r.steps}, reasonCarriedBytes ${r.carried}, ` +
+      `    N=${n} → reasonSteps ${r.steps}, reasonAccountedBytes ${r.carried}, ` +
         `pops ${r.pops}`,
     );
   }

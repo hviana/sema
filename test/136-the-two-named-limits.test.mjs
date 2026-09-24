@@ -124,7 +124,7 @@ test("136.2 the extension is not priced — and it pays for itself", async () =>
   // would refuse the IDENTITY steps the law admits, which is the documented
   // failure of the (c) remedy (material lost: "hot" for "cold hot").
   assert.ok(
-    (counters.reasonCarriedBytes ?? 0) * PASS >
+    (counters.reasonAccountedBytes ?? 0) * PASS >
       (counters.reasonSteps ?? 0) * STEP,
     "the extension is carrying less than its steps are worth — measured 11 bytes " +
       "against 1 step here.  If this ever fails, the absent price comparison HAS " +

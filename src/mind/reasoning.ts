@@ -329,7 +329,7 @@ export async function reason(
     // over the tail of the state's list — and computed ONLY when a meter is
     // attached: this used to slice and MAP a fresh array on every response, for a
     // counter that usually does not exist.  One allocation, under the meter.
-    ctx.meter.reasonCarriedBytes += unaccountedBytes(
+    ctx.meter.reasonAccountedBytes += unaccountedBytes(
       closed_.accounted.slice(d0.accounted.length),
     );
   }

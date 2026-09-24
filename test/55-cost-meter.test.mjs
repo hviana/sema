@@ -419,7 +419,7 @@ test("12. the extension's cost obeys the ladder's own inequality", async () => {
   await store.close();
 
   const steps = c.reasonSteps ?? 0;
-  const carried = c.reasonCarriedBytes ?? 0;
+  const carried = c.reasonAccountedBytes ?? 0;
   assert.ok(
     steps >= 1,
     `the extension must run for this to mean anything (got ${steps})`,
@@ -765,7 +765,7 @@ test("18. the remainder the pipeline decides on is visible", async () => {
   };
 
   // The pivoting query: the reasoner runs, so the remainder is non-empty
-  // (measured: reasonSteps 1, reasonCarriedBytes 11).
+  // (measured: reasonSteps 1, reasonAccountedBytes 11).
   const pivot = await run("What is the capital of France famous for");
   assert.ok(
     (pivot.steps ?? 0) >= 1,
