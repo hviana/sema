@@ -23,6 +23,13 @@ field, no producer field, and no count of any kind. The witnesses `contains` and
 `moves` are the LAYER's: it holds the structure and hands them in, so the law
 never probes the store.
 
+## The boundary
+
+`product` (what it stands on, its identity being `resolve(product)`), `accounted` (the price
+its steps summed) and `remainder` (the question's debt, at one quantum) are the derivation's
+own.  What it REACHED and what it SPENT are the layer's (`reaches`, `consumed`), never a field
+here: the law decides admission and consumption, the layer decides frontier and termination.
+
 ## The transition
 
 `admissible(state, continuation, query, W)` returns the witnesses the step pays
@@ -63,6 +70,6 @@ vocabulary, not the tracer's.
 ## Pins
 
 - `test/133`–`137` — the law's home, readings, refusal, limits.
-- `test/138` — a cycle cannot close it; a carried move can.
+- `test/138` — a cycle cannot close it, a carried move can.
 - `test/139` — carrying is ENGAGEMENT, not explanation.
 - `test/140` — irrelevant supply changes nothing.
