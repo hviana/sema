@@ -194,3 +194,50 @@ test("137.3 the law is a function, end to end", async () => {
   };
   assert.deepEqual(await run(), await run(), "two identical runs must agree");
 });
+
+
+test("137.4 a repeated query answers identically and does no more work", async () => {
+  // THE CONTRACT, and the measurement that settles what it means.  AGENTS invariant
+  // #1 promises a byte-identical ANSWER for the same seed, deposit order and query —
+  // and that holds here while the COUNTERS of a repeated query DROP: the per-response
+  // memos (`perceiveMemo`, the node/edge caches, the ANN result cache) are warm, so
+  // the second run reads less.  Measured on the prefix-refusal, hub and fuse
+  // fixtures: the answer and the whole step sequence identical, and every counter
+  // that appears in both runs lower or equal in the second — the largest drops being
+  // edgeProbes 75 -> 1 and nodeRecords 5 -> 1.
+  //
+  // So determinism is about WHAT is answered, never about what it COSTS the second
+  // time: asserting equal counters would assert that the caches never warm.
+  const { Mind, SQliteStore } = await import("../dist/src/index.js");
+  const cases = [
+    [[["The capital of France is", "The capital of France is Paris."], ["The capital of France is", "The capital of France is Lyon."]], "The capital of France is"],
+    [[["paris", "paris is the capital of france"], ["paris", "paris is famous for the eiffel tower"]], "paris"],
+    [[["What is the capital of France", "The capital of France is Paris"], ["2+2", "2+2 equals 4"]], "What is the capital of France and what is 2 + 2?"],
+  ];
+  for (const [pairs, q] of cases) {
+    const store = new SQliteStore({ path: ":memory:" });
+    const mind = new Mind({ seed: 7, store, profile: true });
+    await mind.ingest(pairs);
+    const s1 = [];
+    const a1 = String(await mind.respondText(q, (s) => s1.push(s))).trim();
+    const c1 = mind.lastCost?.counters ?? {};
+    const s2 = [];
+    const a2 = String(await mind.respondText(q, (s) => s2.push(s))).trim();
+    const c2 = mind.lastCost?.counters ?? {};
+    assert.equal(a1, a2, `q=${JSON.stringify(q)}: the repeated query answered differently`);
+    assert.deepEqual(
+      s2.map((s) => s.mechanism.join("/")),
+      s1.map((s) => s.mechanism.join("/")),
+      `q=${JSON.stringify(q)}: the repeated query took a different path`,
+    );
+    for (const k of Object.keys(c1)) {
+      if (c2[k] === undefined) continue;
+      assert.ok(
+        c2[k] <= c1[k],
+        `q=${JSON.stringify(q)}: the repeated query did MORE work on ${k} (${c1[k]} -> ${c2[k]}) — ` +
+          `a cache or memo is not warming, which is a cost regression, not determinism`,
+      );
+    }
+    await store.close();
+  }
+});
