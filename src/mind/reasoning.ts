@@ -10,6 +10,7 @@ import { resolve } from "./primitives.js";
 import { corpusN, hubBound } from "./traverse.js";
 import { containsSpan, follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
+import { admissible, advance, type Continuation } from "./derivation.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
 import { type Rationale } from "./rationale.js";
 import {
@@ -551,5 +552,22 @@ export async function fuseAttention(
   // THE FACT IS THE FUSED ANSWER, not the call: every early return above hands
   // back `primary` untouched.  Untraced on purpose (meter.ts contract 1).
   if (ctx.meter) ctx.meter.fuseRuns++;
-  return { ...state, product: out };
+  // A FUSION IS A TRANSITION, and the only one in the engine that can splice the
+  // QUESTION'S OWN material into the product.  So it is OFFERED to the law rather
+  // than built by hand: the law reads the window the fused product holds — the
+  // same reading the carries admission uses, one definition — accounts for the
+  // span it carried, and lets the question's remainder drain on EVIDENCE.  A
+  // fusion that carries nothing consumes nothing, because the reading finds no
+  // window; and `reaches` is declared only when the fusion composed another root,
+  // which is structure this derivation had not stood on.
+  const fusedT: Continuation = {
+    product: out,
+    contains: true,
+    reaches: rest.length > 0,
+    cost: STEP,
+  };
+  const fusedWitness = admissible(state, fusedT, query, ctx.space.maxGroup);
+  return fusedWitness === null
+    ? { ...state, product: out }
+    : advance(state, fusedT, fusedWitness);
 }
