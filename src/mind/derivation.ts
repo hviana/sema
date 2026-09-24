@@ -182,17 +182,25 @@ export function restates(
     equate?: ((b: Uint8Array) => Uint8Array) | null;
     proper?: boolean;
     whole?: boolean;
+    /** THE POSITIONAL WITNESS: search from this offset, because the caller has
+     *  established that only material at or after it counts.  A transcript pasted
+     *  into a single response is the case that needs it — a caller's own prior
+     *  answer lies LATER in the query, after the root that would restate it — and
+     *  the reasoner's per-root `alreadyAnswered` guard asks exactly that question.
+     *  Omitted, the search starts at 0 and the reading is the plain one. */
+    from?: number;
   } = {},
 ): boolean {
   const equate = witnesses.equate ?? null;
+  const from = witnesses.from ?? 0;
   const q = equate === null ? query : equate(query);
   const b = equate === null ? bytes : equate(bytes);
   if (b.length > q.length || b.length < floor) return false;
   if (witnesses.whole === true) {
-    return b.length === q.length && indexOf(q, b, 0) >= 0;
+    return b.length === q.length && indexOf(q, b, from) >= 0;
   }
   if (witnesses.proper === true && b.length === q.length) return false;
-  return indexOf(q, b, 0) >= 0;
+  return indexOf(q, b, from) >= 0;
 }
 
 /** Whether the query span `[from, to)` lies inside a COMPLETED ASSISTANT TURN —

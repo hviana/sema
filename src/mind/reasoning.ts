@@ -497,7 +497,13 @@ export async function fuseAttention(
     // the root resonates.
     const cont = await follow(ctx, root.anchor, qv);
     if (
-      cont !== null && cont.length > 0 && indexOf(query, cont, root.end) >= 0
+      cont !== null && cont.length > 0 &&
+      // The law's positional reading: the caller knows the material it is
+      // looking for lies AT OR AFTER this root, which is the witness; the law
+      // owns the containment test itself.  The `cont.length > 0` guard stays
+      // here because an EMPTY continuation indexes at every offset — the law
+      // has no opinion about whether "nothing" counts as said.
+      restates(query, cont, 0, { from: root.end })
     ) {
       ctx.trace?.step(
         "alreadyAnswered",
