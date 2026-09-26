@@ -252,6 +252,13 @@ export class Meter {
    *  route was priced out.  Counted where the fact happens (the `!canonBudget`
    *  refusal), not where the probe is called. */
   canonProbesDenied = 0;
+  /** Spans the BLOOM claimed and the exact identity then refused — so `probe` used to
+   *  drop the span AND skip the decider.  `findFlatBranch` is bloom-gated on purpose (a
+   *  miss costs no database read), but a non-null answer means MAYBE; treating it as YES
+   *  is what made the canon route run only `if (flatProbe === null)`.  Counted where the
+   *  fact happens (a non-null bloom whose `resolveSpan` is null), so the price of letting
+   *  the canon route see those spans again is a measurement rather than a guess. */
+  bloomFalsePositives = 0;
   /** The pipeline's remainder AT THE DECISION POINT, in bytes: what the grounded
    *  answer plus the pre-computed spans left unexplained, after the same W floor
    *  the fuse gate uses.  This is the quantity that licenses (or refuses) the

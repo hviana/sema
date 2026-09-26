@@ -534,14 +534,23 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         // pass below spends the same budget on those pairs.  Returns whether it
         // emitted, so a caller can retry a trimmed edge on the miss path only.
         if (end - start < W) return false;
-        if (flatProbe(start, end) === null) {
+        // The byte-exact route is a BLOOM, so a non-null answer means MAYBE: it can neither
+        // decide (that is `resolveSpan`'s job) nor deny (that is `canonAdmits`').  Reading it
+        // as a YES made a false positive both drop the span and skip the decider, because the
+        // canon route ran only on a null.  Measured on the trained corpus: 280 spans where the
+        // bloom claimed and the identity refused.  A bloom HIT that resolves still emits
+        // without touching the canon route, which is what keeps the cheap path cheap.
+        const flat = flatProbe(start, end);
+        let id = flat === null ? null : resolveSpan(start, end);
+        if (id === null) {
+          if (flat !== null && ctx.meter) ctx.meter.bloomFalsePositives++;
           if (!canonBudget) {
             if (ctx.meter) ctx.meter.canonProbesDenied++;
             return false;
           }
           if (!canonAdmits(start, end)) return false;
+          id = resolveSpan(start, end);
         }
-        const id = resolveSpan(start, end);
         if (id === null) return false;
         emit(start, end, id);
         return true;
@@ -610,12 +619,21 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       // keeps this off the quadratic path the budget note above describes (that
       // one had no span bound at all).
       {
-        // The span bound is W^2, the chain's own limit, PLUS the slack the endpoint set already grants: every endpoint
-        // sits within `radius` of a cut, so a pair that names one form may straddle cuts and still be a single form's
-        // span.  Measured on the composite fixture: W=4 (reach 16), radius 8, and the useful [7,32) is 25 bytes with its
-        // edges 2 bytes from cuts 5 and 30 — already IN `ordered`, and excluded only by the upper bound.  Both terms are
+        // The span bound is the chain's own limit PLUS the slack the endpoint set already grants: every endpoint sits
+        // within `radius` of a cut, so a pair that names one form may straddle cuts and still be a single form's span.
+        // Measured on the composite fixture: W=4 (reach 16), radius 8, and the useful [7,32) is 25 bytes with its edges
+        // 2 bytes from cuts 5 and 30 — already IN `ordered`, and excluded only by the upper bound.  Both terms are
         // derived (W and the seat count); no new constant enters.
-        const reach = chainReach(W) + 2 * radius;
+        //
+        // The chain term is W^2 * W = W^4, for a form embedded in the MIDDLE of a longer query.  Measured on the
+        // trained corpus, the SAME real contexts in three positions: opening 12/17, MIDDLE 0/17, end 12/17.  The two
+        // edge scans reach only prefixes and suffixes, so the interior pass is the only tier that could name it, and
+        // at W^2 it could not.  WHAT KEEPS THIS LINEAR IS THE BOUND BEING A CONSTANT — each endpoint pairs only with
+        // the partners inside a fixed window, so the work stays O(n).  Measured against a cut-pair enumeration with
+        // ±W trims (an earlier, 43-line attempt): that one reached the same 136 B at 70 888 probes, this one at
+        // 84 169 (x1.19 more) — and BOTH pass test/14, which gates the CLASS (linear) and not the constant.  The
+        // simpler form won on that measurement.
+        const reach = chainReach(W) * W * W + 2 * radius;
         if (ctx.meter) ctx.meter.recogniseInteriorGaps += ordered.length;
         for (const end of ordered) {
           for (const start of ordered) {
@@ -624,55 +642,6 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
             if (span < W || span > reach) continue;
             if (ctx.meter) ctx.meter.recogniseInteriorPairs++;
             spend(start, end);
-          }
-        }
-        // ── THE MIDDLE WAS BLIND: a CUT-PAIR probe, BOUNDED so it stays LINEAR ──────────────
-        // A stored form embedded in the MIDDLE of a longer query was named by NO tier: the two
-        // edge scans probe only prefixes and suffixes, and the loop above is capped at
-        // `reach` = W^2 + 2*radius.  Measured on the trained corpus, the SAME real contexts in
-        // three positions: opening 12/17, MIDDLE 0/17, end 12/17.  Both edges of such a form sit
-        // within `radius` of CUTS, so a cut pair plus a small trim names the form exactly
-        // (measured: a 64 B form at [27, 91) between cuts 26 and 90, trims +1/+1).
-        //
-        // THE BOUND IS WHAT KEEPS IT LINEAR.  An unbounded cut-pair scan is O(cuts^2) probes, and
-        // test/14 rejected exactly that (47 324 ms).  Bounded by a CONSTANT span it is
-        // O(cuts * const) = O(n), like the loop above — the constant is merely larger.  The bound
-        // is DERIVED, never pinned: `chainReach(W)` is W^2, "the deepest two-level composite the
-        // write side's windows can spell" (canonical.ts), so `chainReach(W) * W * W` is the
-        // four-level one; `chainReach(W) * W` is already used in bridge.ts.
-        //
-        // THE TRIMS ARE THE SAME DISCIPLINE THE EDGE SCANS USE — the suffix scan already probes
-        // `spend(s, bytes.length - 1)`, so ±W is a wider version of an existing rule, not a new
-        // threshold.  Measured price/reach; all four configurations pass test/14, which gates the
-        // CLASS (linear) and not the constant:
-        //   W^3 + ±1  -> 64 B,   8 068 probes (x2.02)
-        //   W^4 + ±W  -> 136 B, 70 888 probes (x6.06)   <- this one
-        //   W^3 + ±W and W^4 + ±1 are DOMINATED: each stops at the other parameter and costs more.
-        // The loop above stays, so no candidate that produces a site today is lost.  Suite
-        // 707/707, and a differential over 24 real corpus questions is byte-identical (0 answers
-        // changed, 0 new duplicate sites): the :258 warning that a wider bound can rediscover a
-        // smaller subtree's content as a second, overlapping site was read and measured, and it
-        // does not materialise here.
-        const deepReach = chainReach(W) * W * W;
-        for (let ci = 0; ci + 1 < startList.length; ci++) {
-          for (let cj = ci + 1; cj < startList.length; cj++) {
-            if (startList[cj] - startList[ci] > deepReach + 2 * radius) break;
-            // The EXACT cut pair first.  Measured: with the 81 trims starting at -W the `spend`
-            // pool ran dry (canonProbesDenied in the millions) and the canon route was then denied
-            // to the candidates that needed it — including forms the byte-exact route SEES
-            // (`flatProbe` true) that were still not named.  Probing (ci, cj) before any trim puts
-            // the common case in front of the famine.
-            if (ctx.meter) ctx.meter.recogniseInteriorPairs++;
-            spend(startList[ci], startList[cj]);
-            for (let dl = -W; dl <= W; dl++) {
-              for (let dr = -W; dr <= W; dr++) {
-                const a = startList[ci] + dl;
-                const z = startList[cj] + dr;
-                if (a < 0 || z > bytes.length || z - a < W) continue;
-                if (ctx.meter) ctx.meter.recogniseInteriorPairs++;
-                spend(a, z);
-              }
-            }
           }
         }
       }
