@@ -149,6 +149,12 @@ export class Meter {
   recognisedBytes = 0;
   /** `recognise` calls served from the memo. */
   recogniseHits = 0;
+  /** Offsets the INTERIOR pass of `recognise` considered — the endpoints inside the gaps between consecutive
+   *  content-defined cuts. A zero says that pass found nothing to offer; a non-zero with no new site says they
+   *  were offered and refused. */
+  recogniseInteriorGaps = 0;
+  /** Interior pairs that were actually probed (the pairs that passed the span bound and spent the budget). */
+  recogniseInteriorPairs = 0;
   /** `resolve` — whole-span content-addressed identity requests. */
   resolves = 0;
 

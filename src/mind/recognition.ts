@@ -610,12 +610,19 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       // keeps this off the quadratic path the budget note above describes (that
       // one had no span bound at all).
       {
-        const reach = chainReach(W);
+        // The span bound is W^2, the chain's own limit, PLUS the slack the endpoint set already grants: every endpoint
+        // sits within `radius` of a cut, so a pair that names one form may straddle cuts and still be a single form's
+        // span.  Measured on the composite fixture: W=4 (reach 16), radius 8, and the useful [7,32) is 25 bytes with its
+        // edges 2 bytes from cuts 5 and 30 — already IN `ordered`, and excluded only by the upper bound.  Both terms are
+        // derived (W and the seat count); no new constant enters.
+        const reach = chainReach(W) + 2 * radius;
+        if (ctx.meter) ctx.meter.recogniseInteriorGaps += ordered.length;
         for (const end of ordered) {
           for (const start of ordered) {
             if (start >= end) continue;
             const span = end - start;
             if (span < W || span > reach) continue;
+            if (ctx.meter) ctx.meter.recogniseInteriorPairs++;
             spend(start, end);
           }
         }

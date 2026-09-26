@@ -1377,8 +1377,8 @@ export abstract class AbstractStore implements Store {
   // ── Content-addressed lookup ───────────────────────────────────────────
 
   findLeaf(bytes: Uint8Array): NodeId | null {
-    if (this.meter) this.meter.leafLookups++;
     if (bytes.length === 1) return -(bytes[0] + 1);
+    if (this.meter) this.meter.leafLookups++;
     const key = keyOf(bytes);
     const cached = this._leafKey.get(key);
     if (cached !== undefined) return cached;
