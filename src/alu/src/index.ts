@@ -51,6 +51,7 @@ export {
   prefetchOpposites,
   prefetchRecognisedOps,
   prefetchResonance,
+  withOppositesOnDemand,
 } from "./resonance.js";
 
 export {

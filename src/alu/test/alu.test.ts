@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   addBits,
   Alu,
+  type AluHost,
   type AluResonance,
   asReal,
   compareBits,
@@ -577,6 +578,45 @@ test("conceptAnchors exposes the operation vocabulary for resonant recognition",
     assert.ok(!forms.includes("<="));
     assert.ok(!forms.includes("0"));
   }
+});
+
+test("a symbol's opposite is asked of the host only when the operation reads it", async () => {
+  // Only the polymorphic inverse reads an opposite.  Resolving every symbol
+  // operand's opposite up front paid one host call per operand for ANY
+  // operation — on SEMA a halo-index query each, 30-200 ms of a plain
+  // dialogue turn's parse that computed nothing.
+  const asked: string[] = [];
+  const host: AluHost = {
+    meaningOf: async () => null,
+    continuation: async (b) => {
+      asked.push(dec(b));
+      return dec(b) === "large" ? enc("small") : null;
+    },
+    segment: (bytes) => {
+      const runs: Array<{ i: number; j: number }> = [];
+      for (let i = 0; i < bytes.length;) {
+        if (bytes[i] === 32) {
+          i++;
+          continue;
+        }
+        let j = i;
+        while (j < bytes.length && bytes[j] !== 32) j++;
+        runs.push({ i, j });
+        i = j;
+      }
+      return runs;
+    },
+    reach: Number.POSITIVE_INFINITY,
+  };
+  const u = new Alu({}, host);
+  // An operation that does not read opposites: nothing computed, nothing asked.
+  assert.deepEqual(await u.parse(enc("sqrt large")), []);
+  assert.deepEqual(asked, []);
+  // The inverse reads it: asked once, and grounded exactly as before.
+  const out = await u.parse(enc("opposite large"));
+  assert.equal(out.length, 1);
+  assert.equal(dec(out[0].bytes), "small");
+  assert.deepEqual(asked, ["large"]);
 });
 
 test("prefetchRecognisedOps bridges async recognition to a sync map", async () => {

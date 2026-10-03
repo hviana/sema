@@ -45,10 +45,9 @@ import type { Alu } from "./alu.js";
 import {
   type AluResonance,
   type ConceptAnchor,
-  prefetchOpposites,
   prefetchResonance,
+  withOppositesOnDemand,
 } from "./resonance.js";
-import { NO_RESONANCE } from "./operation.js";
 import { int, real, symbol, symbolSpans, type Value } from "./value.js";
 import { nonSpaceRuns } from "./text.js";
 import { bytesEqual, latin1 } from "../../bytes.js";
@@ -573,10 +572,11 @@ export class QueryParser {
     const symbols = picked.flatMap((t, k) =>
       t.kind === "term" ? [args[k]] : []
     );
-    const resonance = symbols.length > 0
-      ? await prefetchOpposites(this.resonance, symbols)
-      : NO_RESONANCE;
-    const bytes = this.alu.applyBytes(name, args, resonance);
+    const bytes = await withOppositesOnDemand(
+      this.resonance,
+      symbols,
+      (resonance) => this.alu.applyBytes(name, args, resonance),
+    );
     if (bytes === null) return null;
     if (
       symbols.length === args.length && args.some((a) => bytesEqual(bytes, a))

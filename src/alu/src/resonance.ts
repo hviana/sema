@@ -104,6 +104,48 @@ export async function prefetchOpposites(
   };
 }
 
+/** {@link prefetchOpposites} resolved ON DEMAND: run `apply` against a
+ *  synchronous snapshot that answers only the opposites already resolved, and
+ *  when the computation ASKED for one of `symbols` that is not yet resolved,
+ *  resolve it through the host and run `apply` again — until a run asks for
+ *  nothing new.  The result is `apply(prefetchOpposites(resonance, symbols))`
+ *  exactly: an opposite outside `symbols` reads null in both, every one inside
+ *  that the computation reads is the host's answer in both, and `apply` is
+ *  pure, so a run that read the same answers returns the same bytes.  What it
+ *  saves is every host call no computation reads: only the polymorphic
+ *  inverse reads opposites, yet the eager prefetch paid one per symbol operand
+ *  for ANY operation — on SEMA a halo-index query each, measured at 30-200 ms
+ *  of a plain dialogue turn's parse that computed nothing. */
+export async function withOppositesOnDemand<R>(
+  resonance: AluResonance,
+  symbols: Iterable<Uint8Array>,
+  apply: (sync: ResonanceSync) => R,
+): Promise<R> {
+  const allowed = new Set<string>();
+  for (const bytes of symbols) allowed.add(latin1(bytes));
+  const table = new Map<string, Uint8Array | null>();
+  const asked = new Map<string, Uint8Array>();
+  const sync: ResonanceSync = {
+    opposite: (bytes: Uint8Array) => {
+      const key = latin1(bytes);
+      if (!allowed.has(key)) return null;
+      const known = table.get(key);
+      if (known !== undefined) return known;
+      asked.set(key, bytes);
+      return null;
+    },
+    recogniseOp: () => null,
+  };
+  for (;;) {
+    const out = apply(sync);
+    if (asked.size === 0) return out;
+    for (const [key, bytes] of asked) {
+      table.set(key, (await resonance.opposite(bytes)) ?? null);
+    }
+    asked.clear();
+  }
+}
+
 /** Pre-resolve BOTH capabilities a computation may need synchronously — the
  *  resonant opposite of a symbol (for the polymorphic inverse) AND the operation
  *  a symbol's MEANING names (for a higher-order nd op's function argument) — over
