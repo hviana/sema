@@ -67,6 +67,25 @@ Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
   Cover runs first so a near-zero-cost computed span prunes the rest through the
   same mechanism — not a special case.
 
+- **A cheaper bound is looked at first.** Before mechanism `m` first-touches
+  anything, every LATER mechanism whose floor grade is strictly below `m`'s runs
+  ahead of it (cheapest first); the lowest grade they reach is `bound`, and any
+  mechanism floored above `bound` is skipped (`meter.mechanismsBounded`). The
+  bound is learnt by calling `floor` with a `worthRunning` that refuses — the
+  investment discipline makes that free. The DECISION is the declared order's: a
+  run-ahead mechanism bounds the final grade whether or not the declared order
+  would have run it (if pruned, the incumbent already sat at or below its
+  floor); every candidate above `bound` loses to the winner, and every mechanism
+  floored at or below it meets the same run-or-prune decision, so `consider`
+  replays the same candidates in declared order. Equal floors are not skipped,
+  so an earlier mechanism keeps the tie it would win. Running ahead is never
+  extra work: only a mechanism floored at or below `p` can prune `p`, and each
+  such mechanism has already run or runs ahead of `p`. Measured on the
+  31.7M-node store: a lowercased Persian turn (#83) went from 18.0 s to 1.2 s,
+  and #114 from 1.9 s to 0.7 s. In both, a grade-1 recall or prefix answer no
+  longer waits behind CAST's climb and weave. Of 42 composition-regime queries,
+  none changed its answer.
+
 - **Investment discipline.** `worthRunning` is passed _into_ `floor`. A floor
   that would first-touch an expensive shared analysis (`pre.attention()` climb,
   `pre.weave()`, `pre.resonance()`) checks `worthRunning(cheapestBound)` first
@@ -93,3 +112,5 @@ out so `PASS`-bridged bytes are still charged. `narrowDecision` and
 
 - `test/01-floor` — floor geometry.
 - `test/04-think` — decider, admissible pruning, investment discipline.
+- `test/153` — run-ahead bounds: the composition market is skipped below CAST's
+  floor, and the decision equals a declared-order oracle.

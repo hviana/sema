@@ -495,8 +495,20 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
       // encoding is the identity, so the span's bytes ARE the branch key.
       // `subarray` is a view — this allocates nothing per probe, and the
       // bloom filter answers the misses without touching the database.
+      //
+      // Through ONE span prober (Store.flatSpans), because hashing the key was
+      // itself the quadratic: every probe hashed its span from the start, and
+      // the interior pass below sweeps up to `reach` ends past each endpoint —
+      // O(n · reach²) bytes hashed.  Measured on the 31.7M-node store, one
+      // composition-regime response (#97 of the battery) probed 2,079,400
+      // spans and hashed 251,660,406 bytes for them.  The prober extends each
+      // start's hash instead, so the same probes, answered identically, cost
+      // O(n · reach).
+      const spans = store.flatSpans?.(bytes) ?? null;
       const flatProbe = (start: number, end: number): number | null =>
-        store.findFlatBranch
+        spans !== null
+          ? spans(start, end)
+          : store.findFlatBranch
           ? store.findFlatBranch(bytes.subarray(start, end))
           : store.findBranch(allLeafIds.slice(start, end));
       // THE TWO ROUTES COST DIFFERENT THINGS, SO THEY ARE PRICED SEPARATELY.
@@ -635,11 +647,15 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         // simpler form won on that measurement.
         const reach = chainReach(W) * W * W + 2 * radius;
         if (ctx.meter) ctx.meter.recogniseInteriorGaps += ordered.length;
+        // Each end pairs only with the starts in [end − reach, end − W], in
+        // ascending order — the pairs, and the order the budget is spent in,
+        // of the all-pairs scan, without its O(n²) enumeration.
+        let lo = 0;
         for (const end of ordered) {
-          for (const start of ordered) {
-            if (start >= end) continue;
-            const span = end - start;
-            if (span < W || span > reach) continue;
+          while (ordered[lo] < end - reach) lo++;
+          for (let i = lo; i < ordered.length; i++) {
+            const start = ordered[i];
+            if (end - start < W) break;
             if (ctx.meter) ctx.meter.recogniseInteriorPairs++;
             spend(start, end);
           }

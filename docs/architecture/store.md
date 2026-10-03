@@ -34,7 +34,13 @@ cannot exist before naming any node, so a resolve miss costs hashing.
 `findFlatBranch` memoizes HITS (`_flatKey`, keyed by the bytes themselves) and
 never misses — the filter answers first, so a span that is not stored builds no
 key, while the segments the identity fold names, asked by every span that
-contains them, cost a map hit.
+contains them, cost a map hit. `flatSpans(bytes)` returns a prober over ONE
+buffer that answers exactly `findFlatBranch(bytes.subarray(s, e))`. `hashOf` is
+FNV-1a, a left fold, so the prober extends the hash each start was last probed
+at, and keeps one byte-short copy for the edge scan's trimmed retry. A span
+scanner sweeping ends upward pays O(1) per probe instead of O(span).
+Recognition's interior pass was hashing O(n·reach²) bytes: 251,660,406 for one
+response on the 31.7M-node store (`test/153.4`).
 
 `leadsSomewhere(id)` — `hasNext || hasHalo` — is the admission predicate's ONE
 raw definition; `traverse.ts` memoises its edge tier per response.

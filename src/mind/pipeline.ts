@@ -28,7 +28,11 @@ import {
 import { rItem } from "./trace.js";
 import { unexplainedLabel } from "./rationale.js";
 import { hubBound } from "./traverse.js";
-import { type PipelineMechanism, Precomputed } from "./pipeline-mechanism.js";
+import {
+  type MechanismResult,
+  type PipelineMechanism,
+  Precomputed,
+} from "./pipeline-mechanism.js";
 import { coverMechanism } from "./mechanisms/cover.js";
 import { castMechanism } from "./mechanisms/cast.js";
 import { confluenceMechanism } from "./mechanisms/confluence.js";
@@ -162,6 +166,10 @@ export interface RegimePredictionData {
    *  CAST's floor) — the bar the incumbent must sit at or below for the
    *  consensus climb to be skipped. */
   climbFloorGrade: number;
+  /** The lowest grade reached by a mechanism run AHEAD of a dearer one (see
+   *  the grounding loop), when one ran and grounded: a bound below
+   *  `climbFloorGrade` makes the regime retrieval whatever the incumbent. */
+  boundGrade?: number;
 }
 
 /** Think: a single lightest-derivation exploration of the Sema graph.
@@ -336,7 +344,7 @@ export async function think(
     // below.
     const incumbent = best as Candidate | null;
     const incumbentGrade = incumbent === null ? null : grade(incumbent.weight);
-    const regime: "retrieval" | "composition" = worthRunning(2 * STEP)
+    const regime: "retrieval" | "composition" = worthDeclared(2 * STEP)
       ? "composition"
       : "retrieval";
     ctx.trace?.step(
@@ -344,8 +352,10 @@ export async function think(
       [rItem(query, "query")],
       [],
       regime === "retrieval"
-        ? `retrieval regime — incumbent grade ${incumbentGrade} ≤ climb floor ${climbFloorGrade}, ` +
-          `so no mechanism floored above that grade runs; the consensus climb will not run`
+        ? (incumbentGrade !== null && incumbentGrade <= climbFloorGrade
+          ? `retrieval regime — incumbent grade ${incumbentGrade} ≤ climb floor ${climbFloorGrade}, `
+          : `retrieval regime — grade ${bound} already reached by a mechanism run ahead, below climb floor ${climbFloorGrade}, `) +
+          `so no mechanism floored above that grade runs; CAST will not climb`
         : `composition regime — ${
           incumbentGrade === null
             ? "no incumbent (nothing grounded)"
@@ -357,6 +367,7 @@ export async function think(
         regime,
         incumbentGrade,
         climbFloorGrade,
+        ...(bound !== Infinity ? { boundGrade: bound } : {}),
       } satisfies RegimePredictionData,
     );
   };
@@ -364,25 +375,155 @@ export async function think(
   // Per-mechanism accounting (src/meter.ts).  The market's whole premise is
   // that mechanisms compete on one cost scale — so the profiling read-out is
   // also per-mechanism, uniformly: the loop never asks which one it holds.
-  for (let mi = 0; mi < mechanisms.length; mi++) {
-    const mech = mechanisms[mi];
-    if (mi > 0) reportRegime();
+  //
+  // A CHEAPER BOUND IS LOOKED AT BEFORE A DEARER ONE IS PAID FOR.
+  //
+  // The declared order is the tie-break priority, and the pruning above is
+  // only as strong as the incumbent it has: a mechanism floored LOWER than the
+  // one about to invest, but declared after it, could not prune it.  Measured
+  // on the 31.7M-node store: a lowercased dialogue turn (#97 of the battery)
+  // was won by recall at grade 1 — after CAST (floor grade 2) had paid the
+  // consensus climb and the weave, confluence (3) a reach climb, and extraction
+  // and reference their reads: ~10 s of a 12.6 s response, for candidates that
+  // could not win.
+  //
+  // So before mechanism `m` first-touches anything, every LATER mechanism whose
+  // bound is strictly lower runs AHEAD of it, cheapest bound first, and the
+  // lowest grade any of them reaches becomes `bound`.  A mechanism whose floor
+  // grade exceeds `bound` is then skipped.  THE DECISION IS UNCHANGED — the
+  // same candidate wins as in the declared order:
+  //   • a mechanism `p` run ahead with best grade g bounds the final grade by
+  //     g: in the declared order p either runs (its candidate is weighed) or is
+  //     pruned by an incumbent already at or below p's floor ≤ g;
+  //   • so a mechanism floored above `bound` has only candidates the final
+  //     winner strictly outgrades — and with every candidate above `bound`
+  //     dropped, every mechanism floored at or below it meets the same
+  //     run-or-prune decision (`f < incumbent` iff `f < min(incumbent,
+  //     bound + 1)` for f ≤ bound) and yields the same candidates;
+  //   • and the winner is chosen from the candidates at or below `bound`, in
+  //     declared order — `consider` replays them where they are declared.
+  // Equal-grade floors are NOT skipped (≤, not <): a mechanism declared earlier
+  // keeps the tie it would have won.  Running `p` ahead is never extra work:
+  // what prunes p in the declared order is a candidate at or below p's floor,
+  // which only a mechanism floored at or below it can produce — and every such
+  // mechanism is either already run or run ahead of p.
+  //
+  // The bound is learnt by asking `floor` with a `worthRunning` that refuses:
+  // under the investment discipline (pipeline-mechanism.ts) a floor that cannot
+  // pay returns its bound UNINVESTED, so the question costs no analysis.
+  const refuse = () => false;
+  const probed: Array<number | null | undefined> = new Array(
+    mechanisms.length,
+  );
+  const probeGrade = async (i: number): Promise<number | null> => {
+    if (probed[i] === undefined) {
+      const f = await mechanisms[i].floor(ctx, query, pre, refuse);
+      probed[i] = f === null ? null : grade(f);
+    }
+    return probed[i]!;
+  };
+  /** Per mechanism: its floor once computed, and its results once run. */
+  const floors = new Map<number, number | null>();
+  const runs = new Map<number, MechanismResult[]>();
+  let bound = Infinity;
+  const worthAhead = (floor: number) =>
+    grade(floor) <
+      Math.min(best === null ? Infinity : grade(best.weight), bound);
+  const worthDeclared = (floor: number) =>
+    worthRunning(floor) && grade(floor) <= bound;
+  const floorOf = async (
+    i: number,
+    worth: (floor: number) => boolean,
+  ): Promise<number | null> => {
+    if (floors.has(i)) return floors.get(i)!;
+    const mech = mechanisms[i];
     const floor = meter
       ? await meter.time(
         `${mech.name}.floor`,
-        () => mech.floor(ctx, query, pre, worthRunning),
+        () => mech.floor(ctx, query, pre, worth),
       )
-      : await mech.floor(ctx, query, pre, worthRunning);
+      : await mech.floor(ctx, query, pre, worth);
     if (meter) {
       if (floor === null) meter.mechanismSkips++;
       else meter.mechanismFloors++;
     }
+    floors.set(i, floor);
+    return floor;
+  };
+  const runOf = async (i: number): Promise<MechanismResult[]> => {
+    let results = runs.get(i);
+    if (results === undefined) {
+      const mech = mechanisms[i];
+      if (meter) meter.mechanismRuns++;
+      results = meter
+        ? await meter.time(`${mech.name}.run`, () => mech.run(ctx, query, pre))
+        : await mech.run(ctx, query, pre);
+      runs.set(i, results);
+    }
+    return results;
+  };
+  const runAhead = async (mi: number) => {
+    const g = await probeGrade(mi);
+    if (g === null) return;
+    const ahead: Array<[number, number]> = [];
+    for (let j = mi + 1; j < mechanisms.length; j++) {
+      if (floors.has(j)) continue;
+      const gj = await probeGrade(j);
+      if (gj !== null && gj < g) ahead.push([gj, j]);
+    }
+    ahead.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const [gj, j] of ahead) {
+      // Only what the declared order would also run: a bound that cannot beat
+      // what is already held is not even asked for its real floor.
+      if (
+        !(gj < Math.min(best === null ? Infinity : grade(best.weight), bound))
+      ) {
+        continue;
+      }
+      const floor = await floorOf(j, worthAhead);
+      if (floor === null || !worthAhead(floor)) continue;
+      ctx.trace?.step(
+        "runAhead",
+        [],
+        [],
+        `${mechanisms[j].name} runs ahead of ${
+          mechanisms[mi].name
+        } — its floor (grade ${grade(floor)}) is below ${
+          mechanisms[mi].name
+        }'s (grade ${g}), so its result bounds what ${
+          mechanisms[mi].name
+        } could win`,
+      );
+      for (const r of await runOf(j)) {
+        // `consider` drops an empty answer, so it bounds nothing.
+        if (r.bytes.length === 0) continue;
+        bound = Math.min(bound, grade(weigh(r.accounted, r.moves)));
+      }
+    }
+  };
+  for (let mi = 0; mi < mechanisms.length; mi++) {
+    const mech = mechanisms[mi];
+    if (mi > 0) {
+      await runAhead(mi);
+      reportRegime();
+    }
+    const floor = await floorOf(mi, worthDeclared);
     if (floor === null) {
       ctx.trace?.step(
         "skipMechanism",
         [],
         [],
         `${mech.name} skipped — structural precondition failed`,
+      );
+      continue;
+    }
+    if (grade(floor) > bound) {
+      if (meter) meter.mechanismsBounded++;
+      ctx.trace?.step(
+        "skipMechanism",
+        [],
+        [],
+        `${mech.name} skipped — floor ${floor} cannot beat grade ${bound}, already reached by a mechanism run ahead`,
       );
       continue;
     }
@@ -397,10 +538,7 @@ export async function think(
       );
       continue;
     }
-    if (meter) meter.mechanismRuns++;
-    const results = meter
-      ? await meter.time(`${mech.name}.run`, () => mech.run(ctx, query, pre))
-      : await mech.run(ctx, query, pre);
+    const results = await runOf(mi);
     for (const r of results) {
       // ONE FORMULA, EVERY CANDIDATE: the chart's derivation reports how many
       // discrete moves it made and which bytes it could not recognise; the

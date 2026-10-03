@@ -348,6 +348,13 @@ export interface Store {
    *  (and so verify them) asks this to refuse a miss without paying for the
    *  lookup a hit would repeat.  Optional, like the probe it answers for. */
   flatBranchMayExist?(bytes: Uint8Array): boolean;
+  /** A {@link findFlatBranch} over spans of ONE buffer: `probe(start, end)`
+   *  answers exactly `findFlatBranch(bytes.subarray(start, end))`, but a span's
+   *  content hash extends the one its start was last probed at, so a scanner
+   *  that sweeps ends upward per start pays O(1) per probe instead of
+   *  O(span).  The buffer must not change while the prober is used.
+   *  Optional, like the probe it accelerates. */
+  flatSpans?(bytes: Uint8Array): (start: number, end: number) => NodeId | null;
   /** The branch nodes that list `id` among their children — the reverse of
    *  `get(id).kids`. Lets the structural DAG be climbed upward, from a
    *  recognised fragment to the larger learned forms that contain it. */
@@ -676,11 +683,14 @@ export function unpackKids(blob: Uint8Array): NodeId[] {
 
 /** 32-bit FNV-1a of a byte blob — the integer content hash `idx_node_h` keys
  *  on. Collisions are resolved by verifying the stored blob, never trusted. */
+const FNV_OFFSET = 0x811c9dc5 >>> 0;
+const FNV_PRIME = 0x01000193;
+
 function hashOf(bytes: Uint8Array): number {
-  let h = 0x811c9dc5 >>> 0;
+  let h = FNV_OFFSET;
   for (let i = 0; i < bytes.length; i++) {
     h ^= bytes[i];
-    h = Math.imul(h, 0x01000193) >>> 0;
+    h = Math.imul(h, FNV_PRIME) >>> 0;
   }
   return h >>> 0;
 }
@@ -1430,8 +1440,51 @@ export abstract class AbstractStore implements Store {
    *  each, asked over and over by every span that contains them.  A node, once
    *  minted, keeps its bytes and its id, so a cached hit never goes stale. */
   findFlatBranch(bytes: Uint8Array): NodeId | null {
+    return this._findFlatHashed(hashOf(bytes), bytes);
+  }
+
+  /** {@link Store.flatSpans}.  Each start keeps the hash of the span it was
+   *  last probed to, plus the hash one byte short of it; a probe ending at or
+   *  past that end extends it, one ending one byte short of it reuses the
+   *  second, and any other probe hashes from the start.  `hashOf` is FNV-1a,
+   *  a left fold over the bytes, so an extended hash IS the span's hash —
+   *  same key, same filter answer, same lookup. */
+  flatSpans(bytes: Uint8Array): (start: number, end: number) => NodeId | null {
+    const n = bytes.length;
+    const runEnd = new Int32Array(n + 1).fill(-1);
+    const runH = new Uint32Array(n + 1);
+    const shortH = new Uint32Array(n + 1);
+    return (start, end) => {
+      let h: number;
+      let from: number;
+      const e0 = runEnd[start];
+      if (e0 >= 0 && e0 <= end) {
+        h = runH[start];
+        from = e0;
+      } else if (e0 >= 0 && e0 - 1 === end && end > start) {
+        h = shortH[start];
+        from = end;
+      } else {
+        h = FNV_OFFSET;
+        from = start;
+      }
+      let prev = h;
+      for (let i = from; i < end; i++) {
+        prev = h;
+        h = Math.imul(h ^ bytes[i], FNV_PRIME) >>> 0;
+      }
+      if (from < end) {
+        runEnd[start] = end;
+        runH[start] = h;
+        shortH[start] = prev;
+      }
+      return this._findFlatHashed(h, bytes.subarray(start, end));
+    };
+  }
+
+  /** {@link findFlatBranch} past the hash: `h` must be `hashOf(bytes)`. */
+  private _findFlatHashed(h: number, bytes: Uint8Array): NodeId | null {
     if (this.meter) this.meter.branchLookups++;
-    const h = hashOf(bytes);
     if (!this._dbFlatMayExist(h, bytes)) return null;
     const key = bytes.length <= DEDUP_KEY_MAX ? latin1(bytes) : null;
     if (key !== null) {
