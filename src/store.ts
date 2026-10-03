@@ -29,7 +29,7 @@
 // essentials required for SQLite + VectorDatabase communication.
 
 import { addInto, copy, dot, normalize, Vec } from "./vec.js";
-import { DEFAULT_CONFIG, type StoreConfig } from "./config.js";
+import type { StoreConfig } from "./config.js";
 import { identityBar } from "./geometry.js";
 import type { Meter } from "./meter.js";
 
@@ -340,6 +340,13 @@ export interface Store {
    *  bytes — the allocation-free probe span scanners use.  Optional: a store
    *  without it is simply probed through `findBranch`. */
   findFlatBranch?(bytes: Uint8Array): NodeId | null;
+  /** Whether a flat branch with these bytes MAY exist.  `false` is EXACT — no
+   *  such node exists, and a {@link findFlatBranch} would return null; `true`
+   *  means only that a lookup is needed.  The existence half of the probe,
+   *  without its verification: a caller that will resolve the bytes anyway
+   *  (and so verify them) asks this to refuse a miss without paying for the
+   *  lookup a hit would repeat.  Optional, like the probe it answers for. */
+  flatBranchMayExist?(bytes: Uint8Array): boolean;
   /** The branch nodes that list `id` among their children — the reverse of
    *  `get(id).kids`. Lets the structural DAG be climbed upward, from a
    *  recognised fragment to the larger learned forms that contain it. */
@@ -499,6 +506,12 @@ export interface Store {
    *  the search's fuse guard) must ask this instead: one row read, a mass
    *  compare, no decode. */
   hasHalo(id: NodeId): boolean;
+  /** THE ADMISSION PREDICATE — whether `id` LEADS SOMEWHERE: it bears a
+   *  continuation edge ({@link hasNext}) or a halo ({@link hasHalo}).  A form
+   *  that leads nowhere contributes nothing to any derivation.  This is the ONE
+   *  raw definition; `traverse.ts`'s `leadsSomewhere` is the same predicate with
+   *  its edge tier memoised for the response.  Two point probes at most. */
+  leadsSomewhere(id: NodeId): boolean;
   /** How many episode signatures were poured into `id`'s halo — the DIRECT
    *  measure of distributional evidence (each training pair pours once, so
    *  repetition counts, unlike {@link prevCount}, which counts DISTINCT
@@ -1408,6 +1421,19 @@ export abstract class AbstractStore implements Store {
     return this._dbFindBranchByLeaf(hashOf(bytes), bytes);
   }
 
+  /** {@link Store.flatBranchMayExist} — the backend's negative filter when it
+   *  keeps one ({@link _dbFlatMayExist}), else the lookup itself. */
+  flatBranchMayExist(bytes: Uint8Array): boolean {
+    return this._dbFlatMayExist(hashOf(bytes), bytes);
+  }
+
+  /** Default: no filter, so the answer is the lookup (exact both ways).  A
+   *  backend with a negative filter over node hashes overrides this to answer
+   *  from the filter alone. */
+  protected _dbFlatMayExist(h: number, bytes: Uint8Array): boolean {
+    return this._dbFindBranchByLeaf(h, bytes) !== null;
+  }
+
   findBranch(kids: NodeId[]): NodeId | null {
     if (this.meter) this.meter.branchLookups++;
     const key = kids.join(",");
@@ -2308,6 +2334,11 @@ export abstract class AbstractStore implements Store {
     if (this.meter) this.meter.haloProbes++;
     const r = this._dbGetHalo(id);
     return r !== null && r.mass >= this.minHaloMass;
+  }
+
+  /** {@link Store.leadsSomewhere} — edge first (the cheaper, commoner probe). */
+  leadsSomewhere(id: NodeId): boolean {
+    return this.hasNext(id) || this.hasHalo(id);
   }
 
   async pourHalo(id: NodeId, add: Vec): Promise<void> {

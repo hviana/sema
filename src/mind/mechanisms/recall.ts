@@ -6,7 +6,6 @@
 
 import { cosine } from "../../vec.js";
 import {
-  conceptThreshold,
   consensusFloor,
   dominates,
   identityBar,
@@ -15,7 +14,7 @@ import {
 } from "../../geometry.js";
 import type { MindContext } from "../types.js";
 import { gistOf, read, resolve } from "../primitives.js";
-import { bytesEqual, indexOf } from "../../bytes.js";
+import { indexOf } from "../../bytes.js";
 import { allWindowsAreScaffolding, corpusN, hubBound } from "../traverse.js";
 import {
   follow,
@@ -73,7 +72,6 @@ export async function recallByResonance(
       ...(complete ? { complete } : {}),
     };
   };
-  const k = pre.k;
   const queryGist = pre.guide;
 
   // 0. Exact self-match — content-addressed, deterministic.

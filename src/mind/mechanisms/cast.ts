@@ -31,9 +31,8 @@ import {
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
 import { CONCEPT, STEP } from "../graph-search.js";
-import { concat2, indexOf } from "../../bytes.js";
+import { indexOf } from "../../bytes.js";
 import { consensusFloor, dominates } from "../../geometry.js";
-import { decodeText } from "../rationale.js";
 import { restates, unexplainedSpans } from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";

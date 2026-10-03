@@ -126,6 +126,13 @@ export type GItem =
   };
 type OutItem = Extract<GItem, { kind: "out" }>;
 
+/** What {@link GraphSearch.entityProposals} found inside one fact. */
+interface EntityProposals {
+  readonly proposed: ReadonlyMap<number, Uint8Array>;
+  readonly source: ReadonlyMap<number, string>;
+  readonly sites: ReadonlyArray<Site>;
+}
+
 // The cost ladder is a strict ORDERING, not tuned magic:
 //   • Coverage dominates everything: leaving one query byte unrecognised (PASS)
 //     outweighs any chain of graph steps a covering derivation could take, so
@@ -174,9 +181,6 @@ export interface Seg {
   fix?: boolean;
 }
 
-/** Read the chosen spans back off a derivation: the goal is a chain of bridge
- *  steps, each whose second premise is the `out` it crossed.  Walk the chain to
- *  the axiom and reverse into left-to-right order. */
 /** The BYTE TERM of a derivation's cost: how many bytes its bridge rule charged
  *  at PASS each — read back off the rule that charged them (`bridgeRule`:
  *  `o.rec ? MICRO : PASS * (o.j - o.i)`), so the split exists in ONE place and
@@ -201,6 +205,9 @@ function readBridgedBytes(derivation: Derivation<GItem>): number {
   return bytes;
 }
 
+/** Read the chosen spans back off a derivation: the goal is a chain of bridge
+ *  steps, each whose second premise is the `out` it crossed.  Walk the chain to
+ *  the axiom and reverse into left-to-right order. */
 function readCover(derivation: Derivation<GItem>): Seg[] {
   const segs: Seg[] = [];
   let node: Derivation<GItem> | undefined = derivation;
@@ -258,10 +265,6 @@ export interface DerivationItem {
   node?: number;
 }
 
-/** The reasoning act a derivation rule performs — the human name for which of
- *  {@link GraphSearch}'s rules fired, recovered from the rule's premise/
- *  conclusion shape (the rules carry no label, so this classifies by structure,
- *  the single place that maps rule geometry to a name). */
 // CLOSED ON PURPOSE — AND ONLY THIS ONE IS.  A derivation move is BRANCHED ON
 // (`classifyMove`, the rationale's readers, MOVE_NOTE's fallback), so it is a
 // closed union: adding one without teaching every reader is a compile error,
@@ -270,6 +273,10 @@ export interface DerivationItem {
 // branched on — and they stay free strings that COMPOSE with the nesting
 // (`["respond", "think", "recognise"]`).  That asymmetry is deliberate; do not
 // "fix" it by uniting the two (see test/126 for the pipeline half of it).
+/** The reasoning act a derivation rule performs — the human name for which of
+ *  {@link GraphSearch}'s rules fired, recovered from the rule's premise/
+ *  conclusion shape (the rules carry no label, so this classifies by structure,
+ *  the single place that maps rule geometry to a name). */
 export type DerivationMove =
   | "axiom" // a seed: a perceived leaf, a recognised form, or a computed result
   | "follow-edge" // form→form via a continuation edge (STEP) — the core "what follows what"
@@ -407,18 +414,9 @@ export class GraphSearch {
     private readonly host: GraphSearchHost,
   ) {}
 
-  /** The nodes the QUERY canonically names — the same identity the store's keys
-   *  were written through.  A byte-exact test is not enough: the query writes
-   *  `Eiffel Tower country` and the deposited node is `eiffel tower country`, so
-   *  a join that filters the query's own subject by RAW bytes re-admits it —
-   *  measured: that is the trap's wrong answer (`The capital of Eiffel Tower
-   *  country is Berlin.`).  Cached by query identity, because the search is
-   *  reused across responses. */
-
-  /* * The hub bound √N (bounded-reads.md) — the ONE
-   *  fan-out cap, stated here rather than imported from `traverse.ts` because
-   *  this module is deliberately host-based (it holds a bare Store, never a
-   *  MindContext).
+  /** The hub bound √N (bounded-reads.md) — the ONE fan-out cap, stated here
+   *  rather than imported from `traverse.ts` because this module is
+   *  deliberately host-based (it holds a bare Store, never a MindContext).
    *  That is the same write/read-side duplication convention canonical.ts's
    *  header documents: if the formula changes it must change in BOTH places.
    *  It is stated ONCE per side, though — the expression used to be spelled
@@ -466,6 +464,7 @@ export class GraphSearch {
     // through (completion is cover, recursively — see {@link recompleteNode}).
     this.recompleteOpen.clear();
     this.recompleteMemo = new Map<number, Uint8Array | null>();
+    this.entityMemo = new Map<string, EntityProposals>();
     // The top cover's derivation sink is threaded into every nested completion
     // so the recompositions a produced form needs are reported in the same
     // trace instead of vanishing after the first layer.
@@ -610,6 +609,15 @@ export class GraphSearch {
     for (const lf of leaves) {
       queryBytes.set(lf.bytes.subarray(0, lf.end - lf.start), lf.start);
     }
+    // The nodes this span's recognition names — read ONCE per solve, on the first
+    // join that asks, instead of re-reading the memo per finalized out.
+    let queryNodeSet: ReadonlySet<number> | undefined;
+    const queryNodes = (): ReadonlySet<number> =>
+      queryNodeSet ??= new Set<number>(
+        (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) =>
+          s.payload
+        ),
+      );
     // Content-addressed probes over the store's hash-cons maps — the same keys
     // training filled.  No byte-by-byte trie walk.
     const findLeafU = (b: Uint8Array) => this.store.findLeaf(b) ?? undefined;
@@ -740,13 +748,7 @@ export class GraphSearch {
           return this.coverRules(it, coversDone, coverableByStart);
         }
         if (it.kind === "form") {
-          return this.formRules(
-            it,
-            conceptTarget,
-            substitutions,
-            nodeBytes,
-            queryLen,
-          );
+          return this.formRules(it, conceptTarget, substitutions, nodeBytes);
         }
         return this.outRules(it, {
           W,
@@ -763,6 +765,7 @@ export class GraphSearch {
           linksByRight,
           queryBytes,
           queryLen,
+          queryNodes,
         });
       },
     };
@@ -850,7 +853,6 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     substitutions: ReadonlyMap<number, Uint8Array> | undefined,
     nodeBytes: (n: number) => Uint8Array,
-    queryLen: number,
   ): Iterable<Rule<GItem>> {
     // Articulation: emit voice bytes at the recognised span; the hop/concept/
     // emit chain is suppressed — the form contributes only its substitute.
@@ -886,41 +888,17 @@ export class GraphSearch {
       // guard then dead-ends it) with no way to reach the forward edge.
       // Forking offers every continuation as its own rule so the one that
       // genuinely advances (not a duplicate) is still reachable.
-      // A CHAIN HOP OFFERS ONLY WHAT THE QUESTION CAN PAY FOR.
       //
-      // `hubBound` = √N is the READ cap — every read here stays inside it — but
-      // it is not an exploration bound: measured, a hub of degree 1083 sits
-      // BELOW √N = 1559, so a hop offered all 1083 continuations, the chart grew
-      // to 3113 outs for a two-word question, and since every out with an
-      // uncovered tail probes its tail's prefixes (measured: 16 885 canonical
-      // probes = 87% of that query's work, and its 270 MB peak / 256 MB OOM),
-      // the cost came from OFFERING rather than from reading.
-      //
-      // The bound is derived, not tuned: a derivation of L hops consumes ~L
-      // units of the question, so a hop cannot be paid for by offering more
-      // continuations than the question has units —
-      // `ceil(queryLen / W)`, floored at 2 for plurality. It is QUERY-sized
-      // (invariant 5: no per-query read grows with N) and it leaves `hubBound`
-      // and every read untouched.
-      // THE OFFER IS THE CORPUS'S OWN STRUCTURE, and the search pays for
-      // exploring it.  There is no offer cap here any more: the traversal cap I
-      // had put on this hop was a short-circuit — it bounded what a hop could
-      // OFFER instead of charging for it — and it was not needed.
-      //
-      // MEASURED in the regime where it used to bite (`hubBound = ceil(√N)`
-      // GREATER than the hub's degree — reached in a fixture by choosing the
-      // degree below √N, so the trained store is not needed): with the cap the
-      // offer was 8/9/9 continuations at degrees 35/70/120; without it, 52/84/120
-      // — and the WORK is LINEAR in the degree, not quadratic: pushes 262/296/332,
-      // perceptions 530/592/757, while the PEAK is identical with and without the
-      // cap (218/415/689 MB against 215/410/662) because it is set by the store,
-      // not by the fan-out.  What made this hop expensive was never the fan-out
-      // breadth: it was the per-offer work, two duplicate/oversized computations
-      // since removed (the per-offset canonical scan, and the tail scan now
-      // restricted to the fold's boundaries).
-      //
-      // The residual, stated: the trained store's hub (degree 1 083) is an
-      // EXTRAPOLATION from this linear shape, not a measurement.
+      // THE OFFER IS THE CORPUS'S OWN STRUCTURE, and the search pays for it.
+      // In the closure law's terms (derivation.ts) a hop is a MOVE — it reaches
+      // structure the derivation has not stood on — so it is admitted on that
+      // ground and priced one STEP; the A*LD search, not a count, decides how
+      // many are worth taking.  `hubBound` is the READ cap (invariant 5) and
+      // nothing else bounds the offer: a cap on what a hop may OFFER was tried
+      // and removed as a short-circuit (trap 13).  Measured with the hub's
+      // degree below √N: the work is LINEAR in the degree (pushes 262/296/332 at
+      // degrees 35/70/120) and the peak is set by the store, not the fan-out
+      // (test/112 pins the non-quadratic shape).
       const nx = this.store.nextFirst(it.node, this.hubBound());
       // Count what is OFFERED, not what was read: the evidence-preferred
       // continuation is yielded too, even when it lies outside the cap.
@@ -1245,6 +1223,11 @@ export class GraphSearch {
    *  outs of a long query re-cover each distinct node at most once); reset at the
    *  top of {@link cover}. */
   private recompleteMemo = new Map<number, Uint8Array | null>();
+  /** {@link entityProposals}, per fact BYTES — a pure function of them while
+   *  the store is read-only (one response), so a fact the chart reaches as
+   *  several items (cover/fix variants, nested completions) is scanned once.
+   *  Reset at the top of {@link cover}, like {@link recompleteMemo}. */
+  private entityMemo = new Map<string, EntityProposals>();
   /** The derivation sink of the TOP cover, threaded into every nested
    *  completion so a produced form's own recompositions are reported in the
    *  same trace instead of vanishing after the first layer.  Undefined when
@@ -1259,6 +1242,57 @@ export class GraphSearch {
    *  most once per cover.  A Set, not a flag, because it states WHICH node is
    *  open — the invariant a reader needs to check the guard. */
   private recompleteOpen = new Set<number>();
+
+  /** The ENTITIES a produced fact's bytes contain that lead somewhere — the
+   *  candidates a join may travel through.  The forms the fact CONTAINS, by the
+   *  same recogniser the query went through (so the evidence standard is the
+   *  query's), plus — because the recognition of a STORED WHOLE returns the
+   *  whole and stops (measured: one site, the fact's own node, for `The
+   *  director of Eva is Gustaf Molander.`) — the longest canonically-resolving
+   *  form at each offset.  A byte atom is never a subject.  The scan runs only
+   *  for a FORM (≥ W: per letter it measured 20-26 s in test/99), and each probe
+   *  is a `canonResolve` whose exact tier decides a miss by its segment probe,
+   *  without a fold.  The admission predicate is the store's `leadsSomewhere`
+   *  (edge or halo); the host lends its memoised form when it can.
+   *
+   *  The SOURCE of each proposal travels with it, so a refusal names which path
+   *  proposed the candidate.  Memoised per fact bytes ({@link entityMemo}). */
+  private entityProposals(factBytes: Uint8Array): EntityProposals {
+    const memoKey = latin1(factBytes);
+    const hit = this.entityMemo.get(memoKey);
+    if (hit !== undefined) return hit;
+    const leads = (id: number): boolean =>
+      this.host.leadsSomewhere !== undefined
+        ? this.host.leadsSomewhere(id)
+        : this.store.leadsSomewhere(id);
+    const sites = this.host.recogniseSpan?.(factBytes)?.sites ?? [];
+    const proposed = new Map<number, Uint8Array>();
+    const source = new Map<number, string>();
+    for (const s of sites) {
+      if (s.payload >= 0 && leads(s.payload)) {
+        proposed.set(s.payload, this.store.bytesPrefix(s.payload, ALL));
+        source.set(s.payload, "recognised site");
+      }
+    }
+    const W = this.maxGroup;
+    if (this.host.canonResolve !== undefined && factBytes.length >= W) {
+      const canon = this.host.canonResolve.bind(this.host);
+      for (let start = 0; start < factBytes.length; start++) {
+        for (let end = factBytes.length; end - start >= W; end--) {
+          const id = canon(factBytes.subarray(start, end));
+          if (id === null) continue;
+          if (leads(id)) {
+            proposed.set(id, this.store.bytesPrefix(id, ALL));
+            source.set(id, "canonical fold");
+          }
+          break; // the longest form at this offset wins
+        }
+      }
+    }
+    const out = { proposed, source, sites };
+    this.entityMemo.set(memoKey, out);
+    return out;
+  }
 
   /** DERIVE-THROUGH — a RULE this module's DeductionSystem was missing.  The
    *  A*LD library is untouched: this is one more `premises → conclusion + cost`
@@ -1282,6 +1316,7 @@ export class GraphSearch {
     fact: OutItem,
     queryBytes: Uint8Array,
     queryLen: number,
+    queryNodes: () => ReadonlySet<number>,
   ): Iterable<Rule<GItem>> {
     if (!this.host.recogniseSpan) return;
     const tail = queryBytes.subarray(fact.j, queryLen);
@@ -1298,69 +1333,24 @@ export class GraphSearch {
     // same recogniser the query went through, so the evidence standard is the
     // query's.  A byte atom is never a subject; the fact's own node is the span
     // itself, not an entity inside it.  The admission predicate has ONE
-    // definition — `traverse.ts`'s `leadsSomewhere` (edge or halo); the host
-    // LENDS it when it can (Mind does, with the response-scoped struct cache),
-    // and a bare host falls back to the raw-store probe, so the search stays
+    // definition — the store's `leadsSomewhere` (edge or halo); the host LENDS
+    // its memoised form when it can (Mind does, with the response-scoped struct
+    // cache), and a bare host asks the store directly, so the search stays
     // host-based.
-    const factRec = this.host.recogniseSpan(fact.bytes);
-    const leads = (id: number): boolean =>
-      this.host.leadsSomewhere !== undefined
-        ? this.host.leadsSomewhere(id)
-        : this.store.hasNext(id) || this.store.hasHalo(id);
+    const { proposed, source, sites: factSites } = this.entityProposals(
+      fact.bytes,
+    );
     // THE QUERY'S OWN SUBJECT, CANONICALLY.  The filter used raw bytes and the
     // store's nodes are canonical, so `Eiffel Tower country` in the query did
     // not match the deposited `eiffel tower country` — measured, that is the
-    // trap's wrong answer.
-    //
-    // TAKEN FROM THE RECOGNITION THE RESPONSE ALREADY COMPUTED — the host's
-    // `recogniseSpan`, the same surface the rest of this search uses — not from
-    // a second offset scan.  `canonicalQueryNodes` re-derived, per byte offset,
-    // what `recognise` had already resolved once per query (its memo is keyed by
-    // content), and that scan was the largest single cost the DIANOT join added:
-    // measured against the pre-change tree, the same fixture and the same test
-    // were 21 s slower with the scan than without it.  A recognised site IS a
-    // canonical node of the query that can lead somewhere, which is exactly the
-    // set this filter wants, and it costs nothing to read.
-    const queryNodes = new Set<number>(
-      (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) =>
-        s.payload
-      ),
-    );
-    // TWO SOURCES, ONE ADMISSION.  The recognition of a STORED WHOLE returns the
-    // whole and stops — measured: for `The director of Eva is Gustaf Molander.`
-    // it yields exactly ONE site, the fact's own node — so the entity a join
-    // exists for is never proposed.  The canonical fold is the second source,
-    // and the scan runs only for a FORM (≥ W: a one-byte out is not something to
-    // join through, and running it per letter measured 20-26 s in test/99).
-    const W = this.maxGroup;
-    const proposed = new Map<number, Uint8Array>();
-    // The SOURCE of each proposal travels with it: a refusal that names only the
-    // bytes leaves the next reader guessing which path proposed them — three
-    // attempts at the chained join were spent fixing paths that never produced
-    // the offending candidate.
-    const source = new Map<number, string>();
-    for (const s of factRec.sites) {
-      if (s.payload >= 0 && leads(s.payload)) {
-        proposed.set(s.payload, this.store.bytesPrefix(s.payload, ALL));
-        source.set(s.payload, "recognised site");
-      }
-    }
-    if (this.host.canonResolve !== undefined && fact.bytes.length >= W) {
-      const canon = this.host.canonResolve.bind(this.host);
-      for (let start = 0; start < fact.bytes.length; start++) {
-        for (let end = fact.bytes.length; end - start >= W; end--) {
-          const id = canon(fact.bytes.subarray(start, end));
-          if (id === null) continue;
-          if (leads(id)) {
-            proposed.set(id, this.store.bytesPrefix(id, ALL));
-            source.set(id, "canonical fold");
-          }
-          break; // the longest form at this offset wins
-        }
-      }
-    }
+    // trap's wrong answer.  Read from the recognition the response already
+    // computed (`queryNodes`, once per solve), never from a second offset scan:
+    // a per-offset `canonicalQueryNodes` re-derived what `recognise` had
+    // resolved once, and was the largest single cost the join first added.
     const leading = [...proposed]
-      .filter(([payload]) => payload !== fact.node && !queryNodes.has(payload))
+      .filter(([payload]) =>
+        payload !== fact.node && !queryNodes().has(payload)
+      )
       .map(([payload, bytes]) => ({ payload, bytes }));
     // …then prefer the entity the query did NOT name, and the MAXIMAL one.  The
     // join exists to reach the subject the query never wrote, so:
@@ -1378,13 +1368,13 @@ export class GraphSearch {
         // Report WHAT the recognition returned, not just that nothing led: the
         // count and the first few site texts are the difference between "the
         // fact was not recognised" and "it was recognised but nothing led".
-        const seen = factRec.sites.slice(0, 3).map((s) =>
+        const seen = factSites.slice(0, 3).map((s) =>
           this.store.bytesPrefix(s.payload, ALL)
         );
         this.host.reportSearch?.(
           "deriveThroughMiss",
           [fact.bytes, tail, ...seen],
-          `no entity inside the fact leads anywhere — ${factRec.sites.length} site(s) recognised inside it`,
+          `no entity inside the fact leads anywhere — ${factSites.length} site(s) recognised inside it`,
         );
       }
     }
@@ -1515,6 +1505,7 @@ export class GraphSearch {
       linksByRight?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
       queryBytes: Uint8Array;
       queryLen: number;
+      queryNodes: () => ReadonlySet<number>;
     },
   ): Iterable<Rule<GItem>> {
     const { splits, coversDone, outsByStart, outsByEnd, coverableByStart } =
@@ -1618,7 +1609,12 @@ export class GraphSearch {
     // Fired per finalized out with a node, so it is the search's own rule, on
     // the ladder, memoised by {@link key}, and bounded by the fact's own length.
     if (it.node !== undefined) {
-      yield* this.deriveThrough(it, ctx.queryBytes, ctx.queryLen);
+      yield* this.deriveThrough(
+        it,
+        ctx.queryBytes,
+        ctx.queryLen,
+        ctx.queryNodes,
+      );
     }
   }
 

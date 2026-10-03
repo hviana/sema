@@ -44,12 +44,52 @@ const enc = new TextEncoder();
  *  deliberately conservative: punctuation, digits and word order are content
  *  and pass through untouched. */
 export function textCanon(bytes: Uint8Array): Uint8Array {
+  if (isAscii(bytes)) return asciiCanon(bytes);
+  return unicodeCanon(bytes);
+}
+
+/** The general reading — the DEFINITION of {@link textCanon}. */
+function unicodeCanon(bytes: Uint8Array): Uint8Array {
   const s = dec
     .decode(bytes)
     .normalize("NFKC")
     .toLowerCase()
     .replace(/(\S)\s+(?=\S)/g, "$1 ");
   return enc.encode(s);
+}
+
+function isAscii(bytes: Uint8Array): boolean {
+  for (let i = 0; i < bytes.length; i++) if (bytes[i] >= 0x80) return false;
+  return true;
+}
+
+/** {@link unicodeCanon} on ASCII input, byte for byte, without the string
+ *  round trip.  Exact, not approximate: NFKC is the identity on ASCII, the
+ *  lowercase of ASCII is A–Z → a–z, and the ASCII members of the regex's `\s`
+ *  are TAB, LF, VT, FF, CR and SPACE — so an interior run of them becomes one
+ *  space and an edge run stays verbatim, exactly as the regex rewrites it.
+ *  The canonicalizer runs once per probed span on the recognition and join
+ *  paths, so its constant is paid thousands of times per response; test/148
+ *  pins the agreement over random ASCII and over the edge cases. */
+function asciiCanon(bytes: Uint8Array): Uint8Array {
+  const n = bytes.length;
+  const out = new Uint8Array(n);
+  let o = 0;
+  const ws = (b: number) => b === 0x20 || (b >= 0x09 && b <= 0x0d);
+  for (let i = 0; i < n;) {
+    const b = bytes[i];
+    if (!ws(b)) {
+      out[o++] = b >= 0x41 && b <= 0x5a ? b + 0x20 : b;
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < n && ws(bytes[j])) j++;
+    if (i > 0 && j < n) out[o++] = 0x20;
+    else for (let k = i; k < j; k++) out[o++] = bytes[k];
+    i = j;
+  }
+  return o === n ? out : out.slice(0, o);
 }
 
 /** 32-bit FNV-1a over a canonical key — the integer the store's canon index

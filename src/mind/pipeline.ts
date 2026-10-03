@@ -14,9 +14,10 @@ import { PASS, STEP } from "./graph-search.js";
 import type { ComputedSpan } from "../extension.js";
 import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
-import { fuseAttention, reason } from "./reasoning.js";
+import { fusionLayer, walkLayer } from "./reasoning.js";
 import {
   closed,
+  closeOver,
   type DerivationState,
   remainderOf,
   type Span,
@@ -544,25 +545,20 @@ export async function think(
   // without evidence stays owed, and a later transition pays it only by carrying
   // it (the law reads the window; see derivation.ts).  Same reading, one
   // definition — not a second spelling of it here.
-  const explained: Array<[number, number]> = [
+  const priced: Array<[number, number]> = [
     ...decided.accounted,
     ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-  ].filter(([a, b]) =>
+  ];
+  const explained = priced.filter(([a, b]) =>
     windowOf([a, b], answer, query, ctx.space.maxGroup) !== null
   );
+  const paid = remainderOf(query.length, explained, ctx.space.maxGroup);
   // WHAT THE CONSTRUCTION WITHHOLDS, at or above one quantum: the difference between
   // the remainder paid in full and the remainder paid by carrying.  Both readings
-  // are the law's, so the floor is applied once and in one place.
-  const paidInFull = remainderOf(
-    query.length,
-    [
-      ...decided.accounted,
-      ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-    ],
-    ctx.space.maxGroup,
-  );
-  const paid = remainderOf(query.length, explained, ctx.space.maxGroup);
+  // are the law's, so the floor is applied once and in one place — and the
+  // paid-in-full reading is computed only when a meter will read it.
   if (ctx.meter) {
+    const paidInFull = remainderOf(query.length, priced, ctx.space.maxGroup);
     ctx.meter.groundingWithheldBytes += unaccountedBytes(paid) -
       unaccountedBytes(paidInFull);
   }
@@ -664,89 +660,59 @@ export async function think(
     meter.postGroundingRemainderSpans += uncovered.length;
     meter.postGroundingRemainderBytes += unaccountedBytes(uncovered);
   }
-  // THE WALK THAT DOES NOT RUN, NAMED — the audit's point 1 could not attribute
-  // real questions that stopped with no note anywhere.  They never reached the
-  // offer: `decided.complete` says the grounding supplied a fixed point, so the
-  // walk is skipped BY DESIGN and the state is the grounding's own.  That state
-  // carries `fixed: true` (the trace already reports it), and the law's first
-  // clause refuses any continuation against it — so there is no `null` here to
-  // read as exhaustion, and the `Offer` contract is not in play at all.  The
-  // silent stop is therefore a NAMED state, not a gap.
+  // ── THE CLOSURE ENGINE ───────────────────────────────────────────────
   //
-  // THE WALK CONSUMES AND RETURNS A STATE.  It is handed the derivation's own —
-  // the grounding's product, accounting, remainder and cost — and hands back the
-  // state it advanced to, so what follows reads a state rather than bytes plus a
-  // tuple rebuilt here.  A supplied fixed point is the one case where the walk
-  // does not run at all, and then the state is the grounding's own.
-  const extension = decided.complete ? undefined : meter
-    ? await meter.time(
-      "reason",
-      () => reason(ctx, query, state, preConsumed, pre, voiced),
-    )
-    : await reason(ctx, query, state, preConsumed, pre, voiced);
-  const reasoned = extension ?? state;
-
-  // Fuse only when the query has a genuine REMAINDER no mechanism's
-  // structural evidence touched at all.  `decided.accounted` alone
-  // undercounts this: it is a COST-LADDER quantity (cover.ts prices its
-  // masked/computed spans at near-zero and deliberately leaves them out of
-  // `accounted` so PASS-bridged bytes are still charged), not a coverage
-  // one — a query fully explained by one computed span plus bridged
-  // connectors can report `accounted: []` while nothing is actually left
-  // unexplained.  The genuine remainder is what NEITHER the winning
-  // candidate's accounted spans NOR any recognised extension's computed
-  // span (`pre.computed` — every mechanism's parse() output, ALU included)
-  // ever touched.  A remainder under one river-fold quantum (W, the same
-  // floor cover.ts's restatedSpan and the honesty-density bar above both
-  // use) is bridging punctuation/whitespace, never a second topic —
-  // observed: a single space between two fully-computed arithmetic spans
-  // ("2+2 3+3") registered as "unaccounted" and pulled in an unrelated
-  // corpus fact, corrupting "4 6" into "4 63".
-  // THE GATE ASKS THE LAW, and that is an OPTIMISATION, not a tidy-up: the state
-  // above ALREADY carries the remainder (`remainderOf`, per-span, with the W
-  // floor applied), so asking it costs nothing, while the total this line used to
-  // compute (`unaccounted(explained)`) was one more sum over the spans on every
-  // response.  The two readings are the same condition, not two: the ACCOUNTING
-  // applies the same W floor the gate does, so a gap below one quantum never
-  // survives into `explained` and the total cannot reach W without some single
-  // gap reaching it.  Measured over twelve constructions at W = 4 (test/136.3,
-  // which pins the equivalence and both sides of it).
-  // Whether the winning candidate's entire recognised substance is
-  // COMPUTED — every accounted span exactly a pre.computed span, nothing
-  // from a genuinely recognised/climbed site.  fuseAttention's lone-root
-  // shortcut assumes a single point of attention already IS primary's own
-  // source; that assumption is exactly backwards for a pure computation
-  // (an ALU result has no anchor of its own) — see fuseAttention's
-  // `unclimbed` parameter, gated there by Attention.breadth so a
-  // coincidental echo (which this flag alone cannot distinguish) is still
-  // rejected.
+  // The grounding's state is CLOSED under the law by two layers, in order: the
+  // multi-hop WALK (`walkLayer`: a forward absorb or a pivot, offered one at a
+  // time) and the multi-topic FUSION (`fusionLayer`: one composed transition).
+  // Every step either layer offers goes through the same `closure` and the same
+  // law; this function no longer sequences them or gates them by hand.
+  //
+  // WHAT USED TO BE TWO HAND-WRITTEN GATES IS NOW THE LAW'S, OR THE LAYER'S:
+  //   • a declared-complete grounding (`fixed`) admits no transition — the
+  //     engine enters no layer for it (the law's first clause), which is the
+  //     walk-skip and the fusion-skip this branch used to spell separately;
+  //   • a CLOSED derivation has nothing left for a second topic to account for,
+  //     so the fusion layer does not ENGAGE — read off the state the walk
+  //     reached, the one fusion is actually offered against.
+  //
+  // What the fusion needs from the grounding — whether its substance is purely
+  // computed (`unclimbed`) and where it stands in the query (`primarySpans`) —
+  // is the grounding's own evidence, resolved here where both readings are in
+  // hand.
+  //
+  // Whether the winning candidate's entire recognised substance is COMPUTED —
+  // every accounted span exactly a pre.computed span, nothing from a genuinely
+  // recognised/climbed site.  fuseAttention's lone-root shortcut assumes a
+  // single point of attention already IS primary's own source; that assumption
+  // is exactly backwards for a pure computation (an ALU result has no anchor of
+  // its own) — gated there by Attention.breadth so a coincidental echo (which
+  // this flag alone cannot distinguish) is still rejected.
   const unclimbed = state.accounted.length > 0 &&
     state.accounted.every(([i, j]) =>
       pre.computed.some((u) => u.i === i && u.j === j)
     );
-  // Where the winning grounding stands in the query — fusion places primary
-  // by it (see fuseAttention's `primarySpans`).  `accounted` is the
-  // cost-ladder read and is authoritative when non-empty; when it is empty
-  // the grounding is a pure COMPUTATION, whose evidence is its computed span.
-  // Exactly the cost-ladder-vs-coverage distinction `explained` above draws,
-  // read here for POSITION instead of for coverage — and resolved here, where
-  // both readings are in hand, rather than inside fuseAttention.
+  // Where the winning grounding stands in the query — fusion places primary by
+  // it.  `accounted` is the cost-ladder read and is authoritative when
+  // non-empty; when it is empty the grounding is a pure COMPUTATION, whose
+  // evidence is its computed span — the cost-ladder-vs-coverage distinction
+  // `explained` above draws, read here for POSITION instead of coverage.
   const primarySpans: ReadonlyArray<Span> = state.accounted.length > 0
     ? state.accounted
     : pre.computed.map((u): [number, number] => [u.i, u.j]);
-  const fused = closed(state) ? reasoned : meter
-    ? await meter.time(
-      "fuse",
-      () => fuseAttention(ctx, query, reasoned, pre, unclimbed, primarySpans),
-    )
-    : await fuseAttention(
-      ctx,
-      query,
-      reasoned,
-      pre,
-      unclimbed,
-      primarySpans,
-    );
+  const fused = await closeOver(
+    state,
+    query,
+    ctx.space.maxGroup,
+    [
+      walkLayer(ctx, query, preConsumed, pre, voiced),
+      {
+        ...fusionLayer(ctx, query, pre, unclimbed, primarySpans),
+        engages: (d: DerivationState) => !closed(d),
+      },
+    ],
+    meter ? (name, walk) => meter.time(name, walk) : undefined,
+  );
 
   done(
     fused.product,

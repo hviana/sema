@@ -1,17 +1,18 @@
 // 128-the-leads-somewhere-pair-agrees.test.mjs — THE PAIR, PINNED
 //
-// "Does this node lead somewhere?" is answered in TWO homes, and they cannot
-// share a name: `traverse.ts`'s `leadsSomewhere` is `cachedHasNext || hasHalo`,
-// and `primitives.ts` spells out `hasNext || hasHalo` because `traverse.ts`
-// imports that file (a cycle) — the comment there says so.  Two spellings of
-// one predicate is a drift risk, so this pins the AGREEMENT, node by node,
-// through the observable surface only: `mind.leadsSomewhere(id)` against
-// `store.hasNext(id) || store.hasHalo(id)`.
+// "Does this node lead somewhere?" has ONE raw definition — the store's
+// `leadsSomewhere` (`hasNext || hasHalo`) — and ONE memoised reading of it,
+// `traverse.ts`'s `leadsSomewhere` (`cachedHasNext || hasHalo`), which the Mind
+// lends to the search.  The callers that used to spell the pair out by hand
+// (`primitives.ts`, the search's bare-host fallback) now ask the store.  This
+// pins the AGREEMENT, node by node, through the observable surface only:
+// `mind.leadsSomewhere(id)` against `store.leadsSomewhere(id)`, and both against
+// the two probes the definition is made of.
 //
 // It is NOT a claim that the two are the same function: one reads a memo, the
 // other reads the store.  The claim is that the memoised reading and the store
-// reading agree — what makes the spelled-out copy correct, and what would break
-// first if `cachedHasNext` ever outlived a store write.
+// reading agree — what would break first if `cachedHasNext` ever outlived a
+// store write.
 //
 // THE REACH OF THIS PIN, said as it is: halos are poured on the WRITE side, so
 // a synthetic corpus of this shape carries NONE (measured: 0 nodes with a halo
@@ -49,16 +50,21 @@ test("the two homes of 'leads somewhere' agree, node by node", async () => {
   let withHalo = 0;
   for (let id = 0; id < total; id++) {
     const named = m.leadsSomewhere(id);
-    const spelled = m.store.hasNext(id) || m.store.hasHalo(id);
+    const stored = m.store.leadsSomewhere(id);
     const hasEdge = m.store.hasNext(id);
     const hasHalo = m.store.hasHalo(id);
     if (hasEdge) withEdge++;
     if (hasHalo) withHalo++;
     assert.equal(
+      stored,
+      hasEdge || hasHalo,
+      `node ${id}: the store's definition must be its two probes`,
+    );
+    assert.equal(
       named,
-      spelled,
+      stored,
       `node ${id}: traverse.leadsSomewhere says ${named}, ` +
-        `primitives' spelling says ${spelled} (hasNext=${hasEdge}, hasHalo=${hasHalo})`,
+        `the store says ${stored} (hasNext=${hasEdge}, hasHalo=${hasHalo})`,
     );
   }
 

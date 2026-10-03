@@ -103,7 +103,7 @@ import { bytesEqual } from "../../bytes.js";
 import { rItem } from "../trace.js";
 import { formsOpenedBy } from "../traverse.js";
 import { STEP } from "../graph-search.js";
-import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
+import type { PipelineMechanism } from "../pipeline-mechanism.js";
 
 /** A trained form the query opens, and the bytes by which it continues. */
 export interface PrefixCompletion {

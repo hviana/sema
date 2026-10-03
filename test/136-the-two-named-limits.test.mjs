@@ -77,8 +77,9 @@ test("136.1 the fuse gate asks the LAW — one condition, one home, one less sum
   );
   assert.match(
     src,
-    /const fused = closed\(state\)/,
-    "the fuse gate must ask the law's `closed(state)` — the condition the state " +
+    /engages: \(d: DerivationState\) => !closed\(d\)/,
+    "the fuse gate must ask the law's `closed` of the state fusion is offered " +
+      "against (the fusion layer engages only while it is open) — the condition the state " +
       "already carries.  If it went back to summing `unaccounted(explained)`, that " +
       "is a second reading of one condition AND an extra sum per response: 136.3 " +
       "measures the equivalence, so re-read it before restoring the total",

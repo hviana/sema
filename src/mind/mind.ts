@@ -9,41 +9,20 @@
 // Architecture: 4 primitives × 2 patterns = all inference.
 // Implementation split across src/mind/*.ts — this file assembles the Mind class.
 
-import { cosine, makeKeyring, rng, setVecConfig, Vec } from "../vec.js";
-import { bindSeat, fold, Sema, Space } from "../sema.js";
+import { makeKeyring, rng, setVecConfig, Vec } from "../vec.js";
+import { Sema, Space } from "../sema.js";
 import { sampleCorpus, searchCorpus } from "./corpus.js";
 import type { CorpusPair, CorpusResult } from "./corpus.js";
 import { Alphabet } from "../alphabet.js";
-import {
-  bytesToTree,
-  contentFoldIncremental,
-  Grid,
-  gridToTree,
-  hilbertBytes,
-  reachThreshold,
-  stackGrids,
-} from "../geometry.js";
+import { contentFoldIncremental, Grid, reachThreshold } from "../geometry.js";
 import { keyEnds } from "./canonical.js";
 import type { ContentFold } from "../geometry.js";
 import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
 import { type MindConfig, resolveConfig } from "../config.js";
 import { type Canon, canonHash, textCanon, textEdgeTrim } from "../canon.js";
-import {
-  type CandidateSpan,
-  coverSequence,
-  lightestDerivation,
-} from "../derive/src/index.js";
-import { bytesEqual, concat2, concatBytes, indexOf } from "../bytes.js";
-import {
-  type ComputedResult,
-  type DerivationItem,
-  type DerivationStep,
-  GraphSearch,
-  type Leaf,
-  type Seg,
-  type Site,
-} from "./graph-search.js";
+import { bytesEqual, concat2 } from "../bytes.js";
+import { GraphSearch, type Leaf, type Site } from "./graph-search.js";
 import { Alu } from "../alu/src/index.js";
 import type { ComputedSpan, ExtensionHost } from "../extension.js";
 
@@ -147,16 +126,12 @@ interface ConversationData {
 
 // Mind module imports
 import type { AttentionRead, MindContext, Recognition } from "./types.js";
-import { changedNodes, liftAnswer, spliceAll } from "./types.js";
 import {
   canonResolve as canonResolveImpl,
-  foldTree,
   gistOf,
   inputBytes,
-  latin1Key,
   perceive as perceiveImpl,
   perceiveKey,
-  read,
   resolve as resolveImpl,
 } from "./primitives.js";
 import {

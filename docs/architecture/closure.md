@@ -3,9 +3,10 @@
 > **Law:** a step is admitted only when it CLOSES the derivation, or MOVES to
 > structure it has not consumed, or CARRIES material the asker left unaccounted.
 
-One unit and one law, asked by every tier that decides whether to continue: the
-chart's frontier, the market's candidates, the post-grounding walk, fusion, and
-the mechanisms' own gates. None re-spells a condition the law owns.
+One unit, one law and one engine, asked by every tier that decides whether to
+continue: the chart's frontier, the market's candidates, the post-grounding
+walk, fusion, and the mechanisms' own gates. None re-spells a condition the law
+owns.
 
 ## The unit — `src/mind/derivation.ts`
 
@@ -43,7 +44,35 @@ not carry.
 
 The walk ends when the layer stops offering or the law refuses; owning no
 search, the law cannot prevent a cycle — that is the layer's, over the structure
-it holds.
+it holds. A transition is only ever `advance`: a fusion the law refuses is not
+taken (there is no hand-built fallback).
+
+## The engine — `closeOver`
+
+`closeOver(state, query, W, layers, enter?)` closes a derivation under the law,
+layer by layer. A layer (`ClosureLayer`) is a named `Offer` with its own
+instrumentation hooks; each is walked by `closure` to its own end, and the state
+it reaches is the state the next layer is offered against. Layers are PHASES, in
+order, never revisited.
+
+- **¬FIXED is the engine's.** A fixed state admits no transition, so no layer is
+  entered for it — the walk-skip and fusion-skip a caller used to spell by hand
+  are the law's first clause, taken before any layer pays.
+- **Engagement is the layer's.** A layer that has nothing to offer a state
+  (`engages`) is not entered: no offer, no meter phase.
+- **The pipeline's post-grounding stage IS the engine**, with two layers: the
+  walk (`walkLayer` — forward absorb or pivot) and the fusion (`fusionLayer` —
+  one composed transition, engaged only while the derivation is open). There is
+  no hand-built state anywhere outside `advance` (`test/137.7`).
+
+## The four quantities (trap 13), and where each stands
+
+| Quantity                | Status                                                                                                                                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| offer of a hop          | Consequence. Chart: the corpus's continuations under the READ cap, each a MOVE priced STEP, the search decides (`test/112`). Walk: absorb/pivot, the law admits.                                                                              |
+| depth of a join         | Consequence. The join consumes the shortest tail prefix naming a learnt key that leads — CONTAINS (resolves) ∧ MOVES (leads) — and chains until the tail is consumed; no count (`test/108`).                                                  |
+| scope of a gap          | Consequence for alignment (`alignAround` walks outward, no cap). NOT for recognition's interior pass: its reach `W⁴ + 2r` bounds an exhaustive embedded-form probe; exact unbounded reach needs a whole-stream index the store does not have. |
+| scope of a substitution | Consequence: the gap between two aligned anchors (`unexplainedSpans`), gated as scaffolding by the global commonality reading. The filler-unanimity window (`chainReach`) is a derived decision scale, not an explosion cap.                  |
 
 ## One cost home
 
@@ -51,7 +80,7 @@ it holds.
 `weigh`). A mechanism reports `moves` and `accounted` — what it did — and never
 a price; `cover` reports its chart derivation's work.
 
-## Two limits, proved and left out
+## Three limits, proved and left out
 
 1. **The chart cannot evaluate accounting** — its interface has no parameter for
    it, and carrying it per item was measured and rejected. The chart reads the
@@ -62,6 +91,9 @@ a price; `cover` reports its chart derivation's work.
    `reason`'s echo guards stop with the remainder non-empty, and recall's
    reverse tiers close with an empty accounting. That is a fact about the
    asker's material in the store, available only to the layer holding it.
+3. **The extension is not priced into the market** (`test/136.2`): the engine
+   closes the WINNER only; pricing each candidate's closure would run the walk
+   for every candidate, and that comparison has not been measured.
 
 ## Layering
 
@@ -78,3 +110,6 @@ vocabulary, not the tracer's.
 - `test/142`, `test/143` — the offer's contract, and the cycles.
 - `test/144`, `test/146`, `test/147` — identity is content, the `contains` gate,
   the witness ladder.
+- `test/137.7` — no transition is built by hand outside the law.
+- `test/149` — the engine: ¬FIXED first, layers as phases, engagement, a refusal
+  ends one layer, and the pipeline sequences no layer by hand.

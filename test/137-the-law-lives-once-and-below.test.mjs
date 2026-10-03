@@ -398,3 +398,24 @@ test("137.6 no export is genuinely dead — the triage, as a guard", async () =>
     "genuinely dead exports found — remove them, or state where they are consumed",
   );
 });
+
+test("137.7 no transition of the derivation is built by hand outside the law", async () => {
+  // `advance` is the ONLY transition (derivation.ts).  A state spread with a new
+  // product — `{ ...state, product: … }` — is a transition the law never saw:
+  // the fusion used to hand-build one when the law refused it, which is exactly
+  // the bypass a fixed point exists to forbid.  Comments are stripped, so prose
+  // that DESCRIBES the shape cannot satisfy or break this.
+  const { text } = await graph();
+  const offenders = [...text.entries()]
+    .filter(([f]) => f !== "src/mind/derivation.ts")
+    .filter(([, s]) =>
+      /\.\.\.\s*(?:state|d0|d|reasoned|closed_)\s*,\s*product\s*:/.test(s)
+    )
+    .map(([f]) => f);
+  assert.deepEqual(
+    offenders,
+    [],
+    "a derivation state is advanced by hand outside derivation.ts — offer the " +
+      "step to the law (`admissible` + `advance`) instead",
+  );
+});

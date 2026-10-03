@@ -679,8 +679,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // arithmetic, not evidence.  Removing it wholesale was measured and
   // REVERTED: it also drops legitimate multi-byte chains (the 12-byte
   // "Eiffel Tower" site vanished with it).  The premise is wrong but the
-  // trust it stood in for is real; a replacement signal is still open work.
-  // See bench/README.md.
+  // trust it stood in for is real; the replacement signal follows.
   //
   // THE REPLACEMENT SIGNAL (2026-08-13): `leadsSomewhere` on the BYTE-EXACT
   // branch the chain already found.  The blanket off-boundary suppression is

@@ -174,8 +174,10 @@ discovering bugs:**
   the quantities the machine already has (`leadsSomewhere`, the
   exact-then-canonical identity, `accounted` bytes, the ladder, `hubBound`),
   from which the reach of a gap, the offer of a hop, the depth of a join and the
-  scope of a substitution are CONSEQUENCES, not four separate decisions. Nothing
-  in this repository is that today.
+  scope of a substitution are CONSEQUENCES, not four separate decisions. Where
+  the repository stands against it — the engine (`closeOver`), which of the four
+  follow from the law, and the one that does not, with the reason — is stated in
+  `docs/architecture/closure.md`, and nowhere else.
 - **THE STANDARD A CHANGE MUST MEET:** state which consequence it is, and show
   it following from the law. A change that cannot be stated that way is not
   ready.

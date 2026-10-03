@@ -10,15 +10,7 @@ import type { Space } from "../sema.js";
 import type { Alphabet } from "../alphabet.js";
 import type { MindConfig } from "../config.js";
 import type { Meter } from "../meter.js";
-import type {
-  ComputedResult,
-  DerivationItem,
-  DerivationStep,
-  GraphSearch,
-  Leaf,
-  Seg,
-  Site,
-} from "./graph-search.js";
+import type { GraphSearch, Leaf, Seg, Site } from "./graph-search.js";
 import type { Rationale } from "./rationale.js";
 import type { ContentFold, Grid } from "../geometry.js";
 
@@ -33,7 +25,7 @@ export interface DepositCacheEntry {
   /** The plain content fold's reusable segment state. */
   content: ContentFold;
 }
-import { bytesEqual, concatBytes, indexOf } from "../bytes.js";
+import { bytesEqual, concatBytes } from "../bytes.js";
 import { restates } from "./derivation.js";
 import { dominates } from "../geometry.js";
 

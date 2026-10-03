@@ -6,7 +6,7 @@
 
 import type { MindContext } from "./types.js";
 import { read } from "./primitives.js";
-import type { DerivationItem, DerivationStep } from "./graph-search.js";
+import type { DerivationStep } from "./graph-search.js";
 import { decodeText } from "./rationale.js";
 import type { RationaleItem } from "./rationale.js";
 

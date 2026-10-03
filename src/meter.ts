@@ -157,6 +157,11 @@ export class Meter {
   recogniseInteriorPairs = 0;
   /** `resolve` — whole-span content-addressed identity requests. */
   resolves = 0;
+  /** Exact lookups (`resolve`'s exact tier, `canonResolve`'s direct tier)
+   *  DECIDED by the segment probe — a level-0 content segment was not a stored
+   *  node, so no fold was built.  Each one is a perception that did not happen;
+   *  the answer is the one the fold would have given (see `exactNode`). */
+  resolveSegmentRefusals = 0;
 
   // ── Mind: the consensus climb ───────────────────────────────────────────
   /** `climbAttentionAll` calls that actually climbed. */

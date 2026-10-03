@@ -27,7 +27,14 @@ a row. `has(id)` is `id < 0 || id < _nextId`.
 A branch whose kids are all leaves is **flat** — stored as raw bytes in `leaf`
 with an empty `kids` blob as marker (`flatKidsBytes`/`flatBytesKids`). Dedup
 probes hash then verify: `hashOf`→`h`→`LIMIT 1` fetch→byte compare (bloom
-negative filter first).
+negative filter first). `flatBranchMayExist(bytes)` is the filter alone — its
+`false` is exact, its `true` means "look it up" — for a caller that will verify
+anyway: `exactNode` (primitives.ts) refuses a stream whose level-0 segment
+cannot exist before building its fold, so a resolve miss costs hashing, not a
+D-dimensional fold, and a hit repeats no lookup.
+
+`leadsSomewhere(id)` — `hasNext || hasHalo` — is the admission predicate's ONE
+raw definition; `traverse.ts` memoises its edge tier per response.
 
 `bytes(id)`/`bytesPrefix(id, cap)` are shared with `BoundedMap` caches — callers
 must **never mutate** the returned buffer. `contentLen(id, cap)` walks with
@@ -43,7 +50,10 @@ window apart. Gists sit in `_pendingGist` (byte-budgeted `BoundedMap`);
 `batchSize` batches. Buffers flush on cadence, `commit()`, and close. Halo mass
 re-indexes geometrically (`mass<=4 || powerOfTwo`) and encodes 2-bit quantized.
 Canon index is optional: `canonAdd`/ `canonFind`/`canonCount` over 32-bit
-canonical hashes, caller verifies bytes.
+canonical hashes, caller verifies bytes. The SQLite backend keeps a negative
+filter over the canon hashes too (built on the first `canonFind`, kept exact on
+`canonAdd`; the table is never deleted from), because recognition and the join
+probe it once per span and almost every answer is "no such key".
 
 ## Containment, batching, LRU
 

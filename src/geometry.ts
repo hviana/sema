@@ -213,7 +213,7 @@ export interface Grid {
 // order.
 //
 // LINEAR fold — intermediate gists are NOT normalized; only the final root is
-// (riverFold's single normalize).  This is a deliberate change of similarity
+// (`rootOf`'s single normalize).  This is a deliberate change of similarity
 // semantics from the original per-group normalize, not a cached optimization:
 // the fold is now a pure linear operator — a superposition of positionally-
 // bound leaf vectors — so an interior node carries its span's natural
@@ -271,56 +271,7 @@ function foldSlice(
   else for (let i = complete; i < count; i++) out.push(items[start + i]);
 }
 
-function riverFold(space: Space, row: Folded[], stableBytes: number): Folded {
-  if (row.length === 0) {
-    const z = new Float32Array(space.D);
-    return { tree: sema(z, new Uint8Array(0), null), len: 0 };
-  }
-  let level = row;
-  while (level.length > 1) {
-    // Find the item index where accumulated bytes reaches stableBytes.
-    let boundary = level.length;
-    if (stableBytes > 0) {
-      let acc = 0;
-      for (let i = 0; i < level.length; i++) {
-        acc += level[i].len;
-        if (acc >= stableBytes) {
-          boundary = i + 1;
-          break;
-        }
-      }
-    }
-
-    const next: Folded[] = [];
-    if (boundary < level.length) {
-      // Prefix folds independently of the suffix — structural stability.
-      foldSlice(space, level, 0, boundary, next, true);
-      foldSlice(space, level, boundary, level.length - boundary, next, true);
-    } else {
-      foldSlice(space, level, 0, level.length, next, true);
-    }
-    level = next;
-  }
-  // LINEAR fold — this root normalize is the ONLY normalize of the entire
-  // fold; every intermediate gist stays unnormalized (see the folding
-  // header).  Skipped for a single-leaf input: that root IS the shared
-  // alphabet vector (already unit), and normalizing in place would mutate the
-  // alphabet itself.
-  if (row.length > 1) normalize(level[0].tree.v);
-  return level[0];
-}
-
 // ---- public API ----
-
-function bytesToLeaves(
-  alphabet: Alphabet,
-  bytes: Uint8Array,
-): Folded[] {
-  return Array.from(bytes, (b, i) => {
-    const v = alphabet.vecs[b];
-    return { tree: sema(v, bytes.slice(i, i + 1), null), len: 1 };
-  });
-}
 
 /** CONTENT-DEFINED FOLD BOUNDARIES — where a byte stream segments, chosen by
  *  the bytes rather than by arithmetic.
@@ -384,47 +335,11 @@ function bytesToLeaves(
  *  Levels are read from the hash the cut was ACCEPTED at, not recomputed, so
  *  they cost nothing beyond the divisions already being done. */
 
-// Cyclic-polynomial table for the bounded-window cut hash.  Derived once from
-// the fold's own mixing constant — no seed, no tuning.  A byte contributes
-// BUZ[b] on entering the window; the hash rotates by one per byte, so by the
-// time that byte leaves, its contribution has travelled k places and is
-// removed rotated by k.  The rotation is taken at the use site rather than
-// precomputed into a second table so the window width follows maxGroup
-// instead of being frozen at one value.
-const BUZ = new Uint32Array(256);
-{
-  let x = 0x9e3779b9 >>> 0;
-  for (let i = 0; i < 256; i++) {
-    x = Math.imul(x ^ (x >>> 15), 2654435761) >>> 0;
-    x = (x ^ (x >>> 13)) >>> 0;
-    BUZ[i] = x;
-  }
-}
-
-/** BUZ rotated by the window width — what a byte's contribution has become by
- *  the time it leaves.  Cached because the width follows `maxGroup`, which is
- *  fixed for a given space: built once, then a plain table lookup per byte. */
-let buzOutTable: Uint32Array | null = null;
-let buzOutWidth = -1;
-function buzOut(k: number): Uint32Array {
-  if (buzOutWidth !== k || buzOutTable === null) {
-    const t = new Uint32Array(256);
-    for (let i = 0; i < 256; i++) {
-      const v = BUZ[i];
-      t[i] = ((v << k) | (v >>> (32 - k))) >>> 0;
-    }
-    buzOutTable = t;
-    buzOutWidth = k;
-  }
-  return buzOutTable;
-}
-
 function contentLevels(
   space: Space,
   bytes: Uint8Array,
 ): { cuts: number[]; levels: number[] } {
   const W = space.maxGroup;
-  const minLen = W - 1;
   const maxLen = space.seats.length;
   // MEASURED AND REFUTED — making E[segment] equal W.  A segment is at least
   // `minLen` bytes and then cuts with probability p, so E[len] = minLen +
@@ -500,21 +415,20 @@ function contentLevels(
   //   old       0.870   0.902   0.492   0.879    0.888  0.441
   //   this      0.935   0.952   0.732   0.920    0.916  0.935
   //
-  // The cyclic polynomial (each byte enters as a table value, leaves rotated
-  // by the window width) has EXACTLY k bytes of memory and scrambles periodic
-  // input, so the threshold fires at content-chosen positions on a gradient
+  // The register (the last k raw bytes, `h = h << 8 | byte`, mixed by the
+  // two-round avalanche below) has EXACTLY k bytes of memory and scrambles
+  // periodic input, so the threshold fires at content-chosen positions on a gradient
   // just as it does on text — which is what leaves the `maxLen` fallback
   // rarely engaged instead of carrying the phase.  Segment lengths are
   // unchanged in distribution (mean 5.2-7.2 against the old 5.4-6.0), so the
   // mechanisms fitted to that distribution see the same scale.
   //
-  // Cost is the same shape as before: shifts, XORs and two table lookups per
-  // byte, no multiply and no auxiliary structure.  (An exact sliding-window
+  // Cost per byte: a shift, an OR and the avalanche's two multiplies — no
+  // table and no auxiliary structure.  (An exact sliding-window
   // minimum — winnowing — aligns slightly better still, 0.91-0.999, but its
   // deque costs 51 MB/s against this rule's 112 and buys nothing the
   // scrambling hash does not already give.)
   const k = W;
-  const OUT = buzOut(k);
   const cuts: number[] = [];
   const levels: number[] = [];
   const n = bytes.length;
@@ -971,14 +885,6 @@ function flatFold(
   return { tree: sema(gist, null, kids), len: n };
 }
 
-/* * The stable-prefix segmented fold (fold-contract.md).  Each segment between
- *  consecutive boundaries folds PLAINLY and independently; segment roots
- *  join left-nested, and only the final root is normalized (the linear-fold
- *  contract: one normalize per perception).  A segment's own inner splits
- *  need no recursion here: a nested learnt prefix is itself an earlier
- *  boundary, so the left-nested join reproduces every intermediate learnt
- *  root ((s₀·s₁) IS the root the store learnt for the first two segments'
- *  bytes, and so on). */
 /** A fold's ROOT: ONE normalize per perception, at the root, exactly as
  *  riverFold did — the interior stays raw (the linear-fold contract).
  *
@@ -995,6 +901,14 @@ function rootOf(f: Folded): Sema {
   return f.tree;
 }
 
+/** The stable-prefix segmented fold (fold-contract.md).  Each segment between
+ *  consecutive boundaries folds PLAINLY and independently; segment roots
+ *  join left-nested, and only the final root is normalized (the linear-fold
+ *  contract: one normalize per perception).  A segment's own inner splits
+ *  need no recursion here: a nested learnt prefix is itself an earlier
+ *  boundary, so the left-nested join reproduces every intermediate learnt
+ *  root ((s₀·s₁) IS the root the store learnt for the first two segments'
+ *  bytes, and so on). */
 function stablePrefixFold(
   space: Space,
   alphabet: Alphabet,

@@ -489,3 +489,80 @@ export async function closure(
     d = next;
   }
 }
+
+// ── The engine: one closure over layers ─────────────────────────────────────
+
+/** A LAYER of the closure — a named producer of continuations for one state.
+ *  The layer OFFERS (its {@link Offer} is the whole of what it decides); the
+ *  law admits; the engine sequences.  The hooks are the layer's own
+ *  instrumentation, called by the engine at the moments the law defines. */
+export interface ClosureLayer {
+  /** The layer's name — its rationale scope and its meter phase. */
+  readonly name: string;
+  /** Whether the layer has anything to offer this state at all.  A layer that
+   *  does not engage is not ENTERED: no offer is asked and no work is charged
+   *  to it.  Omitted: it always engages. */
+  readonly engages?: (d: DerivationState) => boolean;
+  /** The layer's continuations, one at a time ({@link Offer}'s contract). */
+  readonly offer: Offer;
+  /** Called for each step the law admits, with the state before and after. */
+  readonly onTaken?: (
+    before: DerivationState,
+    after: DerivationState,
+    witnesses: ReadonlyArray<Witness>,
+  ) => void;
+  /** Called when the law refused the continuation the layer offered. */
+  readonly onRefused?: (at: DerivationState) => void;
+  /** Called once the layer's walk has ended — the layer offered nothing more,
+   *  or the law refused — with the state it began from and the one it reached. */
+  readonly onEnd?: (from: DerivationState, to: DerivationState) => void;
+}
+
+/** THE CLOSURE ENGINE — close a derivation under the law, layer by layer.
+ *
+ *  Each layer is walked to its own end ({@link closure}: the layer offers, the
+ *  law admits or refuses), and the state it reaches is the state the next layer
+ *  is offered against.  Layers are PHASES, in the order given, never revisited:
+ *  a later layer composes what an earlier one produced, and nothing it adds is
+ *  re-offered to the earlier one.
+ *
+ *  THE LAW'S FIRST CLAUSE IS APPLIED HERE, ONCE.  A FIXED state admits no
+ *  transition (`admissible` refuses it before anything else), so no layer is
+ *  entered at all — the decision a caller used to spell as "skip the walk for a
+ *  complete grounding, and skip the fusion too" is the law's, not the caller's,
+ *  and it is taken before any layer pays for an offer it could never have
+ *  taken.
+ *
+ *  `enter` wraps each entered layer's walk — the caller's instrumentation (a
+ *  meter phase), which this module cannot import: it reads nothing but the
+ *  state and the layers. */
+export async function closeOver(
+  d: DerivationState,
+  query: Uint8Array,
+  W: number,
+  layers: ReadonlyArray<ClosureLayer>,
+  enter?: (
+    name: string,
+    walk: () => Promise<DerivationState>,
+  ) => Promise<DerivationState>,
+): Promise<DerivationState> {
+  for (const layer of layers) {
+    if (d.fixed) return d;
+    if (layer.engages !== undefined && !layer.engages(d)) continue;
+    const from = d;
+    const walk = async (): Promise<DerivationState> => {
+      const to = await closure(
+        from,
+        query,
+        W,
+        layer.offer,
+        layer.onTaken,
+        layer.onRefused,
+      );
+      layer.onEnd?.(from, to);
+      return to;
+    };
+    d = enter === undefined ? await walk() : await enter(layer.name, walk);
+  }
+  return d;
+}

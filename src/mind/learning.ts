@@ -7,13 +7,7 @@ import { addInto, normalize, Vec, zeros } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
 import { changedNodes } from "./types.js";
-import {
-  inputBytes,
-  latin1Key,
-  perceive,
-  perceiveDeposit,
-  resolve,
-} from "./primitives.js";
+import { inputBytes, perceiveDeposit, resolve } from "./primitives.js";
 import { canonicalWindows, leafIdPrefix } from "./canonical.js";
 import { rItem, rNode } from "./trace.js";
 import { hubBound } from "./traverse.js";

@@ -3,7 +3,8 @@
 `src/meter.ts` is the one computational-usage accounting surface. It counts what
 inference _cost_ so a slow response can be attributed instead of guessed at. The
 rationale says why an answer was chosen; the meter says what it cost to choose
-it. Harness: `bench/profile-inference.mjs`.
+it. Harness: the public path — `new Mind({ profile: true })`, then
+`mind.lastCost` (`formatReport` / `sumReports`).
 
 ## Five contracts
 

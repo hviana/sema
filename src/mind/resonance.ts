@@ -3,8 +3,7 @@
 //   Address → Resonate → filter by Traverse/Read predicates → transform.
 //   Used by bridge, recallByResonance, pivotInto, meaningOf.
 //   (The graded locate() matcher formerly here lives in match.ts.)
-import { rItem, rNode } from "./trace.js";
-import { decodeText } from "./rationale.js";
+import { rItem } from "./trace.js";
 
 import { cosine, Vec } from "../vec.js";
 import { mergeThreshold } from "../geometry.js";
@@ -17,8 +16,6 @@ import {
   cachedRead,
   type Junction,
   junctionContainers,
-  junctionContainersFrom,
-  junctionSeeds,
   junctionSynonyms,
   walkCache,
 } from "./junction.js";

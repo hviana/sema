@@ -66,7 +66,7 @@ import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
 import { restates } from "./derivation.js";
 import type { RationaleItem } from "./rationale.js";
-import { rDeriv, rItem, rNode, traceDerivation } from "./trace.js";
+import { rItem, rNode, traceDerivation } from "./trace.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // climbConsensus / inspectRationale instrumentation.

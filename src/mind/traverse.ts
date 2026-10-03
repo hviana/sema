@@ -488,9 +488,9 @@ export function bearsEdge(ctx: MindContext, id: number): boolean {
   return cachedHasNext(ctx, id, getStructCache(ctx));
 }
 
-/** Whether a node LEADS SOMEWHERE — it bears a continuation edge or a halo.
- * The admission predicate recognition filters sites with (cover.md): a form
- * that
+/** Whether a node LEADS SOMEWHERE — the store's admission predicate
+ * ({@link Store.leadsSomewhere}: edge or halo) with its edge tier memoised for
+ * the response.  Recognition filters sites with it (cover.md): a form that
  * leads nowhere contributes nothing to any derivation. Runs once per candidate
  * span on the recognition hot path — `hasNext` is cached per response (the same
  * flat-branch ids are probed across prefix variants by canonicalChunkId).

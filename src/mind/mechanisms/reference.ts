@@ -38,7 +38,7 @@ import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
 import { carriesFillers, distinct, follow, substituteAll } from "../match.js";
 import { dominates } from "../../geometry.js";
-import { bytesEqual, indexOf } from "../../bytes.js";
+import { bytesEqual } from "../../bytes.js";
 import { restates } from "../derivation.js";
 import { STEP } from "../graph-search.js";
 import type {

@@ -7,6 +7,7 @@ import { Vec } from "../vec.js";
 import { Sema } from "../sema.js";
 import {
   bytesToTree,
+  contentBoundaries,
   contentFoldIncremental,
   Grid,
   gridToTree,
@@ -277,13 +278,53 @@ export function foldTree(
   return { end: pos, node };
 }
 
+/** The EXACT content-addressed node of a byte stream — `foldTree(perceive)`,
+ *  with its misses decided before the fold is built.
+ *
+ *  WHY THE SEGMENT PROBE IS EXACT, NOT A FILTER THAT GUESSES.  The fold's level-0
+ *  segments are a pure function of the bytes (`contentBoundaries`, the one
+ *  boundary rule), each segment folds as ONE flat node over single-byte atoms,
+ *  and `foldTree` names a branch only when every child is named.  So the stream
+ *  resolves only if every multi-byte segment is itself a stored flat branch — a
+ *  single-byte segment is an atom and always named — and one missing segment
+ *  means the fold would return null.  The probe asks only whether a segment
+ *  MAY exist (`flatBranchMayExist`: the store's negative filter, whose "no" is
+ *  exact), so a miss costs O(bytes) of hashing instead of a D-dimensional fold
+ *  of every node, and a hit pays no lookup the fold is about to repeat.  A
+ *  stream whose segments may all exist is folded exactly as before, so a HIT
+ *  is unchanged and the probe can never turn a miss into a hit.  `test/148` pins the
+ *  agreement over random and corpus spans. */
+export function exactNode(ctx: MindContext, bytes: Uint8Array): number | null {
+  if (!segmentsStored(ctx, bytes)) {
+    if (ctx.meter) ctx.meter.resolveSegmentRefusals++;
+    return null;
+  }
+  return foldTree(ctx, perceive(ctx, bytes), 0).node;
+}
+
+function segmentsStored(ctx: MindContext, bytes: Uint8Array): boolean {
+  const store = ctx.store;
+  let from = 0;
+  const probe = (to: number): boolean => {
+    if (to - from < 2) return true;
+    const seg = bytes.subarray(from, to);
+    if (store.flatBranchMayExist) return store.flatBranchMayExist(seg);
+    return store.findBranch(Array.from(seg, (b) => -(b + 1))) !== null;
+  };
+  for (const cut of contentBoundaries(ctx.space, bytes)) {
+    if (!probe(cut)) return false;
+    from = cut;
+  }
+  return probe(bytes.length);
+}
+
 /** The canonical node id of a byte span: perceive it in isolation — the way
  *  training did — and recover its root bottom-up.  Returns null if any part is
  *  unknown. */
 export function resolve(ctx: MindContext, bytes: Uint8Array): number | null {
   if (bytes.length === 0) return null;
   if (ctx.meter) ctx.meter.resolves++;
-  const exact = foldTree(ctx, perceive(ctx, bytes), 0).node;
+  const exact = exactNode(ctx, bytes);
   if (exact !== null) return exact;
   return canonResolve(ctx, bytes);
 }
@@ -320,7 +361,7 @@ export function canonResolve(
   // skips identity rows) — the exact content-addressed lookup of the
   // canonical bytes finds it directly.
   if (key.length !== bytes.length || !bytesEqual(key, bytes)) {
-    const direct = foldTree(ctx, perceive(ctx, key), 0).node;
+    const direct = exactNode(ctx, key);
     if (direct !== null) return set(direct);
   }
   if (ctx.meter) ctx.meter.canonLookups++;
@@ -338,15 +379,10 @@ export function canonResolve(
     // on exactly the node the canonical-case query would have found.
     const folded = foldTree(ctx, perceive(ctx, bytesOf), 0).node;
     const use = folded ?? id;
-    // THE ADMISSION PREDICATE, by its own pair of probes: `traverse.ts`'s
-    // `leadsSomewhere` is edge-or-halo, and `hasHalo` is the one that carries
-    // the mass bar (`mass >= minHaloMass`).  Asking `haloMass(use) > 0` instead
-    // is the same answer only while `minHaloMass <= 1` (its default): raise the
-    // bar and this site would rank a node as leading on evidence the law
-    // refuses.  Calling `leadsSomewhere` here is not possible — `traverse.ts`
-    // imports THIS file, so it would be a cycle — which is why the pair is
-    // spelled out rather than named.
-    const leads = store.hasNext(use) || store.hasHalo(use);
+    // THE ADMISSION PREDICATE, asked of the store that owns it (edge or halo,
+    // the halo tier carrying the mass bar).  Asking `haloMass(use) > 0` instead
+    // would agree only while `minHaloMass <= 1`.
+    const leads = store.leadsSomewhere(use);
     if (
       best === null || (leads && !bestLeads) ||
       (leads === bestLeads && use < best)

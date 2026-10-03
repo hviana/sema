@@ -8,8 +8,7 @@
 // that contains it.
 
 import type { MindContext } from "../types.js";
-import { read } from "../primitives.js";
-import { follow, isSpanShaped, locate, skillExemplar } from "../match.js";
+import { locate } from "../match.js";
 import { concatBytes, indexOf } from "../../bytes.js";
 import { decodeText } from "../rationale.js";
 import type {

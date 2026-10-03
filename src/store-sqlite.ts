@@ -251,6 +251,16 @@ export class SQliteStore extends AbstractStore implements Store {
   private _bloom: NodeBloom | null = null;
   /** Dedup probes answered by the filter alone this session (observability). */
   bloomSkips = 0;
+  /** The same negative filter over the CANON index's key hashes.  Recognition's
+   *  canonical admission and the join's canonical entity scan ask `canonFind`
+   *  once per probed span, and almost every answer is "no such key" — on an
+   *  index that is often EMPTY (it is built only by `buildCanonIndex`).  Built
+   *  lazily on the first `canonFind` (one sequential scan of the h column),
+   *  kept exact on `canonAdd`, dropped and rebuilt bigger when growth saturates
+   *  it.  The canon table is never deleted from, so the filter can never hold a
+   *  false negative: a miss it reports is a miss the query would have
+   *  returned. */
+  private _canonBloom: NodeBloom | null = null;
 
   private _insertNode: any = null;
   private _insertKid: any = null;
@@ -613,6 +623,13 @@ export class SQliteStore extends AbstractStore implements Store {
     }
     const row = this._selFlat.get(h, bytes) as { id: number } | undefined;
     return row ? row.id : null;
+  }
+
+  /** The node filter alone: never a false negative (every inserted hash is
+   *  added before any probe can see it), so `false` is exact. */
+  protected override _dbFlatMayExist(h: number, bytes: Uint8Array): boolean {
+    if (this._bloom === null) return super._dbFlatMayExist(h, bytes);
+    return this._bloom.mightContain(h);
   }
 
   protected _dbFindBranchByKids(
@@ -1053,9 +1070,27 @@ export class SQliteStore extends AbstractStore implements Store {
     // bulk index build coalesces instead of paying autocommit per row.
     this._dbBeginTx();
     this._insCanon.run(h, id);
+    const b = this._canonBloom;
+    if (b !== null) {
+      b.add(h);
+      if (b.saturated) this._canonBloom = null; // rebuilt, bigger, on next find
+    }
+  }
+
+  /** The canon filter, built on first use from the index as it stands. */
+  private _canonFilter(): NodeBloom {
+    if (this._canonBloom === null) {
+      const b = new NodeBloom(bloomLog2For(this.canonCount()));
+      const scan = this.sqlite!.prepare("SELECT h FROM canon");
+      scan.setReturnArrays(true);
+      for (const r of scan.iterate() as IterableIterator<[number]>) b.add(r[0]);
+      this._canonBloom = b;
+    }
+    return this._canonBloom;
   }
 
   canonFind(h: number): number[] {
+    if (!this._canonFilter().mightContain(h)) return [];
     if (!this._selCanon) {
       this._selCanon = this.sqlite!.prepare(
         "SELECT id FROM canon WHERE h = ?",

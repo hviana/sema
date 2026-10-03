@@ -40,7 +40,7 @@ import {
 } from "../geometry.js";
 import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { chainReach, leafIdRun } from "./canonical.js";
+import { leafIdRun } from "./canonical.js";
 import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
 import {
   argmaxCosine,
@@ -54,7 +54,6 @@ import {
   sharedReachMemo,
 } from "./traverse.js";
 import { recognise, segment } from "./recognition.js";
-import { rItem } from "./trace.js";
 import type { Site } from "./graph-search.js";
 
 // ═══════════════════════════════════════════════════════════════════════════

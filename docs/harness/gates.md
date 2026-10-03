@@ -13,22 +13,24 @@ Guards honest silence, determinism, and every pinned contract. Silence:
 unrelated queries ground to nothing (`test/28`, `50`, `56`, `67`, `76`, `84`).
 Determinism: same seed + deposit order + query gives byte-identical answer
 (`test/20`). Every invariant is pinned, the closure law included
-(`test/133`–`147`). §14–25 (pipeline), §64 (derived thresholds), AGENTS.md §2
+(`test/133`–`149`). §14–25 (pipeline), §64 (derived thresholds), AGENTS.md §2
 invariants 1–5.
 
 ## 2 — Work accounting (profiler)
 
-```bash
-node bench/profile-inference.mjs        # add [n] to limit probes
-node bench/profile-inference.mjs --trace # trace is a debugging aid, not product
+```js
+const mind = new Mind({ profile: true }); // meter attached per response
+await mind.respondText(q); //              then read mind.lastCost
+console.log(formatReport(mind.lastCost)); // sumReports() over several
 ```
 
-Guards without trace: counters exact and diffable between COLD runs; phases nest
-(not disjoint — each phase is charged by its own layer); shared analyses charged
-to themselves, not to the first toucher; millisecond fields are
-non-deterministic hints only. With `--trace`, recognition idempotence still
-holds (`test/42`). `src/meter.ts`, `docs/architecture/meter.md`, §55,
-`AGENTS.md` §6.
+The public path is the harness (`AGENTS.md` §6); there is no separate bench
+script. Guards without trace: counters exact and diffable between COLD runs;
+phases nest (not disjoint — each phase is charged by its own layer); shared
+analyses charged to themselves, not to the first toucher; millisecond fields are
+non-deterministic hints only. With an `inspectRationale` callback attached,
+recognition idempotence still holds (`test/42`). `src/meter.ts`,
+`docs/architecture/meter.md`, §55, `AGENTS.md` §6.
 
 ## 3 — Dependency footprint
 

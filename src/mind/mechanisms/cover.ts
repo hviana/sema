@@ -18,7 +18,6 @@ import { bridge } from "../resonance.js";
 import { liftAnswer, liftedScaffolding, segRestatesQuery } from "../types.js";
 import { decodeText } from "../rationale.js";
 import { insideAnsweredTurn, restates } from "../derivation.js";
-import { indexOf } from "../../bytes.js";
 import type { RationaleItem } from "../rationale.js";
 import { rItem, rNode, traceDerivation } from "../trace.js";
 import type { PipelineMechanism } from "../pipeline-mechanism.js";
