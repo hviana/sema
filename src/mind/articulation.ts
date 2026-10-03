@@ -9,6 +9,7 @@ import { spliceAll } from "./types.js";
 import { recognise } from "./recognition.js";
 import { answers, contains } from "./traverse.js";
 import { bestHaloMate } from "./match.js";
+import { noLicence } from "./graph-search.js";
 import type { CandidateSpan } from "../derive/src/index.js";
 import { coverSequence } from "../derive/src/index.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
@@ -115,7 +116,7 @@ export async function articulate(
   const solved = ctx.search.cover(
     answer.length,
     voicedSites,
-    new Map(),
+    noLicence(),
     ans.leaves,
     ans.splits,
     substitutions,

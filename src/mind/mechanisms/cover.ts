@@ -12,6 +12,7 @@
 import type { MindContext } from "../types.js";
 import type {
   ComputedResult,
+  ConceptLicence,
   ConnectorLicence,
   DerivationStep,
   Site,
@@ -29,28 +30,45 @@ import type { PipelineMechanism } from "../pipeline-mechanism.js";
 
 // ── Concept / connector pre-resolution ──────────────────────────────────────
 
-export async function resolveConcepts(
+/** The concept hops the cover may take, OFFERED up front and looked up only
+ *  when the search asks (see {@link Licence}): every recognised form with no
+ *  continuation of its own may borrow a halo sibling's. */
+export interface CoverConcepts extends ConceptLicence {
+  /** Look up the asked forms' concept targets not yet granted. */
+  grant(nodes: Iterable<number>): Promise<void>;
+}
+
+export function offerConcepts(
   ctx: MindContext,
-  sites: Site[],
-): Promise<Map<number, number>> {
-  const target = new Map<number, number>();
-  const visited = new Set<number>();
+  sites: ReadonlyArray<Site>,
+): CoverConcepts {
+  const offered = new Set<number>();
   for (const { payload: n } of sites) {
-    if (visited.has(n)) continue;
-    visited.add(n);
-    if (ctx.store.hasNext(n)) continue;
-    const hop = await conceptHop(ctx, n);
-    if (hop !== null) target.set(n, hop);
+    if (!offered.has(n) && !ctx.store.hasNext(n)) offered.add(n);
   }
-  if (target.size > 0) {
-    ctx.trace?.step(
-      "resolveConcepts",
-      [...target.keys()].map((n) => rNode(ctx, n, "edgeless-form")),
-      [...target.values()].map((h) => rNode(ctx, h, "concept-sibling")),
-      "borrow a synonym's continuation edge for each edge-less form (a concept/halo hop)",
-    );
-  }
-  return target;
+  const granted = new Map<number, number | null>();
+  return {
+    offered,
+    granted,
+    asked: new Set(),
+    async grant(nodes) {
+      const found: Array<[number, number]> = [];
+      for (const n of nodes) {
+        if (granted.has(n)) continue;
+        const hop = await conceptHop(ctx, n);
+        granted.set(n, hop);
+        if (hop !== null) found.push([n, hop]);
+      }
+      if (found.length > 0) {
+        ctx.trace?.step(
+          "resolveConcepts",
+          found.map(([n]) => rNode(ctx, n, "edgeless-form")),
+          found.map(([, h]) => rNode(ctx, h, "concept-sibling")),
+          "borrow a synonym's continuation edge for each edge-less form the search reached (a concept/halo hop)",
+        );
+      }
+    },
+  };
 }
 
 /** The connectors the cover may splice, OFFERED up front and BRIDGED only when
@@ -253,16 +271,15 @@ export const coverMechanism: PipelineMechanism = {
       }
     }
     const concepts = ctx.meter
-      ? await ctx.meter.time(
-        "cover.resolveConcepts",
-        () => resolveConcepts(ctx, sites),
+      ? ctx.meter.timeSync(
+        "cover.offerConcepts",
+        () => offerConcepts(ctx, sites),
       )
-      : await resolveConcepts(ctx, sites);
+      : offerConcepts(ctx, sites);
 
     const coverDeps = [
       ctx.trace?.lastIndex("recognise"),
       ctx.trace?.lastIndex("computeExtensions"),
-      ctx.trace?.lastIndex("resolveConcepts"),
     ].filter((x): x is number => x !== undefined);
 
     // Convert ComputedSpan[] to ComputedResult[] for the graph search.
@@ -284,7 +301,7 @@ export const coverMechanism: PipelineMechanism = {
     ], coverDeps.length ? coverDeps : undefined);
 
     // COVER, GRANT WHAT IT ASKED, COVER AGAIN — until a cover asks for nothing
-    // (see ConnectorLicence).  Only the final cover's derivations reach the
+    // (see Licence in graph-search.ts).  Only the final cover's derivations reach the
     // rationale; a provisional one is superseded, not part of the answer.
     let derivations: DerivationStep[][] = [];
     let solved: ReturnType<typeof ctx.search.cover>;
@@ -301,14 +318,13 @@ export const coverMechanism: PipelineMechanism = {
         computedResults,
         ctx.trace ? (steps) => derivations.push(steps) : undefined,
       );
-      if (connectors.asked.size === 0) break;
-      const asked = [...connectors.asked];
-      if (ctx.meter) {
-        await ctx.meter.time(
-          "cover.grantConnectors",
-          () => connectors.grant(asked),
-        );
-      } else await connectors.grant(asked);
+      if (concepts.asked.size === 0 && connectors.asked.size === 0) break;
+      const grant = async () => {
+        await concepts.grant([...concepts.asked]);
+        await connectors.grant([...connectors.asked]);
+      };
+      if (ctx.meter) await ctx.meter.time("cover.grant", grant);
+      else await grant();
     }
     for (const steps of derivations) traceDerivation(ctx, steps);
     const segs = solved && solved.segs;

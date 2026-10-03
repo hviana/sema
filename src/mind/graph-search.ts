@@ -87,6 +87,11 @@ export type GItem =
      *  consolidated, more-explanatory reading wins over leaving the parts split.
      *  See {@link GraphSearch.fuse} and {@link GraphSearch.formRules}. */
     rcmp?: boolean;
+    /** Set on a concept hop's ASKING form: the edge-less form `node` whose halo
+     *  target the caller has not granted yet, held at the hop's own cost and
+     *  span.  Popping it asks for the target; it leads nowhere itself, so it
+     *  is never part of a final derivation (see {@link Licence}). */
+    ask?: boolean;
   }
   | {
     kind: "out";
@@ -298,7 +303,9 @@ export type DerivationMove =
 function chartKey(it: GItem): string {
   if (it.kind === "cover") return "c" + it.p;
   if (it.kind === "form") {
-    return `f${it.i}.${it.j}.${it.node}.${it.via ? 1 : 0}.${it.rcmp ? 1 : 0}`;
+    return `f${it.i}.${it.j}.${it.node}.${it.via ? 1 : 0}.${it.rcmp ? 1 : 0}${
+      it.ask ? "?" : ""
+    }`;
   }
   return `o${it.i}.${it.j}.${it.cover ? 1 : 0}.${it.rec ? 1 : 0}.${
     it.fix ? 1 : 0
@@ -328,30 +335,53 @@ type JoinLicense = Map<
   ReadonlyArray<{ conclusion: GItem; cost: number }>
 >;
 
-/** THE CONNECTORS A COVER MAY SPLICE, BRIDGED ONLY WHEN THE SEARCH REACHES THEM.
+/** THE ASYNC PREMISES A COVER USES, RESOLVED ONLY WHERE THE SEARCH REACHES THEM.
  *
- *  A connector `L,R` is a rule with two premises — the recognised outs whose
- *  nodes are L and R — so it can fire only once BOTH have been popped. Bridging
- *  every offered pair before the search ran paid for pairs it never reached:
- *  measured on the 31.7M-node store, a 262-byte query recognised whole paid
- *  23 bridges (143,520 junction pops, 7.3 s of its 7.9 s) for sub-forms whose
- *  rewrites cost a STEP each and so never left the agenda before the one-STEP
- *  goal.
+ *  Two of the cover's rules need data the synchronous search cannot fetch — a
+ *  connector splice (a bridge between two answers) and a concept hop (an
+ *  edge-less form's halo sibling) — and both used to be resolved for EVERY
+ *  candidate before the search ran.  A rule fires only from popped premises,
+ *  and the agenda pops in cost order up to the goal, so most of that work fed
+ *  rules the search never reached: measured on the 31.7M-node store, a 262-byte
+ *  query recognised whole paid 23 bridges (143,520 junction pops, 7.3 s of its
+ *  7.9 s) for sub-forms whose rewrites cost a STEP each and so never left the
+ *  agenda before the one-STEP goal — and then 1.2 s of halo reads for concept
+ *  hops priced at CONCEPT, ten times that goal.
  *
- *  So the caller OFFERS the pairs it can bridge; the search, where a splice's
- *  premises meet, uses a GRANTED pair's connector and ASKS for an ungranted one.
- *  A run that asked nothing is the run every pair bridged in advance would have
- *  made — the agenda's pops are decided only by the rules fired from popped
- *  items, and an unasked pair fired none — so its cover is final. A run that
- *  asked is PROVISIONAL: the caller grants the asked pairs (the async bridge
- *  the synchronous search cannot run) and covers again. */
-export interface ConnectorLicence {
-  /** Every pair the caller can bridge, as `L,R` keys of answer-node ids. */
-  readonly offered: ReadonlySet<string>;
-  /** The pairs bridged so far: the learnt connector, or null (none learnt). */
-  readonly granted: ReadonlyMap<string, Uint8Array | null>;
-  /** Filled by the search: the offered pairs a splice reached ungranted. */
-  readonly asked: Set<string>;
+ *  So the caller OFFERS what it can resolve; where the search reaches an offered
+ *  key it uses a GRANTED value and ASKS for an ungranted one — a connector when
+ *  its splice's premises meet, a concept target when the hop's conclusion, held
+ *  as an asking form at the hop's own cost, is popped.  A run that asked
+ *  nothing is the run every key resolved in advance would have made: the pops
+ *  are decided only by the rules fired from popped items, a granted key fires
+ *  the very rule it fired before, and an asking form that was never popped fired
+ *  none.  So its cover is final.  A run that asked is PROVISIONAL: the caller
+ *  grants the asked keys (the async reads the search cannot run) and covers
+ *  again; every round grants at least one offered key, so the rounds end. */
+export interface Licence<K, V> {
+  /** Every key the caller can resolve. */
+  readonly offered: ReadonlySet<K>;
+  /** The keys resolved so far: their value, or null (nothing learnt). */
+  readonly granted: ReadonlyMap<K, V | null>;
+  /** Filled by the search: the offered keys it reached ungranted. */
+  readonly asked: Set<K>;
+}
+/** Connectors, keyed `L,R` by answer-node ids, valued by the learnt glue. */
+export type ConnectorLicence = Licence<string, Uint8Array>;
+/** Concept hops, keyed by an edge-less form's node, valued by the node its
+ *  halo sibling's edge leads to. */
+export type ConceptLicence = Licence<number, number>;
+/** Whether a run asked for anything — its cover is then provisional. */
+function asked(
+  concepts: ConceptLicence,
+  connectors: ConnectorLicence | undefined,
+): boolean {
+  return concepts.asked.size > 0 || (connectors?.asked.size ?? 0) > 0;
+}
+/** Nothing offered: a cover with no async premises (a nested completion,
+ *  articulation's revoicing). */
+export function noLicence<K, V>(): Licence<K, V> {
+  return { offered: new Set(), granted: new Map(), asked: new Set() };
 }
 
 /** Flatten a {@link GItem} into the {@link DerivationItem} a rationale shows. */
@@ -509,7 +539,7 @@ export class GraphSearch {
   cover(
     queryLen: number,
     sites: ReadonlyArray<Site>,
-    conceptTarget: ReadonlyMap<number, number>,
+    concepts: ConceptLicence,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
@@ -533,11 +563,12 @@ export class GraphSearch {
     // so the recompositions a produced form needs are reported in the same
     // trace instead of vanishing after the first layer.
     this.derivationSink = onDerivation;
+    concepts.asked.clear();
     if (connectors) connectors.asked.clear();
     const solved = this.solve(
       queryLen,
       { sites, leaves, splits },
-      conceptTarget,
+      concepts,
       substitutions,
       connectors,
       computedResults,
@@ -551,9 +582,7 @@ export class GraphSearch {
     // With deepening only at the top, `recompleteNode` walks the accepted chain
     // one link at a time (its own memo and stack), so the work is the answer's.
     // A provisional cover is not deepened: it is about to be re-covered.
-    if (solved === null || (connectors && connectors.asked.size > 0)) {
-      return solved;
-    }
+    if (solved === null || asked(concepts, connectors)) return solved;
     return {
       segs: this.deepen(solved.segs),
       cost: solved.cost,
@@ -580,7 +609,7 @@ export class GraphSearch {
       leaves: ReadonlyArray<Leaf>;
       splits: ReadonlySet<number>;
     },
-    conceptTarget: ReadonlyMap<number, number>,
+    concepts: ConceptLicence,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ConnectorLicence,
     computedResults?: ReadonlyArray<ComputedResult>,
@@ -623,14 +652,11 @@ export class GraphSearch {
     // query whose facts join nothing pays one search, as before.
     //
     // The joins a covering round licensed are KEPT across a licence's re-covers:
-    // a round that asked for no connector is the very round the next re-cover
-    // repeats (see {@link ConnectorLicence}), so its joins are the ones that
-    // re-cover would grant again.
-    let joins: JoinLicense = new Map();
-    if (connectors) {
-      joins = this.joinsKept.get(connectors) ?? joins;
-      this.joinsKept.set(connectors, joins);
-    }
+    // a round that asked for nothing is the very round the next re-cover repeats
+    // (see {@link Licence}), so its joins are the ones that re-cover would grant
+    // again.
+    const joins: JoinLicense = this.joinsKept.get(concepts) ?? new Map();
+    this.joinsKept.set(concepts, joins);
     // Search-effort accounting (src/meter.ts): the chart's pops/pushes are
     // the cover's real cost, and a heuristic that stops being admissible
     // shows up as a pop count that explodes while the answer stays the same.
@@ -640,7 +666,7 @@ export class GraphSearch {
       const system = this.buildSearch(
         spanLen,
         recognition.sites,
-        conceptTarget,
+        concepts,
         recognition.leaves,
         recognition.splits,
         queryBytes,
@@ -658,9 +684,7 @@ export class GraphSearch {
       }
       // A round that ASKED for a connector is provisional: return it before any
       // join is licensed from a derivation the granted connectors may change.
-      if (derivation === null || (connectors && connectors.asked.size > 0)) {
-        break;
-      }
+      if (derivation === null || asked(concepts, connectors)) break;
       let joined = false;
       for (const fact of factsOf(derivation)) {
         const k = chartKey(fact);
@@ -722,7 +746,7 @@ export class GraphSearch {
   private buildSearch(
     queryLen: number,
     sites: ReadonlyArray<Site>,
-    conceptTarget: ReadonlyMap<number, number>,
+    concepts: ConceptLicence,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
     queryBytes: Uint8Array,
@@ -861,7 +885,7 @@ export class GraphSearch {
           return this.coverRules(it, coversDone, coverableByStart);
         }
         if (it.kind === "form") {
-          return this.formRules(it, conceptTarget, substitutions, nodeBytes);
+          return this.formRules(it, concepts, substitutions, nodeBytes);
         }
         return this.outRules(it, {
           W,
@@ -967,10 +991,15 @@ export class GraphSearch {
    *  emit its substitute voice directly. */
   private *formRules(
     it: Extract<GItem, { kind: "form" }>,
-    conceptTarget: ReadonlyMap<number, number>,
+    concepts: ConceptLicence,
     substitutions: ReadonlyMap<number, Uint8Array> | undefined,
     nodeBytes: (n: number) => Uint8Array,
   ): Iterable<Rule<GItem>> {
+    // An asking form reached the agenda's front: the hop it stands for is due.
+    if (it.ask) {
+      concepts.asked.add(it.node);
+      return;
+    }
     // Articulation: emit voice bytes at the recognised span; the hop/concept/
     // emit chain is suppressed — the form contributes only its substitute.
     if (substitutions) {
@@ -1166,8 +1195,24 @@ export class GraphSearch {
       // Recognised but edge-less: borrow a concept (halo) sibling's edge.  No
       // edge and no concept means the form leads nowhere — it yields no rule, so
       // a query of only such forms produces no derivation, and think is silent.
-      const target = conceptTarget.get(it.node);
-      if (target !== undefined) {
+      // An offered form not yet granted yields the hop's ASKING form at the
+      // hop's own cost and span (see {@link Licence}).
+      if (!concepts.offered.has(it.node)) return;
+      const target = concepts.granted.get(it.node);
+      if (target === undefined) {
+        yield {
+          premises: [it],
+          conclusion: {
+            kind: "form",
+            i: it.i,
+            j: it.j,
+            node: it.node,
+            via: true,
+            ask: true,
+          },
+          cost: CONCEPT,
+        };
+      } else if (target !== null) {
         yield {
           premises: [it],
           conclusion: {
@@ -1306,7 +1351,7 @@ export class GraphSearch {
           leaves: rec.leaves,
           splits: rec.splits,
         },
-        new Map(),
+        noLicence(),
         undefined,
         undefined,
         undefined,
@@ -1345,9 +1390,9 @@ export class GraphSearch {
    *  several items (cover/fix variants, nested completions) is scanned once.
    *  Reset at the top of {@link cover}, like {@link recompleteMemo}. */
   private entityMemo = new Map<string, EntityProposals>();
-  /** The joins licensed under one {@link ConnectorLicence}, kept across its
+  /** The joins licensed under one cover's {@link Licence}, kept across its
    *  re-covers (see {@link solve}). */
-  private readonly joinsKept = new WeakMap<ConnectorLicence, JoinLicense>();
+  private readonly joinsKept = new WeakMap<ConceptLicence, JoinLicense>();
   /** The derivation sink of the TOP cover, threaded into every nested
    *  completion so a produced form's own recompositions are reported in the
    *  same trace instead of vanishing after the first layer.  Undefined when
