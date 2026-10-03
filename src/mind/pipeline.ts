@@ -39,7 +39,7 @@ import { recallMechanism } from "./mechanisms/recall.js";
 
 // Re-exports: cover's pre-resolution helpers and the ALU adapter kept
 // importable from the pipeline module (their historical home).
-export { resolveConcepts, resolveConnectors } from "./mechanisms/cover.js";
+export { offerConnectors, resolveConcepts } from "./mechanisms/cover.js";
 export { aluToMechanism } from "./mechanisms/alu.js";
 
 // ── Extension dispatch (pre-loop parse) ─────────────────────────────────────

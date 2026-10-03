@@ -328,6 +328,32 @@ type JoinLicense = Map<
   ReadonlyArray<{ conclusion: GItem; cost: number }>
 >;
 
+/** THE CONNECTORS A COVER MAY SPLICE, BRIDGED ONLY WHEN THE SEARCH REACHES THEM.
+ *
+ *  A connector `L,R` is a rule with two premises — the recognised outs whose
+ *  nodes are L and R — so it can fire only once BOTH have been popped. Bridging
+ *  every offered pair before the search ran paid for pairs it never reached:
+ *  measured on the 31.7M-node store, a 262-byte query recognised whole paid
+ *  23 bridges (143,520 junction pops, 7.3 s of its 7.9 s) for sub-forms whose
+ *  rewrites cost a STEP each and so never left the agenda before the one-STEP
+ *  goal.
+ *
+ *  So the caller OFFERS the pairs it can bridge; the search, where a splice's
+ *  premises meet, uses a GRANTED pair's connector and ASKS for an ungranted one.
+ *  A run that asked nothing is the run every pair bridged in advance would have
+ *  made — the agenda's pops are decided only by the rules fired from popped
+ *  items, and an unasked pair fired none — so its cover is final. A run that
+ *  asked is PROVISIONAL: the caller grants the asked pairs (the async bridge
+ *  the synchronous search cannot run) and covers again. */
+export interface ConnectorLicence {
+  /** Every pair the caller can bridge, as `L,R` keys of answer-node ids. */
+  readonly offered: ReadonlySet<string>;
+  /** The pairs bridged so far: the learnt connector, or null (none learnt). */
+  readonly granted: ReadonlyMap<string, Uint8Array | null>;
+  /** Filled by the search: the offered pairs a splice reached ungranted. */
+  readonly asked: Set<string>;
+}
+
 /** Flatten a {@link GItem} into the {@link DerivationItem} a rationale shows. */
 function derivationItem(it: GItem): DerivationItem {
   if (it.kind === "cover") return { kind: "cover", span: [it.p, it.p] };
@@ -477,7 +503,9 @@ export class GraphSearch {
    *
    *  Any learnt connector between two rewrites is spliced IN by the in-search
    *  connector rule (see {@link outRules}), so the returned spans already carry
-   *  it — there is no post-pass. */
+   *  it — there is no post-pass.  With a {@link ConnectorLicence}, a cover
+   *  returned while `connectors.asked` is non-empty is PROVISIONAL: grant the
+   *  asked pairs and cover again. */
   cover(
     queryLen: number,
     sites: ReadonlyArray<Site>,
@@ -485,7 +513,7 @@ export class GraphSearch {
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
-    connectors?: ReadonlyMap<string, Uint8Array>,
+    connectors?: ConnectorLicence,
     computedResults?: ReadonlyArray<ComputedResult>,
     /** When given, receives each solved span's lightest derivation — the full
      *  adapted A*LD proof tree as classified {@link DerivationStep}s — for the
@@ -505,6 +533,7 @@ export class GraphSearch {
     // so the recompositions a produced form needs are reported in the same
     // trace instead of vanishing after the first layer.
     this.derivationSink = onDerivation;
+    if (connectors) connectors.asked.clear();
     const solved = this.solve(
       queryLen,
       { sites, leaves, splits },
@@ -521,7 +550,11 @@ export class GraphSearch {
     // continuations instead of following the chain the answer itself licensed.
     // With deepening only at the top, `recompleteNode` walks the accepted chain
     // one link at a time (its own memo and stack), so the work is the answer's.
-    return solved === null ? null : {
+    // A provisional cover is not deepened: it is about to be re-covered.
+    if (solved === null || (connectors && connectors.asked.size > 0)) {
+      return solved;
+    }
+    return {
       segs: this.deepen(solved.segs),
       cost: solved.cost,
       moves: solved.moves,
@@ -549,7 +582,7 @@ export class GraphSearch {
     },
     conceptTarget: ReadonlyMap<number, number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
-    connectors?: ReadonlyMap<string, Uint8Array>,
+    connectors?: ConnectorLicence,
     computedResults?: ReadonlyArray<ComputedResult>,
     onDerivation?: (steps: DerivationStep[]) => void,
   ): { segs: Seg[]; cost: number; moves: number } | null {
@@ -588,7 +621,16 @@ export class GraphSearch {
     // no newly licensed fact joins anything: the depth is the answer's, never a
     // count.  A round is re-run only when a newly licensed fact DOES join, so a
     // query whose facts join nothing pays one search, as before.
-    const joins: JoinLicense = new Map();
+    //
+    // The joins a covering round licensed are KEPT across a licence's re-covers:
+    // a round that asked for no connector is the very round the next re-cover
+    // repeats (see {@link ConnectorLicence}), so its joins are the ones that
+    // re-cover would grant again.
+    let joins: JoinLicense = new Map();
+    if (connectors) {
+      joins = this.joinsKept.get(connectors) ?? joins;
+      this.joinsKept.set(connectors, joins);
+    }
     // Search-effort accounting (src/meter.ts): the chart's pops/pushes are
     // the cover's real cost, and a heuristic that stops being admissible
     // shows up as a pop count that explodes while the answer stays the same.
@@ -614,7 +656,11 @@ export class GraphSearch {
         meter.searchPops += stats.pops;
         meter.searchPushes += stats.pushes;
       }
-      if (derivation === null) break;
+      // A round that ASKED for a connector is provisional: return it before any
+      // join is licensed from a derivation the granted connectors may change.
+      if (derivation === null || (connectors && connectors.asked.size > 0)) {
+        break;
+      }
       let joined = false;
       for (const fact of factsOf(derivation)) {
         const k = chartKey(fact);
@@ -682,7 +728,7 @@ export class GraphSearch {
     queryBytes: Uint8Array,
     joins: JoinLicense,
     substitutions?: ReadonlyMap<number, Uint8Array>,
-    connectors?: ReadonlyMap<string, Uint8Array>,
+    connectors?: ConnectorLicence,
     computedResults?: ReadonlyArray<ComputedResult>,
   ): DeductionSystem<GItem> {
     const W = this.maxGroup; // fusible span ceiling (shortest composite bound)
@@ -706,19 +752,20 @@ export class GraphSearch {
     const outsByNode = new Map<number, OutItem[]>();
     const coverableByStart = new Map<number, OutItem[]>();
 
-    // Index the connectors by their left and right answer-node, so the connector
-    // rule iterates only this out's FEW resolved partners (selective, and for the
-    // N-ary case O(parts) keys) instead of scanning every position pair — what
-    // keeps the in-search bridge bounded when many parts are recognised at once.
-    const linksByLeft = new Map<number, Array<[number, Uint8Array]>>();
-    const linksByRight = new Map<number, Array<[number, Uint8Array]>>();
+    // Index the offered connectors by their left and right answer-node, so the
+    // connector rule iterates only this out's FEW offered partners (selective,
+    // and for the N-ary case O(parts) keys) instead of scanning every position
+    // pair — what keeps the in-search bridge bounded when many parts are
+    // recognised at once.
+    const linksByLeft = new Map<number, Array<[number, string]>>();
+    const linksByRight = new Map<number, Array<[number, string]>>();
     if (connectors) {
-      for (const [key, bytes] of connectors) {
+      for (const key of connectors.offered) {
         const comma = key.indexOf(",");
         const l = Number(key.slice(0, comma));
         const r = Number(key.slice(comma + 1));
-        pushInto(linksByLeft, l, [r, bytes]);
-        pushInto(linksByRight, r, [l, bytes]);
+        pushInto(linksByLeft, l, [r, key]);
+        pushInto(linksByRight, r, [l, key]);
       }
     }
 
@@ -829,6 +876,7 @@ export class GraphSearch {
           findBranchU,
           linksByLeft,
           linksByRight,
+          connectors,
           joins,
         });
       },
@@ -882,19 +930,24 @@ export class GraphSearch {
 
   /** The connector-SPLICE rule for an oriented (l, r) pair, or null when the
    *  pair does not qualify — the ONE body behind {@link outRules}' two
-   *  mirror loops (this-as-left over resolved right partners, this-as-right
-   *  over resolved left partners).  Fires only when both sides are
+   *  mirror loops (this-as-left over offered right partners, this-as-right
+   *  over offered left partners).  Fires only when both sides are
    *  recognised, r starts at or after l ends, and the gap between them is
    *  empty or wholly recognised — never across the asker's own literal
-   *  separator. */
+   *  separator — and the pair's connector is granted and learnt.  A qualifying
+   *  pair not yet granted is ASKED for (see {@link ConnectorLicence}). */
   private trySplice(
     l: OutItem,
     r: OutItem,
-    link: Uint8Array,
+    key: string,
+    licence: ConnectorLicence,
     outsByEnd: Map<number, OutItem[]>,
   ): Rule<GItem> | null {
     if (!l.rec || !r.rec || r.i < l.j) return null;
     if (!this.gapRecognised(l.j, r.i, outsByEnd)) return null;
+    const link = licence.granted.get(key);
+    if (link === undefined) licence.asked.add(key);
+    if (!link) return null;
     return {
       premises: [l, r],
       conclusion: {
@@ -1292,6 +1345,9 @@ export class GraphSearch {
    *  several items (cover/fix variants, nested completions) is scanned once.
    *  Reset at the top of {@link cover}, like {@link recompleteMemo}. */
   private entityMemo = new Map<string, EntityProposals>();
+  /** The joins licensed under one {@link ConnectorLicence}, kept across its
+   *  re-covers (see {@link solve}). */
+  private readonly joinsKept = new WeakMap<ConnectorLicence, JoinLicense>();
   /** The derivation sink of the TOP cover, threaded into every nested
    *  completion so a produced form's own recompositions are reported in the
    *  same trace instead of vanishing after the first layer.  Undefined when
@@ -1568,15 +1624,16 @@ export class GraphSearch {
       coverableByStart: Map<number, OutItem[]>;
       findLeafU: (b: Uint8Array) => number | undefined;
       findBranchU: (k: number[]) => number | undefined;
-      linksByLeft?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
-      linksByRight?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
+      linksByLeft: ReadonlyMap<number, Array<[number, string]>>;
+      linksByRight: ReadonlyMap<number, Array<[number, string]>>;
+      connectors?: ConnectorLicence;
       joins: JoinLicense;
     },
   ): Iterable<Rule<GItem>> {
     const { splits, coversDone, outsByStart, outsByEnd, coverableByStart } =
       ctx;
     const outsByNode = ctx.outsByNode;
-    const byRight = ctx.linksByRight ?? new Map();
+    const byRight = ctx.linksByRight;
     pushInto(outsByStart, it.i, it);
     pushInto(outsByEnd, it.j, it);
     if (it.rec && it.node !== undefined) pushInto(outsByNode, it.node, it);
@@ -1592,23 +1649,25 @@ export class GraphSearch {
     // Points 2 & 5) — but NEVER across the asker's own unrecognised separator (a
     // space, comma), so "ice fire" stays "cold hot", never "cold or hot".
     //
-    // Cost stays bounded by iterating only the FEW resolved connector targets of
+    // Cost stays bounded by iterating only the FEW offered connector targets of
     // this out's node (links are selective and, for the N-ary case, keyed first→
     // later — O(parts), not O(parts²)), and matching them against finalised outs
-    // by node id, rather than scanning every position pair.
+    // by node id, rather than scanning every position pair.  A pair is bridged
+    // only once its two premises have met here ({@link ConnectorLicence}).
     const byLeft = ctx.linksByLeft;
-    if (byLeft && it.rec && it.node !== undefined) {
-      // L = this out, R = a later out whose node is a resolved target.
-      for (const [rNode, link] of byLeft.get(it.node) ?? []) {
+    const licence = ctx.connectors;
+    if (licence && it.rec && it.node !== undefined) {
+      // L = this out, R = a later out whose node is an offered target.
+      for (const [rNode, key] of byLeft.get(it.node) ?? []) {
         for (const r of outsByNode.get(rNode) ?? []) {
-          const rule = this.trySplice(it, r, link, outsByEnd);
+          const rule = this.trySplice(it, r, key, licence, outsByEnd);
           if (rule) yield rule;
         }
       }
-      // R = this out, L = an earlier out whose node has a resolved target here.
-      for (const [lNode, link] of byRight.get(it.node) ?? []) {
+      // R = this out, L = an earlier out whose node has an offered target here.
+      for (const [lNode, key] of byRight.get(it.node) ?? []) {
         for (const l of outsByNode.get(lNode) ?? []) {
-          const rule = this.trySplice(l, it, link, outsByEnd);
+          const rule = this.trySplice(l, it, key, licence, outsByEnd);
           if (rule) yield rule;
         }
       }

@@ -10,7 +10,12 @@
 // ordinary admissible-floor check, with no extension special-case anywhere.
 
 import type { MindContext } from "../types.js";
-import type { ComputedResult, Site } from "../graph-search.js";
+import type {
+  ComputedResult,
+  ConnectorLicence,
+  DerivationStep,
+  Site,
+} from "../graph-search.js";
 import { read, resolve } from "../primitives.js";
 import { guidedFirst, hubBound } from "../traverse.js";
 import { conceptHop } from "../match.js";
@@ -48,16 +53,25 @@ export async function resolveConcepts(
   return target;
 }
 
-export async function resolveConnectors(
+/** The connectors the cover may splice, OFFERED up front and BRIDGED only when
+ *  the search asks (see {@link ConnectorLicence}): every pair a learnt whole
+ *  could run together — two touching sites, each side as itself or as its
+ *  answer, in both orders — and, when three or more answers are recognised, the
+ *  first answer to each later one (the N-ary whole). */
+export interface CoverConnectors extends ConnectorLicence {
+  /** Bridge the asked pairs not yet granted. */
+  grant(keys: Iterable<string>): Promise<void>;
+}
+
+export function offerConnectors(
   ctx: MindContext,
   sites: ReadonlyArray<Site>,
   query?: Uint8Array,
-): Promise<Map<string, Uint8Array>> {
-  const links = new Map<string, Uint8Array>();
+): CoverConnectors {
   const answerOf = (n: number) => guidedFirst(ctx, n) ?? n;
   // A site's continuation already present elsewhere in the query is stale
   // transcript evidence: cover still needs the site for structural context,
-  // but liftAnswer will trim that continuation as already answered. Building
+  // but liftAnswer will trim that continuation as already answered. Offering
   // pairwise/n-ary bridges for it can only create connectors that are later
   // discarded — a semantically neutral gate (it removes work whose product
   // liftAnswer throws away), and a cumulative (multi-turn) query is exactly
@@ -97,20 +111,16 @@ export async function resolveConnectors(
         return restates(query, bytes, 0);
       });
     });
-  const bridgePair = async (l: number, r: number) => {
-    if (l === r || links.has(l + "," + r)) return;
-    if (ctx.meter) ctx.meter.coverBridges++;
-    const link = await bridge(ctx, read(ctx, l), read(ctx, r));
-    if (link !== null) links.set(l + "," + r, link);
-  };
+  const pairwise = new Set<string>();
   for (let i = 0; i + 1 < ordered.length; i++) {
     if (ordered[i].end !== ordered[i + 1].start) continue;
     const lefts = [ordered[i].payload, answerOf(ordered[i].payload)];
     const rights = [ordered[i + 1].payload, answerOf(ordered[i + 1].payload)];
     for (const l of new Set(lefts)) {
       for (const r of new Set(rights)) {
-        await bridgePair(l, r);
-        await bridgePair(r, l);
+        if (l === r) continue;
+        pairwise.add(l + "," + r);
+        pairwise.add(r + "," + l);
       }
     }
   }
@@ -122,46 +132,70 @@ export async function resolveConnectors(
     seenN.add(node);
     orderedNodes.push({ node, bytes: read(ctx, node) });
   }
+  const nary = new Map<
+    string,
+    { left: Uint8Array; right: Uint8Array; allowance: number }
+  >();
   if (orderedNodes.length >= 3) {
     const first = orderedNodes[0];
     const W = ctx.space.maxGroup;
     let middleBytes = 0; // Σ bytes of the answers BETWEEN first and m-th
     for (let m = 1; m < orderedNodes.length; m++) {
-      const key = first.node + "," + orderedNodes[m].node;
-      if (links.has(key)) {
-        middleBytes += orderedNodes[m].bytes.length;
-        continue;
-      }
       // The N-ary interior legitimately holds every intermediate answer
       // plus one W-quantum of glue per joint — pass that allowance so the
-      // bridge's phrase-scale cap admits the whole learnt run.
-      const allowance = middleBytes + (m + 1) * W;
-      if (ctx.meter) {
-        ctx.meter.coverBridges++;
-        ctx.meter.coverAllowanceBytes += allowance;
-      }
-      const interior = await bridge(
-        ctx,
-        first.bytes,
-        orderedNodes[m].bytes,
-        allowance,
-      );
-      if (interior !== null) links.set(key, interior);
+      // bridge's phrase-scale cap admits the whole learnt run.  Asked only
+      // when the pairwise bridge of the same key (if offered) found nothing.
+      nary.set(first.node + "," + orderedNodes[m].node, {
+        left: first.bytes,
+        right: orderedNodes[m].bytes,
+        allowance: middleBytes + (m + 1) * W,
+      });
       middleBytes += orderedNodes[m].bytes.length;
     }
   }
-  if (links.size > 0) {
-    ctx.trace?.step(
-      "resolveConnectors",
-      ordered.map((s) => rItem(read(ctx, s.payload), "answer", s.payload)),
-      [...links.entries()].map(([pair, bytes]) => ({
-        text: `${pair}: "${decodeText(bytes)}"`,
-        role: "connector",
-      } as RationaleItem)),
-      "the bytes the graph splices between adjacent answers (asked of the gist space)",
-    );
-  }
-  return links;
+  const granted = new Map<string, Uint8Array | null>();
+  return {
+    offered: new Set([...pairwise, ...nary.keys()]),
+    granted,
+    asked: new Set(),
+    async grant(keys) {
+      const found: Array<[string, Uint8Array]> = [];
+      for (const key of keys) {
+        if (granted.has(key)) continue;
+        let link: Uint8Array | null = null;
+        if (pairwise.has(key)) {
+          const comma = key.indexOf(",");
+          if (ctx.meter) ctx.meter.coverBridges++;
+          link = await bridge(
+            ctx,
+            read(ctx, Number(key.slice(0, comma))),
+            read(ctx, Number(key.slice(comma + 1))),
+          );
+        }
+        const whole = nary.get(key);
+        if (link === null && whole !== undefined) {
+          if (ctx.meter) {
+            ctx.meter.coverBridges++;
+            ctx.meter.coverAllowanceBytes += whole.allowance;
+          }
+          link = await bridge(ctx, whole.left, whole.right, whole.allowance);
+        }
+        granted.set(key, link);
+        if (link !== null) found.push([key, link]);
+      }
+      if (found.length > 0) {
+        ctx.trace?.step(
+          "resolveConnectors",
+          ordered.map((s) => rItem(read(ctx, s.payload), "answer", s.payload)),
+          found.map(([pair, bytes]) => ({
+            text: `${pair}: "${decodeText(bytes)}"`,
+            role: "connector",
+          } as RationaleItem)),
+          "the bytes the graph splices between adjacent answers the search reached (asked of the gist space)",
+        );
+      }
+    },
+  };
 }
 
 // ── Pipeline mechanism ──────────────────────────────────────────────────────
@@ -205,11 +239,11 @@ export const coverMechanism: PipelineMechanism = {
     if (sites.length === 0 && computed.length === 0) return [];
 
     const connectors = ctx.meter
-      ? await ctx.meter.time(
-        "cover.resolveConnectors",
-        () => resolveConnectors(ctx, sites, query),
+      ? ctx.meter.timeSync(
+        "cover.offerConnectors",
+        () => offerConnectors(ctx, sites, query),
       )
-      : await resolveConnectors(ctx, sites, query);
+      : offerConnectors(ctx, sites, query);
     let splits = rec.splits;
     if (computed.length > 0) {
       splits = new Set(rec.splits);
@@ -229,7 +263,6 @@ export const coverMechanism: PipelineMechanism = {
       ctx.trace?.lastIndex("recognise"),
       ctx.trace?.lastIndex("computeExtensions"),
       ctx.trace?.lastIndex("resolveConcepts"),
-      ctx.trace?.lastIndex("resolveConnectors"),
     ].filter((x): x is number => x !== undefined);
 
     // Convert ComputedSpan[] to ComputedResult[] for the graph search.
@@ -250,17 +283,34 @@ export const coverMechanism: PipelineMechanism = {
       ...computedResults.map((u) => rItem(u.bytes, "computed")),
     ], coverDeps.length ? coverDeps : undefined);
 
-    const solved = ctx.search.cover(
-      query.length,
-      sites,
-      concepts,
-      rec.leaves,
-      splits,
-      undefined,
-      connectors,
-      computedResults,
-      ctx.trace ? (steps) => traceDerivation(ctx, steps) : undefined,
-    );
+    // COVER, GRANT WHAT IT ASKED, COVER AGAIN — until a cover asks for nothing
+    // (see ConnectorLicence).  Only the final cover's derivations reach the
+    // rationale; a provisional one is superseded, not part of the answer.
+    let derivations: DerivationStep[][] = [];
+    let solved: ReturnType<typeof ctx.search.cover>;
+    for (;;) {
+      derivations = [];
+      solved = ctx.search.cover(
+        query.length,
+        sites,
+        concepts,
+        rec.leaves,
+        splits,
+        undefined,
+        connectors,
+        computedResults,
+        ctx.trace ? (steps) => derivations.push(steps) : undefined,
+      );
+      if (connectors.asked.size === 0) break;
+      const asked = [...connectors.asked];
+      if (ctx.meter) {
+        await ctx.meter.time(
+          "cover.grantConnectors",
+          () => connectors.grant(asked),
+        );
+      } else await connectors.grant(asked);
+    }
+    for (const steps of derivations) traceDerivation(ctx, steps);
     const segs = solved && solved.segs;
     tCover?.done(
       segs === null

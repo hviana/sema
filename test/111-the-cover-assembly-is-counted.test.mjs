@@ -46,15 +46,18 @@ test("the pairwise assembly is counted, with no rationale attached", async () =>
 });
 
 test("the n-ary interior's allowance is counted", async () => {
-  // Three sites in one query: the n-ary path passes an allowance that grows
-  // with the intermediate answers' bytes — the quantity that would grow with a
-  // hub query's answers.
+  // Three touching sites in one query, each answered: the n-ary path passes an
+  // allowance that grows with the intermediate answers' bytes — the quantity
+  // that would grow with a hub query's answers.  The connectors are bridged
+  // only for the pairs the search REACHES (ConnectorLicence), so the lightest
+  // cover must stand on all three answers: a query recognised whole (an
+  // `ab cd` learnt as its own context) never reaches its parts' pair.
   const mind = await fixture([
     ["ab", "x"],
     ["cd", "y"],
-    ["ab cd", "z"],
+    ["ef", "z"],
   ]);
-  await mind.respondText("ab cd");
+  await mind.respondText("abcdef");
   const c = mind.lastCost?.counters ?? {};
   assert.ok(
     (c.coverAllowanceBytes ?? 0) > 0,

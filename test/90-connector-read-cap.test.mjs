@@ -1,7 +1,7 @@
 // 90-connector-read-cap.test.mjs — the "already answered" probe must read by
 // the QUERY, not by the corpus.
 //
-// `resolveConnectors` (src/mind/mechanisms/cover.ts) drops a site whose
+// `offerConnectors` (src/mind/mechanisms/cover.ts) drops a site whose
 // continuation already appears elsewhere in the query — stale transcript
 // evidence, whose bridges would only be discarded later.  The test is a
 // substring search, so it needs the candidate's bytes; it used to reconstruct
@@ -28,7 +28,7 @@
 // B reconstructed against a 3-byte prompt. So the invariant here is per-read
 // SIZE.
 //
-// It is measured by calling `resolveConnectors` DIRECTLY and diffing the meter
+// It is measured by calling `offerConnectors` DIRECTLY and diffing the meter
 // across it.  A whole-response counter cannot express this: `bytesRead` sums
 // every reader in the pipeline, and the answer itself is a long continuation
 // that is legitimately read in full — an earlier draft of this file asserted on
@@ -46,7 +46,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import { resolveConnectors } from "../dist/src/mind/mechanisms/cover.js";
+import { offerConnectors } from "../dist/src/mind/mechanisms/cover.js";
 
 /** Learnt CONTINUATIONS far longer than the query that will be asked — the
  *  shape the cap governs: an uncapped probe reconstructs each one in full
@@ -80,7 +80,7 @@ test("connector probe reads by the query, not by the learnt continuation", async
   mind.beginResponse();
   try {
     const { sites } = mind.recogniseSpan(bytes);
-    // EXACT ISOLATION.  resolveConnectors also reads bytes the probe has
+    // EXACT ISOLATION.  offerConnectors also reads bytes the probe has
     // nothing to do with (the n-ary bridge reads each ordered node in full, and
     // legitimately so).  The probe itself early-returns when answeredSpans is
     // empty, so running the SAME call both ways and differencing leaves exactly
@@ -88,12 +88,12 @@ test("connector probe reads by the query, not by the learnt continuation", async
     const m = mind.meter;
     mind.answeredSpans = [];
     const a0 = m.byteReads, b0 = m.bytesRead;
-    await resolveConnectors(mind, sites, bytes);
+    offerConnectors(mind, sites, bytes);
     const baseReads = m.byteReads - a0, baseBytes = m.bytesRead - b0;
 
     mind.answeredSpans = [[0, 1]];
     const a1 = m.byteReads, b1 = m.bytesRead;
-    await resolveConnectors(mind, sites, bytes);
+    offerConnectors(mind, sites, bytes);
     const reads = (m.byteReads - a1) - baseReads;
     const read = (m.bytesRead - b1) - baseBytes;
 
@@ -107,7 +107,7 @@ test("connector probe reads by the query, not by the learnt continuation", async
     // below is trivially true and proves nothing.
     assert.ok(
       reads > 0,
-      `resolveConnectors made no byte reads — the probe never ran (sites=${sites.length}), ` +
+      `offerConnectors made no byte reads — the probe never ran (sites=${sites.length}), ` +
         `so this file is not testing anything`,
     );
 

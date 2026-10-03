@@ -12,6 +12,15 @@ discovering bugs:**
   leads to accidental bugs, and real-world corpus must not be compromised.
 - Something that happens due to deduplication, a tie-breaking rule, etc., isn't
   a bug—and that’s a subtle point.
+- A change in behavior is not a behavioral regression: A change that shifts a
+  response from correct to incorrect is not necessarily a regression. Sometimes,
+  there may be many other responses that were incorrect but have become correct.
+  Overall, there must be a net gain. Budget adjustments or computational
+  optimizations often require this.
+- Often, a pathological search is not necessarily resolved by a constant
+  derivative. A constant derivative is typically a type of short-circuit
+  breaker; it can cause truncation and is not necessarily a budget-related
+  measure. Therefore, it must be used wisely.
 
 ### 1. `score >= threshold` decides identity
 
