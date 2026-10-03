@@ -238,8 +238,16 @@ const sync = await prefetchResonance(resonance, spans);
 ```
 
 The synchronous op callbacks never await — they read from the pre-resolved
-snapshots. The public `Mind.compute(name, operands)` path pre-resolves every
-symbol span before the synchronous kernel runs, using the same discipline.
+snapshots. A named operation applied to the query's operand stream resolves
+opposites ON DEMAND (`withOppositesOnDemand`). The kernel runs against a
+snapshot of the opposites resolved so far. When it asked for one of its symbol
+operands that is not resolved yet, that one is resolved through the host and the
+pure kernel runs again. The result is the eager prefetch's, but only the
+polymorphic inverse reads opposites. Before this, every symbol operand of ANY
+operation paid one host call, and on Sema each is a halo-index query (30–200 ms
+of a plain dialogue turn's parse that computed nothing). The public
+`Mind.compute(name, operands)` path pre-resolves every symbol span before the
+synchronous kernel runs, using the same discipline.
 
 ### The mind loop
 
