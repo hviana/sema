@@ -71,6 +71,35 @@ went 185 s / 4.4 GB retained → 40 s / 81 MB, same answer). A grouping rule
 written twice would be a write/read drift waiting to happen; written once, the
 two folds cannot disagree about the tree.
 
+## Same tree is not enough — the read side names as the write side names
+
+The store's `intern` names a branch by its children, and when they name none it
+looks up the FLAT node over the same bytes and REUSES it (step 1b, "same bytes,
+same node"). Every deposit interns flat nodes — its whole input and each
+canonical window — so a later deposit's branch is often stored as an earlier
+deposit's window (`ver` + `!` stored as the window `ver!`). The same tree is
+then named by a node no child lookup can reach. `exactNode` and `foldTree` name
+a branch exactly as `intern` does (`branchNaming`, `src/mind/primitives.ts`):
+the children first, the flat node over the same bytes when they name nothing —
+and an unnamed child does not settle it, since the write side minted that child
+and still reached step 1b. Measured on the 31.7M-node store: 7 of 80 dialogue
+turns asked verbatim had resolved to nothing and fell to the composition path
+(26–41 s); they now resolve to their own context.
+
+A name found only through the bytes is where the exact lookup used to MISS, and
+a flat index entry is not a learnt structure, so `resolve` still asks the
+canonical class there (`exactNaming`'s `byBytes`): it holds the learnt member
+that leads somewhere, when there is one. The store holds such byte-only names
+from an earlier deposit path (today's deposits always intern the structure
+beside the flat copy), which is why `test/152` builds the state through the
+store's write API.
+
+One stored turn of the same set still does not resolve: its context was stored
+with cuts at the ends of the conversation's EARLIER contexts (103 and 227 bytes
+into a 257-byte context) — a boundary-imposed shape neither today's deposit path
+nor the training-time one produces from these bytes, and that the read side
+could reproduce only by guessing turn boundaries, which this contract forbids.
+
 ## Optional canonical capability
 
 `canonAdd`/`canonFind` (`src/store.ts` — `canonCount`/`eachContent`) is an
@@ -99,6 +128,9 @@ any change here.
 - `test/148` — the identity fold names exactly what the vector fold names (every
   sub-span of corpus and noise), and groups exactly as it does over long
   low-entropy streams that force the `itemKey` split.
+- `test/152` — a deposit stored through an earlier deposit's flat window
+  resolves to its own context, both folds name it, and it is answered on the
+  exact path.
 
 See:
 `src/geometry.ts:contentLevels`/`contentBoundaries`/`contentFoldIncremental`/`stablePrefixFold`/`contentIdentity`;

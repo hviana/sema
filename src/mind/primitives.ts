@@ -15,7 +15,7 @@ import {
   stackGrids,
 } from "../geometry.js";
 import { canonHash } from "../canon.js";
-import { bytesEqual, latin1 } from "../bytes.js";
+import { bytesEqual, concatBytes, latin1 } from "../bytes.js";
 import { ALL } from "./types.js";
 import type { Input, MindContext } from "./types.js";
 import type { ContentFold } from "../geometry.js";
@@ -238,12 +238,10 @@ export function foldTree(
     return { end, node };
   }
   let pos = start;
-  let known = true;
-  const kids: number[] = [];
+  const kids: Array<number | null> = [];
   for (const k of n.kids) {
     const r = foldTree(ctx, k, pos, visit);
-    if (r.node === null) known = false;
-    else if (known) kids.push(r.node);
+    kids.push(r.node);
     pos = r.end;
   }
   // Same store-probe elision as the leaf case: a cached entry already names
@@ -251,16 +249,26 @@ export function foldTree(
   // id need not be re-derived.  Using it also keeps a warm walk's ids
   // bit-identical to a cold walk's rather than re-deriving them from children
   // that may themselves have come from cache.
-  const node = cached !== undefined
-    ? cached.id
-    : known
-    ? ctx.store.findBranch(kids)
-    : null;
+  const named = cached !== undefined
+    ? { id: cached.id, byBytes: false }
+    : branchNaming(ctx, kids, treeBytes(n));
+  const node = named.id;
   visit?.(n, start, pos, node);
   if (node !== null && ctx._resolvedSubtrees) {
     ctx._resolvedSubtrees.set(n, { id: node, len: pos - start });
   }
   return { end: pos, node };
+}
+
+/** A perceived subtree's bytes, its leaves in order. */
+function treeBytes(n: Sema): Uint8Array {
+  const parts: Uint8Array[] = [];
+  const walk = (x: Sema): void => {
+    if (x.kids === null) parts.push(x.leaf ?? new Uint8Array(0));
+    else for (const k of x.kids) walk(k);
+  };
+  walk(n);
+  return concatBytes(parts);
 }
 
 /** The EXACT content-addressed node of a byte stream — `foldTree(perceive)`,
@@ -270,42 +278,84 @@ export function foldTree(
  *  fold's SHAPE and the store's answer per node, never its vectors:
  *  {@link contentIdentity} walks the same shape (geometry.ts — one grouping
  *  rule, two algebras) and asks the store bottom-up, building no D-dimensional
- *  gist and leaving nothing in the perception memo.  Before any lookup, every
- *  multi-byte level-0 segment must pass the store's negative filter
- *  (`flatBranchMayExist`, whose "no" is exact): a segment folds as ONE flat
- *  node over single-byte atoms, so one missing segment means the fold names
- *  nothing, and the miss costs O(bytes) of hashing.  `test/148` pins the
- *  agreement with the full fold over random and corpus spans. */
+ *  gist and leaving nothing in the perception memo.  Each node is named the
+ *  way the store's write side names it ({@link branchNaming}).  `test/148` pins
+ *  the agreement with the full fold over random and corpus spans. */
 export function exactNode(ctx: MindContext, bytes: Uint8Array): number | null {
-  if (bytes.length === 0) return foldTree(ctx, perceive(ctx, bytes), 0).node;
+  return exactNaming(ctx, bytes).id;
+}
+
+/** {@link exactNode}, with whether the span's own name was found only through
+ *  its BYTES — its children named no branch, and the flat node over the same
+ *  bytes did ({@link branchNaming}).  That is where the exact lookup used to
+ *  MISS, so it is where {@link resolve} still asks the canonical class: the
+ *  class may hold the learnt member that leads somewhere, which a flat index
+ *  entry need not (measured: `tonight` named an edge-less window and
+ *  pre-empted the case-folded `Tonight` whose edge a composition stood on).
+ *  Recognition's probes reach it through `resolve`; asking it again for the
+ *  perceived tree's own byte-named groups changed none of 116 real queries and
+ *  no test, so it is not asked there. */
+export function exactNaming(
+  ctx: MindContext,
+  bytes: Uint8Array,
+): { id: number | null; byBytes: boolean } {
+  if (bytes.length === 0) {
+    return { id: foldTree(ctx, perceive(ctx, bytes), 0).node, byBytes: false };
+  }
   if (ctx.meter) ctx.meter.identityBytes += bytes.length;
-  const store = ctx.store;
-  const flat = (seg: Uint8Array): number | null =>
-    store.findFlatBranch
-      ? store.findFlatBranch(seg)
-      : store.findBranch(Array.from(seg, (b) => -(b + 1)));
-  let refused = false;
-  const node = contentIdentity(
+  let byBytes = false;
+  const id = contentIdentity(
     ctx.space,
     ctx.alphabet,
     bytes,
     (from, to) =>
       to - from === 1
-        ? store.findLeaf(bytes.subarray(from, to))
-        : flat(bytes.subarray(from, to)),
-    (kids) => store.findBranch(kids),
-    (from, to) => {
-      if (to - from < 2) return true;
-      const seg = bytes.subarray(from, to);
-      const may = store.flatBranchMayExist
-        ? store.flatBranchMayExist(seg)
-        : flat(seg) !== null;
-      if (!may) refused = true;
-      return may;
+        ? ctx.store.findLeaf(bytes.subarray(from, to))
+        : flatNode(ctx, bytes.subarray(from, to)),
+    (kids, from, to) => {
+      const named = branchNaming(ctx, kids, bytes.subarray(from, to));
+      if (from === 0 && to === bytes.length) byBytes = named.byBytes;
+      return named.id;
     },
   );
-  if (refused && ctx.meter) ctx.meter.resolveSegmentRefusals++;
-  return node;
+  return { id, byBytes };
+}
+
+/** The flat node over a span's single-byte atoms — the node every deposit
+ *  interns for its whole input and for each canonical window (learning.ts
+ *  `deposit`, `indexSubSpans`).  The store's negative filter refuses most
+ *  misses without a lookup. */
+function flatNode(ctx: MindContext, span: Uint8Array): number | null {
+  const store = ctx.store;
+  return store.findFlatBranch
+    ? store.findFlatBranch(span)
+    : store.findBranch(Array.from(span, (b) => -(b + 1)));
+}
+
+/** THE READ SIDE NAMES A BRANCH EXACTLY AS THE WRITE SIDE DID.  `intern`
+ *  (store.ts) names a branch by its children; when they name none, it looks up
+ *  the flat node over the same bytes and REUSES it (step 1b, "same bytes, same
+ *  node") — so a deposit whose fold grouped `ver` + `!` was stored with the
+ *  window `ver!` as that child.  Reading by the children alone could never
+ *  name such a deposit again: measured on the 31.7M-node store, 8 of 80 stored
+ *  dialogue turns asked verbatim resolved to nothing (a 25-byte turn, a final
+ *  `?` or `!`, …) and fell to the composition path.  Same order as the write
+ *  side: the children first, the bytes when they name nothing — and an unnamed
+ *  child does not settle it, since the write side minted that child and still
+ *  reached step 1b. */
+function branchNaming(
+  ctx: MindContext,
+  kids: ReadonlyArray<number | null>,
+  span: Uint8Array,
+): { id: number | null; byBytes: boolean } {
+  if (kids.every((k) => k !== null)) {
+    const id = ctx.store.findBranch(kids as number[]);
+    if (id !== null) return { id, byBytes: false };
+  }
+  if (kids.length < 2) return { id: null, byBytes: false };
+  const id = flatNode(ctx, span);
+  if (id !== null && ctx.meter) ctx.meter.flatBranchNames++;
+  return { id, byBytes: id !== null };
 }
 
 /** The canonical node id of a byte span: perceive it in isolation — the way
@@ -314,9 +364,9 @@ export function exactNode(ctx: MindContext, bytes: Uint8Array): number | null {
 export function resolve(ctx: MindContext, bytes: Uint8Array): number | null {
   if (bytes.length === 0) return null;
   if (ctx.meter) ctx.meter.resolves++;
-  const exact = exactNode(ctx, bytes);
-  if (exact !== null) return exact;
-  return canonResolve(ctx, bytes);
+  const { id: exact, byBytes } = exactNaming(ctx, bytes);
+  if (exact !== null && !byBytes) return exact;
+  return canonResolve(ctx, bytes) ?? exact;
 }
 
 /** Equivalence-class resolution: when the exact content-addressed lookup

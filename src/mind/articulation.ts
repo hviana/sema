@@ -4,6 +4,7 @@
 //                using concept (halo) resonance to match the voices.
 
 import { Vec } from "../vec.js";
+import { indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { spliceAll } from "./types.js";
 import { recognise } from "./recognition.js";
@@ -75,8 +76,19 @@ export async function articulate(
     const found = bestHaloMate(ctx, h, voices, (v) => v.halo);
     if (!found) continue;
     const voice = found.item;
+    // THE ASKER'S WORDING ALREADY HOLDING THE FORM is not a re-voicing of it:
+    // splicing it in would add the asker's other words to the answer.  That is
+    // what `contains` asks of the DAG, and the DAG can miss it — the fold cuts
+    // `eva director` as `eva d|irector`, so `eva` is no structural child of it
+    // — so the question is also asked of the bytes, the reading that cannot
+    // miss.  Measured (test/106's chain): the answer's `eva`, a halo mate of the
+    // asker's `eva director` because both lead to the same fact, was revoiced
+    // as "The director of eva director is Gustaf Molander."
+    const formBytes = store.bytesPrefix(s.payload, voice.bytes.length + 1);
     if (
       voice.node === s.payload || contains(ctx, voice.node, s.payload) ||
+      (formBytes.length <= voice.bytes.length &&
+        indexOf(voice.bytes, formBytes, 0) >= 0) ||
       answers(ctx, voice.node, s.payload)
     ) {
       continue;

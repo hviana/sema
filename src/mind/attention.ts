@@ -2105,20 +2105,40 @@ export function canonicalChunkId(
     // by comparing against that count.  (It used to: on test/24's gap-3.1
     // fixture the region `ace and ` had its saturated window replaced by the
     // unsaturated 2-byte prefix `e `, and that sub-window anchor voted.)
-    let bestId = flatId;
-    let bestReach = edgeAncestors(ctx, flatId, N, reachMemo);
+    //
+    // So a window's anchor is its SHORTEST saturated form when any saturates,
+    // and its widest-reaching form otherwise — and the forms are climbed
+    // shortest first, stopping at the first that saturates: the forms longer
+    // than it cannot change the anchor.  Measured over 8 queries on the
+    // 31.7M-node store: 339 of 347 windows saturate, 312 already at their
+    // 2-byte prefix, while the full window and the 3-byte prefix — climbed
+    // first, to √N contexts each — were 89% of the visits.
+    const forms: number[] = [flatId];
     for (let k2 = 1; k2 < len; k2++) {
-      const shortIds = ids.slice(0, len - k2);
-      const shortId = ctx.store.findBranch(shortIds);
-      if (shortId === null) continue;
-      const shortReach = edgeAncestors(ctx, shortId, N, reachMemo);
-      if (
-        shortReach.saturated ||
-        (!bestReach.saturated &&
-          shortReach.contextsReached > bestReach.contextsReached)
-      ) {
-        bestId = shortId;
-        bestReach = shortReach;
+      const shortId = ctx.store.findBranch(ids.slice(0, len - k2));
+      if (shortId !== null) forms.push(shortId);
+    }
+    const reaches: AncestorReach[] = new Array(forms.length);
+    let bestId: number | null = null;
+    let bestReach: AncestorReach | null = null;
+    for (let f = forms.length - 1; f >= 0; f--) {
+      const r = edgeAncestors(ctx, forms[f], N, reachMemo);
+      if (r.saturated) {
+        bestId = forms[f];
+        bestReach = r;
+        break;
+      }
+      reaches[f] = r;
+    }
+    if (bestId === null || bestReach === null) {
+      // None saturates: the widest reach, the longer form on a tie.
+      bestId = forms[0];
+      bestReach = reaches[0];
+      for (let f = 1; f < forms.length; f++) {
+        if (reaches[f].contextsReached > bestReach.contextsReached) {
+          bestId = forms[f];
+          bestReach = reaches[f];
+        }
       }
     }
     if (fallback === null) fallback = bestId;

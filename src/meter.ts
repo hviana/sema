@@ -147,6 +147,9 @@ export class Meter {
    *  for its node id, no vectors).  Perception's content-addressed half: what
    *  used to show up in `perceivedBytes` when every resolve folded vectors. */
   identityBytes = 0;
+  /** Branches the read side named by their BYTES — the flat node the write
+   *  side reused when the children named none (primitives.ts `branchNaming`). */
+  flatBranchNames = 0;
   /** `recognise` calls that actually ran. */
   recognitions = 0;
   /** Bytes recognised by those calls. */
@@ -161,11 +164,6 @@ export class Meter {
   recogniseInteriorPairs = 0;
   /** `resolve` — whole-span content-addressed identity requests. */
   resolves = 0;
-  /** Exact lookups (`resolve`'s exact tier, `canonResolve`'s direct tier)
-   *  DECIDED by the segment probe — a level-0 content segment was not a stored
-   *  node, so no fold was built.  Each one is a perception that did not happen;
-   *  the answer is the one the fold would have given (see `exactNode`). */
-  resolveSegmentRefusals = 0;
 
   // ── Mind: the consensus climb ───────────────────────────────────────────
   /** `climbAttentionAll` calls that actually climbed. */

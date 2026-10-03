@@ -92,3 +92,24 @@ test("a query with no tail is answered directly, not by a join", async () => {
   );
   await mind.store.close();
 });
+
+test("the asker's wording that already holds the answer's form is not spliced into it", async () => {
+  // Articulation revoices an answer form in the asker's words when the two
+  // keep the same company (halo).  `eva` and `eva director` keep the SAME
+  // company here — both lead to the same fact — but the asker's wording holds
+  // the form plus a further word: splicing it in is not a re-voicing, it adds
+  // the asker's other words to the answer.  The DAG cannot see the containment
+  // (the fold cuts `eva director` as `eva d|irector`), so it is read off the
+  // bytes.  Observed before: "The director of eva director is Gustaf Molander."
+  const lower = "The director of eva is Gustaf Molander.";
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store });
+  await mind.ingest([
+    ["eva", lower],
+    ["eva director", lower],
+    ["gustaf molander", F2],
+    ["gustaf molander country", F2],
+  ]);
+  assert.equal(text(await mind.respond("eva director")).trim(), lower);
+  await mind.store.close();
+});

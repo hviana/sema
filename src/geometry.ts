@@ -855,9 +855,12 @@ function vectorFold(space: Space): FoldAlgebra<Folded> {
 }
 
 /** An item of the identity fold: the node it names (null = names nothing),
- *  and its raw gist read one coordinate at a time, on demand. */
+ *  the byte span it covers, and its raw gist read one coordinate at a time, on
+ *  demand. */
 interface IdentityItem {
   id: number | null;
+  from: number;
+  to: number;
   coord: (p: number) => number;
   key?: number;
 }
@@ -889,33 +892,33 @@ function boundCoord(
  *  lazily through {@link boundCoord}, bit-identical to the coordinates the
  *  vector fold computes, so the grouping (the SAME {@link groupByLevel}) cannot
  *  differ.  `segment(from, to)` names a level-0 segment (one flat node over
- *  single-byte atoms, or the atom itself), `branch(kids)` a group; an unnamed
- *  segment ends the walk at once.  `admit`, when given, is asked of EVERY
- *  segment before any is named — a negative filter whose "no" must be exact —
- *  so a miss anywhere costs no lookup at all.  An empty stream is the
- *  caller's: its fold is the alphabet's zero-byte leaf, not a segment. */
+ *  single-byte atoms, or the atom itself); `branch(kids, from, to)` names the
+ *  group covering [from, to) — `kids` holds null for an unnamed child, because
+ *  the store names a branch by its BYTES when its children do not name it
+ *  (the write side's step 1b, store.ts `intern`), so an unnamed child does not
+ *  settle its ancestors.  Every item's grouping key is read from its content,
+ *  named or not, for the same reason.  An empty stream is the caller's: its
+ *  fold is the alphabet's zero-byte leaf, not a segment. */
 export function contentIdentity(
   space: Space,
   alphabet: Alphabet,
   bytes: Uint8Array,
   segment: (from: number, to: number) => number | null,
-  branch: (kids: number[]) => number | null,
-  admit?: (from: number, to: number) => boolean,
+  branch: (
+    kids: ReadonlyArray<number | null>,
+    from: number,
+    to: number,
+  ) => number | null,
 ): number | null {
   const { cuts, levels } = contentLevels(space, bytes);
   const edges = [0, ...cuts, bytes.length];
-  if (admit !== undefined) {
-    for (let i = 0; i + 1 < edges.length; i++) {
-      if (!admit(edges[i], edges[i + 1])) return null;
-    }
-  }
   const segs: IdentityItem[] = [];
   for (let i = 0; i + 1 < edges.length; i++) {
     const from = edges[i], n = edges[i + 1] - from;
-    const id = segment(from, edges[i + 1]);
-    if (id === null) return null;
     segs.push({
-      id,
+      id: segment(from, edges[i + 1]),
+      from,
+      to: edges[i + 1],
       coord: n === 1 ? (p) => alphabet.vecs[bytes[from]][p] : (p) =>
         boundCoord(
           space,
@@ -928,20 +931,17 @@ export function contentIdentity(
   if (segs.length === 1) return segs[0].id;
   const alg: FoldAlgebra<IdentityItem> = {
     join: (items) => {
-      let id: number | null = null;
-      if (items.every((it) => it.id !== null)) {
-        id = branch(items.map((it) => it.id!));
-      }
+      const from = items[0].from, to = items[items.length - 1].to;
       return {
-        id,
+        id: branch(items.map((it) => it.id), from, to),
+        from,
+        to,
         coord: (p) =>
           boundCoord(space, items.length, (k, at) => items[k].coord(at), p),
       };
     },
-    // An unnamed item's key is moot: an unnamed node leaves its root unnamed
-    // whatever the grouping, so its coordinates are never read.
     key: (item) =>
-      item.id === null ? 0 : item.key ??= itemKey(
+      item.key ??= itemKey(
         Array.from({ length: ITEM_KEY_COORDS }, (_, d) => item.coord(d)),
       ),
   };
