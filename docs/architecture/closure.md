@@ -67,12 +67,12 @@ order, never revisited.
 
 ## The four quantities (trap 13), and where each stands
 
-| Quantity                | Status                                                                                                                                                                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| offer of a hop          | Consequence. Chart: the corpus's continuations under the READ cap, each a MOVE priced STEP, the search decides (`test/112`). Walk: absorb/pivot, the law admits.                                                                              |
-| depth of a join         | Consequence. The join consumes the shortest tail prefix naming a learnt key that leads — CONTAINS (resolves) ∧ MOVES (leads) — and chains until the tail is consumed; no count (`test/108`).                                                  |
-| scope of a gap          | Consequence for alignment (`alignAround` walks outward, no cap). NOT for recognition's interior pass: its reach `W⁴ + 2r` bounds an exhaustive embedded-form probe; exact unbounded reach needs a whole-stream index the store does not have. |
-| scope of a substitution | Consequence: the gap between two aligned anchors (`unexplainedSpans`), gated as scaffolding by the global commonality reading. The filler-unanimity window (`chainReach`) is a derived decision scale, not an explosion cap.                  |
+| Quantity                | Status                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| offer of a hop          | Consequence. Chart: the corpus's continuations under the READ cap, each a MOVE priced STEP, the search decides (`test/112`). Walk: absorb/pivot, the law admits.                                                                                                                                                                                                                                  |
+| depth of a join         | Consequence. The join consumes the shortest tail prefix naming a learnt key that leads — CONTAINS (resolves) ∧ MOVES (leads) — and chains until the tail is consumed; no count (`test/108`). It is priced for the facts a lightest derivation STANDS ON, round by round (`solve`'s join license), never for every fact the exploration reaches — the `deepen` cure for the `recompleteNode` trap. |
+| scope of a gap          | Consequence for alignment (`alignAround` walks outward, no cap). NOT for recognition's interior pass: its reach `W⁴ + 2r` bounds an exhaustive embedded-form probe; exact unbounded reach needs a whole-stream index the store does not have.                                                                                                                                                     |
+| scope of a substitution | Consequence: the gap between two aligned anchors (`unexplainedSpans`), gated as scaffolding by the global commonality reading. The filler-unanimity window (`chainReach`) is a derived decision scale, not an explosion cap.                                                                                                                                                                      |
 
 ## One cost home
 
@@ -113,3 +113,5 @@ vocabulary, not the tracer's.
 - `test/137.7` — no transition is built by hand outside the law.
 - `test/149` — the engine: ¬FIXED first, layers as phases, engagement, a refusal
   ends one layer, and the pipeline sequences no layer by hand.
+- `test/150` — the join prices the facts a derivation stands on, not every fact
+  the exploration reaches (a hub's degree changes nothing).

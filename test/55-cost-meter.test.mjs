@@ -156,10 +156,10 @@ test("7. a bigger query costs more than a smaller one", async () => {
     "the capital of France is and the capital of Japan is and Paris is in",
   );
   const big = mind.lastCost.counters;
-  assert.ok(
-    big.perceivedBytes > small.perceivedBytes,
-    "perception cost tracks query length",
-  );
+  // Fold work in both of its forms: the vector fold (perception) and the
+  // identity fold `exactNode` reads a node id through without vectors.
+  const folded = (c) => (c.perceivedBytes ?? 0) + (c.identityBytes ?? 0);
+  assert.ok(folded(big) > folded(small), "fold cost tracks query length");
   await mind.store.close();
 });
 

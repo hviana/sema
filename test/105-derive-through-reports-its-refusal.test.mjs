@@ -52,10 +52,13 @@ const misses = (steps) =>
 
 test("the join's refusal is reported, naming the candidate and tail it tried", async () => {
   const mind = await chain();
-  // The THREE-relation query: the second join is still refused (the rule
-  // concludes terminal — the study's other half), so this is where the refusal
-  // is observable.  The two-relation one now JOINS (measured, and pinned by
-  // test/99's spec), which is why this test moved here.
+  // The THREE-relation query: the chain joins through to Stockholm, and on the
+  // way the fact it stands on ("…Gustaf Molander is Sweden.") offers its other
+  // entity, "gustaf molander", with the remaining tail " capital" — a key no
+  // deposit learnt, so that join is refused, and that refusal is observable.
+  // A join is priced only for a fact a derivation STANDS ON (graph-search.ts,
+  // solve), so the refusal reported is that fact's — not one from a fact the
+  // exploration merely reached.
   const steps = [];
   await mind.respond("eva director country capital", (s) => steps.push(s));
   const got = misses(steps);
@@ -63,7 +66,7 @@ test("the join's refusal is reported, naming the candidate and tail it tried", a
   const named = got.some((s) => {
     const parts = (s.inputs ?? []).map((i) => String(i.text));
     return parts.some((t) => t.includes("gustaf molander")) &&
-      parts.some((t) => t.includes("country"));
+      parts.some((t) => t.includes("capital"));
   });
   assert.ok(named, "the report must name the candidate and the tail it tried");
   // …and WHERE the candidate came from: a refusal that names only bytes leaves

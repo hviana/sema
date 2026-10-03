@@ -292,6 +292,42 @@ export type DerivationMove =
   | "pool-vote" // N premises→conclusion, evidence pooled (combine:"sum" — see derive)
   | "step"; // any other single-premise move (fallback)
 
+/** The chart's canonical key — an item's boundary signature (see
+ *  {@link DeductionSystem.key}).  Module-level because the join license
+ *  ({@link GraphSearch.solve}) names facts by the same key the chart does. */
+function chartKey(it: GItem): string {
+  if (it.kind === "cover") return "c" + it.p;
+  if (it.kind === "form") {
+    return `f${it.i}.${it.j}.${it.node}.${it.via ? 1 : 0}.${it.rcmp ? 1 : 0}`;
+  }
+  return `o${it.i}.${it.j}.${it.cover ? 1 : 0}.${it.rec ? 1 : 0}.${
+    it.fix ? 1 : 0
+  }.${it.throughFact ? 1 : 0}.${it.node ?? -1}.${latin1(it.bytes)}`;
+}
+
+/** The facts a derivation STANDS ON — every node-bearing `out` in its proof
+ *  tree, premises before conclusions, each once. */
+function factsOf(root: Derivation<GItem>): OutItem[] {
+  const out: OutItem[] = [];
+  const seen = new Set<Derivation<GItem>>();
+  const walk = (d: Derivation<GItem>): void => {
+    if (seen.has(d)) return;
+    seen.add(d);
+    for (const p of d.premises) walk(p);
+    if (d.item.kind === "out" && d.item.node !== undefined) out.push(d.item);
+  };
+  walk(root);
+  return out;
+}
+
+/** The joins granted to the facts a derivation stood on: fact chart key → the
+ *  conclusions {@link GraphSearch.deriveThrough} derives through it, computed
+ *  once per fact (an empty list is an answer: that fact joins nothing). */
+type JoinLicense = Map<
+  string,
+  ReadonlyArray<{ conclusion: GItem; cost: number }>
+>;
+
 /** Flatten a {@link GItem} into the {@link DerivationItem} a rationale shows. */
 function derivationItem(it: GItem): DerivationItem {
   if (it.kind === "cover") return { kind: "cover", span: [it.p, it.p] };
@@ -517,26 +553,80 @@ export class GraphSearch {
     computedResults?: ReadonlyArray<ComputedResult>,
     onDerivation?: (steps: DerivationStep[]) => void,
   ): { segs: Seg[]; cost: number; moves: number } | null {
-    const system = this.buildSearch(
-      spanLen,
-      recognition.sites,
-      conceptTarget,
-      recognition.leaves,
-      recognition.splits,
-      substitutions,
-      connectors,
-      computedResults,
-    );
+    // The query's own bytes, tiled from its perceived leaves.  A JOIN reads the
+    // tail a produced fact's contained entity has to combine with, and the
+    // search otherwise only ever sees positions, never the bytes behind them.
+    const queryBytes = new Uint8Array(spanLen);
+    for (const lf of recognition.leaves) {
+      queryBytes.set(lf.bytes.subarray(0, lf.end - lf.start), lf.start);
+    }
+    // The nodes this span's recognition names — read ONCE per solve, on the first
+    // join that asks, instead of re-reading the memo per fact.
+    let queryNodeSet: ReadonlySet<number> | undefined;
+    const queryNodes = (): ReadonlySet<number> =>
+      queryNodeSet ??= new Set<number>(
+        (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) =>
+          s.payload
+        ),
+      );
+    // THE JOIN DERIVES THROUGH THE FACTS THE DERIVATION STANDS ON — never
+    // through every fact the exploration REACHES.  How many facts the search
+    // reaches is set by how densely the corpus interconnects the forms on the
+    // way (a dialogue hub's continuations, walked to their fixpoints, are
+    // thousands), and pricing a join from each of them made the work track the
+    // corpus instead of the answer: measured on the 31.7M-node store, a 46-byte
+    // query reached 2,000+ fixpoints in a minute, each paying an entity scan,
+    // past 10 GB.  It is the trap {@link recompleteNode} already records, and
+    // the same cure as {@link deepen}: the expensive step runs on what the
+    // lightest derivation CHOSE.
+    //
+    // So the search runs to its lightest derivation, the facts that derivation
+    // stands on are LICENSED — their joins computed once — and it runs again
+    // with those joins as ordinary rules of the same system, priced exactly as
+    // before (the fact's own cost + STEP).  A join's conclusion is itself a fact
+    // the next derivation may stand on, so chains extend round by round until
+    // no newly licensed fact joins anything: the depth is the answer's, never a
+    // count.  A round is re-run only when a newly licensed fact DOES join, so a
+    // query whose facts join nothing pays one search, as before.
+    const joins: JoinLicense = new Map();
     // Search-effort accounting (src/meter.ts): the chart's pops/pushes are
     // the cover's real cost, and a heuristic that stops being admissible
     // shows up as a pop count that explodes while the answer stays the same.
     const meter = this.host.meter;
-    const stats = meter ? { pops: 0, pushes: 0 } : undefined;
-    const derivation = lightestDerivation(system, stats);
-    if (meter && stats) {
-      meter.searches++;
-      meter.searchPops += stats.pops;
-      meter.searchPushes += stats.pushes;
+    let derivation: Derivation<GItem> | null;
+    for (;;) {
+      const system = this.buildSearch(
+        spanLen,
+        recognition.sites,
+        conceptTarget,
+        recognition.leaves,
+        recognition.splits,
+        queryBytes,
+        joins,
+        substitutions,
+        connectors,
+        computedResults,
+      );
+      const stats = meter ? { pops: 0, pushes: 0 } : undefined;
+      derivation = lightestDerivation(system, stats);
+      if (meter && stats) {
+        meter.searches++;
+        meter.searchPops += stats.pops;
+        meter.searchPushes += stats.pushes;
+      }
+      if (derivation === null) break;
+      let joined = false;
+      for (const fact of factsOf(derivation)) {
+        const k = chartKey(fact);
+        if (joins.has(k)) continue;
+        if (meter) meter.joinFacts++;
+        const granted = [
+          ...this.deriveThrough(fact, queryBytes, spanLen, queryNodes),
+        ].map((r) => ({ conclusion: r.conclusion, cost: r.cost }));
+        joins.set(k, granted);
+        if (granted.length > 0) joined = true;
+      }
+      if (!joined) break;
     }
     // When covering under a substitution map (articulation), a form→out rule is
     // the form EMITTING the asker's voice, not grounding to its own answer — so
@@ -589,6 +679,8 @@ export class GraphSearch {
     conceptTarget: ReadonlyMap<number, number>,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
+    queryBytes: Uint8Array,
+    joins: JoinLicense,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ReadonlyMap<string, Uint8Array>,
     computedResults?: ReadonlyArray<ComputedResult>,
@@ -602,22 +694,6 @@ export class GraphSearch {
       Math.ceil((this.store.edgeSourceCount() * W) / 256),
     ) > this.hubBound();
     const nodeBytes = (n: number) => this.store.bytesPrefix(n, ALL);
-    // The query's own bytes, tiled from its perceived leaves.  A JOIN reads the
-    // tail a produced fact's contained entity has to combine with, and `buildSearch`
-    // otherwise only ever sees positions, never the bytes behind them.
-    const queryBytes = new Uint8Array(queryLen);
-    for (const lf of leaves) {
-      queryBytes.set(lf.bytes.subarray(0, lf.end - lf.start), lf.start);
-    }
-    // The nodes this span's recognition names — read ONCE per solve, on the first
-    // join that asks, instead of re-reading the memo per finalized out.
-    let queryNodeSet: ReadonlySet<number> | undefined;
-    const queryNodes = (): ReadonlySet<number> =>
-      queryNodeSet ??= new Set<number>(
-        (this.host.recogniseSpan?.(queryBytes)?.sites ?? []).map((s) =>
-          s.payload
-        ),
-      );
     // Content-addressed probes over the store's hash-cons maps — the same keys
     // training filled.  No byte-by-byte trie walk.
     const findLeafU = (b: Uint8Array) => this.store.findLeaf(b) ?? undefined;
@@ -647,17 +723,7 @@ export class GraphSearch {
     }
 
     return {
-      key(it) {
-        if (it.kind === "cover") return "c" + it.p;
-        if (it.kind === "form") {
-          return `f${it.i}.${it.j}.${it.node}.${it.via ? 1 : 0}.${
-            it.rcmp ? 1 : 0
-          }`;
-        }
-        return `o${it.i}.${it.j}.${it.cover ? 1 : 0}.${it.rec ? 1 : 0}.${
-          it.fix ? 1 : 0
-        }.${it.throughFact ? 1 : 0}.${it.node ?? -1}.${latin1(it.bytes)}`;
-      },
+      key: chartKey,
       *axioms() {
         yield { item: { kind: "cover", p: 0 }, cost: 0 };
         // One out per tree leaf — content-defined chunks, far fewer than bytes.
@@ -763,9 +829,7 @@ export class GraphSearch {
           findBranchU,
           linksByLeft,
           linksByRight,
-          queryBytes,
-          queryLen,
-          queryNodes,
+          joins,
         });
       },
     };
@@ -1308,7 +1372,10 @@ export class GraphSearch {
    *  fact reached through it.  On the ladder it is one STEP: a direct edge,
    *  exactly as following a literal continuation is.  Deterministic and
    *  point-probed (`resolve` + `nextFirst`, no scan), so it adds no read that
-   *  grows with the corpus.  The move is visible in the rationale as its own act
+   *  grows with the corpus.  Asked ONCE per fact a lightest derivation stood on
+   *  (the join license, {@link solve}) — never per fact the exploration merely
+   *  reached — so the number of facts it prices is the answer's, not the
+   *  corpus's.  The move is visible in the rationale as its own act
    *  (`classifyMove` reports `derive-through`), distinct from the
    *  byte-concatenating `fuse`/`splice` — and named `derive-through` rather than
    *  `join` so it cannot be read as the confluence mechanism's `Provenance`. */
@@ -1321,9 +1388,9 @@ export class GraphSearch {
     if (!this.host.recogniseSpan) return;
     const tail = queryBytes.subarray(fact.j, queryLen);
     if (tail.length === 0) return;
-    // Report ONLY the invocations that could have joined: the search asks this
-    // rule for every finalized out with a node, which includes the one-byte
-    // outs the cover bridges with — measured, 68 refusals for a single
+    // Report ONLY the invocations that could have joined: a derivation stands on
+    // node-bearing outs of every width, including the one-byte outs the cover
+    // bridges with — measured, 68 refusals for a single
     // 3-relation query, all of them letters.  A form shorter than one window is
     // not a fact a join could travel through, so it is not a refusal worth
     // reporting; W is the same line the rest of the mind draws between a chance
@@ -1486,8 +1553,8 @@ export class GraphSearch {
   /** out(i,j,bytes,…): index it for the binary rules, then offer splicing a
    *  learnt connector (the in-search bridge), splitting (at a sub-leaf form
    *  boundary), bridging (cover(i) ∧ this → cover(j)), fusing with an adjacent
-   *  finalised out, and — for a produced fact — JOINING the entity it contains
-   *  with the query's tail ({@link deriveThrough}). */
+   *  finalised out, and — for a LICENSED fact — JOINING the entity it contains
+   *  with the query's tail ({@link deriveThrough}, granted in {@link solve}). */
   private *outRules(
     it: OutItem,
     ctx: {
@@ -1503,9 +1570,7 @@ export class GraphSearch {
       findBranchU: (k: number[]) => number | undefined;
       linksByLeft?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
       linksByRight?: ReadonlyMap<number, Array<[number, Uint8Array]>>;
-      queryBytes: Uint8Array;
-      queryLen: number;
-      queryNodes: () => ReadonlySet<number>;
+      joins: JoinLicense;
     },
   ): Iterable<Rule<GItem>> {
     const { splits, coversDone, outsByStart, outsByEnd, coverableByStart } =
@@ -1606,15 +1671,11 @@ export class GraphSearch {
     // continuation is the derived answer — a genuine relational join, distinct
     // from the confluence mechanism's `join` PROVENANCE — and not the
     // juxtaposition the cover produces when the intermediate key IS named.
-    // Fired per finalized out with a node, so it is the search's own rule, on
-    // the ladder, memoised by {@link key}, and bounded by the fact's own length.
-    if (it.node !== undefined) {
-      yield* this.deriveThrough(
-        it,
-        ctx.queryBytes,
-        ctx.queryLen,
-        ctx.queryNodes,
-      );
+    // On the ladder and memoised by {@link key} like every rule, but fired only
+    // for a fact the solve has LICENSED (a fact a lightest derivation stood on —
+    // see {@link solve}), from the joins computed for it once.
+    for (const g of ctx.joins.get(chartKey(it)) ?? []) {
+      yield { premises: [it], conclusion: g.conclusion, cost: g.cost };
     }
   }
 

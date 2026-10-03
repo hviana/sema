@@ -47,9 +47,9 @@ conversation's persistent ones (content-keyed, cross-turn).
 | Memo                | Key                                       | Scope                                        |
 | ------------------- | ----------------------------------------- | -------------------------------------------- |
 | `perceiveMemo`      | `perceiveKey(bytes)` (latin1)             | response / conversation                      |
-| `recogniseMemo`     | `latin1Key(bytes)`                        | response / conversation                      |
-| `climbMemo`         | `latin1Key(bytes)`                        | response / conversation                      |
-| `canonMemo`         | `latin1Key(bytes)`                        | response (when `canon` set)                  |
+| `recogniseMemo`     | `latin1(bytes)`                           | response / conversation                      |
+| `climbMemo`         | `latin1(bytes)`                           | response / conversation                      |
+| `canonMemo`         | `latin1(bytes)`                           | response (when `canon` set)                  |
 | `_resolvedSubtrees` | `WeakMap<Sema, {id,len}>` (node identity) | response / conversation                      |
 | `_edgeChoice`       | `Map<nodeId, pick>`                       | response only — **cleared** in `endResponse` |
 | `_gistCache`        | `BoundedMap<nodeId, Vec>` 32 MB           | **session-lifetime** (not per-response)      |

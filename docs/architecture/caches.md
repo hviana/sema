@@ -31,6 +31,7 @@ candidate window for `"smallest"` never rescans from front.
 | Cache               | Field                      | Budget                       | `sizeOf`            | Eviction       |
 | ------------------- | -------------------------- | ---------------------------- | ------------------- | -------------- |
 | dedup leaf/branch   | `_leafKey` / `_branchKey`  | `dedupCacheMax` 1M entries   | 1                   | lru            |
+| flat-branch hits    | `_flatKey`                 | `dedupCacheMax` 1M entries   | 1                   | lru+clock      |
 | reconstructed bytes | `_bytesCache`              | `bytesCacheMax` 20 MB        | `byteLength`        | smallest+clock |
 | content length      | `_lenCache`                | `bytesCacheMax`              | 16                  | lru            |
 | node records        | `_recCache`                | `recCacheBytes` 10 MB        | leaf+4·kids+12      | lru+clock      |
@@ -76,10 +77,10 @@ must discharge it.
   `contentFoldIncremental` segments bit-identically.
 - Wrong: mismatched `prev` reused by offset produced wrong tree (336 vs 400
   bytes) — a coincidental prefix length aliased unrelated content.
-- Now: `perceiveDeposit` keys by `latin1Key(bytes.subarray(0,L))` (prefix
-  bytes), probes longest cached proper prefix first; `_depositTrees` populated
-  only for conversational deposits (budget discipline), otherwise cold path
-  always correct.
+- Now: `perceiveDeposit` keys by `latin1(bytes.subarray(0,L))` (prefix bytes),
+  probes longest cached proper prefix first; `_depositTrees` populated only for
+  conversational deposits (budget discipline), otherwise cold path always
+  correct.
 
 ## Pins
 

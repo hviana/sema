@@ -56,6 +56,21 @@ drift without a type error. Levels are read from the hash the cut was accepted
 at — level `L` when `h` vanishes mod `W^(L+1)` — so level-`L` cuts nest inside
 level-`(L-1)` and expected span is `W^(L+1)` bytes.
 
+## One shape, two algebras
+
+Which items group under which parent is decided by the cut levels, the keyring
+and — inside an over-long row — each item's `itemKey` (eight raw gist
+coordinates). `groupByLevel`/`foldSlice` are written ONCE over a fold algebra
+(`join`, `key`) and run over two of them: the vector fold (`perceive`) and the
+identity fold (`contentIdentity`), which names the node a stream folds to by
+asking the store bottom-up and reads only the coordinates `itemKey` hashes,
+lazily, with the same float32 additions in the same order. `exactNode` is the
+identity fold, so resolving a span builds no D-dimensional gist and leaves
+nothing in the perception memo (measured on the 31.7M-node store: one join query
+went 185 s / 4.4 GB retained → 40 s / 81 MB, same answer). A grouping rule
+written twice would be a write/read drift waiting to happen; written once, the
+two folds cannot disagree about the tree.
+
 ## Optional canonical capability
 
 `canonAdd`/`canonFind` (`src/store.ts` — `canonCount`/`eachContent`) is an
@@ -81,7 +96,10 @@ any change here.
 - `test/59` — shift invariance floors (content-defined cuts preserved over
   random binary and prose).
 - `test/63` — offset/W invariance and `contentLevels` distribution expectations.
+- `test/148` — the identity fold names exactly what the vector fold names (every
+  sub-span of corpus and noise), and groups exactly as it does over long
+  low-entropy streams that force the `itemKey` split.
 
 See:
-`src/geometry.ts:contentLevels`/`contentBoundaries`/`contentFoldIncremental`/`stablePrefixFold`;
+`src/geometry.ts:contentLevels`/`contentBoundaries`/`contentFoldIncremental`/`stablePrefixFold`/`contentIdentity`;
 `AGENTS.md` §2 invariants.

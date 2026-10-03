@@ -30,8 +30,11 @@ probes hash then verify: `hashOf`→`h`→`LIMIT 1` fetch→byte compare (bloom
 negative filter first). `flatBranchMayExist(bytes)` is the filter alone — its
 `false` is exact, its `true` means "look it up" — for a caller that will verify
 anyway: `exactNode` (primitives.ts) refuses a stream whose level-0 segment
-cannot exist before building its fold, so a resolve miss costs hashing, not a
-D-dimensional fold, and a hit repeats no lookup.
+cannot exist before naming any node, so a resolve miss costs hashing.
+`findFlatBranch` memoizes HITS (`_flatKey`, keyed by the bytes themselves) and
+never misses — the filter answers first, so a span that is not stored builds no
+key, while the segments the identity fold names, asked by every span that
+contains them, cost a map hit.
 
 `leadsSomewhere(id)` — `hasNext || hasHalo` — is the admission predicate's ONE
 raw definition; `traverse.ts` memoises its edge tier per response.
@@ -51,9 +54,13 @@ window apart. Gists sit in `_pendingGist` (byte-budgeted `BoundedMap`);
 re-indexes geometrically (`mass<=4 || powerOfTwo`) and encodes 2-bit quantized.
 Canon index is optional: `canonAdd`/ `canonFind`/`canonCount` over 32-bit
 canonical hashes, caller verifies bytes. The SQLite backend keeps a negative
-filter over the canon hashes too (built on the first `canonFind`, kept exact on
-`canonAdd`; the table is never deleted from), because recognition and the join
-probe it once per span and almost every answer is "no such key".
+filter over the canon hashes too (kept exact on `canonAdd`; the table is never
+deleted from), because recognition and the join probe it once per span and
+almost every answer is "no such key". It is PERSISTED (`canon_bloom`) in the
+same transaction as the canon rows it covers, stamped with that commit's
+`canon.upto`; an open whose meta disagrees with the stamp (rows written without
+it) rebuilds it by one scan of the h column — seconds on a trained store, paid
+once instead of per process (`test/36`).
 
 ## Containment, batching, LRU
 

@@ -143,6 +143,10 @@ export class Meter {
   perceivedBytes = 0;
   /** `perceive` calls served from the per-response / conversation memo. */
   perceiveHits = 0;
+  /** Bytes walked by the IDENTITY fold (`exactNode` — the fold's shape read
+   *  for its node id, no vectors).  Perception's content-addressed half: what
+   *  used to show up in `perceivedBytes` when every resolve folded vectors. */
+  identityBytes = 0;
   /** `recognise` calls that actually ran. */
   recognitions = 0;
   /** Bytes recognised by those calls. */
@@ -221,7 +225,7 @@ export class Meter {
   //
   // The join's outcome was observable ONLY through the rationale, and the
   // rationale PERTURBS the search (measured: appending text to a refusal note
-  // changed a traced answer).  These four counters are the untraced view — the
+  // changed a traced answer).  These five counters are the untraced view — the
   // same surface every other work counter uses, incremented where the decision
   // is made, never behind a trace guard.
   /** `deriveThrough` yielded — a fact was reached through the subject the query
@@ -234,6 +238,11 @@ export class Meter {
   joinNoKey = 0;
   /** Refused: the fact contains no entity that leads anywhere. */
   joinNoEntity = 0;
+  /** Facts the join was priced for — the facts a lightest derivation stood on
+   *  (graph-search.ts `solve`), each once.  The output-sensitivity of the join
+   *  in one number: it tracks the answer's facts, never how many facts the
+   *  exploration reached (`test/150`). */
+  joinFacts = 0;
   /** `recompleteNode` re-covered a produced form — the descent that decomposes
    *  a completion by ITS OWN kids.  Without this the descent is invisible: a
    *  caller could see the chain's result but not whether the recomposition

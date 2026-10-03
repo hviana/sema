@@ -278,6 +278,7 @@ export function foldTree(
  *  agreement with the full fold over random and corpus spans. */
 export function exactNode(ctx: MindContext, bytes: Uint8Array): number | null {
   if (bytes.length === 0) return foldTree(ctx, perceive(ctx, bytes), 0).node;
+  if (ctx.meter) ctx.meter.identityBytes += bytes.length;
   const store = ctx.store;
   const flat = (seg: Uint8Array): number | null =>
     store.findFlatBranch
