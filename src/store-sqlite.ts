@@ -146,6 +146,17 @@ CREATE TABLE IF NOT EXISTS canon (
   id INTEGER NOT NULL,
   PRIMARY KEY (h, id)
 ) WITHOUT ROWID;
+-- The canon index's negative filter, persisted so an open does not rescan the
+-- h column (seconds on a trained store).  Written in the SAME transaction as
+-- the canon rows it covers, stamped with the meta 'canon.upto' of that commit;
+-- a stamp that disagrees with the meta (rows a writer added without it) makes
+-- the filter stale, and it is rebuilt from the table instead.
+CREATE TABLE IF NOT EXISTS canon_bloom (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  bits BLOB NOT NULL,
+  n    INTEGER NOT NULL,
+  upto TEXT NOT NULL
+);
 -- CONSTITUENT SKETCH (Store.sketchGet/sketchPut): the bottom-k minimal
 -- constituents of a node's subtree, k = √D, chosen by identity hash.  The blob is
 -- a packed int32 little-endian run, already in hash order; an EMPTY blob is a
@@ -254,13 +265,17 @@ export class SQliteStore extends AbstractStore implements Store {
   /** The same negative filter over the CANON index's key hashes.  Recognition's
    *  canonical admission and the join's canonical entity scan ask `canonFind`
    *  once per probed span, and almost every answer is "no such key" — on an
-   *  index that is often EMPTY (it is built only by `buildCanonIndex`).  Built
-   *  lazily on the first `canonFind` (one sequential scan of the h column),
-   *  kept exact on `canonAdd`, dropped and rebuilt bigger when growth saturates
-   *  it.  The canon table is never deleted from, so the filter can never hold a
-   *  false negative: a miss it reports is a miss the query would have
+   *  index that is often EMPTY (it is built only by `buildCanonIndex`).
+   *  Loaded on first use from `canon_bloom` when its stamp matches the meta,
+   *  else built by one sequential scan of the h column; kept exact on
+   *  `canonAdd` (rebuilt bigger from the table, uncommitted rows included,
+   *  when growth saturates it) and persisted with the commit that wrote the
+   *  rows.  The canon table is never deleted from, so the filter can never
+   *  hold a false negative: a miss it reports is a miss the query would have
    *  returned. */
   private _canonBloom: NodeBloom | null = null;
+  /** The in-memory canon filter differs from the persisted one. */
+  private _canonBloomDirty = false;
 
   private _insertNode: any = null;
   private _insertKid: any = null;
@@ -519,7 +534,10 @@ export class SQliteStore extends AbstractStore implements Store {
   }
 
   protected _dbClose(): void {
-    if (this.sqlite) this._bloomPersist();
+    if (this.sqlite) {
+      this._bloomPersist();
+      this._canonBloomPersist();
+    }
     if (this.content) {
       this.content.close();
       this.content = null;
@@ -544,6 +562,8 @@ export class SQliteStore extends AbstractStore implements Store {
 
   protected _dbCommitTx(): void {
     if (!this._inTx || !this.sqlite) return;
+    // The canon filter commits WITH the rows it covers — see canon_bloom.
+    this._canonBloomPersist();
     this._inTx = false; // clear first so a throw can't wedge us mid-commit
     this.sqlite.exec("COMMIT");
   }
@@ -629,7 +649,9 @@ export class SQliteStore extends AbstractStore implements Store {
    *  added before any probe can see it), so `false` is exact. */
   protected override _dbFlatMayExist(h: number, bytes: Uint8Array): boolean {
     if (this._bloom === null) return super._dbFlatMayExist(h, bytes);
-    return this._bloom.mightContain(h);
+    if (this._bloom.mightContain(h)) return true;
+    this.bloomSkips++;
+    return false;
   }
 
   protected _dbFindBranchByKids(
@@ -1070,23 +1092,57 @@ export class SQliteStore extends AbstractStore implements Store {
     // bulk index build coalesces instead of paying autocommit per row.
     this._dbBeginTx();
     this._insCanon.run(h, id);
-    const b = this._canonBloom;
-    if (b !== null) {
-      b.add(h);
-      if (b.saturated) this._canonBloom = null; // rebuilt, bigger, on next find
-    }
+    const b = this._canonFilter();
+    b.add(h);
+    // Rebuilt bigger at once, from the table as THIS connection sees it — the
+    // persisted filter cannot stand in, it lacks this transaction's rows.
+    if (b.saturated) this._canonBloom = this._canonScan();
+    this._canonBloomDirty = true;
   }
 
-  /** The canon filter, built on first use from the index as it stands. */
+  /** The canon filter: the persisted one when its stamp matches the meta,
+   *  else built from the index as it stands. */
   private _canonFilter(): NodeBloom {
     if (this._canonBloom === null) {
-      const b = new NodeBloom(bloomLog2For(this.canonCount()));
-      const scan = this.sqlite!.prepare("SELECT h FROM canon");
-      scan.setReturnArrays(true);
-      for (const r of scan.iterate() as IterableIterator<[number]>) b.add(r[0]);
-      this._canonBloom = b;
+      const row = this.sqlite!.prepare(
+        "SELECT bits, n, upto FROM canon_bloom WHERE id = 1",
+      ).get() as { bits: Uint8Array; n: number; upto: string } | undefined;
+      if (row !== undefined && row.upto === this._canonStamp()) {
+        const b = new NodeBloom(31 - Math.clz32(row.bits.length * 8));
+        b.bits.set(row.bits);
+        b.n = row.n;
+        this._canonBloom = b;
+      } else {
+        this._canonBloom = this._canonScan();
+        this._canonBloomDirty = true;
+      }
     }
     return this._canonBloom;
+  }
+
+  private _canonScan(): NodeBloom {
+    const b = new NodeBloom(bloomLog2For(this.canonCount()));
+    const scan = this.sqlite!.prepare("SELECT h FROM canon");
+    scan.setReturnArrays(true);
+    for (const r of scan.iterate() as IterableIterator<[number]>) b.add(r[0]);
+    return b;
+  }
+
+  /** What a persisted canon filter is stamped with: the incremental build's
+   *  cursor, which every canon writer advances in the transaction it writes. */
+  private _canonStamp(): string {
+    return this._dbGetMeta("canon.upto") ?? "";
+  }
+
+  private _canonBloomPersist(): void {
+    const b = this._canonBloom;
+    if (b === null || !this._canonBloomDirty || !this.sqlite) return;
+    this.sqlite.prepare(
+      "INSERT INTO canon_bloom (id, bits, n, upto) VALUES (1, ?, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET bits = excluded.bits, " +
+        "n = excluded.n, upto = excluded.upto",
+    ).run(b.bits, b.n, this._canonStamp());
+    this._canonBloomDirty = false;
   }
 
   canonFind(h: number): number[] {

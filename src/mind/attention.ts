@@ -34,14 +34,7 @@ import {
   estimatorNoise,
   type StructuralPart,
 } from "../geometry.js";
-import {
-  foldTree,
-  gistOf,
-  latin1Key,
-  perceive,
-  read,
-  resolve,
-} from "./primitives.js";
+import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { leafIdRun } from "./canonical.js";
 import {
@@ -63,7 +56,7 @@ import {
   walkCache,
 } from "./junction.js";
 import type { Vec } from "../vec.js";
-import { indexOf } from "../bytes.js";
+import { indexOf, latin1 } from "../bytes.js";
 import { restates } from "./derivation.js";
 import type { RationaleItem } from "./rationale.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
@@ -501,7 +494,7 @@ export async function climbAttentionAll(
   // Content-keyed memo — works for both single-turn respond() and multi-turn
   // respondTurn().
   if (ctx.climbMemo) {
-    const contentKey = latin1Key(query);
+    const contentKey = latin1(query);
     const modeKey = `${k}:${mode}`;
     let byRead = ctx.climbMemo.get(contentKey);
     if (byRead === undefined) {

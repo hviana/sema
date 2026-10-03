@@ -7,35 +7,20 @@ import { Vec } from "../vec.js";
 import { Sema } from "../sema.js";
 import {
   bytesToTree,
-  contentBoundaries,
   contentFoldIncremental,
+  contentIdentity,
   Grid,
   gridToTree,
   hilbertBytes,
   stackGrids,
 } from "../geometry.js";
 import { canonHash } from "../canon.js";
-import { bytesEqual } from "../bytes.js";
+import { bytesEqual, latin1 } from "../bytes.js";
 import { ALL } from "./types.js";
 import type { Input, MindContext } from "./types.js";
 import type { ContentFold } from "../geometry.js";
 
 // ── Address: bytes → node ──────────────────────────────────────────────
-
-/** The content key of a byte span — one latin1 char per byte, an exact,
- *  collision-free encoding.  Spans on the perception path are query-scale
- *  (windows, regions, candidate spans), so key construction is far cheaper
- *  than the river fold it deduplicates. */
-export function latin1Key(bytes: Uint8Array): string {
-  // Batched String.fromCharCode — avoids the O(n²) cost of repeated += on
-  // potentially-large query spans, and stays well under the ~65536 arg limit.
-  const n = bytes.length;
-  let s = "";
-  for (let i = 0; i < n; i += 4096) {
-    s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 4096, n)));
-  }
-  return s;
-}
 
 /** The {@link perceive} memo key: the span's content PLUS the boundary set it
  *  was folded under.  The tree is a function of BOTH — the same bytes fold
@@ -51,7 +36,7 @@ export function perceiveKey(
   bytes: Uint8Array,
   boundaries?: readonly number[],
 ): string {
-  const k = latin1Key(bytes);
+  const k = latin1(bytes);
   return boundaries === undefined || boundaries.length === 0
     ? k
     : k + "\u0000" + boundaries.join(",");
@@ -155,7 +140,7 @@ export function perceiveDeposit(
     .filter((L) => L >= 2 && L < bytes.length)
     .sort((a, b) => b - a);
   for (const L of lens) {
-    const hit = ctx._depositTrees.get(latin1Key(bytes.subarray(0, L)));
+    const hit = ctx._depositTrees.get(latin1(bytes.subarray(0, L)));
     if (hit !== undefined) {
       prev = hit.content;
       break;
@@ -174,7 +159,7 @@ export function perceiveDeposit(
       ctx._depositLens.clear();
       ctx._depositTrees.clear();
     }
-    ctx._depositTrees.set(latin1Key(bytes), { content: folded.fold });
+    ctx._depositTrees.set(latin1(bytes), { content: folded.fold });
     ctx._depositLens.add(bytes.length);
   }
   return folded.tree;
@@ -279,43 +264,47 @@ export function foldTree(
 }
 
 /** The EXACT content-addressed node of a byte stream — `foldTree(perceive)`,
- *  with its misses decided before the fold is built.
+ *  read for identity alone.
  *
- *  WHY THE SEGMENT PROBE IS EXACT, NOT A FILTER THAT GUESSES.  The fold's level-0
- *  segments are a pure function of the bytes (`contentBoundaries`, the one
- *  boundary rule), each segment folds as ONE flat node over single-byte atoms,
- *  and `foldTree` names a branch only when every child is named.  So the stream
- *  resolves only if every multi-byte segment is itself a stored flat branch — a
- *  single-byte segment is an atom and always named — and one missing segment
- *  means the fold would return null.  The probe asks only whether a segment
- *  MAY exist (`flatBranchMayExist`: the store's negative filter, whose "no" is
- *  exact), so a miss costs O(bytes) of hashing instead of a D-dimensional fold
- *  of every node, and a hit pays no lookup the fold is about to repeat.  A
- *  stream whose segments may all exist is folded exactly as before, so a HIT
- *  is unchanged and the probe can never turn a miss into a hit.  `test/148` pins the
- *  agreement over random and corpus spans. */
+ *  A fold names a branch only when every child is named, so identity needs the
+ *  fold's SHAPE and the store's answer per node, never its vectors:
+ *  {@link contentIdentity} walks the same shape (geometry.ts — one grouping
+ *  rule, two algebras) and asks the store bottom-up, building no D-dimensional
+ *  gist and leaving nothing in the perception memo.  Before any lookup, every
+ *  multi-byte level-0 segment must pass the store's negative filter
+ *  (`flatBranchMayExist`, whose "no" is exact): a segment folds as ONE flat
+ *  node over single-byte atoms, so one missing segment means the fold names
+ *  nothing, and the miss costs O(bytes) of hashing.  `test/148` pins the
+ *  agreement with the full fold over random and corpus spans. */
 export function exactNode(ctx: MindContext, bytes: Uint8Array): number | null {
-  if (!segmentsStored(ctx, bytes)) {
-    if (ctx.meter) ctx.meter.resolveSegmentRefusals++;
-    return null;
-  }
-  return foldTree(ctx, perceive(ctx, bytes), 0).node;
-}
-
-function segmentsStored(ctx: MindContext, bytes: Uint8Array): boolean {
+  if (bytes.length === 0) return foldTree(ctx, perceive(ctx, bytes), 0).node;
   const store = ctx.store;
-  let from = 0;
-  const probe = (to: number): boolean => {
-    if (to - from < 2) return true;
-    const seg = bytes.subarray(from, to);
-    if (store.flatBranchMayExist) return store.flatBranchMayExist(seg);
-    return store.findBranch(Array.from(seg, (b) => -(b + 1))) !== null;
-  };
-  for (const cut of contentBoundaries(ctx.space, bytes)) {
-    if (!probe(cut)) return false;
-    from = cut;
-  }
-  return probe(bytes.length);
+  const flat = (seg: Uint8Array): number | null =>
+    store.findFlatBranch
+      ? store.findFlatBranch(seg)
+      : store.findBranch(Array.from(seg, (b) => -(b + 1)));
+  let refused = false;
+  const node = contentIdentity(
+    ctx.space,
+    ctx.alphabet,
+    bytes,
+    (from, to) =>
+      to - from === 1
+        ? store.findLeaf(bytes.subarray(from, to))
+        : flat(bytes.subarray(from, to)),
+    (kids) => store.findBranch(kids),
+    (from, to) => {
+      if (to - from < 2) return true;
+      const seg = bytes.subarray(from, to);
+      const may = store.flatBranchMayExist
+        ? store.flatBranchMayExist(seg)
+        : flat(seg) !== null;
+      if (!may) refused = true;
+      return may;
+    },
+  );
+  if (refused && ctx.meter) ctx.meter.resolveSegmentRefusals++;
+  return node;
 }
 
 /** The canonical node id of a byte span: perceive it in isolation — the way
@@ -346,7 +335,7 @@ export function canonResolve(
   if (canon === null || !store.canonFind) return null;
   if (bytes.length < 2) return null;
   const memo = ctx.canonMemo;
-  const memoKey = memo ? latin1Key(bytes) : "";
+  const memoKey = memo ? latin1(bytes) : "";
   if (memo) {
     const hit = memo.get(memoKey);
     if (hit !== undefined) return hit;
@@ -377,7 +366,7 @@ export function canonResolve(
     // resolved for these bytes is their FOLD — the deposit-shaped node that
     // carries the edges and halos.  Re-folding the candidate's bytes lands
     // on exactly the node the canonical-case query would have found.
-    const folded = foldTree(ctx, perceive(ctx, bytesOf), 0).node;
+    const folded = exactNode(ctx, bytesOf);
     const use = folded ?? id;
     // THE ADMISSION PREDICATE, asked of the store that owns it (edge or halo,
     // the halo tier carrying the mass bar).  Asking `haloMass(use) > 0` instead

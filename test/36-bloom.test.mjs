@@ -14,11 +14,18 @@
 //                       persisted filter (or a stale one); reopen must
 //                       rebuild/top-up from the table and STILL dedup all
 //                       previously-minted content, with zero duplicates.
+//
+// The CANON index's filter (canon_bloom) has the same hazard — a false
+// negative there is a canonical form `canonFind` silently fails to propose —
+// and is pinned the same way: across reopen, across rows added after a
+// persisted filter exists, and against a writer that adds rows without
+// touching the filter (its stamp disagrees with the meta, so it is rebuilt).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 
 const cleanup = (path) => {
@@ -120,4 +127,50 @@ test("crash: reopen after an unclean exit still dedups everything", (t) => {
     });`;
   execFileSync(process.execPath, ["-e", phase2], { stdio: "pipe" });
   assert.ok(true);
+});
+
+test("canon filter: persisted with its rows, rebuilt when its stamp is stale", async (t) => {
+  const path = `/tmp/bloom-canon-${process.pid}`;
+  t.after(() => cleanup(path));
+  const H = (i) => (i * 2654435761) >>> 0;
+  const findsAll = (s, from, to) => {
+    for (let i = from; i < to; i++) {
+      assert.deepEqual(s.canonFind(H(i)), [i], `canon row ${i} not proposed`);
+    }
+  };
+
+  // Session 1: rows written by the store itself, then committed and closed.
+  let s = new SQliteStore({ path, D: 64 });
+  await s.size();
+  for (let i = 0; i < 200; i++) s.canonAdd(H(i), i);
+  await s.setMeta("canon.upto", "200");
+  s.commit();
+  findsAll(s, 0, 200);
+  await s.close();
+
+  // Session 2: the persisted filter is loaded, and rows added on top of it
+  // are seen in this session and after the next reopen.
+  s = new SQliteStore({ path, D: 64 });
+  await s.size();
+  findsAll(s, 0, 200);
+  for (let i = 200; i < 300; i++) s.canonAdd(H(i), i);
+  await s.setMeta("canon.upto", "300");
+  s.commit();
+  findsAll(s, 0, 300);
+  await s.close();
+
+  // A writer that knows nothing of the filter (an older build) adds rows and
+  // advances the cursor, as every canon build does.
+  const db = new DatabaseSync(path + ".sqlite");
+  for (let i = 300; i < 350; i++) {
+    db.prepare("INSERT INTO canon (h, id) VALUES (?, ?)").run(H(i), i);
+  }
+  db.prepare("UPDATE meta SET val = '350' WHERE key = 'canon.upto'").run();
+  db.close();
+
+  s = new SQliteStore({ path, D: 64 });
+  await s.size();
+  findsAll(s, 0, 350);
+  assert.deepEqual(s.canonFind(H(9999)), [], "an absent key is not proposed");
+  await s.close();
 });

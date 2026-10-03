@@ -35,11 +35,16 @@ export function concat2(a: Uint8Array, b: Uint8Array): Uint8Array {
   return out;
 }
 
-/** Latin-1 view of a byte span — a stable, lossless string key for chart
- *  memoization (every byte 0–255 maps to one code unit). */
+/** Latin-1 view of a byte span — ONE code unit per byte, so it is injective
+ *  and safe as an exact cache key (every byte 0–255 maps to one code unit).
+ *  Batched `String.fromCharCode`, chunked to stay within the engine's argument
+ *  limit on long spans; the one definition every content-keyed memo uses. */
 export function latin1(b: Uint8Array): string {
+  const n = b.length;
   let s = "";
-  for (let k = 0; k < b.length; k++) s += String.fromCharCode(b[k]);
+  for (let i = 0; i < n; i += 4096) {
+    s += String.fromCharCode(...b.subarray(i, Math.min(i + 4096, n)));
+  }
   return s;
 }
 

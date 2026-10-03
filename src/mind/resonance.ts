@@ -7,7 +7,7 @@ import { rItem } from "./trace.js";
 
 import { cosine, Vec } from "../vec.js";
 import { mergeThreshold } from "../geometry.js";
-import { concat2, concatBytes, indexOf } from "../bytes.js";
+import { concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { gistOf, read, resolve, walkTree } from "./primitives.js";
 import { perceive } from "./primitives.js";
@@ -123,17 +123,6 @@ function junctionEdges(
     }
   }
   return out;
-}
-
-/** A byte string as a string, ONE code unit per byte — injective, so it is
- *  safe to build a cache key from.  Chunked to keep the spread within the
- *  engine's argument limit on long contexts. */
-function latin1(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i += 4096) {
-    s += String.fromCharCode(...b.subarray(i, i + 4096));
-  }
-  return s;
 }
 
 /** Per-response memo of bridge results, keyed by the response's lifecycle

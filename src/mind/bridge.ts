@@ -94,7 +94,7 @@ import { cosine, type Vec } from "../vec.js";
 import { conceptThreshold, dominates, significanceBar } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { foldTree, perceive, read } from "./primitives.js";
+import { exactNode, perceive, read } from "./primitives.js";
 import { chainReach, leafIdRun } from "./canonical.js";
 import {
   allWindowsAreScaffolding,
@@ -491,7 +491,7 @@ async function bridgeImpl(
     ) continue;
     let use = sid;
     if (!ctx.store.hasNext(use)) {
-      const folded = foldTree(ctx, perceive(ctx, tb), 0).node;
+      const folded = exactNode(ctx, tb);
       if (folded === null || folded === sid || !ctx.store.hasNext(folded)) {
         continue;
       }
@@ -508,7 +508,7 @@ async function bridgeImpl(
   // be a FLAT content twin whose continuation edge lives on the
   // fold-shaped deposit node with the same bytes — the same twin split
   // canonResolve bridges by re-folding (primitives.ts) — but the re-fold
-  // (a full perceive of the candidate's bytes) is paid only for proposals
+  // (an identity fold of the candidate's bytes) is paid only for proposals
   // that could align at all: alignment can only seed at a picked anchor
   // window occurring literally in the candidate (measured: unconditional
   // re-folds multiplied the refusal-path latency several-fold).

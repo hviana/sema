@@ -32,6 +32,7 @@ import { addInto, copy, dot, normalize, Vec } from "./vec.js";
 import type { StoreConfig } from "./config.js";
 import { identityBar } from "./geometry.js";
 import type { Meter } from "./meter.js";
+import { latin1 } from "./bytes.js";
 
 /** A node id: a dense, non-negative integer assigned in creation order. */
 export type NodeId = number;
@@ -970,6 +971,9 @@ export abstract class AbstractStore implements Store {
   /** Exact-content dedup: content-key → node id. Intrinsic compression. */
   protected readonly _leafKey: BoundedMap<string, NodeId>;
   protected readonly _branchKey: BoundedMap<string, NodeId>;
+  /** {@link findFlatBranch}'s hits, keyed by the bytes themselves (latin1 —
+   *  exact, unlike the hash keys above). */
+  protected readonly _flatKey: BoundedMap<string, NodeId>;
   /** Reconstructed-bytes read cache (regenerable), keyed by node id. */
   protected readonly _bytesCache: BoundedMap<NodeId, Uint8Array>;
   /** contentLen memo — content is immutable, so entries never invalidate. */
@@ -1076,6 +1080,12 @@ export abstract class AbstractStore implements Store {
     this.compactEveryNWrites = config.compactEveryNWrites;
     this._leafKey = new BoundedMap(config.dedupCacheMax);
     this._branchKey = new BoundedMap(config.dedupCacheMax);
+    this._flatKey = new BoundedMap(
+      config.dedupCacheMax,
+      undefined,
+      "lru",
+      "clock",
+    );
     this._bytesCache = new BoundedMap(
       config.bytesCacheMax,
       (v) => v.byteLength,
@@ -1413,12 +1423,24 @@ export abstract class AbstractStore implements Store {
    *  answers most of those with no I/O at all, so the allocations dominated.
    *
    *  Pass a subarray: it is a view, so a caller scanning spans of a query
-   *  allocates nothing per probe.  Deliberately NOT memoized — its callers
-   *  probe many spans that miss, and a key string per probe is the cost this
-   *  exists to remove. */
+   *  allocates nothing per probe that misses.  HITS ARE MEMOIZED, MISSES ARE
+   *  NOT: the negative filter answers first, so a span that is not stored
+   *  builds no key; one that may be pays a key and then usually skips the
+   *  lookup — the spans the identity fold names are segments, a few bytes
+   *  each, asked over and over by every span that contains them.  A node, once
+   *  minted, keeps its bytes and its id, so a cached hit never goes stale. */
   findFlatBranch(bytes: Uint8Array): NodeId | null {
     if (this.meter) this.meter.branchLookups++;
-    return this._dbFindBranchByLeaf(hashOf(bytes), bytes);
+    const h = hashOf(bytes);
+    if (!this._dbFlatMayExist(h, bytes)) return null;
+    const key = bytes.length <= DEDUP_KEY_MAX ? latin1(bytes) : null;
+    if (key !== null) {
+      const hit = this._flatKey.get(key);
+      if (hit !== undefined) return hit;
+    }
+    const id = this._dbFindBranchByLeaf(h, bytes);
+    if (id !== null && key !== null) this._flatKey.set(key, id);
+    return id;
   }
 
   /** {@link Store.flatBranchMayExist} — the backend's negative filter when it
@@ -1427,11 +1449,11 @@ export abstract class AbstractStore implements Store {
     return this._dbFlatMayExist(hashOf(bytes), bytes);
   }
 
-  /** Default: no filter, so the answer is the lookup (exact both ways).  A
+  /** Default: no filter, so anything MAY exist and the lookup decides.  A
    *  backend with a negative filter over node hashes overrides this to answer
    *  from the filter alone. */
-  protected _dbFlatMayExist(h: number, bytes: Uint8Array): boolean {
-    return this._dbFindBranchByLeaf(h, bytes) !== null;
+  protected _dbFlatMayExist(_h: number, _bytes: Uint8Array): boolean {
+    return true;
   }
 
   findBranch(kids: NodeId[]): NodeId | null {

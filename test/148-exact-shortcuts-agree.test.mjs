@@ -9,6 +9,15 @@
 //       `foldTree(perceive(bytes))` on EVERY span — hits, misses, edges — and
 //       this walks every sub-span of real deposits and of noise to show it.
 //
+// 148.3 THE IDENTITY FOLD HAS THE VECTOR FOLD'S SHAPE.  `exactNode` names a
+//       stream through `contentIdentity` (geometry.ts), which groups the same
+//       way the vector fold does but reads an item's gist only where the shape
+//       does — the eight coordinates `itemKey` hashes inside an over-long row —
+//       and computes those lazily.  Pinned with an interning namer, so every
+//       node is named and the two folds must agree on EVERY node of the tree,
+//       over streams long and repetitive enough to force over-long rows (low
+//       entropy keeps the cut levels flat, so the split falls to `itemKey`).
+//
 // 148.2 THE ASCII CANON IS THE UNICODE CANON.  `textCanon` takes a byte loop
 //       for ASCII input instead of decode → NFKC → lowercase → regex → encode.
 //       NFKC is the identity on ASCII and the regex's ASCII whitespace is
@@ -22,6 +31,7 @@ import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { exactNode, foldTree, perceive } from "../dist/src/mind/primitives.js";
 import { textCanon } from "../dist/src/canon.js";
+import { bytesToTree, contentIdentity } from "../dist/src/geometry.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8", { fatal: false });
@@ -132,4 +142,47 @@ test("148.2 the ASCII canon equals the Unicode canon, byte for byte", () => {
       `canon of ${JSON.stringify(dec.decode(c))} diverged`,
     );
   }
+});
+
+test("148.3 the identity fold groups exactly as the vector fold", () => {
+  const mind = new Mind({
+    seed: 5,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  const ids = new Map();
+  const intern = (key) => {
+    let id = ids.get(key);
+    if (id === undefined) ids.set(key, id = ids.size);
+    return id;
+  };
+  const atoms = (bytes) => Array.from(bytes, (b) => -(b + 1)).join(",");
+  /** foldTree's naming, over the vector fold's tree. */
+  const name = (n) =>
+    n.kids === null ? -(n.leaf[0] + 1) : intern(n.kids.map(name).join(","));
+  const rand = lcg(1483);
+  const alphabets = ["ab", "aab", "abc ", "0123456789", "the quick brown fox "];
+  let streams = 0;
+  for (const alpha of alphabets) {
+    for (let t = 0; t < 40; t++) {
+      const n = 2 + Math.floor(rand() * 1500);
+      const bytes = Uint8Array.from(
+        { length: n },
+        () => alpha.charCodeAt(Math.floor(rand() * alpha.length)),
+      );
+      const viaVectors = name(bytesToTree(mind.space, mind.alphabet, bytes));
+      const viaIdentity = contentIdentity(
+        mind.space,
+        mind.alphabet,
+        bytes,
+        (from, to) =>
+          to - from === 1
+            ? -(bytes[from] + 1)
+            : intern(atoms(bytes.subarray(from, to))),
+        (kids) => intern(kids.join(",")),
+      );
+      assert.equal(viaIdentity, viaVectors, `${alpha} stream of ${n} bytes`);
+      streams++;
+    }
+  }
+  assert.equal(streams, 200);
 });

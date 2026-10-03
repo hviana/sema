@@ -11,13 +11,13 @@ import {
   canonResolve,
   foldTree,
   gistOf,
-  latin1Key,
   perceive,
   resolve,
 } from "./primitives.js";
 import { atomIsHub, bearsEdge, corpusN, leadsSomewhere } from "./traverse.js";
 import { chainReach, leafIdAt, leafIdRun } from "./canonical.js";
 import { canonHash } from "../canon.js";
+import { latin1 } from "../bytes.js";
 import { isChunk, type Sema } from "../sema.js";
 import type { Leaf, Site } from "./graph-search.js";
 
@@ -91,7 +91,7 @@ export function recognise(
   // not silent), so it is emitted here directly rather than only inside
   // recogniseImpl.
   if (ctx.recogniseMemo) {
-    const key = latin1Key(bytes);
+    const key = latin1(bytes);
     const hit = ctx.recogniseMemo.get(key);
     if (hit !== undefined) {
       if (ctx.meter) ctx.meter.recogniseHits++;

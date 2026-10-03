@@ -32,7 +32,8 @@ import assert from "node:assert/strict";
 import { Mind, SQliteStore } from "../dist/src/index.js";
 import { textCanon } from "../dist/src/canon.js";
 import { recognise } from "../dist/src/mind/recognition.js";
-import { latin1Key, perceive, resolve } from "../dist/src/mind/primitives.js";
+import { perceive, resolve } from "../dist/src/mind/primitives.js";
+import { latin1 } from "../dist/src/bytes.js";
 
 const enc = (s) => new TextEncoder().encode(s);
 const dec = (b) => new TextDecoder().decode(b).replace(/\0+$/, "");
@@ -71,7 +72,7 @@ test("recognise(): a real leading connective word ('And ') still finds the train
   const boundaries = [30, 61];
   m.perceiveMemo = new Map();
   m.perceiveMemo.set(
-    latin1Key(query),
+    latin1(query),
     perceive(m, query, undefined, undefined, boundaries),
   );
 

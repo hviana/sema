@@ -204,13 +204,20 @@ export interface Grid {
 // groups of `maxGroup` adjacent items into one via permute-then-add
 // (positional seat binding), recursing until one root remains.
 //
-// FLAT per-level fold — one inline loop per level (foldSlice): no per-group
-// function calls, no Array.slice per group, the permute and add FUSED
-// (`gist[d] += v[seat[d]]`, no scratch buffer), and subtree byte lengths
-// carried incrementally on Folded (the old boundary scan re-walked subtrees
-// every level — O(n log n)).  The per-level SUPERPOSITION is byte-identical
-// to the original recursive foldGroup: the same FP additions in the same
-// order.
+// FLAT per-level fold — one loop per level (foldSlice), each group joined by
+// joinFlat with the permute and add FUSED (`gist[d] += v[seat[d]]`, no scratch
+// buffer), and subtree byte lengths carried incrementally on Folded (the old
+// boundary scan re-walked subtrees every level — O(n log n)).  The per-level
+// SUPERPOSITION is byte-identical to the original recursive foldGroup: the
+// same FP additions in the same order.
+//
+// THE SHAPE IS WRITTEN ONCE, OVER A FOLD ALGEBRA.  Which items group under
+// which parent is decided by the cut levels, the keyring and, inside an
+// over-long row, the items' content key — never by what an item IS.  So the
+// grouping (foldSlice, groupByLevel) takes the two things it needs from an
+// item, `join` and `key`, and runs unchanged over the vector fold (perception)
+// and over the identity fold ({@link contentIdentity}), which can therefore
+// never disagree about the tree.
 //
 // LINEAR fold — intermediate gists are NOT normalized; only the final root is
 // (`rootOf`'s single normalize).  This is a deliberate change of similarity
@@ -233,42 +240,24 @@ export interface Grid {
  *  each extra level applies another seat permutation to the whole gist —
  *  near-identical inputs straddling such a cliff read as orthogonal
  *  (measured: 33-byte-identical prefixes at cos ≈ 0). */
-function foldSlice(
-  space: Space,
-  items: Folded[],
+function foldSlice<T>(
+  alg: FoldAlgebra<T>,
+  mg: number,
+  items: T[],
   start: number,
   count: number,
-  out: Folded[],
+  out: T[],
   force: boolean,
 ): void {
-  const mg = space.maxGroup;
-  const D = space.D;
   const complete = count - (count % mg);
-
-  const foldAt = (at: number, size: number): void => {
-    const gist = new Float32Array(D);
-    const kids = new Array<Sema>(size);
-    let len = 0;
-    for (let k = 0; k < size; k++) {
-      const f = items[at + k];
-      const slot = twoEndedSeat(space.seats.length, size, k);
-      const seat = space.seats[slot].fwd;
-      const v = f.tree.v;
-      // Fused permute-and-accumulate — same FP ops, same order as the old
-      // permuteInto + addInto pair, with no scratch buffer.
-      for (let d = 0; d < D; d++) gist[d] += v[seat[d]];
-      kids[k] = f.tree;
-      len += f.len;
-    }
-    out.push({ tree: sema(gist, null, kids), len });
-  };
-
-  for (let i = 0; i < complete; i += mg) foldAt(start + i, mg);
-
+  for (let i = 0; i < complete; i += mg) {
+    out.push(alg.join(items.slice(start + i, start + i + mg)));
+  }
   const leftover = count - complete;
   if (leftover === 0) return;
-  if (force && leftover >= 2) foldAt(start + complete, leftover);
-  else for (let i = complete; i < count; i++) out.push(items[start + i]);
+  if (force && leftover >= 2) {
+    out.push(alg.join(items.slice(start + complete, start + count)));
+  } else for (let i = complete; i < count; i++) out.push(items[start + i]);
 }
 
 // ---- public API ----
@@ -630,7 +619,9 @@ function contentFoldSpan(
   for (let i = 0; i + 1 < edges.length; i++) {
     segs.push(flatFold(space, alphabet, span, edges[i], edges[i + 1]));
   }
-  if (segs.length > 1) return groupByLevel(space, segs, levels, 1);
+  if (segs.length > 1) {
+    return groupByLevel(vectorFold(space), space, segs, levels, 1);
+  }
   return segs[0];
 }
 
@@ -677,7 +668,7 @@ export interface ContentFold {
  *  streams.  Verifying the bytes here would cost O(prefix) and defeat the
  *  whole point, so the obligation sits with the caller, and every caller
  *  discharges it structurally rather than by care: `perceiveDeposit` looks the
- *  entry up under `latin1Key(bytes.subarray(0, L))` — the prefix's own bytes
+ *  entry up under `latin1(bytes.subarray(0, L))` — the prefix's own bytes
  *  ARE the cache key — and a conversation's fold state advances only by
  *  append.  A new caller that cannot make the same structural argument must
  *  pass no `prev` at all; the cold path is always correct.
@@ -706,7 +697,7 @@ export function contentFoldIncremental(
     segs.push(hit ?? flatFold(space, alphabet, bytes, edges[i], edges[i + 1]));
   }
   const folded = segs.length > 1
-    ? groupByLevel(space, segs, levels, 1)
+    ? groupByLevel(vectorFold(space), space, segs, levels, 1)
     : segs[0];
   // THE ROOT IS NORMALIZED IN PLACE, A CACHED SEGMENT NEVER IS.  With one
   // segment — or with a grouping that passes a lone item through — `folded`
@@ -740,23 +731,25 @@ export function contentFoldIncremental(
  *  the cut levels are uniformly 0 and carry no signal.  Identical subtrees
  *  fold to identical vectors, so the same items in the same order always
  *  choose the same split — the property the whole fold rests on. */
-function itemKey(v: Vec): number {
+const ITEM_KEY_COORDS = 8;
+function itemKey(v: ArrayLike<number>): number {
   let h = 0x811c9dc5;
-  for (let d = 0; d < 8; d++) {
+  for (let d = 0; d < ITEM_KEY_COORDS; d++) {
     h = Math.imul(h ^ ((v[d] * 8192) | 0), 0x01000193) >>> 0;
   }
   return h >>> 0;
 }
 
-function groupByLevel(
+function groupByLevel<T>(
+  alg: FoldAlgebra<T>,
   space: Space,
-  items: Folded[],
+  items: T[],
   levels: number[],
   level: number,
-): Folded {
+): T {
   if (items.length === 1) return items[0];
   const maxSeats = space.seats.length;
-  const groups: Folded[] = [];
+  const groups: T[] = [];
   const groupLevels: number[] = [];
   // Emit [from, to) as one group, splitting it at its STRONGEST interior cut
   // whenever it would exceed the keyring.
@@ -783,7 +776,7 @@ function groupByLevel(
         // equal — fall back to the ITEMS' own content.  A group's gist is
         // diverse where its cut level is not, so hashing it gives a
         // content-determined split point where the level array has none.
-        const key = itemKey(items[j].tree.v);
+        const key = alg.key(items[j]);
         if (
           levels[j] > bestLevel ||
           (levels[j] === bestLevel && key > bestKey)
@@ -794,12 +787,12 @@ function groupByLevel(
         }
       }
       const part = items.slice(at, best + 1);
-      groups.push(part.length === 1 ? part[0] : joinFlat(space, part));
+      groups.push(part.length === 1 ? part[0] : alg.join(part));
       groupLevels.push(levels[best]);
       at = best + 1;
     }
     const slice = items.slice(at, to);
-    groups.push(slice.length === 1 ? slice[0] : joinFlat(space, slice));
+    groups.push(slice.length === 1 ? slice[0] : alg.join(slice));
   };
   let start = 0;
   for (let i = 0; i <= levels.length; i++) {
@@ -812,10 +805,10 @@ function groupByLevel(
   if (groups.length === items.length) {
     // This level split nothing — climb rather than spin.
     return level < 24
-      ? groupByLevel(space, items, levels, level + 1)
-      : riverFoldRaw(space, items);
+      ? groupByLevel(alg, space, items, levels, level + 1)
+      : riverFold(alg, space, items);
   }
-  return groupByLevel(space, groups, groupLevels, level + 1);
+  return groupByLevel(alg, space, groups, groupLevels, level + 1);
 }
 
 /** Join a row of already-folded items as one unnormalized node — the same
@@ -836,6 +829,123 @@ function joinFlat(space: Space, items: Folded[]): Folded {
     len += items[k].len;
   }
   return { tree: sema(gist, null, kids), len };
+}
+
+/** What the fold's SHAPE asks of the items it groups — see the note at the
+ *  top of the folding section.  `join` makes the parent of two or more items,
+ *  children bound in seat order; `key` is {@link itemKey} of the item's raw
+ *  gist, the one place the shape reads an item's content. */
+interface FoldAlgebra<T> {
+  join(items: T[]): T;
+  key(item: T): number;
+}
+
+/** The vector fold — perception's algebra. */
+const vectorFolds = new WeakMap<Space, FoldAlgebra<Folded>>();
+function vectorFold(space: Space): FoldAlgebra<Folded> {
+  let alg = vectorFolds.get(space);
+  if (alg === undefined) {
+    alg = {
+      join: (items) => joinFlat(space, items),
+      key: (item) => itemKey(item.tree.v),
+    };
+    vectorFolds.set(space, alg);
+  }
+  return alg;
+}
+
+/** An item of the identity fold: the node it names (null = names nothing),
+ *  and its raw gist read one coordinate at a time, on demand. */
+interface IdentityItem {
+  id: number | null;
+  coord: (p: number) => number;
+  key?: number;
+}
+
+/** The raw gist coordinate `p` of a node whose children are `kids` — the
+ *  coordinate {@link flatFold}/{@link joinFlat} would have written: the same
+ *  float32 additions, in the same order, from a zero start. */
+function boundCoord(
+  space: Space,
+  n: number,
+  kid: (k: number, at: number) => number,
+  p: number,
+): number {
+  let acc = 0;
+  for (let k = 0; k < n; k++) {
+    const seat = space.seats[twoEndedSeat(space.seats.length, n, k)].fwd;
+    acc = Math.fround(acc + kid(k, seat[p]));
+  }
+  return acc;
+}
+
+/** The node a byte stream's content fold NAMES — `foldTree` over
+ *  {@link contentFoldSpan}'s tree, without building a single vector.
+ *
+ *  A fold names a node only when every child is named, so identity needs the
+ *  tree's SHAPE and the store's answer for each node — and the shape is a
+ *  function of the bytes (cuts and levels) plus, inside an over-long row, each
+ *  item's {@link itemKey}: eight coordinates of its raw gist.  Those are read
+ *  lazily through {@link boundCoord}, bit-identical to the coordinates the
+ *  vector fold computes, so the grouping (the SAME {@link groupByLevel}) cannot
+ *  differ.  `segment(from, to)` names a level-0 segment (one flat node over
+ *  single-byte atoms, or the atom itself), `branch(kids)` a group; an unnamed
+ *  segment ends the walk at once.  `admit`, when given, is asked of EVERY
+ *  segment before any is named — a negative filter whose "no" must be exact —
+ *  so a miss anywhere costs no lookup at all.  An empty stream is the
+ *  caller's: its fold is the alphabet's zero-byte leaf, not a segment. */
+export function contentIdentity(
+  space: Space,
+  alphabet: Alphabet,
+  bytes: Uint8Array,
+  segment: (from: number, to: number) => number | null,
+  branch: (kids: number[]) => number | null,
+  admit?: (from: number, to: number) => boolean,
+): number | null {
+  const { cuts, levels } = contentLevels(space, bytes);
+  const edges = [0, ...cuts, bytes.length];
+  if (admit !== undefined) {
+    for (let i = 0; i + 1 < edges.length; i++) {
+      if (!admit(edges[i], edges[i + 1])) return null;
+    }
+  }
+  const segs: IdentityItem[] = [];
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const from = edges[i], n = edges[i + 1] - from;
+    const id = segment(from, edges[i + 1]);
+    if (id === null) return null;
+    segs.push({
+      id,
+      coord: n === 1 ? (p) => alphabet.vecs[bytes[from]][p] : (p) =>
+        boundCoord(
+          space,
+          n,
+          (k, at) => alphabet.vecs[bytes[from + k]][at],
+          p,
+        ),
+    });
+  }
+  if (segs.length === 1) return segs[0].id;
+  const alg: FoldAlgebra<IdentityItem> = {
+    join: (items) => {
+      let id: number | null = null;
+      if (items.every((it) => it.id !== null)) {
+        id = branch(items.map((it) => it.id!));
+      }
+      return {
+        id,
+        coord: (p) =>
+          boundCoord(space, items.length, (k, at) => items[k].coord(at), p),
+      };
+    },
+    // An unnamed item's key is moot: an unnamed node leaves its root unnamed
+    // whatever the grouping, so its coordinates are never read.
+    key: (item) =>
+      item.id === null ? 0 : item.key ??= itemKey(
+        Array.from({ length: ITEM_KEY_COORDS }, (_, d) => item.coord(d)),
+      ),
+  };
+  return groupByLevel(alg, space, segs, levels, 1).id;
 }
 
 /** One segment as a single unnormalized node: leaf per byte, each bound into
@@ -1027,11 +1137,16 @@ export function riverFoldRaw(space: Space, row: Folded[]): Folded {
     const z = new Float32Array(space.D);
     return { tree: sema(z, new Uint8Array(0), null), len: 0 };
   }
-  if (row.length === 1) return row[0];
+  return riverFold(vectorFold(space), space, row);
+}
+
+/** The river's fixed-arity shape over any fold algebra: groups of maxGroup,
+ *  the trailing partial group forced, level after level to one root. */
+function riverFold<T>(alg: FoldAlgebra<T>, space: Space, row: T[]): T {
   let level = row;
   while (level.length > 1) {
-    const next: Folded[] = [];
-    foldSlice(space, level, 0, level.length, next, true);
+    const next: T[] = [];
+    foldSlice(alg, space.maxGroup, level, 0, level.length, next, true);
     level = next;
   }
   return level[0];
