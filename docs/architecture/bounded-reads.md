@@ -81,5 +81,5 @@ net); a walk with only a cap drifts to the cap.
   length; training throughput floor; exact recall at scale.
 - `test/89` — completion recursion stays output-sensitive (nested searches/pops
   sublinear); guards the count of reads, not just per-read size.
-- `test/90` — connector probe (`resolveConnectors`) reads by the query length
+- `test/90` — connector probe (`offerConnectors`) reads by the query length
   (`QUERY.length + 1`), not by the learnt continuation; per-read size bound.

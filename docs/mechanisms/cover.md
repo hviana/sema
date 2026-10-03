@@ -15,8 +15,15 @@ consumes them directly; any site whose bytes overlap a computed span is masked
 - `formRules` follow continuation edges (`GraphSearch.formRules`): each hop
   costs `STEP` (1). Forks across all continuations up to the hub bound;
   disambiguation is distributional, not heuristic.
-- Edge-less forms may hop via a halo sibling (`conceptHop` / `resolveConcepts`)
-  at `CONCEPT` (10), borrowing a synonym's continuation.
+- Edge-less forms may hop via a halo sibling (`conceptHop` / `offerConcepts`) at
+  `CONCEPT` (10), borrowing a synonym's continuation.
+- A span's cheapest completion DOMINATES the rest (`buildSearch`): a form or
+  completion of `[i, j)` whose cost has reached that of a completion of `[i, j)`
+  already yielded fires no rule (`searchDominated`). Coverage is positional, so
+  only the cheapest matters to the goal; the byte rules (fuse, splice, join)
+  fire from the completion the search would stand on, never from every
+  alternative it reached. It also makes the first hop's stop-here
+  (`STEP + CONCEPT`) a real horizon for the chain.
 
 ## Gate — `leadsSomewhere` (`src/mind/traverse.ts`)
 
@@ -36,11 +43,18 @@ and are filtered during recognition.
 The cover reports `moves` (its derivation's discrete work) and `accounted`; the
 ladder prices both.
 
-## Pre-resolution (`src/mind/mechanisms/cover.ts`)
+## Licensed premises (`src/mind/mechanisms/cover.ts`, `Licence` in `graph-search.ts`)
 
-`resolveConcepts` and `resolveConnectors` pre-resolve the async maps the
-synchronous search cannot gather: concept targets and learnt connectors, keyed
-by node pair. Bridges (`bridge`) splice connectors between rewrites.
+The synchronous search cannot run the async reads two of its rules need — a
+concept target (a halo lookup) and a learnt connector between two answers (a
+`bridge`). `offerConcepts` and `offerConnectors` OFFER the keys up front (cheap:
+`hasNext`, the touching-site pairs and the N-ary allowances); the search ASKS
+for an offered key only where it reaches it — a connector when its splice's two
+premises meet, a concept target when the hop's asking form (held at the hop's
+own cost) is popped. A cover that asked is provisional: `cover.run` grants the
+asked keys and covers again, until a cover asks nothing — which is then the
+cover every key resolved in advance would have made. The joins licensed by
+ask-free rounds are kept across the re-covers.
 
 ## Provenance
 
@@ -54,3 +68,6 @@ independent evidence streams meet at one anchor — see
 
 - `test/09-edges.test.mjs` — edge following and hop semantics
 - `test/19-nd.test.mjs` — form rules and multi-hop chains
+- `test/151` — connectors and concept hops resolved where the search reaches
+  them; a span's cheapest completion dominates (a hub's degree generates no
+  work)

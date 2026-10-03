@@ -48,6 +48,18 @@ full — identical to the unbounded climb. Work is `O(bound)` contexts times loc
 structure, never `O(N)`. Container seeding is streamed in `bound`-sized pages
 for the same reason.
 
+Refuted tightening: **container fan-out as a hub** — deciding a containment seed
+saturated when its first `containersSlice(bound+1)` page overflows, the reading
+`junction.ts` applies to the same links. It conflates the PLACES a window occurs
+with the CONTEXTS it reaches, and saturation is defined over contexts. Proved on
+`test/49`'s fixture (N = 5, `sqrt(N)` = 3): `fran` sits in 4 containers yet its
+full climb reaches 2 contexts — discriminative — and the rule called it
+saturated, as it did `of f`, `fra`, `is`, `ranc`, `ance`. On the 31.7M-node
+store no such window climbed unsaturated (18 composition queries; those climbs
+were 38% of all visits), because at `sqrt(N)` = 1,560 a full page of containers
+rarely converges on few contexts — but the rule is the same wrong reading at
+both scales. The streamed seed stays.
+
 Trace records the first deciding stop as
 `SaturationStop { reason, node, observed, limit }` plus `visited`/`maxDepth`;
 absent when unsaturated or untraced.

@@ -215,3 +215,78 @@ test("fuseAttention: 1 cluster, low breadth — neither measure saves it (the li
   );
   await m.store.close();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The dispersion question asked of the CONTEXT (reasoning.ts sharedPlaces).
+// The votes that land on a root are a lossy witness of where the query and the
+// root's context agree: a region votes once, for its top anchor, so a frame
+// every context shares corroborates whichever anchor a tie hands it.  The
+// context's own bytes answer the question exactly — at window scale, in how
+// many separate places of the query does it share content?  These two cases
+// pin both directions with REAL anchors (a stored context and its learnt
+// continuation), each fabricated as a one-cluster, low-breadth root so that
+// only the new reading can decide.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function sharedPlacesCase(contextText, query) {
+  const m = mk(1);
+  await m.ingest([
+    ...CORPUS,
+    [contextText, "the omega continuation"],
+  ]);
+  const q = enc(query);
+  m.beginResponse();
+  const anchor = m.recogniseSpan(enc(contextText)).sites
+    .find((s) => s.start === 0 && s.end === contextText.length)?.payload;
+  m.endResponse();
+  assert.ok(anchor !== undefined, "the context must be a stored form");
+  const root = {
+    anchor,
+    vote: 1,
+    idfVote: 1,
+    peak: 1,
+    start: 0,
+    end: q.length,
+    clusters: 1,
+    breadth: 0.1,
+  };
+  const placeholder = { ...root, start: q.length, end: q.length };
+  const primary = enc("PRIMARYANCHORTEXT");
+  const out = dec(
+    (await fuseAttention(m, q, {
+      product: primary,
+      accounted: [],
+      remainder: [],
+      cost: 0,
+    }, {
+      attention: async () => ({
+        roots: [placeholder, root],
+        ranked: [placeholder, root],
+      }),
+      guide: gistOf(m, q),
+    })).product,
+  );
+  await m.store.close();
+  return { out, primary: dec(primary) };
+}
+
+test("fuseAttention: a context sharing ONE phrase with the query does not fuse, however long the phrase (the live echo shape)", async () => {
+  // The live defect's shape: the query's closing phrase is byte-identical to
+  // how an unrelated conversation ended.  Many windows, ONE place.
+  const { out, primary } = await sharedPlacesCase(
+    "Thank you very much!",
+    "red circle then 2+2 equals what. Thank you very much!",
+  );
+  assert.equal(out, primary, `a one-place echo fused in: "${out}"`);
+});
+
+test("fuseAttention: a context sharing TWO separate places with the query fuses, even when its votes formed one cluster", async () => {
+  const { out, primary } = await sharedPlacesCase(
+    "red circle at noon, and then: Thank you very much!",
+    "red circle then 2+2 equals what. Thank you very much!",
+  );
+  assert.ok(
+    out.includes("omega") && out.includes(primary),
+    `a two-place context must fuse in, got "${out}"`,
+  );
+});

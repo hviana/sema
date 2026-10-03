@@ -4,9 +4,10 @@
 //   fuseAttention — fuse independent points of attention (multi-topic)
 import { rItem, rNode } from "./trace.js";
 
-import { bytesEqual, indexOf } from "../bytes.js";
+import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import type { Attention, MindContext } from "./types.js";
-import { resolve } from "./primitives.js";
+import { read, resolve } from "./primitives.js";
+import { countClusters } from "./attention.js";
 import { hubBound } from "./traverse.js";
 import { containsSpan, follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
@@ -532,6 +533,62 @@ export function walkLayer(
   return { name: "reason", offer, onTaken, onRefused, onEnd };
 }
 
+/** In how many separate PLACES of the query a stored context shares content at
+ *  window scale — the query's W-byte windows the context's bytes contain,
+ *  clustered by {@link countClusters} at the same quantum.  Below one window
+ *  byte identity is chance (identityBar), so only whole windows count.
+ *
+ *  It is the dispersion question asked of the CONTEXT rather than of the votes
+ *  that happened to land on it.  A region votes once, for its top anchor, so
+ *  where a root's votes come from is a lossy witness of where its context and
+ *  the query agree — measured on test/24's gap-3.1 fixture: the second topic's
+ *  second cluster was the region `ace and `, in the OTHER topic's words,
+ *  voting through a 2-byte sub-window anchor `e ` (attention.ts
+ *  canonicalChunkId); once that stopped voting, the genuine topic read as one
+ *  cluster.  Its context still shares the system prompt AND its own wording
+ *  with the query — two places, the two test/37 documents — while a
+ *  coincidental echo (one closing phrase byte-identical to an unrelated
+ *  conversation's end, test/37) shares one. */
+function sharedPlaces(
+  context: Uint8Array,
+  query: Uint8Array,
+  quantum: number,
+): number {
+  if (context.length < quantum || query.length < quantum) return 0;
+  const windows = new Set<string>();
+  for (let o = 0; o + quantum <= context.length; o++) {
+    windows.add(latin1(context.subarray(o, o + quantum)));
+  }
+  const spans: Array<[number, number]> = [];
+  for (let o = 0; o + quantum <= query.length; o++) {
+    if (windows.has(latin1(query.subarray(o, o + quantum)))) {
+      spans.push([o, o + quantum]);
+    }
+  }
+  return countClusters(spans, quantum);
+}
+
+/** Whether any query byte lies at least `quantum` away from every span — the
+ *  only place a root independent of those spans could stand.  The spans,
+ *  widened by the quantum on each side, either cover [0, len) or leave a gap. */
+function roomBeyond(
+  len: number,
+  spans: ReadonlyArray<Span>,
+  quantum: number,
+): boolean {
+  if (spans.length === 0) return len > 0;
+  const widened = spans
+    .map(([s, e]): [number, number] => [s - quantum, e + quantum])
+    .sort((a, b) => a[0] - b[0]);
+  let reach = 0; // every byte below `reach` is within a quantum of a span
+  for (const [s, e] of widened) {
+    if (s > reach) return true;
+    reach = Math.max(reach, e);
+    if (reach >= len) return false;
+  }
+  return reach < len;
+}
+
 /** Fuse independent points of attention into one answer (multi-topic).
  *  When the consensus climb finds more than one dominant point, each
  *  independent point grounds its own answer; they are bridged together
@@ -591,6 +648,33 @@ export function fusionLayer(
     // of fusion.
     if (containsSpan(ctx, query, primary)) return null;
 
+    // A SECOND POINT OF ATTENTION MUST STAND ON EVIDENCE STRUCTURALLY SEPARATE
+    // FROM PRIMARY'S: at least one perceptual quantum of query between them,
+    // the same separation countClusters uses to tell independent evidence
+    // neighbourhoods apart.  Not a score, and not a tuned bar — the fold's own
+    // quantum.  A root standing on primary's own evidence is primary's topic
+    // read again, never a further one, so it is not fused (measured on the
+    // 31.7M-node store: an exact dialogue turn grounded whole, `[0,79]`, paid a
+    // 3.7 s consensus climb whose only root lay inside that span).
+    //
+    // With no primarySpans (the caller did not resolve them) every span
+    // vacuously qualifies, preserving the original behaviour exactly.
+    const quantum = ctx.space.maxGroup;
+    const independentOfPrimary = (root: Attention): boolean =>
+      primarySpans.every(([s, e]) => {
+        const gap = root.end <= s
+          ? s - root.end
+          : e <= root.start
+          ? root.start - e
+          : 0;
+        return gap >= quantum;
+      });
+    // Decided BEFORE the climb when it is already decided: a root spans at
+    // least one query byte, so where every byte lies within a quantum of
+    // primary's evidence no root can be independent, and there is nothing the
+    // climb could hand this layer.
+    if (!roomBeyond(query.length, primarySpans, quantum)) return null;
+
     // The committed points of attention ARE the shared climb's roots (same
     // query, same k, same DF mode) — read them from Precomputed instead of
     // re-climbing, so even a traced response pays for the climb once.
@@ -611,24 +695,7 @@ export function fusionLayer(
     // then supplies a lone root — an exemplar like "1+2" — whose breadth
     // dominates because it is corroborated by the computation's OWN bytes.
     // Fusing it projected that exemplar's continuation and the bridge voiced
-    // "4+3" (test/11 seed 99).  A second point of attention must stand on
-    // evidence that is structurally SEPARATE from primary's: at least one
-    // perceptual quantum of query between them, the same separation
-    // countClusters uses to tell independent evidence neighbourhoods apart.
-    // Not a score, and not a tuned bar — the fold's own quantum.
-    //
-    // With no primarySpans (the caller did not resolve them) every span
-    // vacuously qualifies, preserving the original behaviour exactly.
-    const quantum = ctx.space.maxGroup;
-    const independentOfPrimary = (root: Attention): boolean =>
-      primarySpans.every(([s, e]) => {
-        const gap = root.end <= s
-          ? s - root.end
-          : e <= root.start
-          ? root.start - e
-          : 0;
-        return gap >= quantum;
-      });
+    // "4+3" (test/11 seed 99) — the separation above is what refuses it.
     const lonePromotes = unclimbed && forest.length === 1 &&
       forest[0].breadth > 0.5 && independentOfPrimary(forest[0]);
     if (forest.length === 0 || (forest.length <= 1 && !lonePromotes)) {
@@ -665,7 +732,10 @@ export function fusionLayer(
       { start: primaryStart, bytes: primary },
     ];
     const qv = pre.guide; // once, not per root
-    const rest = lonePromotes ? forest : forest.slice(1);
+    const rest = (lonePromotes ? forest : forest.slice(1)).filter(
+      independentOfPrimary,
+    );
+    if (rest.length === 0) return null;
     const t = ctx.trace?.enter("fuseAttention", [
       rItem(primary, "primary"),
       ...rest.map((r) => rNode(ctx, r.anchor, "point", r.vote)),
@@ -692,7 +762,10 @@ export function fusionLayer(
       // out at 0.40).  So a root is trusted when EITHER measure alone
       // indicates real signal — excluded only when BOTH are weak.  Cheap and
       // synchronous — checked before the async already-answered walk below.
-      if (root.clusters < 2 && root.breadth <= 0.5) {
+      if (
+        root.clusters < 2 && root.breadth <= 0.5 &&
+        sharedPlaces(read(ctx, root.anchor), query, quantum) < 2
+      ) {
         ctx.trace?.step(
           "singleCluster",
           [rNode(ctx, root.anchor, "point", root.vote)],

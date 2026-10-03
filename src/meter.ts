@@ -210,6 +210,10 @@ export class Meter {
   searchPops = 0;
   /** Chart items pushed by those searches. */
   searchPushes = 0;
+  /** Chart items popped DOMINATED — a span's form or completion that could
+   *  only yield completions of that span costing at least one already yielded
+   *  (graph-search.ts `buildSearch`), so no rule was generated from it. */
+  searchDominated = 0;
 
   // ── Mind: the mechanism market ──────────────────────────────────────────
   /** `floor()` calls that returned a bound (the mechanism could fire). */

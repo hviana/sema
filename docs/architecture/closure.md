@@ -115,3 +115,6 @@ vocabulary, not the tracer's.
   ends one layer, and the pipeline sequences no layer by hand.
 - `test/150` — the join prices the facts a derivation stands on, not every fact
   the exploration reaches (a hub's degree changes nothing).
+- `test/151` — the cover's other async premises (connectors, concept hops) are
+  resolved where the search reaches them; a span's cheapest completion
+  dominates; a grounding on the whole query pays no fusion climb.

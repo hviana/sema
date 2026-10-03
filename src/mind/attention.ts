@@ -1622,7 +1622,10 @@ export function poolVotes(
  *  Strict `<` (not `<=`): verified against gap 3.1's own "gender equality"
  *  root, whose two genuine clusters sit EXACTLY W bytes apart — `<= W`
  *  would wrongly merge them into one and break that pinned requirement. */
-function countClusters(spans: readonly [number, number][], W: number): number {
+export function countClusters(
+  spans: readonly [number, number][],
+  W: number,
+): number {
   if (spans.length === 0) return 0;
   const sorted = [...spans].sort((a, b) => a[0] - b[0]);
   let clusters = 1;
@@ -2096,7 +2099,12 @@ export function canonicalChunkId(
     if (len < 2) return flatId;
 
     // Within one window, the widest reach is still the right CANONICAL
-    // identity — a chunk's anchor should be its most general stable form.
+    // identity — a chunk's anchor should be its most general stable form.  A
+    // SATURATED reach is the widest there is: its count is wherever the climb
+    // happened to stop deciding, so an unsaturated prefix never out-widens it
+    // by comparing against that count.  (It used to: on test/24's gap-3.1
+    // fixture the region `ace and ` had its saturated window replaced by the
+    // unsaturated 2-byte prefix `e `, and that sub-window anchor voted.)
     let bestId = flatId;
     let bestReach = edgeAncestors(ctx, flatId, N, reachMemo);
     for (let k2 = 1; k2 < len; k2++) {
@@ -2106,7 +2114,8 @@ export function canonicalChunkId(
       const shortReach = edgeAncestors(ctx, shortId, N, reachMemo);
       if (
         shortReach.saturated ||
-        shortReach.contextsReached > bestReach.contextsReached
+        (!bestReach.saturated &&
+          shortReach.contextsReached > bestReach.contextsReached)
       ) {
         bestId = shortId;
         bestReach = shortReach;

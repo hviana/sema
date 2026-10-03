@@ -56,6 +56,21 @@ minimum per-byte cost in the ladder (every real per-byte cost is `>= MICRO`,
 including `PASS`), and only the suffix past `right` is counted, so `h` never
 exceeds the true remaining cost.
 
+## Dominance — why `PASS ≫ STEP` does not flood the chart
+
+The heuristic charges `MICRO` for a byte the goal will pay `PASS` for, so a
+cover that leaves bytes unexplained lets the search spend up to `PASS / STEP`
+hops looking for one more explained byte. Coverage itself cannot use them: every
+recognised completion of `[i, j)` advances the cover from `i` to `j` at the same
+`MICRO`. So a form or completion of `[i, j)` whose cost has reached that of a
+completion of `[i, j)` already yielded is DOMINATED and fires no rule
+(`buildSearch`, metered as `searchDominated`): every completion it could lead to
+costs at least as much, and a tie goes to the one yielded first. What a
+completion's BYTES could still do — fuse, splice, join — fires from the
+completion the search would stand on for that span, the same cure the join
+license and `deepen` apply. The first hop's stop-here (`STEP + CONCEPT`) is then
+a real horizon: no chain deeper than it is expanded.
+
 ## Policy is not cost
 
 "Computation always wins" is **not** priced into the ladder (a computed result
@@ -69,3 +84,4 @@ the sole completion there. Keep policy in callers; keep the engine neutral.
 - `test/53` — cross-region probe instrumentation
 - `test/54` — evidence `k` instrumentation
 - `test/55` — cost meter (`Meter`, `CostReport`, `searchPops`/`searchPushes`)
+- `test/151` — dominance: a hub's degree generates no chart work

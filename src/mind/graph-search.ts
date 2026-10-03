@@ -793,6 +793,63 @@ export class GraphSearch {
       }
     }
 
+    // A SPAN'S CHEAPEST COMPLETION DOMINATES THE REST.  Coverage is positional:
+    // every recognised completion of [i, j) advances the cover from i to j at
+    // the same MICRO, so for the goal only the cheapest matters.  What else a
+    // completion can do turns on its BYTES — fuse it with a neighbour, splice a
+    // connector, join through it — and those rules fire from the completion the
+    // search would stand on for that span, never from every alternative it
+    // reached: the cure {@link deepen} and the join license already apply, for
+    // the same trap.  Measured on the 31.7M-node store, a 46-byte dialogue query
+    // reached 60,530 continuation forms and 57,072 fixpoints for its few spans —
+    // a greeting's thousands of replies, each a fixpoint at the same depth — and
+    // canonically resolved every one of them fused with its neighbours (5.4 s
+    // of an 8.6 s cover) to stand, in the end, on two hops.
+    //
+    // So a form or completion of [i, j) whose cost has reached that of a
+    // completion of [i, j) already yielded is DOMINATED and fires nothing: every
+    // completion it could lead to costs at least as much (local costs are
+    // non-negative and a form's rules keep its span), and a tie goes to the one
+    // yielded first — the evidence-preferred continuation, yielded first by
+    // {@link formRules}.  This is also what makes the stop-here offer a real
+    // horizon: a chain deeper than its first hop's stop (STEP + CONCEPT) is
+    // dominated by it, where before the PASS-priced goal let the search buy a
+    // thousand hops to look for one more byte.
+    const spanBest = new Map<number, { cost: number; item: GItem }>();
+    const spanOf = (i: number, j: number) => i * (queryLen + 1) + j;
+    const completes = (it: GItem): it is OutItem =>
+      it.kind === "out" && it.rec && it.cover;
+    const dominated = (it: GItem, cost: number): boolean => {
+      if (it.kind === "cover") return false;
+      if (it.kind === "out" && !completes(it)) return false;
+      const best = spanBest.get(spanOf(it.i, it.j));
+      if (best === undefined || best.cost > cost) {
+        if (completes(it)) spanBest.set(spanOf(it.i, it.j), { cost, item: it });
+        return false;
+      }
+      return best.item !== it &&
+        (it.kind !== "out" || chartKey(best.item) !== chartKey(it));
+    };
+    const completing = function* (
+      rules: Iterable<Rule<GItem>>,
+      costOf: (it: GItem) => number,
+    ): Iterable<Rule<GItem>> {
+      for (const r of rules) {
+        const c = r.conclusion;
+        if (completes(c)) {
+          let cost = r.cost;
+          for (const p of r.premises) cost += costOf(p);
+          const s = spanOf(c.i, c.j);
+          const best = spanBest.get(s);
+          if (best === undefined || cost < best.cost) {
+            spanBest.set(s, { cost, item: c });
+          }
+        }
+        yield r;
+      }
+    };
+    const meter = this.host.meter;
+
     return {
       key: chartKey,
       *axioms() {
@@ -880,29 +937,39 @@ export class GraphSearch {
         const right = it.kind === "cover" ? it.p : it.j;
         return (queryLen - right) * MICRO;
       },
-      rules: (it) => {
+      rules: (it, costOf) => {
         if (it.kind === "cover") {
           return this.coverRules(it, coversDone, coverableByStart);
         }
-        if (it.kind === "form") {
-          return this.formRules(it, concepts, substitutions, nodeBytes);
+        if (dominated(it, costOf(it))) {
+          if (meter) meter.searchDominated++;
+          return [];
         }
-        return this.outRules(it, {
-          W,
-          splits,
-          atomsAreHubs,
-          coversDone,
-          outsByStart,
-          outsByEnd,
-          outsByNode,
-          coverableByStart,
-          findLeafU,
-          findBranchU,
-          linksByLeft,
-          linksByRight,
-          connectors,
-          joins,
-        });
+        if (it.kind === "form") {
+          return completing(
+            this.formRules(it, concepts, substitutions, nodeBytes),
+            costOf,
+          );
+        }
+        return completing(
+          this.outRules(it, {
+            W,
+            splits,
+            atomsAreHubs,
+            coversDone,
+            outsByStart,
+            outsByEnd,
+            outsByNode,
+            coverableByStart,
+            findLeafU,
+            findBranchU,
+            linksByLeft,
+            linksByRight,
+            connectors,
+            joins,
+          }),
+          costOf,
+        );
       },
     };
   }

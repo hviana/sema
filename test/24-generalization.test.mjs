@@ -264,6 +264,38 @@ test("3.1 — a two-topic query fuses BOTH points of attention", async () => {
   );
 });
 
+test("3.1 — the second topic is fused on its OWN wording, never on a sub-window anchor", async () => {
+  // Observed before the fix (attention.ts canonicalChunkId): the region
+  // `ace and ` — inside the OTHER topic's words, "workplace and about" — had a
+  // saturated window replaced by its unsaturated 2-byte prefix `e `, that
+  // sub-window anchor voted for the Dream Team context, and its position was
+  // the "second cluster" the dispersion gate let the topic through on.  The
+  // fusion passed on scaffolding.  Pinned here: the Dream Team root is a
+  // committed point of attention whose every contributing region lies in the
+  // topic's own words, AND it is fused into the answer.
+  const m = await twoTopicMind();
+  let anchors = null;
+  const got = await m.respondText(TWO_TOPIC_QUERY, (s) => {
+    if (s.mechanism.at(-1) === "climbConsensus" && s.data?.anchors) {
+      anchors = s.data.anchors;
+    }
+  });
+  const topic = (a) =>
+    new TextDecoder().decode(m.store.bytes(a.anchor)).includes("Dream Team");
+  const root = anchors?.find((a) => a.commit.status === "root" && topic(a));
+  await m.store.close();
+  assert.ok(root, "the Dream Team context must be a committed root");
+  const own = TWO_TOPIC_QUERY.indexOf(" the 1992 Dream Team");
+  const foreign = root.contributingSpans.filter(([s]) => s < own);
+  assert.deepEqual(
+    foreign,
+    [],
+    `the Dream Team root is supported from outside its own words: ` +
+      JSON.stringify(foreign.map(([s, e]) => TWO_TOPIC_QUERY.slice(s, e))),
+  );
+  assert.match(got, /Barcelona|gold|Dream Team/i);
+});
+
 test("3.1 — the trace surfaces MORE THAN ONE ordered anchor for a two-topic query", async () => {
   const m = await twoTopicMind();
   const steps = [];

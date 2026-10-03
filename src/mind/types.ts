@@ -191,7 +191,13 @@ export interface Attention {
    *  a genuine further topic is named in its own distinctive wording
    *  somewhere the query's scaffolding does not reach, always a SEPARATE
    *  cluster from whatever else corroborates it.  See
-   *  test/37-cluster-dispersion-fusion.test.mjs. */
+   *  test/37-cluster-dispersion-fusion.test.mjs.
+   *
+   *  Read from the VOTES, this is a lossy witness: a region votes once, for its
+   *  top anchor, so a place can be lost to a tie or won through an accident.
+   *  Fusion therefore also asks the root's CONTEXT the same question at window
+   *  scale (reasoning.ts `sharedPlaces`) and trusts a root that either reading
+   *  finds in two places. */
   clusters: number;
 }
 
