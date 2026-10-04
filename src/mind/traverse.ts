@@ -9,13 +9,20 @@
 import { cosine, Vec } from "../vec.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { gistOf, read } from "./primitives.js";
-import { canonicalWindows, leafIdPrefix, leafIdRun } from "./canonical.js";
+import {
+  canonicalWindows,
+  chainReach,
+  leafIdPrefix,
+  leafIdRun,
+} from "./canonical.js";
 // Imported at the TOP, where every other import is.  They used to sit 800 lines
 // down under a note claiming the position mattered ("before trace module is
 // loaded") — it does not: an ES module's static imports are HOISTED, so the
 // file's line order never decides load order.  The note described an intention
 // the runtime does not honour; the imports move and the claim goes.
 import { decodeText } from "./rationale.js";
+import { latin1 } from "../bytes.js";
+import { type WindowIndex, windowIndex, witness } from "./evidence.js";
 import type { RationaleItem } from "./rationale.js";
 
 // ── Session structural memo ─────────────────────────────────────────────
@@ -696,8 +703,10 @@ export function guidedNext(
   return pick;
 }
 
-/** Disambiguate among a node's learnt continuations by distributional
- *  support.  NOTE the `guide` contract: its VALUE is deliberately unused —
+/** Disambiguate among a node's learnt continuations: first by the question's
+ *  own witness of an establishing context (the exact tier, see
+ *  {@link askedContinuations}), then by distributional support.  NOTE the
+ *  `guide` contract: its VALUE is deliberately unused —
  *  only its PRESENCE gates disambiguation (a null guide means no query is in
  *  flight, so structural walkers keep plain first-edge behaviour).  The
  *  gist-cosine of short answer candidates against a query guide is dominated
@@ -721,13 +730,30 @@ export function chooseNext(
   if (nx.length === 0) return undefined;
   if (nx.length === 1 || !guide) return nx[0];
 
+  // THE EXACT TIER — the continuation the QUESTION names.  Every other
+  // disambiguation below reads popularity, and is right to refuse the gist (see
+  // the doc above); but the corpus also wrote down, for each continuation,
+  // WHICH QUESTIONS IT ANSWERS — its establishing contexts — and a question is
+  // not a gist.  When one of them is witnessed by the asker's bytes plus the
+  // node's own, that continuation is the one being asked for.  Measured on the
+  // 31.7M-node store: `Who is the father of Frederick II?` answered the
+  // citizenship fact (the most-poured of eight) while `Frederick II father` —
+  // one of the father fact's own establishing contexts — lay wholly inside the
+  // question.  Exact, so it ranks first (exact-vs-approximate.md); when nothing
+  // is witnessed the ladder below decides exactly as before.
+  const asked = ctx._edgeAsked;
+  const named = asked === null ? null : askedContinuations(ctx, id, nx, asked);
+  if (named !== null && named.length === 1) return named[0];
+
   // Cap candidates at √N — the same bound the original chooseAmong used.
   // A hub context can accumulate thousands of continuations; the best-fit
   // one is among the first √N by insertion order (edges are never deleted,
   // so the oldest are the most established).  A strongly-supported edge
   // inserted beyond the cap is invisible here — the deliberate trade
-  // against paying O(fan-out) count reads on every disambiguation.
-  const capped = nx; // already the hub-capped prefix, by the read above
+  // against paying O(fan-out) count reads on every disambiguation.  Several
+  // continuations named EQUALLY by the question are told apart by the same
+  // ladder, over them alone.
+  const capped = named ?? nx; // already the hub-capped prefix, by the read above
 
   // Distributional-evidence disambiguation, consulting BOTH read-outs of the
   // evidence the training poured:
@@ -800,6 +826,213 @@ export function chooseNext(
   }
 
   return best;
+}
+
+/** The response canonicalizer's reading of `bytes` when it keeps every offset
+ *  — so a window found in the canonical bytes sits at the same place in the
+ *  asker's — else the bytes themselves.  Text canon is offset-preserving on
+ *  ASCII without interior whitespace runs; where it is not, the raw bytes are
+ *  read and a case-variant window simply does not match. */
+export function offsetCanon(ctx: MindContext, bytes: Uint8Array): Uint8Array {
+  if (ctx.canon === null) return bytes;
+  const c = ctx.canon(bytes);
+  return c.length === bytes.length ? c : bytes;
+}
+
+/** The continuations of `id` that `asked` NAMES (see {@link
+ *  askedContinuations}) — for a caller holding material other than the whole
+ *  question: the multi-hop walk asks with what of the question no product has
+ *  restated yet.  null when none is named. */
+export function namedContinuations(
+  ctx: MindContext,
+  id: number,
+  asked: { bytes: Uint8Array; index: WindowIndex },
+): number[] | null {
+  const nx = ctx.store.nextFirst(id, hubBound(ctx));
+  return nx.length === 0 ? null : askedContinuations(ctx, id, nx, asked);
+}
+
+/** The continuations of `id` (among `nx`) that the question NAMES: one of
+ *  their establishing contexts — a predecessor other than `id` itself — is
+ *  wholly witnessed by the question plus `id`'s own bytes (evidence.ts), with
+ *  the question supplying at least one window the node does not.  Ranked by
+ *  how much of the question witnesses it; null when none is named.
+ *
+ *  THE NODE'S OWN BYTES ARE MATERIAL because a derivation stands on them.  On
+ *  the second hop of `Where was the place of death of the director of film
+ *  Beat Girl?` the node is `Edmond T. Gréville` — reached, never written — and
+ *  its fact's establishing context `Edmond T. Gréville place of death` is held
+ *  by neither the question nor the node, only by both.  Measured over 5,236
+ *  held-out 2Wiki questions: such a context is wholly witnessed by the
+ *  question alone 69 times, by the question and the first hop 2,153 times.
+ *
+ *  BOUNDED: predecessor reads share one √N budget across the candidates (see
+ *  the loop below), asked cheapest first; past it the tier abstains for the
+ *  rest, metered, and the ladder decides as before.
+ *  Each form is read at most to the material's length — a form longer than
+ *  everything at hand cannot be wholly witnessed without repeating it. */
+function askedContinuations(
+  ctx: MindContext,
+  id: number,
+  nx: readonly number[],
+  asked: { bytes: Uint8Array; index: WindowIndex },
+): number[] | null {
+  return askedEntry(ctx, id, nx, asked).named;
+}
+
+/** The question spans that NAMED `pick` among `id`'s continuations — the
+ *  evidence a projection through that pick stands on, so a mechanism can
+ *  account for what the question said about it (mechanism-market.md:
+ *  evidence travels).  Empty when the question names no continuation of `id`
+ *  or names others. */
+export function askedEvidence(
+  ctx: MindContext,
+  id: number,
+  pick: number,
+): Array<[number, number]> {
+  const asked = ctx._edgeAsked;
+  if (asked === null) return [];
+  const nx = ctx.store.nextFirst(id, hubBound(ctx));
+  const entry = askedEntry(ctx, id, nx, asked);
+  return entry.named?.includes(pick) ? entry.spans.get(pick) ?? [] : [];
+}
+
+interface AskedEntry {
+  named: number[] | null;
+  /** Per named continuation, the question spans that witnessed it. */
+  spans: Map<number, Array<[number, number]>>;
+}
+
+function askedEntry(
+  ctx: MindContext,
+  id: number,
+  nx: readonly number[],
+  asked: { bytes: Uint8Array; index: WindowIndex },
+): AskedEntry {
+  let memo = askedMemo.get(asked);
+  if (memo === undefined) askedMemo.set(asked, memo = new Map());
+  const hit = memo.get(id);
+  if (hit !== undefined && !ctx.trace) return hit;
+  const entry = askedContinuationsImpl(ctx, id, nx, asked);
+  memo.set(id, entry);
+  return entry;
+}
+
+/** One pick per node per question — every mechanism of a response asks the
+ *  same node about the same question (the guided-pick memo's own reason). */
+const askedMemo = new WeakMap<object, Map<number, AskedEntry>>();
+
+function askedContinuationsImpl(
+  ctx: MindContext,
+  id: number,
+  nx: readonly number[],
+  asked: { bytes: Uint8Array; index: WindowIndex },
+): AskedEntry {
+  const none: AskedEntry = { named: null, spans: new Map() };
+  const W = ctx.space.maxGroup;
+  // A SATURATED READ IS NOT A CANDIDATE SET.  When the continuations came back
+  // at the √N cap the read may have cut the named one off, so "none of these is
+  // named" and "this is the named one" are both unfounded — and this is exactly
+  // where witnessing would read most.  The tier abstains, metered, and the
+  // distributional ladder decides as it always has.
+  if (nx.length >= hubBound(ctx)) {
+    if (ctx.meter) ctx.meter.askedReadsSaturated++;
+    return none;
+  }
+  const cache = getStructCache(ctx);
+  const ownCap = asked.bytes.length * W;
+  const own = offsetCanon(ctx, read(ctx, id, ownCap));
+  const ownIndex = windowIndex(own, W);
+  // Naming needs the question to say at least one window the node does not:
+  // when the node already holds every window of the question (the question IS
+  // this context, or a piece of it), nothing can be named, and nothing is read.
+  let beyond = false;
+  for (const key of asked.index.keys()) {
+    if (!ownIndex.has(key)) {
+      beyond = true;
+      break;
+    }
+  }
+  if (!beyond) return none;
+  const indexes = [asked.index, ownIndex];
+  const formCap = asked.bytes.length + own.length;
+  // BOUNDED READS (bounded-reads.md): the decision reads at most √N
+  // establishing contexts — floored at the write side's own arity `chainReach(W)`
+  // so a store too small for √N to cover one fact's questions still decides.
+  // Candidates are asked CHEAPEST FIRST (fewest establishing contexts): a common
+  // reply established by hundreds of contexts would otherwise spend the whole
+  // allowance alone.  The order changes what is READ, never what wins: scores
+  // are compared afterwards in the continuations' own order.
+  let budget = Math.max(hubBound(ctx), chainReach(W));
+  const order = nx
+    .map((n, at) => ({ n, at, support: cachedPrevCount(ctx, n, cache) }))
+    .filter((c) => c.support >= 2) // only `id` establishes the rest
+    .sort((a, b) => a.support - b.support || a.at - b.at);
+  const scored: Array<
+    {
+      n: number;
+      at: number;
+      score: number;
+      by: number;
+      spans: Array<[number, number]>;
+    }
+  > = [];
+  for (const { n, at, support } of order) {
+    if (support > budget) {
+      if (ctx.meter) ctx.meter.askedReadsSaturated++;
+      break;
+    }
+    budget -= support;
+    if (ctx.meter) ctx.meter.askedPredecessorReads += support;
+    let score = 0;
+    let by = -1;
+    let spans: Array<[number, number]> = [];
+    for (const c of ctx.store.prevFirst(n, support)) {
+      if (c === id) continue;
+      // The form's FIRST window decides most refusals: one short prefix read
+      // before the whole form is reconstructed (a conversation-length
+      // predecessor would otherwise be read in full to fail on its opening).
+      const head = offsetCanon(ctx, read(ctx, c, W));
+      if (head.length < W) continue;
+      if (!indexes.some((ix) => ix.has(latin1(head)))) continue;
+      const form = read(ctx, c, formCap + 1);
+      if (form.length < W || form.length > formCap) continue;
+      const w = witness(offsetCanon(ctx, form), indexes, W);
+      if (!w.complete || w.bytes < W) continue;
+      if (w.bytes > score) {
+        score = w.bytes;
+        by = c;
+        spans = w.spans;
+      }
+    }
+    if (score > 0) scored.push({ n, at, score, by, spans });
+  }
+  scored.sort((a, b) => a.at - b.at);
+  let best: number[] = [];
+  let bestBytes = 0;
+  let witnessed: number | null = null;
+  for (const { n, score, by } of scored) {
+    if (score > bestBytes) {
+      best = [n];
+      bestBytes = score;
+      witnessed = by;
+    } else if (score === bestBytes) best.push(n);
+  }
+  if (best.length === 0) return none;
+  if (ctx.meter) ctx.meter.askedContinuations++;
+  if (ctx.trace && witnessed !== null) {
+    ctx.trace.step(
+      "askedContinuation",
+      [rItemShort(ctx, id, "node"), rItemShort(ctx, witnessed, "asked")],
+      best.map((n) => rItemShort(ctx, n, "named")),
+      `${nx.length} continuations — the question witnesses ` +
+        `${best.length === 1 ? "one's" : `${best.length}'`} own establishing ` +
+        `context (${bestBytes} question byte(s) beyond the node)`,
+    );
+  }
+  const evidence = new Map<number, Array<[number, number]>>();
+  for (const c of scored) if (best.includes(c.n)) evidence.set(c.n, c.spans);
+  return { named: best, spans: evidence };
 }
 
 /** The perceived gist of a candidate node, through the session gist cache.
@@ -901,6 +1134,86 @@ export function allWindowsAreScaffolding(
     sawOne = true;
   }
   return sawOne;
+}
+
+/** Per offset of `bytes`: 1 when the W-window there is a stored form contained
+ *  in more than √N places (corpus-global scaffolding; see the floor below),
+ *  else 0.  Memoised per
+ *  byte array for the life of the store's read-only response. */
+export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
+  const hit = hubWindowMemo.get(bytes);
+  if (hit !== undefined) return hit;
+  const W = ctx.space.maxGroup;
+  // Floored at the write side's arity: inside ONE deposit's fold a window is
+  // already contained by up to `chainReach(W)` chunks and branches, so on a
+  // store of a few facts the √N reading would call every window frame — that
+  // is fold structure, not corpus commonality.
+  const bound = Math.max(hubBound(ctx), chainReach(W));
+  const hub = new Uint8Array(Math.max(0, bytes.length - W + 1));
+  for (let o = 0; o < hub.length; o++) {
+    const ids = leafIdRun(ctx, bytes, o, o + W);
+    const id = ids === null ? null : ctx.store.findBranch(ids);
+    if (id !== null && ctx.store.containersSlice(id, bound, 1).length > 0) {
+      hub[o] = 1;
+    }
+  }
+  hubWindowMemo.set(bytes, hub);
+  return hub;
+}
+const hubWindowMemo = new WeakMap<Uint8Array, Uint8Array>();
+
+/** The query's SCAFFOLDING CORE, as spans: the bytes every W-window over which
+ *  is a hub (see {@link hubWindows}) — what is nothing but frame, where
+ *  {@link scaffoldExtents} is what a frame window reaches. */
+export function scaffoldSpans(
+  ctx: MindContext,
+  query: Uint8Array,
+): Array<[number, number]> {
+  const W = ctx.space.maxGroup;
+  const hub = hubWindows(ctx, query);
+  const n = hub.length;
+  if (n <= 0) return [];
+  const spans: Array<[number, number]> = [];
+  let start = -1;
+  for (let i = 0; i < query.length; i++) {
+    let all = true;
+    for (let o = Math.max(0, i - W + 1); o <= Math.min(i, n - 1); o++) {
+      if (!hub[o]) {
+        all = false;
+        break;
+      }
+    }
+    if (all && start < 0) start = i;
+    if (!all && start >= 0) {
+      spans.push([start, i]);
+      start = -1;
+    }
+  }
+  if (start >= 0) spans.push([start, query.length]);
+  return spans;
+}
+
+/** The EXTENTS of the query's SCAFFOLDING windows, merged: every byte some
+ *  W-window reaches that is a stored form contained in more than √N places —
+ *  corpus-global commonality (commonality.md), the same "hub" reading as
+ *  {@link allWindowsAreScaffolding} and the bridge's `explainedSpan`.  A window
+ *  the store never saw is NOT scaffolding.  The extent, not the core, is what
+ *  a coverage test needs: a span that still holds one hub window can be
+ *  "carried" by any fact that holds that window. */
+export function scaffoldExtents(
+  ctx: MindContext,
+  query: Uint8Array,
+): Array<[number, number]> {
+  const W = ctx.space.maxGroup;
+  const hub = hubWindows(ctx, query);
+  const spans: Array<[number, number]> = [];
+  for (let o = 0; o < hub.length; o++) {
+    if (!hub[o]) continue;
+    const last = spans[spans.length - 1];
+    if (last !== undefined && o <= last[1]) last[1] = o + W;
+    else spans.push([o, o + W]);
+  }
+  return spans;
 }
 
 // ── THE PREFIX SUPPLY ───────────────────────────────────────────────────────

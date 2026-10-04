@@ -8,10 +8,17 @@ import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import type { Attention, MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
 import { countClusters } from "./attention.js";
-import { hubBound } from "./traverse.js";
+import {
+  guidedFirst,
+  hubBound,
+  namedContinuations,
+  offsetCanon,
+} from "./traverse.js";
+import { unspoken, type WindowIndex, windowIndex } from "./evidence.js";
 import { containsSpan, follow, haloSiblings, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import {
+  closed,
   closeOver,
   type ClosureLayer,
   type Continuation,
@@ -102,6 +109,12 @@ export function walkLayer(
   // fire — the same visibility trade chooseNext documents.
   const bound = hubBound(ctx);
   const consumed = new Set<number>();
+  /** The windows each product of this derivation holds — what of the question
+   *  the derivation has already restated, so a later step is NAMED only by
+   *  question material none of them said. */
+  const spoken: WindowIndex[] = [];
+  const speak = (product: Uint8Array) =>
+    spoken.push(windowIndex(offsetCanon(ctx, product), ctx.space.maxGroup));
   /** `prev` lets a caller hand in an already-read reverse-edge list — hop 0
    *  reuses the guard's, below, instead of re-reading it. */
   const consumeNode = (
@@ -122,6 +135,7 @@ export function walkLayer(
   const begin = async (d0: DerivationState): Promise<boolean> => {
     const answer = d0.product;
     startedFrom = answer;
+    speak(answer);
     // Echo guard: a query that is ITSELF a learnt continuation (some context's
     // answer) is being asked back at the system — hopping forward from it would
     // chain through the very fact that produced it and echo the conversation
@@ -402,16 +416,48 @@ export function walkLayer(
       );
       return null;
     }
+    // THE STEP THE QUESTION ASKS FOR.  The hop `follow` took is NAMED when one
+    // of its establishing contexts is witnessed by what of the question no
+    // product has restated yet, plus the pivot itself (traverse.ts,
+    // `namedContinuations`): `Where was the place of death of the director of
+    // film Beat Girl?` names `Edmond T. Gréville place of death` once the first
+    // hop has restated `director` and `Beat Girl` — and `Who is the father of
+    // Frederick II?` names nothing past `Peter III of Aragon`, because `father`
+    // was restated by the hop that reached him.  A named step MOVES to structure
+    // the question asked for, so it is admitted on that ground; an unnamed one
+    // must carry the question's remainder as before, and from a CLOSED
+    // derivation — nothing left owed — it is not offered at all: the question
+    // asks for no further step, and the law would otherwise admit any.
+    const asked = ctx._edgeAsked;
+    let named = false;
+    if (asked !== null) {
+      const unsaid = {
+        bytes: asked.bytes,
+        index: unspoken(asked.index, spoken),
+      };
+      const names = namedContinuations(ctx, pivot, unsaid);
+      const hop = guidedFirst(ctx, pivot);
+      named = names !== null && hop !== undefined && names.includes(hop);
+    }
+    if (!named && !producerOwnsShape && closed(d)) {
+      ctx.trace?.step(
+        "pivotUnasked",
+        [rItem(cur, "answer"), rNode(ctx, pivot, "pivot")],
+        [rItem(fc, "withheld")],
+        "the derivation owes nothing and the question names no further step — not offered",
+      );
+      return null;
+    }
     pending = { kind: "pivot", cur, pivot, fc };
-    // Offered with the identity species ONLY when the grounding declared what it
-    // speaks for; otherwise the law requires this step to carry question
-    // material the grounding left unaccounted, which is the drift the extension
-    // tests pin — refused by the law's own measure, not by a private window
-    // test.
+    // Offered with the identity species when the grounding declared what it
+    // speaks for, or when the question names the step; otherwise the law
+    // requires this step to carry question material the grounding left
+    // unaccounted, which is the drift the extension tests pin — refused by the
+    // law's own measure, not by a private window test.
     return {
       product: fc,
       contains: true,
-      reaches: producerOwnsShape,
+      reaches: producerOwnsShape || named,
       cost: STEP,
     };
   };
@@ -422,6 +468,7 @@ export function walkLayer(
     witnesses: ReadonlyArray<Witness>,
   ): void => {
     meterTransition(ctx, before, after, witnesses);
+    speak(after.product);
     const p = pending;
     pending = null;
     if (p === null) return;

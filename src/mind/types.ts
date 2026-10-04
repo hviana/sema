@@ -12,6 +12,7 @@ import type { MindConfig } from "../config.js";
 import type { Meter } from "../meter.js";
 import type { GraphSearch, Leaf, Seg, Site } from "./graph-search.js";
 import type { Rationale } from "./rationale.js";
+import type { WindowIndex } from "./evidence.js";
 import type { ContentFold, Grid } from "../geometry.js";
 
 /** One {@link MindContext._depositTrees} entry — see that field's doc.
@@ -411,6 +412,11 @@ export interface MindContext extends GraphSearchHost {
    *  ordinary respond() and for the first turn of a conversation. */
   currentTurnStart: number;
   _edgeGuide: Vec | null;
+  /** The question currently being answered, as the material `chooseNext`'s
+   *  exact tier witnesses a continuation's establishing contexts against —
+   *  its bytes (canonical when the response's canon preserves offsets) and
+   *  their window index.  Set and cleared with `_edgeGuide`. */
+  _edgeAsked: { bytes: Uint8Array; index: WindowIndex } | null;
   _edgeChoice: Map<number, number>;
   _prevSeen: Set<number> | null;
   /** Session cache of node-id → perceived gist, for candidate scoring

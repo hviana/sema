@@ -1,4 +1,4 @@
-# Exact vs Approximate — The Law and Its Five Ladders
+# Exact vs Approximate — The Law and Its Six Ladders
 
 Vector scores (`resonate` / `resonateHalo`) are RaBitQ **estimates**. They rank
 candidates and gate broad regions; they never decide identity. Identity is
@@ -15,17 +15,18 @@ thresholds gate breadth, not truth.
 
 ## Graded evidence ladders
 
-Five subsystems share one shape — **exact → distributional → geometric** — with
+Six subsystems share one shape — **exact → distributional → geometric** — with
 earlier tiers strictly preferred. Never reorder tiers; never let an approximate
 tier override an exact one.
 
-| # | Site               | Ladder (strong → weak)                                                                                                   | File                                      |
-| - | ------------------ | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
-| 1 | `resolve`          | exact content-addressed fold → `canonResolve` (equivalence class, hash-then-verify)                                      | `mind/primitives.ts`                      |
-| 2 | `locate`           | exact bytes → halo role → gist                                                                                           | `mind/match.ts`                           |
-| 3 | `alignGraded`      | literal W-gram runs → halo-matched sites + climb proposals (weave)                                                       | `mind/match.ts` / `pipeline-mechanism.ts` |
-| 4 | `bridge`           | junction containers → edge → synonym → whole-gist                                                                        | `mind/resonance.ts`                       |
-| 5 | `crossRegionVotes` | exact containers → single synonym → double → `structuralResonance` (synthetic gist, gated hardest — no byte containment) | `mind/attention.ts`                       |
+| # | Site               | Ladder (strong → weak)                                                                                                                        | File                                      |
+| - | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| 1 | `resolve`          | exact content-addressed fold → `canonResolve` (equivalence class, hash-then-verify)                                                           | `mind/primitives.ts`                      |
+| 2 | `locate`           | exact bytes → halo role → gist                                                                                                                | `mind/match.ts`                           |
+| 3 | `alignGraded`      | literal W-gram runs → halo-matched sites + climb proposals (weave)                                                                            | `mind/match.ts` / `pipeline-mechanism.ts` |
+| 4 | `bridge`           | junction containers → edge → synonym → whole-gist                                                                                             | `mind/resonance.ts`                       |
+| 5 | `crossRegionVotes` | exact containers → single synonym → double → `structuralResonance` (synthetic gist, gated hardest — no byte containment)                      | `mind/attention.ts`                       |
+| 6 | `chooseNext`       | an establishing context witnessed by the question ∪ the node (evidence.md) → distributional support (prevCount, poured mass) → first-inserted | `mind/traverse.ts`                        |
 
 ## Asymmetries (attention)
 

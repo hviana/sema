@@ -15,7 +15,13 @@ import {
 import type { MindContext } from "../types.js";
 import { gistOf, read, resolve } from "../primitives.js";
 import { indexOf } from "../../bytes.js";
-import { allWindowsAreScaffolding, corpusN, hubBound } from "../traverse.js";
+import {
+  allWindowsAreScaffolding,
+  askedEvidence,
+  corpusN,
+  guidedFirst,
+  hubBound,
+} from "../traverse.js";
 import {
   follow,
   project,
@@ -154,10 +160,18 @@ export async function recallByResonance(
         g !== null && g.length > 0 &&
         !lawRestates(query, g, 0, { proper: true })
       ) {
+        // EVIDENCE TRAVELS: when the question NAMED the continuation followed
+        // (traverse.ts, the exact tier — `Who is the father of Frederick II?`
+        // witnesses the father fact's own question `Frederick II father`), the
+        // spans that named it are explained too, not only the argument.
+        const hop = guidedFirst(ctx, arg.payload);
+        const named = hop === undefined
+          ? []
+          : askedEvidence(ctx, arg.payload, hop);
         return ground(
           g,
           "argument binding — the query's sole edge-source constituent, continuation followed",
-          [[arg.start, arg.end]],
+          [[arg.start, arg.end], ...named],
           STEP,
         );
       }

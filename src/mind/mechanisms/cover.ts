@@ -18,7 +18,12 @@ import type {
   Site,
 } from "../graph-search.js";
 import { read, resolve } from "../primitives.js";
-import { guidedFirst, hubBound } from "../traverse.js";
+import {
+  guidedFirst,
+  hubBound,
+  namedContinuations,
+  scaffoldSpans,
+} from "../traverse.js";
 import { conceptHop } from "../match.js";
 import { bridge } from "../resonance.js";
 import { liftAnswer, liftedScaffolding, segRestatesQuery } from "../types.js";
@@ -229,7 +234,7 @@ export const coverMechanism: PipelineMechanism = {
 
     // Masking: computed spans are authoritative.  Remove recognised sites
     // that overlap any computed span before building the cover search.
-    const sites = computed.length === 0
+    let sites = computed.length === 0
       ? rec.sites
       : rec.sites.filter((s) =>
         !computed.some((u) => s.start < u.j && u.i < s.end)
@@ -252,6 +257,45 @@ export const coverMechanism: PipelineMechanism = {
         ),
         "a computation always wins: recognised forms overlapping a computed span are dropped",
       );
+    }
+
+    // A FRAGMENT ANSWERS OTHER QUESTIONS.  A recognised form that sits inside
+    // other forms (it has structural parents or containers) holds continuations
+    // because the forms it is a piece of were asked — suffix inheritance gives
+    // `f death` the answer of every `… place of death` question.  Choosing one of
+    // several such continuations by popularity voices some other question's
+    // answer, and the cover used to account the fragment's bytes as explained by
+    // it.  A fragment with several continuations leads somewhere FOR THIS
+    // QUESTION only when the question names one (traverse.ts, the exact tier).
+    // A form that is (nearly) the whole question is not a piece of it: the
+    // question says nothing beyond it, so its continuations answer THIS question.
+    const asked = ctx._edgeAsked;
+    const W0 = ctx.space.maxGroup;
+    const leading = asked === null
+      ? sites
+      : sites.filter((s) =>
+        query.length - (s.end - s.start) < W0 ||
+        !(ctx.store.hasParents(s.payload) ||
+          ctx.store.hasContainers(s.payload)) ||
+        ctx.store.nextFirst(s.payload, 2).length < 2 ||
+        namedContinuations(ctx, s.payload, asked) !== null
+      );
+    if (leading.length < sites.length) {
+      if (ctx.meter) {
+        ctx.meter.unaskedFragments += sites.length - leading.length;
+      }
+      ctx.trace?.step(
+        "unaskedFragments",
+        sites.filter((s) => !leading.includes(s)).map((s) =>
+          rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
+            s.start,
+            s.end,
+          ])
+        ),
+        [],
+        "a piece of other forms whose continuations the question names none of — it answers other questions",
+      );
+      sites = leading;
     }
 
     if (sites.length === 0 && computed.length === 0) return [];
@@ -382,8 +426,19 @@ export const coverMechanism: PipelineMechanism = {
     // restated span contributes nothing to the composed answer, so it must
     // not be priced as if it did (PASS-carried bytes are priced already;
     // the diagnostic label reflects the same distinction).
+    //
+    // …and a span made of nothing but corpus-global scaffolding names nothing:
+    // every window of it is a piece of more than √N stored forms, so the form
+    // recognised there — the song `What`, in the trained store — is one of
+    // thousands it could be.  Voicing that form's fact explains no byte the
+    // asker owes: measured, `What country is Jerry Bock a citizen of?` was won
+    // by `The performer of What is Melinda Marx.` glued onto the right fact.
+    const scaffold = scaffoldSpans(ctx, query);
     const accounted: Array<[number, number]> = segs
-      .filter((s) => s.rec && !segRestatesQuery(s, query, query.length, W))
+      .filter((s) =>
+        s.rec && !segRestatesQuery(s, query, query.length, W) &&
+        !scaffold.some(([a, b]) => a <= s.i && s.j <= b)
+      )
       .map((s) => [s.i, s.j]);
 
     return [{

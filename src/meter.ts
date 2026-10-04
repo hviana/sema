@@ -265,6 +265,19 @@ export class Meter {
   /** Times the reasoner pivoted on a span its answer contains and stepped
    *  across that fact. */
   pivotSteps = 0;
+  /** `chooseNext` picks the question NAMED — a continuation one of whose own
+   *  establishing contexts the question (plus the node) wholly witnesses
+   *  (traverse.ts, the exact tier). */
+  askedContinuations = 0;
+  /** Predecessor rows that exact tier read, against its shared √N budget. */
+  askedPredecessorReads = 0;
+  /** Times the tier abstained on a read it could not trust: the continuations
+   *  came back at the √N cap, or its predecessor budget ran out before every
+   *  continuation was asked about — the distributional ladder decided. */
+  askedReadsSaturated = 0;
+  /** Cover sites dropped as FRAGMENTS whose several continuations the question
+   *  names none of (mechanisms/cover.ts). */
+  unaskedFragments = 0;
   /** Canon probes REFUSED because the canon budget ran out — the one thing the
    *  budget does that nothing could see.  The budget itself is derived
    *  (`bytes.length · chainReach(W)²`, recognition.ts), and the cheap exact route

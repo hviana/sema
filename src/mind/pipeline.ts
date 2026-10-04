@@ -27,7 +27,9 @@ import {
 } from "./derivation.js";
 import { rItem } from "./trace.js";
 import { unexplainedLabel } from "./rationale.js";
-import { hubBound } from "./traverse.js";
+import { hubBound, offsetCanon, scaffoldExtents } from "./traverse.js";
+import { windowIndex, witness } from "./evidence.js";
+import { indexOf } from "../bytes.js";
 import {
   type MechanismResult,
   type PipelineMechanism,
@@ -189,6 +191,13 @@ export async function think(
   if (query.length === 0) return null;
 
   ctx._edgeGuide = gistOf(ctx, query);
+  {
+    const asked = offsetCanon(ctx, query);
+    ctx._edgeAsked = {
+      bytes: asked,
+      index: windowIndex(asked, ctx.space.maxGroup),
+    };
+  }
   ctx._edgeChoice.clear();
 
   const t = ctx.trace?.enter("think", [rItem(query, "query")]);
@@ -690,7 +699,21 @@ export async function think(
   const explained = priced.filter(([a, b]) =>
     windowOf([a, b], answer, query, ctx.space.maxGroup) !== null
   );
-  const paid = remainderOf(query.length, explained, ctx.space.maxGroup);
+  // THE DERIVATION IS BORN OWING ITS DISCRIMINATIVE MATERIAL.  The bytes a
+  // corpus-global scaffolding window reaches (traverse.ts, `scaffoldExtents`)
+  // are nobody's debt — otherwise a later step could claim to pay them by
+  // restating ` is `, which every fact holds, and the law (which measures
+  // carrying by any window of what is owed) would admit it; the substitution
+  // bridge reads gaps the same way (`explainedSpan`).  PRICING is untouched:
+  // the ladder still charges every unexplained byte, because for a question
+  // made of nothing but scaffolding (`How are you today?`) covering those bytes
+  // IS the evidence.
+  const scaffold = scaffoldExtents(ctx, query);
+  const paid = remainderOf(
+    query.length,
+    [...explained, ...scaffold],
+    ctx.space.maxGroup,
+  );
   // WHAT THE CONSTRUCTION WITHHOLDS, at or above one quantum: the difference between
   // the remainder paid in full and the remainder paid by carrying.  Both readings
   // are the law's, so the floor is applied once and in one place — and the
@@ -711,8 +734,31 @@ export async function think(
   const uncovered = state.remainder;
 
   // ── Post-grounding, gated by the declaration and the remainder ────────
+  // WHAT THE GROUNDING SPOKE FOR, when it did not declare it: the forms inside
+  // the answer that the ASKER already holds.  An answer is the asker's material
+  // plus what the corpus added — the fact's own value — and only the former was
+  // spoken for: re-entering it walks back to the question.  The latter is what a
+  // chain continues THROUGH.  Consuming every form recognised in the answer
+  // consumed that too, so a chain could start only where recognition happened
+  // to miss the next entity — measured on 133 held-out 2Wiki compositional
+  // questions, 3 pivot steps in all once interior recognition named the entity
+  // inside every fact.  Witnessed exactly, as `chooseNext`'s exact tier reads the
+  // question (evidence.ts); a form below one window cannot be witnessed, and is
+  // consumed as before.
+  const asked = ctx._edgeAsked;
   const preConsumed = declaredUsed ??
-    new Set(recognise(ctx, answer).sites.map((s) => s.payload));
+    new Set(
+      recognise(ctx, answer).sites
+        .filter((s) =>
+          asked === null || s.end - s.start < ctx.space.maxGroup ||
+          witness(
+            offsetCanon(ctx, answer.subarray(s.start, s.end)),
+            [asked.index],
+            ctx.space.maxGroup,
+          ).complete
+        )
+        .map((s) => s.payload),
+    );
   // A grounding that DECLARED itself complete is not extended: the answer is
   // already a trained form's own continuation, reached through an identity
   // claim about the query, so a multi-hop pivot could only chain past the
@@ -741,8 +787,17 @@ export async function think(
   // `preConsumed` is derived by re-recognising the answer — "everything in
   // it", not "what it voiced" — and a containment rule over that would
   // suppress every pivot the answer legitimately contains.
+  //
+  // …and a continuation the ANSWER ITSELF holds was voiced, not withheld.  A
+  // substitution that answers with its anchor's own continuation (`The director
+  // of Beat Girl is Edmond T. Gréville.`) declared that anchor used, so reading
+  // its continuations as withheld refused every pivot inside the answer — the
+  // chain could never step past the entity the first hop introduced.
   const voiced = declaredUsed === undefined ? [] : [...declaredUsed].flatMap(
-    (id) => ctx.store.nextFirst(id, hubBound(ctx)).map((n) => read(ctx, n)),
+    (id) =>
+      ctx.store.nextFirst(id, hubBound(ctx))
+        .map((n) => read(ctx, n))
+        .filter((v) => indexOf(answer, v, 0) < 0),
   );
   // WHAT THIS BRANCH READ, published where it was read.  Post-grounding decides
   // by the DECLARATION (`decided.used`, which becomes `voiced`), by what the
