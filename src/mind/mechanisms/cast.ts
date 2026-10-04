@@ -15,6 +15,7 @@ import type { MindContext } from "../types.js";
 import type { Vec } from "../../vec.js";
 import { read } from "../primitives.js";
 import {
+  answersOtherQuestions,
   argmaxBy,
   corpusN,
   edgeAncestors,
@@ -695,9 +696,22 @@ export async function counterfactualTransfer(
   // its own fact — so the same bar applies.  The displaced structure is only
   // recognised as the slot being overridden and is never voiced, so it is
   // deliberately not gated here.
+  // …and the substitute must lead somewhere FOR THIS QUESTION: a fragment
+  // whose continuations the question names none of answers other questions
+  // (traverse.ts, `answersOtherQuestions`).  `ong)?`, the tail of every
+  // `… (… Song)?` question, was "named" by `What is the place of birth of the
+  // performer of song Heaven (Namie Amuro Song)?`, and redirection voiced
+  // its most-poured stranger's birthplace.
+  const stranger = last !== undefined &&
+    answersOtherQuestions(
+      ctx,
+      last.point.anchor,
+      query.length,
+      last.run.qe - last.run.qs,
+    );
   if (
     last !== undefined && last.point !== dominant && displaced &&
-    voiceable(last.point)
+    voiceable(last.point) && !stranger
   ) {
     const g = await project(ctx, last.point.anchor, qv);
     if (g !== null) {
