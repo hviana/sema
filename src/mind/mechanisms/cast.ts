@@ -709,6 +709,7 @@ export async function counterfactualTransfer(
         ctx,
         read(ctx, last.point.anchor, query.length * quantum + 1),
         [asked.index],
+        asked.bytes,
       ) !== null;
   if (
     last !== undefined && last.point !== dominant && displaced &&

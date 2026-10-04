@@ -7,7 +7,9 @@
 // born?` against `Where was the director of film Beat Girl born?` leaves
 // `Peter Jackson`).  The co-instance's continuation is established by other
 // contexts too (`Peter Jackson place of birth`), and the one holding the filler
-// spells the relation the way the corpus does.  Putting the node the
+// spells the relation the way the corpus does — read only where two
+// co-instances spell it alike, since one alignment agrees with nothing.
+// Putting the node the
 // derivation stands on where the filler was, and looking the result up by
 // content, names that node's continuation for the same relation — `born`
 // becomes `place of birth` without either equivalence or frame being stored.
@@ -21,7 +23,8 @@
 //
 // Pinned:
 //   155.1 the second hop's relation is read off another instance of the frame;
-//   155.2 without that instance nothing names it, and the chain stops;
+//   155.2 without two instances that spell the relation alike nothing names
+//         it, and the chain stops;
 //   155.3 a frame the question shares only partly is no co-instance;
 //   155.4 the same reading names the first hop when the entity is asked
 //         directly;
@@ -59,6 +62,8 @@ const TRIPLES = [
   ["Peter Jackson", "place of death", "Auckland"],
   ["Peter Jackson", "place of birth", "Wellington"],
   ["Taika Waititi", "place of birth", "Raukokore"],
+  ["Nicki Minaj", "place of birth", "Port of Spain"],
+  ["Stan Rogers", "place of birth", "Hamilton"],
 ];
 
 /** One-hop questions about OTHER entities, answered with their facts. */
@@ -162,15 +167,23 @@ test("155.1 the second hop's relation is read off another instance of the frame"
   await mind.store.close();
 });
 
-test("155.2 without another instance nothing names the relation", async () => {
-  const mind = await fixture([]);
-  const { answer, steps } = await ask(
-    mind,
-    "Where was the director of film Beat Girl born?",
-  );
-  assert.equal(steps.filter((s) => s.name === "askedByCoInstance").length, 0);
-  assert.doesNotMatch(answer, /place of birth/);
-  await mind.store.close();
+test("155.2 without two instances that agree nothing names the relation", async () => {
+  // None at all, and one alone: a single alignment agrees with nothing, so it
+  // is no evidence of what the frame means.
+  for (const instances of [[], INSTANCES.slice(0, 1)]) {
+    const mind = await fixture(instances);
+    const { answer, steps } = await ask(
+      mind,
+      "Where was the director of film Beat Girl born?",
+    );
+    assert.equal(
+      steps.filter((s) => s.name === "askedByCoInstance").length,
+      0,
+      `${instances.length} instance(s)`,
+    );
+    assert.doesNotMatch(answer, /place of birth/);
+    await mind.store.close();
+  }
 });
 
 test("155.3 a frame the question shares only partly is no co-instance", async () => {
@@ -199,6 +212,15 @@ test("155.4 the same reading names the first hop when the entity is asked direct
     "a co-instance names the fact",
   );
   assert.equal(answer, BIRTH);
+  // The co-instances come from the consensus climb, so the pick depends on
+  // whether it has run — and an untraced response, which memoises picks, must
+  // read exactly what a traced one does.
+  const untraced = await fixture();
+  assert.equal(
+    await untraced.respondText("Where was Edmond T. Gréville born?"),
+    BIRTH,
+  );
+  await untraced.store.close();
   await mind.store.close();
 });
 

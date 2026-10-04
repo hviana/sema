@@ -23,6 +23,7 @@ import {
   corpusN,
   guidedFirst,
   hubBound,
+  namedContinuations,
 } from "../traverse.js";
 import {
   follow,
@@ -176,6 +177,17 @@ export async function recallByResonance(
     }
     if (maximal.length === 1 && !hasSubstantialOutside && !stranger) {
       const arg = maximal[0];
+      // An argument whose several continuations the question names none of
+      // outright would be followed by popularity.  Another instance of the
+      // question may name one (traverse.ts, `byCoInstance`), and its
+      // proposals are the consensus climb's points — so the climb is asked
+      // for first, exactly where the choice would otherwise be blind.
+      const asked = ctx._edgeAsked;
+      if (
+        asked !== null && asked.points === undefined &&
+        ctx.store.nextFirst(arg.payload, 2).length >= 2 &&
+        namedContinuations(ctx, arg.payload, asked) === null
+      ) await pre.attention();
       const g = await follow(ctx, arg.payload, queryGist);
       // The same "no restated fragment" guard tier 2 applies below (§ "the
       // anchor cleared the consensus floor..."): a followed continuation
@@ -442,7 +454,7 @@ export async function recallByResonance(
       const asked = ctx._edgeAsked;
       const co = asked === null
         ? null
-        : coInstanceFiller(ctx, anchorBytes, [asked.index]);
+        : coInstanceFiller(ctx, anchorBytes, [asked.index], asked.bytes);
       if (co !== null) {
         ctx.trace?.step(
           "coInstanceAnchor",

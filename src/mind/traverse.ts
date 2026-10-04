@@ -693,7 +693,9 @@ export function guidedNext(
   // policy climbMemo and recogniseMemo follow (every mechanism must emit its
   // own steps; a memo hit would swallow the repeat's `disambiguate` step).
   // Consistency does not need the memo: chooseNext is a pure function of the
-  // (read-only) store and the guide, so recomputation yields the same pick.
+  // (read-only) store, the guide and the consensus climb's points once they
+  // exist (the memo is cleared when they arrive), so recomputation yields the
+  // same pick.
   if (!ctx.trace) {
     const memo = ctx._edgeChoice.get(node);
     if (memo !== undefined) return memo === -1 ? undefined : memo;
@@ -939,7 +941,11 @@ function askedEntry(
   const hit = memo.get(id);
   if (hit !== undefined && !ctx.trace) return hit;
   const entry = askedContinuationsImpl(ctx, id, nx, asked);
-  memo.set(id, entry);
+  // Nothing named before the climb has run is provisional: a co-instance
+  // read from its points may still name one.
+  if (entry.named !== null || ctx._edgeAsked?.points !== undefined) {
+    memo.set(id, entry);
+  }
   return entry;
 }
 
@@ -1055,7 +1061,7 @@ function askedContinuationsImpl(
     } else if (score === bestBytes) best.push(n);
   }
   if (best.length === 0) {
-    return byCoInstance(ctx, id, nx, asked, ownIndex, formCap, allowance);
+    return byCoInstance(ctx, id, nx, asked, formCap, allowance);
   }
   if (ctx.meter) ctx.meter.askedContinuations++;
   if (ctx.trace && witnessed !== null) {
@@ -1073,31 +1079,95 @@ function askedContinuationsImpl(
   return { named: best, spans: evidence };
 }
 
-/** A CO-INSTANCE of the material: a stored form the material witnesses in
- *  every byte but ONE contiguous span, that span holding content — a window
- *  that is not corpus scaffolding (`hubWindows`).  It is the material's own
- *  frame around a different filler: another instance of the same question,
- *  never this one (`Where was Peter Jackson born?` against `Where was the
- *  director of film Beat Girl born?`).  A residue made of scaffolding alone is
- *  the same question in other framing words (`What is the …` against `Tell me
- *  the …`), not another instance.  Source 0 must supply at least one window.
- *  Returns the filler's span in `raw`, or null.  One reading for every
- *  consumer: the exact tier transfers the relation through it, and the
- *  readers that would VOICE such a form's own continuation refuse it. */
+/** A CO-INSTANCE of the question: a stored form that shares the question's
+ *  FRAME — the same opening and the same close, byte for byte under the
+ *  response's equivalence — around ONE different filler.  `Where was Peter
+ *  Jackson born?` against `Where was the director of film Beat Girl born?`
+ *  shares `Where was ` and ` born?`, and leaves `Peter Jackson` against `the
+ *  director of film Beat Girl`: another instance of the same question, never
+ *  this one.  It is the ordered limit of witnessing: a frame is not a bag of
+ *  windows (an order-free reading lets `Lyon is a city in France` pass for an
+ *  instance of `what if the capital of France were Lyon?`, which NAMES Lyon;
+ *  and a coincidental window inside a filler splits it).
+ *
+ *  The frame must reach one window, every window inside it must be held by
+ *  the material (so on the walk, a frame a product already said cannot name a
+ *  second step), the two fillers must share no window (else it is the same
+ *  thing in other words), and the form's filler must be a thing the corpus
+ *  knows (below).  Returns the form's filler span in `raw` and the
+ *  question spans of the frame, or null.  One reading for every consumer: the
+ *  exact tier transfers the relation through it, and the readers that would
+ *  VOICE such a form's own continuation refuse it. */
 export function coInstanceFiller(
   ctx: MindContext,
   raw: Uint8Array,
   indexes: ReadonlyArray<WindowIndex>,
+  question: Uint8Array,
 ): { span: [number, number]; spans: Array<[number, number]> } | null {
   const W = ctx.space.maxGroup;
-  const w = witness(offsetCanon(ctx, raw), indexes, W);
-  if (w.residue.length !== 1 || w.bytes < W) return null;
-  const [s, e] = w.residue[0];
+  const form = offsetCanon(ctx, raw);
+  const max = Math.min(form.length, question.length);
+  let a = 0;
+  while (a < max && form[a] === question[a]) a++;
+  let b = 0;
+  while (
+    b < max - a &&
+    form[form.length - 1 - b] === question[question.length - 1 - b]
+  ) b++;
+  const fe = form.length - b;
+  if (a + b < W || fe <= a || question.length - b <= a) return null;
+  // Scaffolding is nobody's evidence, so a frame window that is a hub need not
+  // be unsaid (` is ` in `Which country Leo Mittler is from?`, which the first
+  // hop's `… is Arshad Khan.` already said).
   const hub = hubWindows(ctx, raw);
-  for (let o = Math.max(0, s - W + 1); o < Math.min(e, hub.length); o++) {
-    if (!hub[o]) return { span: [s, e], spans: w.spans };
+  const held = (o: number): boolean => {
+    if (hub[o]) return true;
+    const key = latin1(form.subarray(o, o + W));
+    return indexes.some((ix) => ix.has(key));
+  };
+  for (let o = 0; o + W <= a; o++) if (!held(o)) return null;
+  for (let o = fe; o + W <= form.length; o++) if (!held(o)) return null;
+  // DIFFERENT FILLERS: the two share no window.  A record that differs from
+  // the question only inside the frame but shares its content there is the
+  // same thing asked in other words (`Describe the importance of gender
+  // equality …` against `Tell a high schooler why gender equality …`, both
+  // behind one system prompt), not another instance.
+  const theirs = windowIndex(question.subarray(a, question.length - b), W);
+  for (let o = a; o + W <= fe; o++) {
+    if (theirs.has(latin1(form.subarray(o, o + W)))) return null;
   }
-  return null;
+  // THE FILLER IS A THING THE CORPUS KNOWS: a stored context with
+  // continuations of its own, opening where the slot opens (up to one window
+  // earlier — a filler byte can sit in a window the question holds by chance:
+  // the `T` of `Taika` inside `as t` of `was the`).  `Peter Jackson` is one;
+  // `converts sunlight into chemical energy`, the slot of `Explain how
+  // photosynthesis …`, is a description of the frame's own subject, and the
+  // record answers the question.  The longest such context is the filler.
+  // One content-addressed probe per byte (the `keyEnds` reading); only a run
+  // some deposit spelled whole is looked up.
+  const ids = leafIdPrefix(ctx, raw);
+  let best: [number, number] | null = null;
+  const cache = getStructCache(ctx);
+  const reach = Math.min(ids.length, fe + W - 1);
+  for (let st = Math.max(0, a - W + 1); st <= a; st++) {
+    const run: number[] = [];
+    for (let en = st + 1; en <= reach; en++) {
+      run.push(ids[en - 1]);
+      if (en - st < W) continue;
+      // The flat branch over the whole run exists only where some deposit
+      // spelled exactly these bytes — the cheap filter; the context it names
+      // is then looked up by content.
+      if (ctx.store.findBranch(run) === null) continue;
+      if (best !== null && en - st <= best[1] - best[0]) continue;
+      const id = resolve(ctx, raw.subarray(st, en));
+      if (id !== null && cachedHasNext(ctx, id, cache)) best = [st, en];
+    }
+  }
+  if (best === null) return null;
+  const spans: Array<[number, number]> = [];
+  if (a > 0) spans.push([0, a]);
+  if (b > 0) spans.push([question.length - b, question.length]);
+  return { span: best, spans };
 }
 
 /** THE RELATION, READ OFF ANOTHER INSTANCE — the exact tier's second reading,
@@ -1121,102 +1191,39 @@ export function coInstanceFiller(
  *  substitution is bytes, the target is an exact lookup that either exists
  *  with this node's continuation or does not.  A frame the question shares only
  *  partly (`Where was … born?` against `When was …`) leaves two residues and
- *  is no co-instance.  The question must supply W bytes of the frame beyond
- *  this node's own windows, so a context of the node itself (`Pema Tseden
- *  date of birth`, residue ` date of birth`) is never its own co-instance.
+ *  is no co-instance.
  *
- *  BOUNDED: co-instances are proposed by the edge-bearing ancestors of the
- *  question's windows the node does not hold (`edgeAncestors`, the climb's own
- *  memoised reach; a saturated window proposes nothing), rarest first, at most
- *  `allowance` of them; each is read once, capped at the material's length. */
+ *  BOUNDED: the frames are a property of the question and are read once per
+ *  question (`relationFrames`); co-instances are proposed by the edge-bearing
+ *  ancestors of its windows (`edgeAncestors`, the climb's own memoised reach;
+ *  a saturated window proposes nothing), rarest first, at most `allowance` of
+ *  them, each read once.  A node pays one exact lookup per frame. */
 function byCoInstance(
   ctx: MindContext,
   id: number,
   nx: readonly number[],
   asked: { bytes: Uint8Array; index: WindowIndex },
-  ownIndex: WindowIndex,
   formCap: number,
   allowance: number,
 ): AskedEntry {
   const none: AskedEntry = { named: null, spans: new Map() };
-  const W = ctx.space.maxGroup;
-  const N = corpusN(ctx);
-  const memo = sharedReachMemo(ctx);
-  const cache = getStructCache(ctx);
-  const deposited = (c: number): boolean =>
-    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
-  const reaches: Array<{ roots: number[]; n: number }> = [];
-  for (const [key, at] of asked.index) {
-    if (ownIndex.has(key)) continue;
-    const ids = leafIdRun(ctx, asked.bytes, at, at + W);
-    const wid = ids === null ? null : ctx.store.findBranch(ids);
-    if (wid === null) continue;
-    const r = edgeAncestors(ctx, wid, N, memo);
-    if (r.saturated || r.roots.length === 0) continue;
-    reaches.push({ roots: r.roots, n: r.contextsReached });
-  }
-  reaches.sort((a, b) => a.n - b.n);
-  const seen = new Set<number>([id]);
-  const proposals: number[] = [];
-  for (const r of reaches) {
-    for (const c of r.roots) {
-      if (proposals.length >= allowance) break;
-      if (seen.has(c)) continue;
-      seen.add(c);
-      if (cachedHasNext(ctx, c, cache)) proposals.push(c);
-    }
-  }
-  if (proposals.length === 0) return none;
+  const frames = relationFrames(ctx, asked, allowance);
+  if (frames.length === 0) return none;
   const node = read(ctx, id, formCap);
   const support = new Map<number, Set<number>>();
   const spans = new Map<number, Array<[number, number]>>();
   const via = new Map<number, { q: number; t: number }>();
-  for (const q of proposals) {
-    if (!deposited(q)) continue;
-    const raw = read(ctx, q, formCap + 1);
-    if (raw.length > formCap) continue;
-    if (ctx.meter) ctx.meter.coInstanceReads++;
-    const co = coInstanceFiller(ctx, raw, [asked.index, ownIndex]);
-    if (co === null) continue;
-    // The walk asks with what no product has said yet, so a frame window a
-    // product happened to restate (` is ` in `Which country Leo Mittler is
-    // from?`) leaves its bytes in the residue and the filler reads `Leo
-    // Mittler ` — whose substitution spells `Arshad Khancountry of
-    // citizenship`.  WHETHER it is a co-instance is the unsaid material's
-    // call; WHERE its filler lies is read against the whole question.
-    let [fs, fe] = co.span;
-    const whole = ctx._edgeAsked;
-    if (whole !== null && whole !== asked) {
-      const r = witness(offsetCanon(ctx, raw), [whole.index, ownIndex], W)
-        .residue;
-      if (r.length === 1 && r[0][0] >= fs && r[0][1] <= fe) [fs, fe] = r[0];
-    }
-    const filler = raw.subarray(fs, fe);
-    for (const f of ctx.store.nextFirst(q, W)) {
-      for (const c of ctx.store.prevFirst(f, allowance)) {
-        if (c === q || !deposited(c)) continue;
-        const cb = read(ctx, c, formCap + 1);
-        const at = indexOf(cb, filler, 0);
-        if (at < 0) continue;
-        const t = resolve(
-          ctx,
-          concatBytes([
-            cb.subarray(0, at),
-            node,
-            cb.subarray(at + filler.length),
-          ]),
-        );
-        if (t === null || t === id) continue;
-        for (const n of ctx.store.nextFirst(t, allowance)) {
-          if (!nx.includes(n)) continue;
-          let by = support.get(n);
-          if (by === undefined) support.set(n, by = new Set());
-          by.add(q);
-          if (!spans.has(n)) {
-            spans.set(n, co.spans);
-            via.set(n, { q, t });
-          }
-        }
+  for (const fr of frames) {
+    const t = resolve(ctx, concatBytes([fr.prefix, node, fr.suffix]));
+    if (t === null || t === id) continue;
+    for (const n of ctx.store.nextFirst(t, allowance)) {
+      if (!nx.includes(n)) continue;
+      let by = support.get(n);
+      if (by === undefined) support.set(n, by = new Set());
+      for (const q of fr.by) by.add(q);
+      if (!spans.has(n)) {
+        spans.set(n, fr.spans);
+        via.set(n, { q: fr.by[0], t });
       }
     }
   }
@@ -1251,6 +1258,91 @@ function byCoInstance(
   for (const n of best) evidence.set(n, spans.get(n) ?? []);
   return { named: best, spans: evidence };
 }
+
+/** One RELATION FRAME read off a co-instance: an establishing context of the
+ *  co-instance's continuation with the filler cut out (`Peter Jackson place
+ *  of birth` → `` + · + ` place of birth`).  Any node put in the gap spells
+ *  that node's context for the same relation. */
+interface RelationFrame {
+  /** The co-instances that spell the relation this way (first one traced). */
+  by: number[];
+  prefix: Uint8Array;
+  suffix: Uint8Array;
+  spans: Array<[number, number]>;
+}
+
+/** The relation frames the question's co-instances carry — a property of the
+ *  QUESTION, not of the node asked about, so it is read once per question
+ *  (and once per walk material) and every node only pays the exact lookups.
+ *  A question the corpus holds verbatim is its own instance and reads none. */
+function relationFrames(
+  ctx: MindContext,
+  asked: { bytes: Uint8Array; index: WindowIndex },
+  allowance: number,
+): RelationFrame[] {
+  // A co-instance is the question's frame around ONE other filler, so it is
+  // read at most to twice the question's length.
+  const formCap = 2 * asked.bytes.length;
+  const hit = frameMemo.get(asked);
+  if (hit !== undefined && !ctx.trace) return hit;
+  const whole = ctx._edgeAsked;
+  // THE PROPOSALS ARE THE CLIMB'S.  The consensus climb already scored the
+  // stored forms the question's regions reach — measured on the 2Wiki
+  // fixture with one-hop questions, the co-instances were among its points —
+  // so the tier reads co-instances from those and climbs nothing of its own.
+  // Before the climb has run there is nothing to read, and nothing is
+  // remembered: a later ask, after the climb, reads its points.
+  const points = whole?.points;
+  if (points === undefined) return [];
+  const frames: RelationFrame[] = [];
+  frameMemo.set(asked, frames);
+  if (whole !== null && resolve(ctx, whole.bytes) !== null) return frames;
+  const W = ctx.space.maxGroup;
+  const cache = getStructCache(ctx);
+  const deposited = (c: number): boolean =>
+    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
+  const spelled = new Map<string, RelationFrame>();
+  // Most corroborated first (the climb's own ranking), at most
+  // `chainReach(W)` read — the exact tier's own floor.
+  const proposals = points.filter((c) => cachedHasNext(ctx, c, cache))
+    .slice(0, Math.min(allowance, chainReach(W)));
+  for (const q of proposals) {
+    if (!deposited(q)) continue;
+    const raw = read(ctx, q, formCap + 1);
+    if (raw.length > formCap) continue;
+    if (ctx.meter) ctx.meter.coInstanceReads++;
+    const co = coInstanceFiller(ctx, raw, [asked.index], asked.bytes);
+    if (co === null) continue;
+    const [fs, fe] = co.span;
+    const filler = raw.subarray(fs, fe);
+    for (const f of ctx.store.nextFirst(q, W)) {
+      for (const c of ctx.store.prevFirst(f, allowance)) {
+        if (c === q || !deposited(c)) continue;
+        const cb = read(ctx, c, formCap + 1);
+        const at = indexOf(cb, filler, 0);
+        if (at < 0) continue;
+        const prefix = cb.subarray(0, at);
+        const suffix = cb.subarray(at + filler.length);
+        if (prefix.length + suffix.length === 0) continue;
+        const key = latin1(prefix) + "\u0000" + latin1(suffix);
+        const known = spelled.get(key);
+        if (known === undefined) {
+          spelled.set(key, { by: [q], prefix, suffix, spans: co.spans });
+        } else if (!known.by.includes(q)) known.by.push(q);
+      }
+    }
+  }
+  // ONE INSTANCE AGREES WITH NOTHING.  A relation is read off the corpus only
+  // where two co-instances spell it the same way — the agreement `reference`
+  // demands of a frame (MIN_INSTANCES), for the same reason: a single
+  // coincidental alignment is not evidence of what the frame means.  Measured
+  // on the trained store, long dialogue turns proposed hundreds of one-off
+  // "frames", each an exact lookup for every node asked about.
+  for (const fr of spelled.values()) if (fr.by.length >= 2) frames.push(fr);
+  frames.sort((a, b) => b.by.length - a.by.length);
+  return frames;
+}
+const frameMemo = new WeakMap<object, RelationFrame[]>();
 
 /** The perceived gist of a candidate node, through the session gist cache.
  *  Re-gisting a candidate is a full river fold of its bytes — the measured

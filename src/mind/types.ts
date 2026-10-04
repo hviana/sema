@@ -415,8 +415,12 @@ export interface MindContext extends GraphSearchHost {
   /** The question currently being answered, as the material `chooseNext`'s
    *  exact tier witnesses a continuation's establishing contexts against —
    *  its bytes (canonical when the response's canon preserves offsets) and
-   *  their window index.  Set and cleared with `_edgeGuide`. */
-  _edgeAsked: { bytes: Uint8Array; index: WindowIndex } | null;
+   *  their window index.  Set and cleared with `_edgeGuide`.  `points` are the
+   *  anchors the response's consensus climb scored, once it has climbed —
+   *  the proposals the exact tier reads co-instances from. */
+  _edgeAsked:
+    | { bytes: Uint8Array; index: WindowIndex; points?: readonly number[] }
+    | null;
   _edgeChoice: Map<number, number>;
   _prevSeen: Set<number> | null;
   /** Session cache of node-id → perceived gist, for candidate scoring

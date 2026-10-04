@@ -840,7 +840,7 @@ export function fusionLayer(
       const asked = ctx._edgeAsked;
       if (asked !== null) {
         const form = read(ctx, root.anchor, 2 * query.length);
-        const co = coInstanceFiller(ctx, form, [asked.index]);
+        const co = coInstanceFiller(ctx, form, [asked.index], asked.bytes);
         if (co !== null) {
           ctx.trace?.step(
             "coInstanceRoot",

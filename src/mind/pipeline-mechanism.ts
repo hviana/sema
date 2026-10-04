@@ -225,7 +225,21 @@ export class Precomputed {
     return this._attention ??= this.shared(
       "attention",
       () => climbAttentionAll(this.ctx, this.query, this.k),
-    );
+    ).then((read) => {
+      // The climb's scored anchors are what the exact tier reads co-instances
+      // of the question from (traverse.ts, `relationFrames`): the
+      // approximate climb proposes, witnessing decides.
+      // A pick made before the points existed read less evidence than one
+      // made after, so the response's pick memo starts over (traverse.ts,
+      // guidedNext: a pick is a function of the store, the guide AND the
+      // points — traced and untraced responses must agree).
+      const asked = this.ctx._edgeAsked;
+      if (asked !== null && asked.points === undefined) {
+        asked.points = read.ranked.map((a) => a.anchor);
+        this.ctx._edgeChoice.clear();
+      }
+      return read;
+    });
   }
 
   private _weave?: Promise<WeaveInfo>;
