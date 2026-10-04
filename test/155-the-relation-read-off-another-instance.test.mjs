@@ -24,7 +24,11 @@
 //   155.2 without that instance nothing names it, and the chain stops;
 //   155.3 a frame the question shares only partly is no co-instance;
 //   155.4 the same reading names the first hop when the entity is asked
-//         directly.
+//         directly;
+//   155.5 another instance's own answer is never voiced: an attention point
+//         that is a co-instance of the question is neither grounded (recall)
+//         nor fused, and the pieces the instances share are no establishing
+//         context of their facts.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -54,7 +58,7 @@ const TRIPLES = [
   // Other instances of the same relations.
   ["Peter Jackson", "place of death", "Auckland"],
   ["Peter Jackson", "place of birth", "Wellington"],
-  ["Jane Campion", "place of birth", "Wellington"],
+  ["Taika Waititi", "place of birth", "Raukokore"],
 ];
 
 /** One-hop questions about OTHER entities, answered with their facts. */
@@ -62,6 +66,18 @@ const INSTANCES = [
   [
     "Where was Peter Jackson born?",
     "The place of birth of Peter Jackson is Wellington.",
+  ],
+  [
+    "Where was Taika Waititi born?",
+    "The place of birth of Taika Waititi is Raukokore.",
+  ],
+  [
+    "Where was Nicki Minaj (Nicki Minaj Song) born?",
+    "The place of birth of Nicki Minaj is Port of Spain.",
+  ],
+  [
+    "Where was Stan Rogers (Song) born?",
+    "The place of birth of Stan Rogers is Hamilton.",
   ],
 ];
 
@@ -129,13 +145,19 @@ test("155.1 the second hop's relation is read off another instance of the frame"
     s.name === "askedByCoInstance" && s.inputs[0] === "Edmond T. Gréville"
   );
   assert.ok(named, "a co-instance names the hop");
-  assert.equal(named.inputs[1], "Where was Peter Jackson born?");
+  assert.match(
+    named.inputs[1],
+    /^Where was (Peter Jackson|Taika Waititi) born\?$/,
+  );
   assert.equal(named.inputs[2], "Edmond T. Gréville place of birth");
   assert.deepEqual(named.outputs, [BIRTH]);
   const pivot = steps.find((s) => s.name === "pivotStep");
   assert.ok(pivot, "the chain steps past the first hop");
   assert.equal(pivot.outputs[0], BIRTH);
+  // …and the instances themselves are never the answer: `born?`, the piece
+  // of both one-hop questions, is no establishing context of either fact.
   assert.equal(answer, BIRTH);
+  assert.doesNotMatch(answer, /Wellington/);
   assert.ok(mind.lastCost.counters.coInstanceNamings > 0);
   await mind.store.close();
 });
@@ -177,5 +199,33 @@ test("155.4 the same reading names the first hop when the entity is asked direct
     "a co-instance names the fact",
   );
   assert.equal(answer, BIRTH);
+  await mind.store.close();
+});
+
+test("155.5 another instance's own answer is never voiced", async () => {
+  const mind = await fixture();
+  // Nothing is stored about the song `God`: the climb's best point is
+  // `Where was Nicki Minaj (Nicki Minaj Song) born?` — the question's frame
+  // around another filler.
+  const notes = [];
+  const answer = await mind.respondText(
+    "Where was the performer of song God (John Lennon Song) born?",
+    (st) => {
+      const name = st.mechanism.at(-1);
+      if (name === "coInstanceAnchor" || name === "coInstanceRoot") {
+        notes.push(name);
+      }
+    },
+  );
+  assert.ok(notes.includes("coInstanceAnchor"), "the anchor is refused");
+  assert.doesNotMatch(
+    answer,
+    /Nicki|Port of Spain|Wellington|Raukokore|Hamilton/,
+  );
+  // …and where the question IS answerable, no instance rides along with it.
+  const known = await mind.respondText(
+    "Where was the director of film Beat Girl born?",
+  );
+  assert.equal(known, BIRTH);
   await mind.store.close();
 });

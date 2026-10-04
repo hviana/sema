@@ -31,7 +31,12 @@
 //         that named the first hop cannot name a second;
 //   154.5 a fragment (`director`, inside every `… director` question) answers
 //         other questions: the cover voices none of its continuations unless the
-//         question names one.
+//         question names one;
+//   154.6 …and neither does recall's argument binding, when the fragment is the
+//         query's sole argument;
+//   154.7 a comparison needs the question to name two things: an analog
+//         evidenced only by windows the dominant holds, or by scaffolding, is
+//         not compared (it used to glue its bare question onto the answer).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -277,5 +282,58 @@ test("154.5 a fragment answers other questions unless the question names one", a
     assert.equal(c, "The director of Beat Girl is Edmond T. Gréville.");
   }
   assert.ok(mind.lastCost.counters.unaskedFragments > 0);
+  await mind.store.close();
+});
+
+test("154.6 recall's argument binding does not bind a fragment the question names nothing of", async () => {
+  const mind = await fixture();
+  // Subjects ending in a parenthesis (2Wiki's own titles) let the fold intern
+  // `director` as a node of its own, which inherits every director fact.
+  await mind.ingest(deposits([
+    ["Vasantha Sena (1967 film)", "director", "B. S. Ranga"],
+    ["Guilty of Treason (film)", "director", "Felix E. Feist"],
+  ]));
+  const steps = [];
+  const answer = await mind.respondText(
+    "When was the director of film Jinpa born?",
+    (st) => {
+      if (st.mechanism.includes("recallByResonance")) {
+        steps.push({
+          name: st.mechanism.at(-1),
+          outputs: st.outputs.map((o) => o.text ?? ""),
+        });
+      }
+    },
+  );
+  // `director` — the only constituent long enough to bind — leads to every
+  // director fact, and the binding voiced the most-poured stranger's.
+  assert.ok(
+    steps.some((s) => s.name === "unaskedFragments"),
+    "the binding is refused",
+  );
+  for (const s of steps.filter((s) => s.name === "recallByResonance")) {
+    for (const o of s.outputs) assert.doesNotMatch(o, /Vasantha|Guilty/);
+  }
+  assert.equal(answer, "The director of Jinpa is Pema Tseden.");
+  await mind.store.close();
+});
+
+test("154.7 a comparison needs the question to name two things", async () => {
+  const mind = await fixture();
+  const notes = [];
+  const answer = await mind.respondText(
+    "Tell me the father of Frederick II.",
+    (st) => {
+      if (st.mechanism.at(-1) === "validateAnalogy") notes.push(st.note ?? "");
+    },
+  );
+  // `Peter III of Aragon father` is reached through ` father` (the dominant
+  // `Frederick II father` holds it) and ` of ` (scaffolding): one structure
+  // named, so nothing is compared.
+  assert.ok(
+    notes.some((n) => /names one structure, not two/.test(n)),
+    "the comparison is refused",
+  );
+  assert.equal(answer, FATHER);
   await mind.store.close();
 });

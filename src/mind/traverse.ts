@@ -1073,6 +1073,33 @@ function askedContinuationsImpl(
   return { named: best, spans: evidence };
 }
 
+/** A CO-INSTANCE of the material: a stored form the material witnesses in
+ *  every byte but ONE contiguous span, that span holding content — a window
+ *  that is not corpus scaffolding (`hubWindows`).  It is the material's own
+ *  frame around a different filler: another instance of the same question,
+ *  never this one (`Where was Peter Jackson born?` against `Where was the
+ *  director of film Beat Girl born?`).  A residue made of scaffolding alone is
+ *  the same question in other framing words (`What is the …` against `Tell me
+ *  the …`), not another instance.  Source 0 must supply at least one window.
+ *  Returns the filler's span in `raw`, or null.  One reading for every
+ *  consumer: the exact tier transfers the relation through it, and the
+ *  readers that would VOICE such a form's own continuation refuse it. */
+export function coInstanceFiller(
+  ctx: MindContext,
+  raw: Uint8Array,
+  indexes: ReadonlyArray<WindowIndex>,
+): { span: [number, number]; spans: Array<[number, number]> } | null {
+  const W = ctx.space.maxGroup;
+  const w = witness(offsetCanon(ctx, raw), indexes, W);
+  if (w.residue.length !== 1 || w.bytes < W) return null;
+  const [s, e] = w.residue[0];
+  const hub = hubWindows(ctx, raw);
+  for (let o = Math.max(0, s - W + 1); o < Math.min(e, hub.length); o++) {
+    if (!hub[o]) return { span: [s, e], spans: w.spans };
+  }
+  return null;
+}
+
 /** THE RELATION, READ OFF ANOTHER INSTANCE — the exact tier's second reading,
  *  asked only when no establishing context of `id`'s continuations is
  *  witnessed outright.
@@ -1149,9 +1176,21 @@ function byCoInstance(
     const raw = read(ctx, q, formCap + 1);
     if (raw.length > formCap) continue;
     if (ctx.meter) ctx.meter.coInstanceReads++;
-    const w = witness(offsetCanon(ctx, raw), [asked.index, ownIndex], W);
-    if (w.residue.length !== 1 || w.bytes < W) continue;
-    const [fs, fe] = w.residue[0];
+    const co = coInstanceFiller(ctx, raw, [asked.index, ownIndex]);
+    if (co === null) continue;
+    // The walk asks with what no product has said yet, so a frame window a
+    // product happened to restate (` is ` in `Which country Leo Mittler is
+    // from?`) leaves its bytes in the residue and the filler reads `Leo
+    // Mittler ` — whose substitution spells `Arshad Khancountry of
+    // citizenship`.  WHETHER it is a co-instance is the unsaid material's
+    // call; WHERE its filler lies is read against the whole question.
+    let [fs, fe] = co.span;
+    const whole = ctx._edgeAsked;
+    if (whole !== null && whole !== asked) {
+      const r = witness(offsetCanon(ctx, raw), [whole.index, ownIndex], W)
+        .residue;
+      if (r.length === 1 && r[0][0] >= fs && r[0][1] <= fe) [fs, fe] = r[0];
+    }
     const filler = raw.subarray(fs, fe);
     for (const f of ctx.store.nextFirst(q, W)) {
       for (const c of ctx.store.prevFirst(f, allowance)) {
@@ -1174,7 +1213,7 @@ function byCoInstance(
           if (by === undefined) support.set(n, by = new Set());
           by.add(q);
           if (!spans.has(n)) {
-            spans.set(n, w.spans);
+            spans.set(n, co.spans);
             via.set(n, { q, t });
           }
         }

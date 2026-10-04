@@ -19,6 +19,7 @@ import {
   allWindowsAreScaffolding,
   answersOtherQuestions,
   askedEvidence,
+  coInstanceFiller,
   corpusN,
   guidedFirst,
   hubBound,
@@ -431,7 +432,28 @@ export async function recallByResonance(
         forest[0].anchor,
         query.length * ctx.space.maxGroup + 1,
       );
-      if (g !== null && voicesDisplacedFiller(ctx, query, anchorBytes, g)) {
+      // …and the same refusal read from the anchor's side: an anchor the query
+      // witnesses in every byte but one filler of its own is ANOTHER INSTANCE
+      // of the question (traverse.ts, `coInstanceFiller`).  The query-side
+      // reading above needs the shared frame to dominate the QUERY, which a
+      // long slot defeats: `Where was the performer of song God (John Lennon
+      // Song) born?` elected `Where was Nicki Minaj (Nicki Minaj Song) born?`
+      // and answered Nicki Minaj's birthplace.
+      const asked = ctx._edgeAsked;
+      const co = asked === null
+        ? null
+        : coInstanceFiller(ctx, anchorBytes, [asked.index]);
+      if (co !== null) {
+        ctx.trace?.step(
+          "coInstanceAnchor",
+          [rItem(query, "query"), rNode(ctx, forest[0].anchor, "anchor")],
+          [rItem(anchorBytes.subarray(co.span[0], co.span[1]), "filler")],
+          "refused — the anchor is another instance of the question's frame, " +
+            "and its continuation speaks of its own filler",
+        );
+      } else if (
+        g !== null && voicesDisplacedFiller(ctx, query, anchorBytes, g)
+      ) {
         ctx.trace?.step(
           "displacedFiller",
           [rItem(query, "query"), rNode(ctx, forest[0].anchor, "anchor")],

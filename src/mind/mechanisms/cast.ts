@@ -16,6 +16,7 @@ import type { Vec } from "../../vec.js";
 import { read } from "../primitives.js";
 import {
   argmaxBy,
+  coInstanceFiller,
   corpusN,
   edgeAncestors,
   hubBound,
@@ -695,9 +696,23 @@ export async function counterfactualTransfer(
   // its own fact — so the same bar applies.  The displaced structure is only
   // recognised as the slot being overridden and is never voiced, so it is
   // deliberately not gated here.
+  // …and a substitute the question names only by its FRAME is not named: a
+  // co-instance of the question (traverse.ts, `coInstanceFiller`) is the
+  // question's own frame around another filler, so its fact is another
+  // instance's answer.  `…of France were Lyon?` names Lyon by its content;
+  // `What is the place of birth of the performer of song Heaven (Namie Amuro
+  // Song)?` named `Where was Nicki Minaj (Nicki Minaj Song) born?` by `Song)`
+  // and the frame, and redirection answered Nicki Minaj's birthplace.
+  const asked = ctx._edgeAsked;
+  const frameOnly = last !== undefined && asked !== null &&
+    coInstanceFiller(
+        ctx,
+        read(ctx, last.point.anchor, query.length * quantum + 1),
+        [asked.index],
+      ) !== null;
   if (
     last !== undefined && last.point !== dominant && displaced &&
-    voiceable(last.point)
+    voiceable(last.point) && !frameOnly
   ) {
     const g = await project(ctx, last.point.anchor, qv);
     if (g !== null) {

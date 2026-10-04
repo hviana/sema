@@ -9,6 +9,7 @@ import type { Attention, MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
 import { countClusters } from "./attention.js";
 import {
+  coInstanceFiller,
   guidedFirst,
   hubBound,
   namedContinuations,
@@ -828,6 +829,28 @@ export function fusionLayer(
       // again would only restate it.  Deliberately NOT a magnitude measure:
       // it fires on exact content-addressed recurrence, not on how strongly
       // the root resonates.
+      // ANOTHER INSTANCE IS NOT ANOTHER TOPIC.  A root the question witnesses
+      // in every byte but one contiguous span is the question's own frame
+      // around a different filler (evidence.ts, `coInstanceFiller`): the climb
+      // committed `Where was Peter Jackson born?` as a second point of
+      // `Where was the director of film Beat Girl born?` on the frame windows
+      // alone, and fusing it voiced Peter Jackson's birthplace beside the
+      // answer.  Such a root says what the question's relation IS (traverse.ts,
+      // `byCoInstance`), never what it asks about.
+      const asked = ctx._edgeAsked;
+      if (asked !== null) {
+        const form = read(ctx, root.anchor, 2 * query.length);
+        const co = coInstanceFiller(ctx, form, [asked.index]);
+        if (co !== null) {
+          ctx.trace?.step(
+            "coInstanceRoot",
+            [rNode(ctx, root.anchor, "point", root.vote)],
+            [rItem(form.subarray(co.span[0], co.span[1]), "filler")],
+            "the question witnesses this point in every byte but one filler of its own — another instance of the question's frame, not a further topic",
+          );
+          continue;
+        }
+      }
       const cont = await follow(ctx, root.anchor, qv);
       if (
         cont !== null && cont.length > 0 &&
