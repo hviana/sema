@@ -19,6 +19,8 @@ import {
   corpusN,
   edgeAncestors,
   hubBound,
+  hubWindows,
+  offsetCanon,
   sharedReachMemo,
 } from "../traverse.js";
 import {
@@ -31,7 +33,7 @@ import {
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
 import { CONCEPT, STEP } from "../graph-search.js";
-import { indexOf } from "../../bytes.js";
+import { indexOf, latin1 } from "../../bytes.js";
 import { consensusFloor, dominates } from "../../geometry.js";
 import { restates, unexplainedSpans } from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
@@ -116,7 +118,7 @@ export interface CastResult {
  *  painted by Leonardo da Vinci.") must be seated by that establishing
  *  sentence, NOT by its own biography fact — voicing the bio leaks exactly
  *  what a comparison must keep out, and loses the embedded "Mona Lisa"
- *  term C3 relies on for a further hop.
+ *  term C3's further-hop candidate lives in.
  *
  *  The distinguishing signal is content-addressed, not a count: a genuine
  *  establishing predecessor's bytes CONTAIN id's own bytes — it names or
@@ -1084,6 +1086,41 @@ export async function counterfactualTransfer(
     : [];
   const cmpGaps = unexplainedSpans(query.length, cmpAccounted);
   const cmpMaxGap = cmpGaps.reduce((n, [s, e]) => Math.max(n, e - s), 0);
+  // TWO THINGS NAMED.  A comparison voices two structures, so the question
+  // must evidence the second one with material of its own: a W-window of the
+  // question that the analog holds — on its aligned runs, or anywhere in its
+  // own form under the response's equivalence (the witness reading,
+  // evidence.md) — and that is neither inside the dominant's runs nor corpus
+  // scaffolding (`hubWindows`, the reading of "what the question owes").
+  // `father of Frederick II?` reached `Peter III of Aragon father` through
+  // ` father`, which the dominant `Frederick II father` already holds, and
+  // ` of `, which every fact holds — one structure named, and the comparison
+  // glued the analog's bare question onto the answer (`…is Peter III of
+  // Aragon.Peter III of Aragon father`).  `How is ice like steel?` names
+  // `Ice is cold` with `ice `, a window no byte-exact run aligns (the case
+  // differs) and the dominant `Steel is hard` lacks.
+  const analogOwnsEvidence = (): boolean => {
+    if (bestAnalog === null) return false;
+    const W = ctx.space.maxGroup;
+    const hub = hubWindows(ctx, query);
+    const mine = runSpans(dominant);
+    const owns = (o: number): boolean =>
+      !hub[o] && !mine.some(([ms, me]) => o >= ms && o + W <= me);
+    for (const [s, e] of runSpans(bestAnalog.point ?? bestAnalog.src)) {
+      for (let o = s; o + W <= e; o++) if (owns(o)) return true;
+    }
+    const asked = ctx._edgeAsked;
+    if (asked === null) return false;
+    const form = offsetCanon(
+      ctx,
+      read(ctx, bestAnalog.anchor, asked.bytes.length * W),
+    );
+    for (let o = 0; o + W <= form.length; o++) {
+      const at = asked.index.get(latin1(form.subarray(o, o + W)));
+      if (at !== undefined && owns(at)) return true;
+    }
+    return false;
+  };
   // An analog that is not itself a directly ALIGNED point (point !== null —
   // its own runs are query bytes, the query NAMED it) was only reached
   // through a continuation hop or the structural-hub fallback.  Voicing
@@ -1211,6 +1248,7 @@ export async function counterfactualTransfer(
   if (
     bestAnalog !== null &&
     (bestHalo || analogNamed || rootTrusted) &&
+    analogOwnsEvidence() &&
     !cmpDismisses &&
     queryScale(dominant.ctx.length) &&
     roots.length <= 1 &&
@@ -1346,6 +1384,10 @@ export async function counterfactualTransfer(
         ? `the best analog carries no halo-tier company evidence, was never ` +
           `named by the query, and no committed root's consensus vote ` +
           `clears the floor, so comparison refuses to voice it`
+        : !analogOwnsEvidence()
+        ? `the question evidences the analog only with windows the dominant ` +
+          `already holds or the corpus' scaffolding — it names one structure, ` +
+          `not two, so there is nothing to compare`
         : cmpDismisses
         ? `a frame-tier analog under an untrusted root dismisses stored ` +
           `query content its alignment never accounted for — comparison ` +

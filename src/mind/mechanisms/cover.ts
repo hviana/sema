@@ -19,9 +19,9 @@ import type {
 } from "../graph-search.js";
 import { read, resolve } from "../primitives.js";
 import {
+  answersOtherQuestions,
   guidedFirst,
   hubBound,
-  namedContinuations,
   scaffoldSpans,
 } from "../traverse.js";
 import { conceptHop } from "../match.js";
@@ -259,27 +259,11 @@ export const coverMechanism: PipelineMechanism = {
       );
     }
 
-    // A FRAGMENT ANSWERS OTHER QUESTIONS.  A recognised form that sits inside
-    // other forms (it has structural parents or containers) holds continuations
-    // because the forms it is a piece of were asked — suffix inheritance gives
-    // `f death` the answer of every `… place of death` question.  Choosing one of
-    // several such continuations by popularity voices some other question's
-    // answer, and the cover used to account the fragment's bytes as explained by
-    // it.  A fragment with several continuations leads somewhere FOR THIS
-    // QUESTION only when the question names one (traverse.ts, the exact tier).
-    // A form that is (nearly) the whole question is not a piece of it: the
-    // question says nothing beyond it, so its continuations answer THIS question.
-    const asked = ctx._edgeAsked;
-    const W0 = ctx.space.maxGroup;
-    const leading = asked === null
-      ? sites
-      : sites.filter((s) =>
-        query.length - (s.end - s.start) < W0 ||
-        !(ctx.store.hasParents(s.payload) ||
-          ctx.store.hasContainers(s.payload)) ||
-        ctx.store.nextFirst(s.payload, 2).length < 2 ||
-        namedContinuations(ctx, s.payload, asked) !== null
-      );
+    // A FRAGMENT ANSWERS OTHER QUESTIONS (traverse.ts) — and the cover used to
+    // account the fragment's bytes as explained by the stranger's answer.
+    const leading = sites.filter((s) =>
+      !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+    );
     if (leading.length < sites.length) {
       if (ctx.meter) {
         ctx.meter.unaskedFragments += sites.length - leading.length;

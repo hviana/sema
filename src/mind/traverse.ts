@@ -8,7 +8,7 @@
 
 import { cosine, Vec } from "../vec.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
-import { gistOf, read } from "./primitives.js";
+import { gistOf, read, resolve } from "./primitives.js";
 import {
   canonicalWindows,
   chainReach,
@@ -21,7 +21,7 @@ import {
 // file's line order never decides load order.  The note described an intention
 // the runtime does not honour; the imports move and the claim goes.
 import { decodeText } from "./rationale.js";
-import { latin1 } from "../bytes.js";
+import { concatBytes, indexOf, latin1 } from "../bytes.js";
 import { type WindowIndex, windowIndex, witness } from "./evidence.js";
 import type { RationaleItem } from "./rationale.js";
 
@@ -839,6 +839,31 @@ export function offsetCanon(ctx: MindContext, bytes: Uint8Array): Uint8Array {
   return c.length === bytes.length ? c : bytes;
 }
 
+/** A FRAGMENT ANSWERS OTHER QUESTIONS.  A recognised form that sits inside
+ *  other forms (it has structural parents or containers) holds continuations
+ *  because the forms it is a piece of were asked — suffix inheritance gives
+ *  `f death` the answer of every `… place of death` question, and `director`
+ *  the answer of every `… director` one.  Choosing one of several such
+ *  continuations by popularity voices some other question's answer.  A
+ *  fragment with several continuations leads somewhere FOR THIS QUESTION only
+ *  when the question names one (the exact tier below).  A form that is
+ *  (nearly) the whole question is not a piece of it: the question says
+ *  nothing beyond it, so its continuations answer THIS question.  Read by
+ *  every mechanism that projects through a recognised site (cover's sites,
+ *  recall's argument binding). */
+export function answersOtherQuestions(
+  ctx: MindContext,
+  id: number,
+  queryLen: number,
+  siteLen: number,
+): boolean {
+  const asked = ctx._edgeAsked;
+  if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
+  if (!(ctx.store.hasParents(id) || ctx.store.hasContainers(id))) return false;
+  if (ctx.store.nextFirst(id, 2).length < 2) return false;
+  return namedContinuations(ctx, id, asked) === null;
+}
+
 /** The continuations of `id` that `asked` NAMES (see {@link
  *  askedContinuations}) — for a caller holding material other than the whole
  *  question: the multi-hop walk asks with what of the question no product has
@@ -963,7 +988,8 @@ function askedContinuationsImpl(
   // reply established by hundreds of contexts would otherwise spend the whole
   // allowance alone.  The order changes what is READ, never what wins: scores
   // are compared afterwards in the continuations' own order.
-  let budget = Math.max(hubBound(ctx), chainReach(W));
+  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  let budget = allowance;
   const order = nx
     .map((n, at) => ({ n, at, support: cachedPrevCount(ctx, n, cache) }))
     .filter((c) => c.support >= 2) // only `id` establishes the rest
@@ -995,6 +1021,16 @@ function askedContinuationsImpl(
       const head = offsetCanon(ctx, read(ctx, c, W));
       if (head.length < W) continue;
       if (!indexes.some((ix) => ix.has(latin1(head)))) continue;
+      // AN ESTABLISHING CONTEXT IS A DEPOSITED ONE.  A span interned inside
+      // bigger forms inherits their edges (the fragment ` born?` leads to the
+      // fact of every `Where was … born?` question), so witnessing it names
+      // every one of them — measured on the 2Wiki fixture with one-hop
+      // questions deposited, ` born?` named nine strangers' birthplaces.  The
+      // structural predicate pivotInto already reads: a form with parents or
+      // containers was never a context on its own.
+      if (
+        cachedHasParents(ctx, c, cache) || ctx.store.hasContainers(c)
+      ) continue;
       const form = read(ctx, c, formCap + 1);
       if (form.length < W || form.length > formCap) continue;
       const w = witness(offsetCanon(ctx, form), indexes, W);
@@ -1018,7 +1054,9 @@ function askedContinuationsImpl(
       witnessed = by;
     } else if (score === bestBytes) best.push(n);
   }
-  if (best.length === 0) return none;
+  if (best.length === 0) {
+    return byCoInstance(ctx, id, nx, asked, ownIndex, formCap, allowance);
+  }
   if (ctx.meter) ctx.meter.askedContinuations++;
   if (ctx.trace && witnessed !== null) {
     ctx.trace.step(
@@ -1032,6 +1070,146 @@ function askedContinuationsImpl(
   }
   const evidence = new Map<number, Array<[number, number]>>();
   for (const c of scored) if (best.includes(c.n)) evidence.set(c.n, c.spans);
+  return { named: best, spans: evidence };
+}
+
+/** THE RELATION, READ OFF ANOTHER INSTANCE — the exact tier's second reading,
+ *  asked only when no establishing context of `id`'s continuations is
+ *  witnessed outright.
+ *
+ *  `When was the director of film Jinpa born?` reaches `Pema Tseden`, whose
+ *  date-of-birth fact is established by `Pema Tseden date of birth`: the
+ *  question says `born`, the corpus says `date of birth`, and no window joins
+ *  them.  What can join them is ANOTHER INSTANCE of the same question.  A
+ *  stored context the question witnesses in every byte but ONE contiguous span
+ *  (`When was Peter Jackson born?`, residue `Peter Jackson`) is the question's
+ *  own frame around a different filler — a CO-INSTANCE.  Its continuation is
+ *  established by other contexts too (`Peter Jackson date of birth`), and one
+ *  that holds the filler is the relation spelled the way the corpus spells it.
+ *  Put this node where the filler was and look the result up by content:
+ *  `Pema Tseden date of birth` exists, and its continuation is named.
+ *
+ *  Nothing here is stored as a unit — not `born` ≈ `date of birth`, not the
+ *  frame — and nothing is approximate: the co-instance is witnessed, the
+ *  substitution is bytes, the target is an exact lookup that either exists
+ *  with this node's continuation or does not.  A frame the question shares only
+ *  partly (`Where was … born?` against `When was …`) leaves two residues and
+ *  is no co-instance.  The question must supply W bytes of the frame beyond
+ *  this node's own windows, so a context of the node itself (`Pema Tseden
+ *  date of birth`, residue ` date of birth`) is never its own co-instance.
+ *
+ *  BOUNDED: co-instances are proposed by the edge-bearing ancestors of the
+ *  question's windows the node does not hold (`edgeAncestors`, the climb's own
+ *  memoised reach; a saturated window proposes nothing), rarest first, at most
+ *  `allowance` of them; each is read once, capped at the material's length. */
+function byCoInstance(
+  ctx: MindContext,
+  id: number,
+  nx: readonly number[],
+  asked: { bytes: Uint8Array; index: WindowIndex },
+  ownIndex: WindowIndex,
+  formCap: number,
+  allowance: number,
+): AskedEntry {
+  const none: AskedEntry = { named: null, spans: new Map() };
+  const W = ctx.space.maxGroup;
+  const N = corpusN(ctx);
+  const memo = sharedReachMemo(ctx);
+  const cache = getStructCache(ctx);
+  const deposited = (c: number): boolean =>
+    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
+  const reaches: Array<{ roots: number[]; n: number }> = [];
+  for (const [key, at] of asked.index) {
+    if (ownIndex.has(key)) continue;
+    const ids = leafIdRun(ctx, asked.bytes, at, at + W);
+    const wid = ids === null ? null : ctx.store.findBranch(ids);
+    if (wid === null) continue;
+    const r = edgeAncestors(ctx, wid, N, memo);
+    if (r.saturated || r.roots.length === 0) continue;
+    reaches.push({ roots: r.roots, n: r.contextsReached });
+  }
+  reaches.sort((a, b) => a.n - b.n);
+  const seen = new Set<number>([id]);
+  const proposals: number[] = [];
+  for (const r of reaches) {
+    for (const c of r.roots) {
+      if (proposals.length >= allowance) break;
+      if (seen.has(c)) continue;
+      seen.add(c);
+      if (cachedHasNext(ctx, c, cache)) proposals.push(c);
+    }
+  }
+  if (proposals.length === 0) return none;
+  const node = read(ctx, id, formCap);
+  const support = new Map<number, Set<number>>();
+  const spans = new Map<number, Array<[number, number]>>();
+  const via = new Map<number, { q: number; t: number }>();
+  for (const q of proposals) {
+    if (!deposited(q)) continue;
+    const raw = read(ctx, q, formCap + 1);
+    if (raw.length > formCap) continue;
+    if (ctx.meter) ctx.meter.coInstanceReads++;
+    const w = witness(offsetCanon(ctx, raw), [asked.index, ownIndex], W);
+    if (w.residue.length !== 1 || w.bytes < W) continue;
+    const [fs, fe] = w.residue[0];
+    const filler = raw.subarray(fs, fe);
+    for (const f of ctx.store.nextFirst(q, W)) {
+      for (const c of ctx.store.prevFirst(f, allowance)) {
+        if (c === q || !deposited(c)) continue;
+        const cb = read(ctx, c, formCap + 1);
+        const at = indexOf(cb, filler, 0);
+        if (at < 0) continue;
+        const t = resolve(
+          ctx,
+          concatBytes([
+            cb.subarray(0, at),
+            node,
+            cb.subarray(at + filler.length),
+          ]),
+        );
+        if (t === null || t === id) continue;
+        for (const n of ctx.store.nextFirst(t, allowance)) {
+          if (!nx.includes(n)) continue;
+          let by = support.get(n);
+          if (by === undefined) support.set(n, by = new Set());
+          by.add(q);
+          if (!spans.has(n)) {
+            spans.set(n, w.spans);
+            via.set(n, { q, t });
+          }
+        }
+      }
+    }
+  }
+  let best: number[] = [];
+  let most = 0;
+  for (const n of nx) {
+    const k = support.get(n)?.size ?? 0;
+    if (k === 0) continue;
+    if (k > most) {
+      best = [n];
+      most = k;
+    } else if (k === most) best.push(n);
+  }
+  if (best.length === 0) return none;
+  if (ctx.meter) ctx.meter.coInstanceNamings++;
+  const first = via.get(best[0]);
+  if (ctx.trace && first !== undefined) {
+    ctx.trace.step(
+      "askedByCoInstance",
+      [
+        rItemShort(ctx, id, "node"),
+        rItemShort(ctx, first.q, "co-instance"),
+        rItemShort(ctx, first.t, "asked"),
+      ],
+      best.map((n) => rItemShort(ctx, n, "named")),
+      `${nx.length} continuations — no establishing context is witnessed; ` +
+        `${most} co-instance(s) of the question carry the relation to ` +
+        `${best.length === 1 ? "one" : best.length} of them`,
+    );
+  }
+  const evidence = new Map<number, Array<[number, number]>>();
+  for (const n of best) evidence.set(n, spans.get(n) ?? []);
   return { named: best, spans: evidence };
 }
 

@@ -275,6 +275,12 @@ export class Meter {
    *  came back at the √N cap, or its predecessor budget ran out before every
    *  continuation was asked about — the distributional ladder decided. */
   askedReadsSaturated = 0;
+  /** Picks named by a CO-INSTANCE of the question — another instance of its
+   *  frame whose continuation carries the relation over to this node by an
+   *  exact substitution (traverse.ts, `byCoInstance`). */
+  coInstanceNamings = 0;
+  /** Proposed co-instances that tier read and witnessed. */
+  coInstanceReads = 0;
   /** Cover sites dropped as FRAGMENTS whose several continuations the question
    *  names none of (mechanisms/cover.ts). */
   unaskedFragments = 0;

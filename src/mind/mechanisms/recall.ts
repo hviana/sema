@@ -17,6 +17,7 @@ import { gistOf, read, resolve } from "../primitives.js";
 import { indexOf } from "../../bytes.js";
 import {
   allWindowsAreScaffolding,
+  answersOtherQuestions,
   askedEvidence,
   corpusN,
   guidedFirst,
@@ -145,7 +146,34 @@ export async function recallByResonance(
         s.end - s.start >= W2 &&
         (s.end <= maximal[0].start || s.start >= maximal[0].end)
       );
-    if (maximal.length === 1 && !hasSubstantialOutside) {
+    // …and the argument must lead somewhere FOR THIS QUESTION: a fragment
+    // whose continuations the question names none of answers other questions
+    // (traverse.ts) — `director`, inside `When was the director of film Jinpa
+    // born?`, bound the most-poured of fifty-five directors.
+    const stranger = maximal.length === 1 &&
+      answersOtherQuestions(
+        ctx,
+        maximal[0].payload,
+        query.length,
+        maximal[0].end - maximal[0].start,
+      );
+    if (stranger) {
+      if (ctx.meter) ctx.meter.unaskedFragments++;
+      ctx.trace?.step(
+        "unaskedFragments",
+        [
+          rItem(
+            query.subarray(maximal[0].start, maximal[0].end),
+            "fragment",
+            maximal[0].payload,
+            [maximal[0].start, maximal[0].end],
+          ),
+        ],
+        [],
+        "the sole argument is a piece of other forms whose continuations the question names none of — it answers other questions",
+      );
+    }
+    if (maximal.length === 1 && !hasSubstantialOutside && !stranger) {
       const arg = maximal[0];
       const g = await follow(ctx, arg.payload, queryGist);
       // The same "no restated fragment" guard tier 2 applies below (§ "the

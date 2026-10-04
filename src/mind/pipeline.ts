@@ -773,13 +773,14 @@ export async function think(
   // Reading the used anchors' OWN bytes here says something stronger and
   // wrong: that nothing INSIDE what was voiced may be pivoted through.  A
   // comparison's seat sentence legitimately contains further terms with
-  // their own unrelated facts, and C3 pins exactly that — `Mona Lisa`, inside
-  // the voiced seat `The Mona Lisa was painted by Leonardo da Vinci.`, leads
-  // on to `Mona Lisa hangs in the Louvre`, which is about neither analog.
+  // their own unrelated facts — `Mona Lisa`, inside the voiced seat `The Mona
+  // Lisa was painted by Leonardo da Vinci.`, leads on to `Mona Lisa hangs in
+  // the Louvre`, which is about neither analog (test/29 C3: a candidate the
+  // walk takes only when the question names it).
   // The withheld content is the used anchors' CONTINUATIONS, so that is what
   // the containment rule reads: `speare` is contained in `Shakespeare wrote
   // 39 plays` and stays refused, while `Mona Lisa` appears in no withheld
-  // continuation and the genuine further hop fires.
+  // continuation and stays a candidate.
   //
   // Only a mechanism carrying its own `used` set (cast/join) gets this: there
   // `preConsumed` is a deliberate, short list of the anchors the answer

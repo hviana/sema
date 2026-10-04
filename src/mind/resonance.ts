@@ -307,8 +307,9 @@ export async function joinWithBridge(
  *  Shakespeare" (id 676) and the pivot hopped through "speare" (id 606, not
  *  in `consumed`) straight into that analog's own biography, which is exactly
  *  what the comparison had refused to voice.  The rule is CONTAINMENT, not
- *  overlap, so C3's genuine further hop — "Mona Lisa", a term inside the seat
- *  sentence but part of NEITHER analog — still fires. */
+ *  overlap, so C3's further term — "Mona Lisa", inside the seat sentence but
+ *  part of NEITHER analog — stays a candidate; whether the walk steps through
+ *  it is the naming rule's decision (reasoning.ts, evidence.md). */
 export async function pivotInto(
   ctx: MindContext,
   answer: Uint8Array,

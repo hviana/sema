@@ -255,16 +255,12 @@ export function walkLayer(
   // 30 s); and raising it from 12 to 200 changed neither the answer nor
   // `pivotSteps` on the chain fixtures.
   const qv = pre.guide; // the response-wide guide IS the query's gist
-  // WHOSE EXTENSION IS THIS?  `voiced` is what the mechanism WITHHELD (the
-  // pipeline sends the used anchors' CONTINUATIONS, not their bytes), so a
-  // non-empty `voiced` means exactly what that note says: the grounding came
-  // from a mechanism that carries its own short `used` set (cast/join) and
-  // therefore OWNS the shape of its answer.  The further terms inside such a
-  // seat are legitimately followable (test/29 C3's `Mona Lisa` lives inside the
-  // voiced seat and leads on to a fact about neither analog), which the law
-  // expresses as the identity species of progress — `moves` — declared by the
-  // reporter and never inferred from the mechanism's name.
-  const producerOwnsShape = voiced.length > 0;
+  // NO PRODUCER OWNS THE NEXT STEP.  A grounding that declared what it voiced
+  // (cast/join) used to MOVE through any further term inside its answer,
+  // unasked — `Who is the director of The Jerk?` grounded by CAST walked on to
+  // `The country of citizenship of Carl Reiner is American.`  What it voiced
+  // still bounds what may be pivoted through (`voiced`, pivotInto); whether a
+  // step is taken is the naming rule below, the same for every mechanism.
   let hop = 0;
   let t: ReturnType<Rationale["enter"]> | undefined;
   // WHAT THE OFFERED STEP WOULD BE.  The law decides, so the accepted step is
@@ -439,7 +435,7 @@ export function walkLayer(
       const hop = guidedFirst(ctx, pivot);
       named = names !== null && hop !== undefined && names.includes(hop);
     }
-    if (!named && !producerOwnsShape && closed(d)) {
+    if (!named && closed(d)) {
       ctx.trace?.step(
         "pivotUnasked",
         [rItem(cur, "answer"), rNode(ctx, pivot, "pivot")],
@@ -449,15 +445,14 @@ export function walkLayer(
       return null;
     }
     pending = { kind: "pivot", cur, pivot, fc };
-    // Offered with the identity species when the grounding declared what it
-    // speaks for, or when the question names the step; otherwise the law
-    // requires this step to carry question material the grounding left
+    // Offered with the identity species when the question names the step;
+    // otherwise the law requires this step to carry question material the grounding left
     // unaccounted, which is the drift the extension tests pin — refused by the
     // law's own measure, not by a private window test.
     return {
       product: fc,
       contains: true,
-      reaches: producerOwnsShape || named,
+      reaches: named,
       cost: STEP,
     };
   };

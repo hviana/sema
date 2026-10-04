@@ -382,16 +382,20 @@ test("C2 — cross-domain comparison identifies shared role", async () => {
   await m.store.close();
 });
 
-// C3 — CAST's terminal treatment must not be a blanket rule.  A comparison's
-// seat sentence can itself contain a further pivotable term with its OWN
+// C3 — CAST's terminal treatment is the walk's law, not a rule of its own.  A
+// comparison's seat sentence can contain a further pivotable term with its OWN
 // downstream fact ("Mona Lisa" inside "The Mona Lisa was painted by Leonardo
-// da Vinci" leads on to "Mona Lisa hangs in the Louvre") — a genuine further
-// hop distinct from Leonardo/Shakespeare's own biographies, which C2 pins
-// must NEVER surface.  Proven end-to-end through respond/ask, the real
-// public surface: the composed comparison must carry BOTH the shared-role
-// comparison AND the Louvre fact, and still never leak either analog's own
-// biography.
-test("C3 — a further hop inside a comparison's seat still fires", async () => {
+// da Vinci" leads on to "Mona Lisa hangs in the Louvre").  This test used to
+// require that hop: a grounding that declared what it voiced was allowed to
+// step past it unasked.  On the trained store the same licence turned "Who is
+// the director of The Jerk?" into "The country of citizenship of Carl Reiner
+// is American." — a step nobody asked for, taken because CAST grounded the
+// first hop.  A further hop is now taken when the question NAMES it or the
+// step carries what the question still owes, whichever mechanism grounded the
+// first hop (evidence.md; test/154.3 pins a CAST grounding followed by a named
+// second hop).  "How is Shakespeare like Leonardo da Vinci?" asks for neither
+// the Louvre nor either analog's biography, so the comparison stands alone.
+test("C3 — a further hop inside a comparison's seat waits to be asked", async () => {
   const m = mk();
   await m.ingest([
     ["The Mona Lisa was painted by Leonardo da Vinci.", "Leonardo da Vinci"],
@@ -413,9 +417,15 @@ test("C3 — a further hop inside a comparison's seat still fires", async () => 
   ]);
 
   const got = await ask(m, "How is Shakespeare like Leonardo da Vinci?");
+  assert.match(
+    got,
+    /Leonardo da Vinci/,
+    `the comparison must answer — got "${got}"`,
+  );
+  assert.match(got, /Shakespeare/, `the comparison must answer — got "${got}"`);
   assert.ok(
-    /Louvre/i.test(got),
-    `a genuine further hop inside the comparison's seat did not fire — got "${got}"`,
+    !/Louvre/i.test(got),
+    `the question named no further hop — got "${got}"`,
   );
   assert.ok(
     !/39 plays/i.test(got) && !/Renaissance polymath/i.test(got),

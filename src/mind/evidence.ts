@@ -63,6 +63,12 @@ export interface Witnessing {
   spans: Array<[number, number]>;
   /** Bytes of source 0 inside `spans`. */
   bytes: number;
+  /** The form's own bytes no source witnesses, as merged spans of the FORM —
+   *  empty exactly when `complete`.  ONE residue span is the shape of a
+   *  co-instance: the same frame around a different filler (`When was Peter
+   *  Jackson born?` read against `When was the director of film Jinpa
+   *  born?` leaves `Peter Jackson`). */
+  residue: Array<[number, number]>;
 }
 
 /** Witness `form` against `sources` (their window indexes, same order).  A
@@ -73,8 +79,14 @@ export function witness(
   indexes: ReadonlyArray<WindowIndex>,
   W: number,
 ): Witnessing {
-  const none: Witnessing = { complete: false, spans: [], bytes: 0 };
-  if (form.length < W || indexes.length === 0) return none;
+  if (form.length < W || indexes.length === 0) {
+    return {
+      complete: false,
+      spans: [],
+      bytes: 0,
+      residue: form.length > 0 ? [[0, form.length]] : [],
+    };
+  }
   const covered = new Uint8Array(form.length);
   const own: Array<[number, number]> = [];
   for (let o = 0; o + W <= form.length; o++) {
@@ -93,7 +105,13 @@ export function witness(
     covered.fill(1, o, o + W);
     if (from === 0) own.push([at, at + W]);
   }
-  for (let i = 0; i < form.length; i++) if (!covered[i]) return none;
+  const residue: Array<[number, number]> = [];
+  for (let i = 0; i < form.length; i++) {
+    if (covered[i]) continue;
+    const last = residue[residue.length - 1];
+    if (last !== undefined && last[1] === i) last[1] = i + 1;
+    else residue.push([i, i + 1]);
+  }
   own.sort((a, b) => a[0] - b[0]);
   const spans: Array<[number, number]> = [];
   for (const [s, e] of own) {
@@ -103,5 +121,5 @@ export function witness(
   }
   let bytes = 0;
   for (const [s, e] of spans) bytes += e - s;
-  return { complete: true, spans, bytes };
+  return { complete: residue.length === 0, spans, bytes, residue };
 }
