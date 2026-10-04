@@ -1079,6 +1079,35 @@ function askedContinuationsImpl(
   return { named: best, spans: evidence };
 }
 
+/** The climb's points the question HOLDS under the response's equivalence —
+ *  stored forms whose canonical bytes occur in the question's, as sites.  The
+ *  recognition walk matches bytes and the fold's own boundaries, so a stored
+ *  `Man at Bath` inside `… of film Man At Bath work at?` is no site; the
+ *  consensus climb reaches it through the windows the two spellings share, and
+ *  containment under the canon (offset-preserving, so the span is the
+ *  question's own) decides.  Approximate proposes, exact decides.  Read off
+ *  the `chainReach(W)` most corroborated points; empty before the climb. */
+export function canonHeldPoints(
+  ctx: MindContext,
+  minLen: number,
+): Array<{ start: number; end: number; payload: number }> {
+  const asked = ctx._edgeAsked;
+  if (asked === null || asked.points === undefined || ctx.canon === null) {
+    return [];
+  }
+  const W = ctx.space.maxGroup;
+  const out: Array<{ start: number; end: number; payload: number }> = [];
+  for (const id of asked.points.slice(0, chainReach(W))) {
+    const raw = read(ctx, id, asked.bytes.length);
+    if (raw.length < minLen || raw.length >= asked.bytes.length) continue;
+    const form = ctx.canon(raw);
+    if (form.length !== raw.length) continue;
+    const at = indexOf(asked.bytes, form, 0);
+    if (at >= 0) out.push({ start: at, end: at + raw.length, payload: id });
+  }
+  return out;
+}
+
 /** A CO-INSTANCE of the question: a stored form that shares the question's
  *  FRAME — the same opening and the same close, byte for byte under the
  *  response's equivalence — around ONE different filler.  `Where was Peter

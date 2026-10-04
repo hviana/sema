@@ -19,6 +19,7 @@ import {
   allWindowsAreScaffolding,
   answersOtherQuestions,
   askedEvidence,
+  canonHeldPoints,
   coInstanceFiller,
   corpusN,
   guidedFirst,
@@ -113,11 +114,51 @@ export async function recallByResonance(
   // distinct maximal arguments mean the query asks about neither alone.
   if (qId === null) {
     const W2 = 2 * ctx.space.maxGroup;
-    const args = pre.rec.sites.filter((s) =>
+    const recognised = pre.rec.sites.filter((s) =>
       s.end - s.start >= W2 &&
       s.end - s.start < query.length &&
       ctx.store.hasNext(s.payload)
     );
+    // An argument must lead somewhere FOR THIS QUESTION: a fragment whose
+    // continuations the question names none of answers other questions
+    // (traverse.ts) — `director`, inside `When was the director of film Jinpa
+    // born?`, bound the most-poured of fifty-five directors.  Such a fragment
+    // is no argument, and no independent piece of the query either.
+    const strangerIds = new Set<number>();
+    for (const s of recognised) {
+      if (
+        answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+      ) strangerIds.add(s.payload);
+    }
+    const args = recognised.filter((s) => !strangerIds.has(s.payload));
+    // NO ARGUMENT BY BYTES IS NOT NO ARGUMENT.  Recognition matches bytes, so
+    // `Man At Bath` (2Wiki title-cases its questions) is no site of the stored
+    // `Man at Bath`.  When nothing recognised can bind, the climb is asked
+    // for, and the points the question holds under the response's
+    // equivalence are arguments too (traverse.ts, `canonHeldPoints`).
+    if (ctx.canon !== null && args.length === 0) {
+      await pre.attention();
+      for (const s of canonHeldPoints(ctx, W2)) {
+        if (
+          ctx.store.hasNext(s.payload) &&
+          !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+        ) args.push(s);
+      }
+    }
+    if (args.length === 0 && strangerIds.size > 0) {
+      if (ctx.meter) ctx.meter.unaskedFragments += strangerIds.size;
+      ctx.trace?.step(
+        "unaskedFragments",
+        recognised.filter((s) => strangerIds.has(s.payload)).map((s) =>
+          rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
+            s.start,
+            s.end,
+          ])
+        ),
+        [],
+        "the only arguments are pieces of other forms whose continuations the question names none of — they answer other questions",
+      );
+    }
     // Maximal spans by one sorted sweep (starts ascending, ties longest
     // first): every earlier span starts at or before s, so s is contained
     // exactly when the running max end already covers it.  O(m log m) — a
@@ -143,39 +184,13 @@ export async function recallByResonance(
     // binding to the argument's continuation would answer past content
     // the query itself already carries forward.  Derived from the same W2
     // bar the argument itself is held to, never a separate tuned number.
+    // A fragment that answers other questions is not such a piece.
     const hasSubstantialOutside = maximal.length === 1 &&
       pre.rec.sites.some((s) =>
-        s.end - s.start >= W2 &&
+        s.end - s.start >= W2 && !strangerIds.has(s.payload) &&
         (s.end <= maximal[0].start || s.start >= maximal[0].end)
       );
-    // …and the argument must lead somewhere FOR THIS QUESTION: a fragment
-    // whose continuations the question names none of answers other questions
-    // (traverse.ts) — `director`, inside `When was the director of film Jinpa
-    // born?`, bound the most-poured of fifty-five directors.
-    const stranger = maximal.length === 1 &&
-      answersOtherQuestions(
-        ctx,
-        maximal[0].payload,
-        query.length,
-        maximal[0].end - maximal[0].start,
-      );
-    if (stranger) {
-      if (ctx.meter) ctx.meter.unaskedFragments++;
-      ctx.trace?.step(
-        "unaskedFragments",
-        [
-          rItem(
-            query.subarray(maximal[0].start, maximal[0].end),
-            "fragment",
-            maximal[0].payload,
-            [maximal[0].start, maximal[0].end],
-          ),
-        ],
-        [],
-        "the sole argument is a piece of other forms whose continuations the question names none of — it answers other questions",
-      );
-    }
-    if (maximal.length === 1 && !hasSubstantialOutside && !stranger) {
+    if (maximal.length === 1 && !hasSubstantialOutside) {
       const arg = maximal[0];
       // An argument whose several continuations the question names none of
       // outright would be followed by popularity.  Another instance of the
