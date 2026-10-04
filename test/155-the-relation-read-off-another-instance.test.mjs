@@ -31,7 +31,11 @@
 //   155.5 another instance's own answer is never voiced: an attention point
 //         that is a co-instance of the question is neither grounded (recall)
 //         nor fused, and the pieces the instances share are no establishing
-//         context of their facts.
+//         context of their facts;
+//   155.6 a frame a product already said names no further step: `father`,
+//         read off another instance for the second hop, does not name a third;
+//   155.7 a record whose slot holds a description, not a thing the corpus
+//         knows, is the same question about the frame's own subject.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -249,5 +253,56 @@ test("155.5 another instance's own answer is never voiced", async () => {
     "Where was the director of film Beat Girl born?",
   );
   assert.equal(known, BIRTH);
+  await mind.store.close();
+});
+
+test("155.6 a frame a product already said names no further step", async () => {
+  const mind = await fixture();
+  await mind.ingest(deposits([
+    ["Edmond T. Gréville", "father", "Louis Gréville"],
+    ["Louis Gréville", "father", "Henri Gréville"],
+    ["Peter Jackson", "father", "Bill Jackson"],
+    ["Taika Waititi", "father", "Taika Cohen"],
+  ]));
+  await mind.ingest([
+    [
+      "Who is the father of Peter Jackson?",
+      "The father of Peter Jackson is Bill Jackson.",
+    ],
+    [
+      "Who is the father of Taika Waititi?",
+      "The father of Taika Waititi is Taika Cohen.",
+    ],
+  ]);
+  // The second hop's relation is read off `Who is the father of …?`; the fact
+  // it reaches says `father`, so the same frame cannot name the grandfather.
+  const answer = await mind.respondText(
+    "Who is the father of the director of film Beat Girl?",
+  );
+  assert.equal(answer, "The father of Edmond T. Gréville is Louis Gréville.");
+  await mind.store.close();
+});
+
+test("155.7 a description in the slot is not another instance", async () => {
+  const mind = await fixture();
+  const fact =
+    "Photosynthesis captures sunlight in chlorophyll to bind carbon dioxide and water into sugar.";
+  await mind.ingest([
+    [
+      "Explain how photosynthesis converts sunlight into chemical energy.",
+      fact,
+    ],
+    [
+      "Explain how a rainbow forms after rain.",
+      "Sunlight refracts in raindrops and splits into colours.",
+    ],
+  ]);
+  // Same opening and close, different slot — but `converts sunlight into
+  // chemical energy` is no stored context: the record is about the frame's
+  // own subject, and answers.
+  assert.equal(
+    await mind.respondText("Explain how photosynthesis works."),
+    fact,
+  );
   await mind.store.close();
 });

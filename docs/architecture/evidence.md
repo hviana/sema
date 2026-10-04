@@ -55,33 +55,68 @@ established by `Pema Tseden date of birth`: no window joins `born` to
 `date of birth`, so nothing is witnessed. What joins them is another instance of
 the question.
 
-A stored context the question witnesses in every byte but ONE contiguous span,
-that span holding content (a window that is not scaffolding), is a
-**co-instance**: the question's own frame around a different filler.
-`Where was Peter Jackson born?`, read against
-`Where was the director of film Beat Girl born?`, leaves `Peter Jackson`. A
-residue made of scaffolding alone is the same question in other framing words,
-not another instance.
+A **co-instance** is a stored context that shares the question's FRAME, its
+opening and its close byte for byte under the response's equivalence, around ONE
+different filler, and whose filler is a thing the corpus knows: a stored context
+with continuations of its own. `Where was Peter Jackson born?`, read against
+`Where was the director of film Beat Girl born?`, shares `Where was` and `born?`
+and leaves `Peter Jackson`. Three conditions make the reading exact, and each
+was measured necessary:
+
+- **Order.** A frame is not a bag of windows. Read order-free,
+  `Lyon is a city in France` passes for an instance of
+  `what if the capital of France were Lyon?`, which NAMES Lyon, and a
+  coincidental window inside a filler splits it.
+- **The filler is an entity.**
+  `Explain how photosynthesis converts sunlight
+  into chemical energy.` shares
+  a frame with `Explain how photosynthesis
+  works.`, but its slot holds a
+  description of the frame's own subject, and it answers the question. The
+  filler is the longest stored context opening where the slot opens (up to one
+  window earlier: the `T` of `Taika` can sit in the question's `as t`).
+- **The frame is unsaid.** Every frame window must be held by the material, so
+  on the walk a frame a product already said cannot name a second step.
+  `Who is the father of …?` names the second hop of
+  `Who is the father of the director of film Beat Girl?` and not the
+  grandfather. Scaffolding windows are exempt, because they are nobody's
+  evidence (`is` in `Which country Leo Mittler is from?`).
 
 The co-instance's continuation is established by other contexts too
 (`Peter Jackson place of birth`), and the one holding the filler spells the
-relation the corpus's way. The exact tier's second reading (`byCoInstance`, run
-only when no establishing context is witnessed outright) puts the node the
-derivation stands on where the filler was and looks the result up by content:
-`Edmond T. Gréville place of birth` exists, so its continuation is named.
-Neither the equivalence nor the frame is stored as a unit, and nothing is
-approximate: the co-instance is witnessed, the substitution is bytes, the target
-is an exact lookup. A frame the question shares only partly (`Where was … born?`
-against `When was …`) leaves two residues and is no co-instance. Proposals come
-from the edge-bearing ancestors of the question's windows the node does not hold
-(`edgeAncestors`, memoised, a saturated window proposing nothing), rarest first,
-at most √N of them.
+relation the corpus's way: a RELATION FRAME, `` · `place of birth`. A frame
+counts only where two co-instances spell it alike. One alignment agrees with
+nothing, which is the bar `reference` holds a frame to (`MIN_INSTANCES`). The
+exact tier's second reading (`byCoInstance`, run only when no establishing
+context is witnessed outright) puts the node the derivation stands on in each
+frame and looks the result up by content: `Edmond T. Gréville place of birth`
+exists, so its continuation is named. Neither the equivalence nor the frame is
+stored as a unit, and nothing is approximate.
 
-The same reading refuses the co-instance as an ANSWER. Its own continuation
-speaks of its own filler, so recall's consensus-anchor tier does not ground it
-(`Where was the performer of song God (John Lennon Song) born?` elected
-`Where was Nicki Minaj (Nicki Minaj Song) born?`), and fusion does not fuse it
-as a further topic.
+**The proposals are the consensus climb's.** The climb already scores the stored
+forms the question's regions reach, and the co-instances are among its points.
+Its scored anchors are published on the question when it runs, and the tier
+reads the `chainReach(W)` most corroborated of them. It climbs nothing of its
+own. A first version climbed every question window itself and cost the 116-query
+battery +16% climb visits for zero namings. Two consequences follow, both
+pinned:
+
+- A pick made before the climb read less evidence than one made after, so the
+  response's pick memo is cleared when the points arrive. Traced and untraced
+  responses agree.
+- Recall's argument binding, which runs before the climb, asks for it first when
+  the argument has several continuations and the question names none outright.
+  That is exactly where the choice would otherwise be blind.
+
+A question the corpus holds verbatim is its own instance and reads no frames.
+Frames are read once per question (and once per walk material), and every node
+pays only the exact lookups.
+
+The same reading refuses the co-instance as an ANSWER, because its own
+continuation speaks of its own filler. Recall's consensus-anchor tier does not
+ground it: `Where was the performer of song God (John Lennon Song) born?`
+elected `Where was Nicki Minaj (Nicki Minaj Song) born?`. Fusion does not fuse
+it as a further topic either.
 
 ## Its consumers
 
@@ -136,36 +171,46 @@ memoized per node per question.
 
 ## Measured
 
-| Measure                                                                                | Before | Witnessing | + instances |
-| -------------------------------------------------------------------------------------- | ------ | ---------- | ----------- |
-| 2Wiki held-out fixture (300 rows, deposited as `wiki2.ts` does), compositional correct | 13/133 | 47/133     | 44/133      |
-| Same fixture, inference correct                                                        | 8/37   | 6/37       | 6/37        |
-| Same evidence plus 261 one-hop questions about OTHER entities, compositional correct   | —      | 35/133     | 65/133      |
+2Wiki held-out fixture: the evidence triples of 300 validation rows, deposited
+as `wiki2.ts` does, asked the rows' own composed questions. Same evidence "plus
+instances": 261 one-hop questions about OTHER entities, built from other
+validation rows by replacing the first hop's phrase with its referent
+(`Where was the director of film X born?` → `Where was Óskar Jónasson born?`)
+and answered with the second hop's fact. No test entity has one.
 
-The third row is the co-instance's own measure. The one-hop questions were built
-from other validation rows by replacing the first hop's phrase with its referent
-(`Where was the director of film X born?` → `Where was Óskar Jónasson
-born?`),
-answered with the second hop's fact; no test entity has one. The 30 answers
-gained are relations the question spells differently: `born` → place of birth,
-`Why did … die` → cause of death, `study`/`graduate from` → educated at,
-`work at` → employer. None was lost. Without one-hop questions the second row's
-fall from 47 to 44 is the price of removing CAST's unasked step (six of its hops
-were right paraphrases taken without evidence, and the same licence produced the
-Carl Reiner extension), net of the fragment rules.
+| Measure (compositional 133, inference 37) | Before witnessing | Final  |
+| ----------------------------------------- | ----------------- | ------ |
+| Fixture, compositional correct            | 13/133            | 44/133 |
+| Fixture, all correct                      | 21                | 50     |
+| Fixture, answered wrongly (non-empty)     | —                 | 71     |
+| Plus instances, compositional correct     | —                 | 69/133 |
+| Plus instances, all correct               | —                 | 77     |
+| Plus instances, answered wrongly          | —                 | 49     |
 
-The inference drop is real. Two hops of `father` from a question that says
-`father` once, as in `paternal grandfather`, used to be reached by
-over-extension and are no longer. The store holds no evidence that `grandfather`
-composes `father` twice.
+Against the witnessing tier alone (commit 655b192), the fixture goes from 53 to
+50 correct, and from 105 to 71 answered wrongly. Plus instances, it goes from 44
+to 77 correct, and from 111 to 49 answered wrongly.
 
-On the 31.7M-node store's 116-query battery, two answers became correct
-(`What country is Jerry Bock a citizen of?` and
-`What is the country of citizenship of Frederick II?`), two lost a junk
-composition, three changed between wrong answers, and no correct answer was
-lost. CPU was 150 s against two baseline runs of 139 s and 166 s, inside the
-noise. The deterministic read counters rose about 20% (`bytesRead`,
-`nodeRecords`), with ANN queries unchanged.
+The fixture's three lost answers are the price of removing CAST's unasked step.
+Six of its second hops were right paraphrases taken without evidence (`work at`,
+`is from`, `When was … born`), and the same licence produced the Carl Reiner
+extension on the trained store. Without an instance, nothing names those
+relations, and the chain stops at the first hop. The answers gained plus
+instances are those relations: `born` → place of birth, `Why did … die` → cause
+of death, `study`/`graduate from` → educated at, `work at` → employer, `is from`
+→ country of citizenship.
+
+The inference count stays low. Two hops of `father` from a question that says
+`father` once, as in `paternal grandfather`, are not composed: the store holds
+no evidence that `grandfather` composes `father` twice.
+
+On the 31.7M-node store's 116-query battery, two dialogue answers changed
+(neither was correct before). The deterministic read counters rose about 4%
+(`bytesRead`, `ancestorVisits`, `edgeProbes`), with ANN queries unchanged. CPU
+was 163 s against same-session baseline runs of 152 s and 171 s. The co-instance
+tier read 190 forms over the battery and named nothing there: on that store a
+frame's windows are scaffolding, and the one-hop questions it would need are not
+in the corpus.
 
 ## Pins
 
@@ -175,11 +220,13 @@ noise. The deterministic read counters rose about 20% (`bytesRead`,
   is not extended. A fragment voices none of its continuations unless the
   question names one, in the cover and in recall's argument binding. A
   comparison needs two things named. Each assertion was verified by mutation.
-- `test/155` — the relation read off another instance of the frame, absent
-  without one, refused for a partly shared frame, and never voiced as the answer
-  (verified by mutation).
+- `test/155` — the relation read off another instance of the frame; absent
+  without two instances that agree; refused for a partly shared frame; never
+  voiced as the answer; a frame a product already said names no further step; a
+  description in the slot is no other instance; traced and untraced responses
+  agree. Verified by mutation.
 - `test/29` C3 — a further hop inside a comparison's seat waits to be asked.
-- Unpinned, measured only at fixture scale: fragments excluded from establishing
-  contexts (2Wiki fixture with one-hop questions: first-hop answers 69 → 79),
-  and the fusion refusal of a co-instance root (it removed three glued
-  strangers' facts there).
+- Unpinned, measured only at fixture scale. Excluding fragments from
+  establishing contexts is worth 16 answers on the fixture with one-hop
+  questions (69 against 53 without it). The fusion refusal of a co-instance root
+  removed three glued strangers' facts there.

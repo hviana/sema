@@ -1092,9 +1092,12 @@ function askedContinuationsImpl(
  *
  *  The frame must reach one window, every window inside it must be held by
  *  the material (so on the walk, a frame a product already said cannot name a
- *  second step), the two fillers must share no window (else it is the same
- *  thing in other words), and the form's filler must be a thing the corpus
- *  knows (below).  Returns the form's filler span in `raw` and the
+ *  second step), and the form's filler must be a thing the corpus knows
+ *  (below) — a record that differs from the question only inside the frame
+ *  by a description (`converts sunlight into chemical energy` against
+ *  `works`) is the same question about the frame's own subject.  (Requiring
+ *  the two fillers to share no window as well was measured redundant with
+ *  this and cost two answers on the 2Wiki fixture.)  Returns the form's filler span in `raw` and the
  *  question spans of the frame, or null.  One reading for every consumer: the
  *  exact tier transfers the relation through it, and the readers that would
  *  VOICE such a form's own continuation refuse it. */
@@ -1127,15 +1130,6 @@ export function coInstanceFiller(
   };
   for (let o = 0; o + W <= a; o++) if (!held(o)) return null;
   for (let o = fe; o + W <= form.length; o++) if (!held(o)) return null;
-  // DIFFERENT FILLERS: the two share no window.  A record that differs from
-  // the question only inside the frame but shares its content there is the
-  // same thing asked in other words (`Describe the importance of gender
-  // equality …` against `Tell a high schooler why gender equality …`, both
-  // behind one system prompt), not another instance.
-  const theirs = windowIndex(question.subarray(a, question.length - b), W);
-  for (let o = a; o + W <= fe; o++) {
-    if (theirs.has(latin1(form.subarray(o, o + W)))) return null;
-  }
   // THE FILLER IS A THING THE CORPUS KNOWS: a stored context with
   // continuations of its own, opening where the slot opens (up to one window
   // earlier — a filler byte can sit in a window the question holds by chance:
