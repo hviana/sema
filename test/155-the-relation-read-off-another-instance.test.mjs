@@ -35,7 +35,9 @@
 //   155.6 a frame a product already said names no further step: `father`,
 //         read off another instance for the second hop, does not name a third;
 //   155.7 a record whose slot holds a description, not a thing the corpus
-//         knows, is the same question about the frame's own subject.
+//         knows, is the same question about the frame's own subject;
+//   155.8 fusion does not fuse a co-instance as a further topic;
+//   155.9 a comparison's dominant that is a co-instance is not compared.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -304,5 +306,71 @@ test("155.7 a description in the slot is not another instance", async () => {
     await mind.respondText("Explain how photosynthesis works."),
     fact,
   );
+  await mind.store.close();
+});
+
+test("155.8 fusion does not fuse a co-instance as a further topic", async () => {
+  // Two one-hop questions that happen to share an answer value: the climb
+  // commits `Where was Peter Jackson born?` as a second point of attention
+  // on the frame windows, and fusing it voiced his birthplace beside the
+  // answer.
+  const mind = await fixture([]);
+  await mind.ingest(
+    deposits([["Jane Campion", "place of birth", "Wellington"]]),
+  );
+  await mind.ingest([
+    [
+      "Where was Peter Jackson born?",
+      "The place of birth of Peter Jackson is Wellington.",
+    ],
+    [
+      "Where was Jane Campion born?",
+      "The place of birth of Jane Campion is Wellington.",
+    ],
+  ]);
+  const notes = [];
+  const answer = await mind.respondText(
+    "Where was the director of film Beat Girl born?",
+    (st) => {
+      if (st.mechanism.at(-1) === "coInstanceRoot") notes.push(st);
+    },
+  );
+  assert.equal(answer, BIRTH);
+  assert.ok(notes.length > 0, "the co-instance point is refused");
+  await mind.store.close();
+});
+
+test("155.9 a comparison's dominant that is a co-instance is not compared", async () => {
+  const mind = await fixture();
+  const singers = [
+    ["Adele", "Tottenham"],
+    ["Bjork", "Reykjavik"],
+    ["Prince", "Minneapolis"],
+    ["Sade", "Ibadan"],
+    ["Shakira", "Barranquilla"],
+    ["Rihanna", "Saint Michael"],
+  ];
+  await mind.ingest(
+    deposits(singers.map(([s, o]) => [s, "place of birth", o])),
+  );
+  await mind.ingest(
+    singers.map(([s, o]) => [
+      `Where was ${s} (${s} Song) born?`,
+      `The place of birth of ${s} is ${o}.`,
+    ]),
+  );
+  await mind.ingest(deposits([
+    ["Imagine", "performer", "John Lennon"],
+    ["John Lennon", "place of birth", "Liverpool"],
+  ]));
+  // Nothing is stored about the song `God`.  The comparison used to set
+  // `Where was Shakira (Shakira Song) born?` against `John Lennon` and voice
+  // Shakira's birthplace.
+  const answer = await mind.respondText(
+    "Where was the performer of song God (Lennon Song) born?",
+  );
+  for (const [s, o] of singers) {
+    assert.ok(!answer.includes(o), `${s}'s birthplace voiced: "${answer}"`);
+  }
   await mind.store.close();
 });

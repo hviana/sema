@@ -37,6 +37,8 @@
 import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
 import { carriesFillers, distinct, follow, substituteAll } from "../match.js";
+import { resolve } from "../primitives.js";
+import { hubBound } from "../traverse.js";
 import { dominates } from "../../geometry.js";
 import { bytesEqual } from "../../bytes.js";
 import { restates } from "../derivation.js";
@@ -186,7 +188,6 @@ export async function bindReference(
   if (!distinct(referents)) {
     return fail("two slots name the same bytes — the binding is ambiguous");
   }
-
   // ── THE LICENCE ────────────────────────────────────────────────────────
   // Every instance must agree, against the first, that its continuation is its
   // own fillers carried through one fixed form.  Unanimity, exactly as the
@@ -199,11 +200,33 @@ export async function bindReference(
   // discard them.  Each goes through the shared projection, so an ambiguous
   // instance is disambiguated exactly as it would be anywhere else.
   const leadsNowhere = "an instance of the frame leads nowhere";
+  // A FACT FILED UNDER ITS FILLER IS NOT A CARRIAGE.  When an instance's
+  // filler is itself a stored context leading to that instance's answer, the
+  // answer is something the corpus knows ABOUT that filler (`The place of
+  // birth of Peter Jackson is Wellington.` is a continuation of `Peter
+  // Jackson`), not a form any occupant takes — and two such facts can agree
+  // by chance (two people born in Wellington).  `Run gcc hello.c` is filed
+  // under the question alone.
+  const filedUnderFiller = (inst: FrameInstance, cont: Uint8Array): boolean => {
+    const c = resolve(ctx, cont);
+    if (c === null) return false;
+    return inst.slots.some((s) => {
+      const f = resolve(ctx, s.filler);
+      return f !== null &&
+        ctx.store.nextFirst(f, hubBound(ctx)).includes(c);
+    });
+  };
   const first = await follow(ctx, frame[0].id, pre.guide);
   if (first === null || first.length === 0) return fail(leadsNowhere);
+  if (filedUnderFiller(frame[0], first)) {
+    return fail("the frame's answer is a fact filed under its filler");
+  }
   for (let i = 1; i < frame.length; i++) {
     const cont = await follow(ctx, frame[i].id, pre.guide);
     if (cont === null || cont.length === 0) return fail(leadsNowhere);
+    if (filedUnderFiller(frame[i], cont)) {
+      return fail("the frame's answer is a fact filed under its filler");
+    }
     if (
       !carriesFillers(first, fillersOf(frame[0]), cont, fillersOf(frame[i]))
     ) {

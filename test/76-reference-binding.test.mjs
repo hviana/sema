@@ -546,3 +546,35 @@ test("the frame inventory and recall share ONE resonance call", async () => {
   assert.equal(phase.calls, 1, "the shared resonance ran more than once");
   await m.store.close();
 });
+
+// A FACT FILED UNDER ITS FILLER IS NOT A CARRIAGE.  Two one-hop questions whose
+// answers happen to agree (two people born in Wellington) pass the carriage
+// test byte-exactly, and the binding used to construct `The place of birth of
+// Zorblax is Wellington.` — but each answer is a fact the corpus files under
+// its own filler (`Peter Jackson` leads to it), knowledge ABOUT that filler,
+// not a form any occupant takes.  `Run gcc hello.c` is filed under the
+// question alone, and still binds.
+test("a fact filed under its filler is not a carriage", async () => {
+  const fact = (s, r, o) => `The ${r} of ${s} is ${o}.`;
+  const m = await mindWith([
+    ["Peter Jackson", fact("Peter Jackson", "place of birth", "Wellington")],
+    ["Jane Campion", fact("Jane Campion", "place of birth", "Wellington")],
+    [
+      "Where was Peter Jackson born?",
+      fact("Peter Jackson", "place of birth", "Wellington"),
+    ],
+    [
+      "Where was Jane Campion born?",
+      fact("Jane Campion", "place of birth", "Wellington"),
+    ],
+  ]);
+  const got = await m.respondText("Where was Zorblax born?");
+  assert.doesNotMatch(got, /Zorblax/, `fabricated "${got}"`);
+  await m.store.close();
+  const carried = await mindWith(CARRIED);
+  assert.match(
+    await carried.respondText("How do I compile main.c?"),
+    /gcc main\.c/,
+  );
+  await carried.store.close();
+});

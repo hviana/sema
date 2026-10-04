@@ -112,53 +112,13 @@ export async function recallByResonance(
   // constituent bar is the same two-quanta (2W) reading confluence binds
   // under, nested recognitions collapse to their MAXIMAL span, and two
   // distinct maximal arguments mean the query asks about neither alone.
-  if (qId === null) {
-    const W2 = 2 * ctx.space.maxGroup;
-    const recognised = pre.rec.sites.filter((s) =>
-      s.end - s.start >= W2 &&
-      s.end - s.start < query.length &&
-      ctx.store.hasNext(s.payload)
-    );
-    // An argument must lead somewhere FOR THIS QUESTION: a fragment whose
-    // continuations the question names none of answers other questions
-    // (traverse.ts) — `director`, inside `When was the director of film Jinpa
-    // born?`, bound the most-poured of fifty-five directors.  Such a fragment
-    // is no argument, and no independent piece of the query either.
-    const strangerIds = new Set<number>();
-    for (const s of recognised) {
-      if (
-        answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
-      ) strangerIds.add(s.payload);
-    }
-    const args = recognised.filter((s) => !strangerIds.has(s.payload));
-    // NO ARGUMENT BY BYTES IS NOT NO ARGUMENT.  Recognition matches bytes, so
-    // `Man At Bath` (2Wiki title-cases its questions) is no site of the stored
-    // `Man at Bath`.  When nothing recognised can bind, the climb is asked
-    // for, and the points the question holds under the response's
-    // equivalence are arguments too (traverse.ts, `canonHeldPoints`).
-    if (ctx.canon !== null && args.length === 0) {
-      await pre.attention();
-      for (const s of canonHeldPoints(ctx, W2)) {
-        if (
-          ctx.store.hasNext(s.payload) &&
-          !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
-        ) args.push(s);
-      }
-    }
-    if (args.length === 0 && strangerIds.size > 0) {
-      if (ctx.meter) ctx.meter.unaskedFragments += strangerIds.size;
-      ctx.trace?.step(
-        "unaskedFragments",
-        recognised.filter((s) => strangerIds.has(s.payload)).map((s) =>
-          rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
-            s.start,
-            s.end,
-          ])
-        ),
-        [],
-        "the only arguments are pieces of other forms whose continuations the question names none of — they answer other questions",
-      );
-    }
+  // The argument binding, given its candidate arguments (`args`) and the
+  // recognised fragments that answer other questions (`strangerIds`).
+  const W2 = 2 * ctx.space.maxGroup;
+  const bindArgument = async (
+    args: Array<{ start: number; end: number; payload: number }>,
+    strangerIds: ReadonlySet<number>,
+  ) => {
     // Maximal spans by one sorted sweep (starts ascending, ties longest
     // first): every earlier span starts at or before s, so s is contained
     // exactly when the running max end already covers it.  O(m log m) — a
@@ -232,6 +192,53 @@ export async function recallByResonance(
         );
       }
     }
+    return null;
+  };
+  let canonArgumentPending = false;
+  let strangers: ReadonlySet<number> = new Set();
+  if (qId === null) {
+    const recognised = pre.rec.sites.filter((s) =>
+      s.end - s.start >= W2 &&
+      s.end - s.start < query.length &&
+      ctx.store.hasNext(s.payload)
+    );
+    // An argument must lead somewhere FOR THIS QUESTION: a fragment whose
+    // continuations the question names none of answers other questions
+    // (traverse.ts) — `director`, inside `When was the director of film Jinpa
+    // born?`, bound the most-poured of fifty-five directors.  Such a fragment
+    // is no argument, and no independent piece of the query either.
+    const strangerIds = new Set<number>();
+    for (const s of recognised) {
+      if (
+        answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+      ) strangerIds.add(s.payload);
+    }
+    const args = recognised.filter((s) => !strangerIds.has(s.payload));
+    if (args.length === 0 && strangerIds.size > 0) {
+      if (ctx.meter) ctx.meter.unaskedFragments += strangerIds.size;
+      ctx.trace?.step(
+        "unaskedFragments",
+        recognised.filter((s) => strangerIds.has(s.payload)).map((s) =>
+          rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
+            s.start,
+            s.end,
+          ])
+        ),
+        [],
+        "the only arguments are pieces of other forms whose continuations the question names none of — they answer other questions",
+      );
+    }
+    const bound = await bindArgument(args, strangerIds);
+    if (bound !== null) return bound;
+    // NO ARGUMENT BY BYTES IS NOT NO ARGUMENT.  Recognition matches bytes, so
+    // `Man At Bath` (2Wiki title-cases its questions) is no site of the stored
+    // `Man at Bath`.  When nothing recognised can bind, the points the
+    // consensus climb reaches that the question holds under the response's
+    // equivalence are arguments too (traverse.ts, `canonHeldPoints`) — read
+    // after the clean-resonance tier, which answers a near-identical question
+    // without any climb.
+    canonArgumentPending = ctx.canon !== null && args.length === 0;
+    strangers = strangerIds;
   }
 
   // The response's ONE top-k read (Precomputed.resonance) — the same list the
@@ -327,6 +334,20 @@ export async function recallByResonance(
       Math.max(0, cos - sig) *
         Math.sqrt(otherLen / Math.max(1, query.length)),
     );
+
+  // The argument the question holds only under the response's equivalence
+  // (above).  Not gated on the whole-query resonance: a question whose only
+  // argument is a case variant (`… film Man At Bath work at?`) resonates
+  // below the significance bar as a whole.
+  if (canonArgumentPending) {
+    await pre.attention();
+    const held = canonHeldPoints(ctx, W2).filter((s) =>
+      ctx.store.hasNext(s.payload) &&
+      !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+    );
+    const bound = await bindArgument(held, strangers);
+    if (bound !== null) return bound;
+  }
 
   // 2. Scaffolding-dominated.
   if (top.score >= sig) {

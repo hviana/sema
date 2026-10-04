@@ -36,7 +36,11 @@
 //         query's sole argument;
 //   154.7 a comparison needs the question to name two things: an analog
 //         evidenced only by windows the dominant holds, or by scaffolding, is
-//         not compared (it used to glue its bare question onto the answer).
+//         not compared (it used to glue its bare question onto the answer);
+//   154.8 an argument the question holds only under the response's
+//         equivalence (`Man At Bath` for the stored `Man at Bath`, inside the
+//         question) still binds: the climb proposes it, canonical containment
+//         decides.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -335,5 +339,30 @@ test("154.7 a comparison needs the question to name two things", async () => {
     "the comparison is refused",
   );
   assert.equal(answer, FATHER);
+  await mind.store.close();
+});
+
+test("154.8 an argument held only under the response's equivalence still binds", async () => {
+  const mind = await fixture();
+  await mind.ingest(deposits([
+    ["Man at Bath", "director", "Christophe Honoré"],
+    ["At the End of the Tunnel", "director", "Rodrigo Grande"],
+  ]));
+  // The trainer builds the canonical-form index after training (progress.ts).
+  await mind.buildCanonIndex();
+  // 2Wiki title-cases its questions; the title sits inside the question,
+  // where no fold boundary of the query lines up with the stored form.
+  assert.equal(
+    await mind.respondText(
+      "Where does the director of film Man At Bath work at?",
+    ),
+    "The director of Man at Bath is Christophe Honoré.",
+  );
+  assert.equal(
+    await mind.respondText(
+      "Where did the director of film At The End Of The Tunnel work?",
+    ),
+    "The director of At the End of the Tunnel is Rodrigo Grande.",
+  );
   await mind.store.close();
 });

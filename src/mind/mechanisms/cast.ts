@@ -17,6 +17,7 @@ import { read } from "../primitives.js";
 import {
   answersOtherQuestions,
   argmaxBy,
+  coInstanceFiller,
   corpusN,
   edgeAncestors,
   hubBound,
@@ -1259,10 +1260,24 @@ export async function counterfactualTransfer(
   // supply were never the ones that test is about.
   const cmpDismisses = !bestHalo &&
     dismissedKnownContent(ctx, query, cmpAccounted);
+  // …and the dominant must be something the question is ABOUT.  A co-instance
+  // of the question (traverse.ts, `coInstanceFiller`) is its frame around
+  // another filler, and its seat is that filler's own answer: `Where was the
+  // performer of song God (Lennon Song) born?` compared `Where was Shakira
+  // (Shakira Song) born?` with `John Lennon` and voiced Shakira's birthplace.
+  const asked = ctx._edgeAsked;
+  const dominantOtherInstance = asked !== null &&
+    coInstanceFiller(
+        ctx,
+        read(ctx, dominant.anchor, 2 * query.length + 1),
+        [asked.index],
+        asked.bytes,
+      ) !== null;
   if (
     bestAnalog !== null &&
     (bestHalo || analogNamed || rootTrusted) &&
     analogOwnsEvidence() &&
+    !dominantOtherInstance &&
     !cmpDismisses &&
     queryScale(dominant.ctx.length) &&
     roots.length <= 1 &&
@@ -1398,6 +1413,9 @@ export async function counterfactualTransfer(
         ? `the best analog carries no halo-tier company evidence, was never ` +
           `named by the query, and no committed root's consensus vote ` +
           `clears the floor, so comparison refuses to voice it`
+        : dominantOtherInstance
+        ? `the dominant is another instance of the question's frame — its ` +
+          `seat is another filler's answer, not what the question asks about`
         : !analogOwnsEvidence()
         ? `the question evidences the analog only with windows the dominant ` +
           `already holds or the corpus' scaffolding — it names one structure, ` +

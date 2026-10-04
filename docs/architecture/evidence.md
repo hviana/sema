@@ -116,7 +116,29 @@ The same reading refuses the co-instance as an ANSWER, because its own
 continuation speaks of its own filler. Recall's consensus-anchor tier does not
 ground it: `Where was the performer of song God (John Lennon Song) born?`
 elected `Where was Nicki Minaj (Nicki Minaj Song) born?`. Fusion does not fuse
-it as a further topic either.
+it as a further topic. A CAST comparison does not take it as its dominant: it
+set `Where was Shakira (Shakira Song) born?` against `John Lennon` and voiced
+Shakira's birthplace.
+
+## Arguments the question holds under the response's equivalence
+
+Recognition matches bytes and the query fold's own boundaries. 2Wiki title-cases
+its questions (`… of film Man At Bath work at?` for the stored `Man at Bath`),
+and a title inside a question lines up with none of the fold's cuts. When
+recall's argument binding finds no recognised argument, the stored forms the
+consensus climb reaches become candidates if the question holds them under the
+response's equivalence (`canonHeldPoints`: canonical containment,
+offset-preserving, so the span is the question's own). The approximate climb
+proposes and exact containment decides. This is read after the clean-resonance
+tier, so a near-identical question pays no climb for it. The canonical-form
+index it relies on is the one the trainer builds after training
+(`buildCanonIndex`, progress.ts).
+
+A fragment that answers other questions is no argument and no independent piece
+of the question either. It is set aside BEFORE the binding looks for one maximal
+argument, so `director` no longer cancels `Man at Bath`. The same predicate
+gates CAST's redirection: the substitute `ong)?`, the tail of every
+`… (… Song)?` question, voiced a stranger's birthplace.
 
 ## Its consumers
 
@@ -172,29 +194,26 @@ memoized per node per question.
 ## Measured
 
 2Wiki held-out fixture: the evidence triples of 300 validation rows, deposited
-as `wiki2.ts` does, asked the rows' own composed questions. Same evidence "plus
-instances": 261 one-hop questions about OTHER entities, built from other
-validation rows by replacing the first hop's phrase with its referent
+as `wiki2.ts` does, with the canonical-form index built as the trainer builds
+it, and asked the rows' own composed questions. Same evidence "plus instances":
+261 one-hop questions about OTHER entities, built from other validation rows by
+replacing the first hop's phrase with its referent
 (`Where was the director of film X born?` → `Where was Óskar Jónasson born?`)
 and answered with the second hop's fact. No test entity has one.
 
-| Measure (compositional 133, inference 37) | Before witnessing | Final  |
-| ----------------------------------------- | ----------------- | ------ |
-| Fixture, compositional correct            | 13/133            | 44/133 |
-| Fixture, all correct                      | 21                | 50     |
-| Fixture, answered wrongly (non-empty)     | —                 | 71     |
-| Plus instances, compositional correct     | —                 | 69/133 |
-| Plus instances, all correct               | —                 | 77     |
-| Plus instances, answered wrongly          | —                 | 49     |
+| Compositional correct (of 133) | Witnessing only (655b192) | Final |
+| ------------------------------ | ------------------------- | ----- |
+| Fixture                        | 52                        | 56    |
+| Plus instances                 | 41                        | 89    |
 
-Against the witnessing tier alone (commit 655b192), the fixture goes from 53 to
-50 correct, and from 105 to 71 answered wrongly. Plus instances, it goes from 44
-to 77 correct, and from 111 to 49 answered wrongly.
+The first hop is now right on 114 and 109 of the 133. Of the first hops still
+wrong, most name the entity differently from the corpus (`Clara Novello` for
+`Clara Anastasia Novello`). That is an alias, which no byte reading recovers.
 
-The fixture's three lost answers are the price of removing CAST's unasked step.
-Six of its second hops were right paraphrases taken without evidence (`work at`,
-`is from`, `When was … born`), and the same licence produced the Carl Reiner
-extension on the trained store. Without an instance, nothing names those
+Removing CAST's unasked step cost six right answers on the fixture without
+instances: second hops that were right paraphrases taken without evidence
+(`work at`, `is from`, `When was … born`). The same licence produced the Carl
+Reiner extension on the trained store. Without an instance, nothing names those
 relations, and the chain stops at the first hop. The answers gained plus
 instances are those relations: `born` → place of birth, `Why did … die` → cause
 of death, `study`/`graduate from` → educated at, `work at` → employer, `is from`
@@ -206,11 +225,12 @@ no evidence that `grandfather` composes `father` twice.
 
 On the 31.7M-node store's 116-query battery, two dialogue answers changed
 (neither was correct before). The deterministic read counters rose about 4%
-(`bytesRead`, `ancestorVisits`, `edgeProbes`), with ANN queries unchanged. CPU
-was 163 s against same-session baseline runs of 152 s and 171 s. The co-instance
-tier read 190 forms over the battery and named nothing there: on that store a
-frame's windows are scaffolding, and the one-hop questions it would need are not
-in the corpus.
+(`bytesRead`, `ancestorVisits`, `edgeProbes`), with ANN queries up 1%. CPU on
+this workstation varies by ±15% between back-to-back runs of one build, and
+paired runs read 163 s against 152 s and 171 s, then 223 s against 203 s under
+outside load. The co-instance tier read 190 forms over the battery and named
+nothing there: on that store a frame's windows are scaffolding, and the one-hop
+questions it would need are not in the corpus.
 
 ## Pins
 
@@ -219,14 +239,18 @@ in the corpus.
   entity, whatever grounded the first hop. A question that names no further step
   is not extended. A fragment voices none of its continuations unless the
   question names one, in the cover and in recall's argument binding. A
-  comparison needs two things named. Each assertion was verified by mutation.
+  comparison needs two things named. An argument held only under the response's
+  equivalence binds. Each assertion was verified by mutation.
 - `test/155` — the relation read off another instance of the frame; absent
   without two instances that agree; refused for a partly shared frame; never
   voiced as the answer; a frame a product already said names no further step; a
   description in the slot is no other instance; traced and untraced responses
-  agree. Verified by mutation.
+  agree; fusion does not fuse a co-instance, nor does a comparison take one as
+  its dominant. Verified by mutation.
+- `test/76` — a fact the corpus files under an instance's filler is no carriage:
+  `reference` does not construct one for a new referent.
 - `test/29` C3 — a further hop inside a comparison's seat waits to be asked.
 - Unpinned, measured only at fixture scale. Excluding fragments from
   establishing contexts is worth 16 answers on the fixture with one-hop
-  questions (69 against 53 without it). The fusion refusal of a co-instance root
-  removed three glued strangers' facts there.
+  questions. Refusing a fragment as CAST's redirection substitute is worth four.
+  Fragments with inherited edges appear only at that scale.
