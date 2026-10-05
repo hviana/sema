@@ -1,43 +1,36 @@
-# Confluence — Multi-Condition Meeting Point
+# Confluence — Where Independent Conditions Meet
 
-Conjunctive queries whose answer lives in no single fact, only where independent
-evidence streams intersect. Each condition reaches its own exemplar set; the
-entity satisfying all lives at their meeting point.
+Some questions state several conditions, and their answer lives in no single
+fact, only where the conditions intersect. Each condition reaches its own stored
+contexts, and the thing that satisfies all of them sits at their meeting point
+(`src/mind/mechanisms/confluence.ts`, `confluenceJoin`).
 
-Source: `src/mind/mechanisms/confluence.ts` (`confluenceJoin`,
-`confluenceMechanism`).
+## Matcher — streams from the climb
 
-## Matcher
+The streams are the consensus climb's ranked anchors (`pre.attention()`,
+`crossRegionVotes`), each bound by identity to a discriminating span of the
+question. Two streams are independent when their spans are disjoint. The meet is
+a set intersection by content-addressed window identity (`windowsOf`): a window
+present in both anchors and absent from the question.
 
-`crossRegionVotes` tiers over the consensus climb (`pre.attention()` ranked
-anchors). Streams are anchors bound by identity to disjoint discriminative query
-spans; two streams are independent when their `cover` spans are disjoint. The
-meet is set intersection by content-addressed identity (`windowsOf` /
-`findBranch` window ids): present in both anchors, absent from the query.
+## Gate — corpus-global commonality
 
-## Gate
-
-Corpus-global IDF, not weave-local. A window's `reachOf(ctx, wid, N, memo)`
-(`edgeAncestors` contexts-reached via `sharedReachMemo`) is gated by
-`dominates(reach, N)` (`geometry.ts` half-dominance, `reach*2 > N`). Majority
-reach is scaffolding and never binds a constraint nor survives the meet;
-minority reach is filler/entity. Single-window meets and sub-`2W` spans are
-refused.
+A window's `reachOf` is gated by `dominates(reach, N)` (`commonality.md`). A
+window reached by a majority of contexts is scaffolding: it never binds a
+condition and never survives the meet. A minority reach is a filler, an entity.
+A meet on a single window, or a span shorter than `2W`, is refused.
 
 ## Cost
 
-One currency (`mind/graph-search.ts`): `STEP=1`, `CONCEPT=10`, `PASS=1000`/byte.
-`moves = STEP·slots + CONCEPT` (floor `3·STEP`: two constraints + meet). Weight
-`moves + PASS·unaccounted` compared at `STEP` grade (`pipeline.ts:think`).
+`3·STEP`: two conditions and the meet. That is also its floor, so the climb is
+never touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
 
 ## Provenance
 
-`join` — confluence is the mechanism that OWNS this provenance
-(`src/mind/mechanisms/confluence.ts` sets it when the independent evidence
-streams meet at one anchor). It is not cover's: cover reports `cover` for every
-derivation it wins (see `docs/mechanisms/cover.md`).
+`join`, which belongs to this mechanism alone.
 
 ## Pins
 
-`test/32-confluence.test.mjs` — two-constraint intersection, order invariance,
-empty-intersection honesty, cross-domain relational joins.
+- `test/32` — two-condition intersection, invariance to the order of the
+  conditions, honest silence on an empty intersection, and relational joins
+  across domains.

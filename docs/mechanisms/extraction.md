@@ -1,53 +1,49 @@
-# Extraction — Skill-Framed Span Read-out
+# Extraction — Read a Span Between Located Frames
 
-Extraction transfers a learnt span-in-context skill to an unseen query. A skill
-exemplar is a stored fact whose answer is a span of its context (or of its
-pieces); extraction locates the exemplar's framing bytes in the query and reads
-what sits between them.
+Extraction transfers a learnt skill of the form "the answer is a span of the
+context" to a question it has never seen. A **skill exemplar** is a stored fact
+whose answer appears inside its own context. Extraction finds the exemplar's
+framing bytes in the question and reads what sits between them
+(`src/mind/mechanisms/extraction.ts`).
 
-## Matcher — `skillExemplar` / `isSpanShaped` / `containsSpan` (`src/mind/match.ts`)
+## Matcher — span-shaped exemplars
 
-An exemplar is span-shaped when its answer embeds in order. `isSpanShaped` is
-the open reading (sparse subsequence, any gaps) for acceptance; `containsSpan`
-is the strict reading (contiguous run, or a resolved node) that fusion gates on,
-extraction decomposes with `answerRunsInContext` (greedy longest runs).
-Candidates are ranked anchors from `climbAttentionAll`
-(`Precomputed.spanShapedOf`), tried up to `pre.k`; sub-quantum (`< W`) or
-unanchored results are skipped.
+The candidates are the climb's ranked anchors, tried up to `pre.k`
+(`Precomputed.spanShapedOf`, `skillExemplar`). An exemplar qualifies when its
+answer embeds in its context in order:
 
-## Projection — read between located frames (`src/mind/mechanisms/extraction.ts`)
+- **`isSpanShaped`** is the open reading, a sparse subsequence. Extraction
+  accepts on it.
+- **`answerRunsInContext`** decomposes the answer into its pieces within the
+  context, taking the longest runs greedily. Fusion gates on the strict reading,
+  `containsSpan`, instead.
 
-`answerRunsInContext` splits the exemplar answer into pieces within its context.
-For each piece, the `W`-bounded pre-frame (and post-frame or next-piece
-pre-frame) is `locate`d in the query at recognition sites. Located frames define
-`start`/`end`; the bytes `query[start:end]` are read out. Multi-piece skills
-concatenate reads in order.
+## Projection — locate the frames, read between them
 
-## Gate — both borders located to account (`src/mind/mechanisms/extraction.ts`)
+For each piece, the bytes just before it (and just after it, or before the next
+piece), bounded at `W`, are located in the question (`locate`). The located
+frames fix the read's start and end. Multi-piece skills concatenate their reads
+in order. Results shorter than one quantum are skipped.
 
-Frames are evidence only when `locate` succeeds. An unanchored read (no frame
-located, `accounted === []`) is discarded — not an extraction. An open-ended
-read (only one border located) stays unaccounted.
+## Gate and accounting — both borders, or nothing
 
-## Cost (`src/mind/graph-search.ts`)
+- **No frame located** (`accounted = []`): the read is discarded. That is
+  silence, not extraction.
+- **A located frame is always evidence.**
+- **The span read between frames is accounted only when both of its borders were
+  located.** An open-ended read stays priced at `PASS` per byte, so a bounded
+  extraction outweighs an echo that merely sets things side by side.
 
-Mechanism weight is `moves + PASS * unaccounted_bytes` with
-`moves = CONCEPT + STEP * accounted.length`. Comparison is at `STEP` grade, then
-scaffolding, then list order.
+## Cost
 
-## Selective accounting
-
-Frames are always accounted when located. The read span between them is
-accounted only when bounded on both sides (`preBounded && postBounded`);
-otherwise it is PASS-priced like uncovered bytes, so a correct bounded
-extraction can outweigh an echoing juxtaposition.
+`moves = CONCEPT + STEP · accounted.length`, with a floor of `CONCEPT + STEP`.
+The floor checks `worthRunning` before touching the climb.
 
 ## Provenance
 
-`extract` (single-piece) or synthesised multi-piece read.
+`extract`.
 
 ## Pins
 
-- `test/00-extract.test.mjs` — skill transfer across values and relations
-- `test/68-extraction-unanchored.test.mjs` — unanchored gate (empty accounted is
-  silence)
+- `test/00` — skill transfer across values and relations.
+- `test/68` — an unanchored read is silence.

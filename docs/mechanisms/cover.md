@@ -1,73 +1,65 @@
-# Cover — Lightest Derivation over the Query
+# Cover — Compose the Question From What It Contains
 
-Cover is graph search. Its axioms are the query's own decomposition and its goal
-is the cheapest cover of the query's bytes. It runs first so a computed-backed
-cover becomes a near-zero-cost incumbent.
+`cover` answers by graph search. Its axioms are the question's own recognised
+sites, and its goal is the lightest derivation that covers the question's bytes
+and follows their continuations (`src/mind/mechanisms/cover.ts`, `GraphSearch`).
+It runs first: a cover backed by a computation becomes an incumbent near zero
+cost, and prunes the rest of the market through the ordinary floor check
+(`mechanism-market.md`).
 
-## Matcher — `locate` / recognition sites (`src/mind/recognition.ts`)
+## Matcher — recognition sites
 
-Sites are spans of the query that name a node already in the store. Cover
-consumes them directly; any site whose bytes overlap a computed span is masked
-(computation always wins).
+Sites are the spans of the question that name a stored form (`recognition.ts`).
+Any site that overlaps a computed span is masked: computation always wins,
+enforced by masking rather than by price (`cost-model.md`).
 
-## Projection — edges + conceptHop (`src/mind/match.ts`, `src/mind/graph-search.ts`)
+## Gates
 
-- `formRules` follow continuation edges (`GraphSearch.formRules`): each hop
-  costs `STEP` (1). Forks across all continuations up to the hub bound;
-  disambiguation is distributional, not heuristic.
-- Edge-less forms may hop via a halo sibling (`conceptHop` / `offerConcepts`) at
-  `CONCEPT` (10), borrowing a synonym's continuation.
-- A span's cheapest completion DOMINATES the rest (`buildSearch`): a form or
-  completion of `[i, j)` whose cost has reached that of a completion of `[i, j)`
-  already yielded fires no rule (`searchDominated`). Coverage is positional, so
-  only the cheapest matters to the goal; the byte rules (fuse, splice, join)
-  fire from the completion the search would stand on, never from every
-  alternative it reached. It also makes the first hop's stop-here
-  (`STEP + CONCEPT`) a real horizon for the chain.
+- **The site must lead somewhere.** It has a continuation or a halo
+  (`leadsSomewhere`).
+- **A fragment needs to be asked.** A site that answers other questions
+  (`answersOtherQuestions`: inside other forms, several continuations, a window
+  of the question outside it) is dropped unless the question names one of its
+  continuations. Otherwise the cover accounted the fragment's bytes as explained
+  by a stranger's answer (`unaskedFragments`).
+- **Scaffolding accounts for nothing.** A span made only of hub windows
+  (`scaffoldSpans`) is not accounted (`evidence.md`).
 
-## Gate — `leadsSomewhere` (`src/mind/traverse.ts`)
+## Projection
 
-A site participates only if it leads somewhere: it bears an edge (`hasNext`) or
-a halo (`hasHalo`). Forms that lead nowhere contribute nothing to any derivation
-and are filtered during recognition.
+- **Continuation edges.** `formRules` follow continuation edges at `STEP` per
+  hop, forking over continuations up to the hub bound. The continuation chosen
+  is `guidedFirst`'s: first one the question names, then distributional support,
+  then the first inserted (`determinism.md`).
+- **Concept hops.** A form with no edge of its own may borrow a halo sibling's
+  continuation, at `CONCEPT`.
+- **Dominance.** A span's cheapest completion dominates the rest, so a hub's
+  degree generates no work in the chart (`cost-model.md`).
 
-## Cost (`src/mind/graph-search.ts`)
+## Premises resolved where the search reaches them
 
-| Symbol    | Value       | Rule                                            |
-| --------- | ----------- | ----------------------------------------------- |
-| `STEP`    | 1           | per edge hop                                    |
-| `CONCEPT` | 10          | abandoning a chain / synonym hop                |
-| `PASS`    | 1000 / byte | each unaccounted byte                           |
-| `MICRO`   | 1e-3        | per-byte A* heuristic (`h = (len-right)*MICRO`) |
+The synchronous search cannot run the async reads that two of its rules need: a
+concept target, which is a halo lookup, and a learnt connector between two
+answers, which is a `bridge`. So `offerConcepts` and `offerConnectors` offer the
+keys up front, cheaply. The search then asks for a key only when it reaches it:
+a connector when a splice's two premises meet, and a concept target when the
+form asking for it is popped.
 
-The cover reports `moves` (its derivation's discrete work) and `accounted`; the
-ladder prices both.
-
-## Licensed premises (`src/mind/mechanisms/cover.ts`, `Licence` in `graph-search.ts`)
-
-The synchronous search cannot run the async reads two of its rules need — a
-concept target (a halo lookup) and a learnt connector between two answers (a
-`bridge`). `offerConcepts` and `offerConnectors` OFFER the keys up front (cheap:
-`hasNext`, the touching-site pairs and the N-ary allowances); the search ASKS
-for an offered key only where it reaches it — a connector when its splice's two
-premises meet, a concept target when the hop's asking form (held at the hop's
-own cost) is popped. A cover that asked is provisional: `cover.run` grants the
-asked keys and covers again, until a cover asks nothing — which is then the
-cover every key resolved in advance would have made. The joins licensed by
-ask-free rounds are kept across the re-covers.
+A cover that asked is provisional. `cover.run` grants the asked keys and covers
+again, until a cover asks for nothing. That final cover is the one that
+resolving every key in advance would have produced. Joins licensed by rounds
+that asked for nothing are kept across re-covers.
 
 ## Provenance
 
-`cover` for every cover derivation — including the fusion/recomposition steps
-(`fuse`/`recompose`) that name a deeper learned form. (`join` is NOT cover's:
-that provenance belongs to the CONFLUENCE mechanism, which reports it when
-independent evidence streams meet at one anchor — see
-`docs/mechanisms/confluence.md`.)
+`cover`, including fusion and recomposition steps that name a deeper learnt
+form. `join` belongs to `confluence`, not to `cover`.
 
 ## Pins
 
-- `test/09-edges.test.mjs` — edge following and hop semantics
-- `test/19-nd.test.mjs` — form rules and multi-hop chains
+- `test/09` — edge following and hop semantics.
+- `test/19` — form rules and multi-hop chains.
 - `test/151` — connectors and concept hops resolved where the search reaches
-  them; a span's cheapest completion dominates (a hub's degree generates no
-  work)
+  them; dominance.
+- `test/154` — a fragment voices none of its continuations unless the question
+  names one.

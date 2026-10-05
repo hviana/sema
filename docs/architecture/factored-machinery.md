@@ -1,29 +1,43 @@
 # Factored Machinery — One Definition, Many Consumers
 
-Every shared operation is defined once and imported many times. Duplicating it
-forks the corpus contract; moving it hides who owns the gate.
+> **Law:** every operation that more than one layer relies on is defined once
+> and imported everywhere. A second copy is a write/read drift waiting to
+> happen. A copy moved into a consumer hides who owns the gate.
 
-Siblings: `match-project.md`, `commonality.md`, `meter.md`.
+Each row is a contract that broke at least once when it existed twice:
+
+- `contentBoundaries` carried its own hash loop;
+- the ingest cache re-implemented deposit;
+- recall spelled its own fragment test.
 
 ## Single-definition contracts
 
-| Symbol                                                        | Defined in                                              | One fact                                                                                                                                                                                      |
-| ------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contentLevels`                                               | `src/geometry.ts`                                       | Single boundary rule: cuts + levels from one rolling hash pass; every segmentation reads it.                                                                                                  |
-| `canonicalWindows` / `chainReach` / `leafIdRun` / `windowIds` | `src/mind/canonical.ts`                                 | Write/read contract: training interns `W-1,W` windows, reading chains to `W²` and probes `W`-windows — drift silences recognition.                                                            |
-| `junction.ts` + `WalkCache`                                   | `src/mind/junction.ts`                                  | Shared junction ascent (parents + containers) with bounded `√N·W` walk; `WalkCache` memoizes capped reads/parents/containers per response; bridge and attention share it.                     |
-| `joinWithBridge`                                              | `src/mind/resonance.ts`                                 | One out-of-search assembly: `bridge(left,right)` or bare concat with `bridgeMiss` trace.                                                                                                      |
-| `dismissedKnownContent`                                       | `src/mind/bridge.ts`                                    | Pure attestation: any unaccounted `W`-window that resolves as known content — shared gap guard for substitution and CAST.                                                                     |
-| `sharedReachMemo`                                             | `src/mind/traverse.ts`                                  | One response-scoped `AncestorReach` memo (cleared on write and for traces); every `reachOf`/`edgeAncestors` consumer shares it.                                                               |
-| `guidedFirst`                                                 | `src/mind/traverse.ts`                                  | Guided-or-first answer bytes: `guidedNext` else first-inserted edge (`LIMIT 1`).                                                                                                              |
-| `leadsSomewhere`                                              | `src/store.ts` (raw), `src/mind/traverse.ts` (memoised) | Admission predicate: `hasNext` or `hasHalo`, defined once on the store; traverse memoises the edge tier per response.                                                                         |
-| `isChunk`                                                     | `src/sema.ts`                                           | `kids !== null && kids.every(k=>k.kids===null)` — smallest grouped unit; governs regions, seams, indexing.                                                                                    |
-| `twoEndedSeat`                                                | `src/sema.ts`                                           | One seat algebra: first half low seats, second half high seats; shared by perception, `fold`, and canonical folds.                                                                            |
-| `closed`/`admissible`/`advance`/`closeOver`                   | `src/mind/derivation.ts`                                | One admission for every derivation step, the readings every tier asks, and the engine that walks the post-grounding layers.                                                                   |
-| `exactNode`                                                   | `src/mind/primitives.ts`                                | The exact content-addressed lookup (`resolve`, `canonResolve`): the identity fold (`contentIdentity`, geometry.ts) — a miss decided by the segment filter, a hit named bottom-up, no vectors. |
+| Symbol                                                                 | Home                                  | The one fact it owns                                                                                                                   |
+| ---------------------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `contentLevels`                                                        | `geometry.ts`                         | the boundary rule: cuts and levels from one rolling hash (`fold-contract.md`)                                                          |
+| `groupByLevel` / `foldSlice`                                           | `geometry.ts`                         | the tree's shape, written once over two algebras (vector and identity)                                                                 |
+| `twoEndedSeat`                                                         | `sema.ts`                             | the seat algebra: low seats for the first half, high seats for the second                                                              |
+| `isChunk`                                                              | `sema.ts`                             | the smallest grouped unit, a node whose children are all leaves                                                                        |
+| `exactNode` / `branchNaming`                                           | `mind/primitives.ts`                  | exact lookup: the identity fold, naming a branch exactly as `intern` does                                                              |
+| `canonicalWindows` / `chainReach` / `leafIdRun` / `windowIds`          | `mind/canonical.ts`                   | the window contract: deposits intern windows of `W−1` and `W`, and reads chain them to `W²`                                            |
+| `leadsSomewhere`                                                       | `store.ts`, memoized in `traverse.ts` | admission: `hasNext \|\| hasHalo`                                                                                                      |
+| `corpusN` / `hubBound` / `hubCap`                                      | `mind/traverse.ts`                    | the scale and its cap (`bounded-reads.md`)                                                                                             |
+| `sharedReachMemo`                                                      | `mind/traverse.ts`                    | one `AncestorReach` memo for every `reachOf`/`edgeAncestors` consumer                                                                  |
+| `answersOtherQuestions`                                                | `mind/traverse.ts`                    | the fragment predicate: a form inside other forms, with several continuations, that the question leaves partly outside (`evidence.md`) |
+| `junctionContainersFrom` + `WalkCache`                                 | `mind/junction.ts`                    | the content-addressed ascent shared by the bridge and attention                                                                        |
+| `joinWithBridge`                                                       | `mind/resonance.ts`                   | joining two results outside the search: `bridge(left, right)`, or a bare join traced as `bridgeMiss`                                   |
+| `dismissedKnownContent`                                                | `mind/bridge.ts`                      | the gap guard shared by substitution and CAST: no dismissed window may resolve as known content                                        |
+| `locate` / `alignGraded` / `frameSlots` / `project`                    | `mind/match.ts`                       | the matcher family; gates belong to the consumers (`match-project.md`)                                                                 |
+| `witness` / `windowIndex`                                              | `mind/evidence.ts`                    | order-free W-window coverage, the evidence reading (`evidence.md`)                                                                     |
+| `closed` / `admissible` / `advance` / `closeOver` / `unexplainedSpans` | `mind/derivation.ts`                  | the closure law, its span algebra and its engine (`closure.md`)                                                                        |
+| `Precomputed`                                                          | `mind/pipeline-mechanism.ts`          | the per-response shared analyses (`memoization.md`)                                                                                    |
+| `weigh`                                                                | `mind/pipeline.ts`                    | the price, `moves + PASS·unaccounted` (`cost-model.md`)                                                                                |
+| `Meter`                                                                | `meter.ts`                            | every counter name (`meter.md`)                                                                                                        |
 
 ## Pins
 
-- `test/47` — frame reading split (matcher vs gate vs inventory).
-- `test/50` — CAST analog / consensus floor (dismissed content, `MIN_WEAVE` /
-  `dominates` frame, `carriesFillers` refusal).
+- `test/137` — the law lives once and below: no hand-built transition outside
+  `advance`, no inline re-spelling of a law reading, and no dead export.
+- `test/47` — the frame reading split into matcher, inventory and gate.
+- `test/50` — CAST's shared guards: dismissed content, the frame from
+  `MIN_WEAVE` and `dominates`, and the `carriesFillers` refusal.

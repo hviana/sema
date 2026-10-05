@@ -1,104 +1,78 @@
-# Saturation — Named Stop, Not Cap
+# Saturation — A Named Stop, Not a Cap
 
-> **Law:** every walk names a deciding saturation beside its cap. The cap is a
-> safety net; saturation is the derived stop that decides and terminates.
+> **Law:** every walk names the saturation that decides when it stops, beside
+> its cap. The cap (`bounded-reads.md`) is a safety net. The saturation is a
+> derived proof that continuing cannot discriminate, and it is recorded in the
+> trace.
 
-A walk with only a cap drifts to the cap. A walk with a saturation stops the
-moment the answer (saturated vs. decided) is known — bounded, exact below the
-bound, and named in the trace.
+**Why.** A walk with only a cap drifts to the cap: it spends the whole budget
+and stops at an arbitrary place. A walk with a saturation stops the moment the
+outcome is known, is exact below every stop, and says why it stopped. Deflate's
+match finder truncates long chains arbitrarily. Sema may cap, but it must still
+justify every stop.
 
-## Cap vs. saturation
+The trace records the first stop that decides as
+`SaturationStop { reason, node, observed, limit }`, together with `visited` and
+`maxDepth`.
 
-| Role       | Value                                                        | Nature                                           |
-| ---------- | ------------------------------------------------------------ | ------------------------------------------------ |
-| Cap        | `hubBound = ceil(sqrt(N))` per read; `hubBound * W` per walk | Safety net — prevents corpus-proportional work   |
-| Saturation | Named derived stop (`SaturationReason`)                      | Decision — proves continuing cannot discriminate |
+## `edgeAncestors` — expand until decided (`mind/traverse.ts`)
 
-`N = corpusN = max(2, edgeSourceCount())`, `W = maxGroup`. Defined once in
-`mind/traverse.ts` (`corpusN`, `hubBound`, `boundFor`); never spelled inline.
+This is the model walk. It climbs parents and containers from a node to the
+learnt contexts it reaches, and stops at the first of five saturations. Each is
+exact below its threshold (`bound = √N`):
 
-## edgeAncestors — EXPAND-UNTIL-DECIDED
+1. **Predecessor fan-in.** `prevCount(node) > bound`: one indexed count proves
+   more than `bound` contexts.
+2. **Distinct contexts.** `ctxSeen.size > bound` after `prevFirst(node, bound)`.
+3. **Parent fan-out.** `parentsFirst(node, bound + 1)` returns more than
+   `bound`, and the node is not expanded.
+4. **Lateral cone.** The extra parents summed over every expanded node exceed
+   `bound`. Commonness spread across the cone is caught as surely as commonness
+   concentrated at one node, while a deep chain inside one structure accrues no
+   laterals and reaches its root at any depth.
+5. **Byte atoms.** Atoms carry no containment rows, so their reach is
+   unmeasurable, and the uniform expectation `atomReach(N, W)` replaces it. Past
+   `bound`, an atom abstains as a voter (`atomIsHub`), though its edges remain
+   traversable.
 
-`mind/traverse.ts:edgeAncestors` is the model: it climbs the structural DAG
-(parents + containment) until one of five saturations decides, and is exact
-below every one of them.
+Below every stop, the walk equals the unbounded climb, and its work is
+`O(bound)` contexts. Container seeds are streamed in `bound`-sized pages.
 
-1. **Predecessor fan-in** — `prevCount(node) > bound` via `store.prevCount`. One
-   indexed count; no read. Proves `> bound` distinct contexts on its own.
-2. **Distinct-context limit** — `ctxSeen.size > bound` after
-   `prevFirst(node, bound)`. The accumulated set of distinct contexts reachable
-   from roots visited so far exceeds `sqrt(N)`.
-3. **Parent fan-out** — `parentsFirst(node, bound+1).length > bound`. One
-   `LIMIT bound+1` read distinguishes "exactly bound parents" from "hub". The
-   node itself is not expanded; saturated reaches are never voted.
-4. **Lateral-cone cumulative** — `lateral > bound`, where `lateral` sums
-   `fresh-1` over every expanded node's extra parents beyond its first. The
-   per-node guard catches concentration at one node; this catches the same
-   commonness distributed across the cone. A deep chain in one structure accrues
-   zero laterals and still reaches its root at any depth.
-5. **Byte-atom commonality** — `atomIsHub(N,W)` when
-   `atomReach(N,W) = max(1, ceil(N*W/256)) > bound`. Atoms carry no kid/contain
-   rows, so containment is unmeasurable; the uniform-expectation floor replaces
-   it. Above the scale the atom abstains as voter (edges remain traversable for
-   tier-0 recall).
+**Refuted:** treating container fan-out as a hub. It confuses the _places_ a
+window occurs with the _contexts_ it reaches, and saturation is defined over
+contexts. On `test/49`, `fran` sits in 4 containers yet reaches 2 contexts, and
+the rule called it saturated.
 
-Below every threshold the walk is exact — `prevFirst(bound)` is the full list,
-`parentsFirst(bound+1)` is the full list, `containersSlice` pages are walked in
-full — identical to the unbounded climb. Work is `O(bound)` contexts times local
-structure, never `O(N)`. Container seeding is streamed in `bound`-sized pages
-for the same reason.
+## `pivotInto` — the longest wins (`mind/resonance.ts`)
 
-Refuted tightening: **container fan-out as a hub** — deciding a containment seed
-saturated when its first `containersSlice(bound+1)` page overflows, the reading
-`junction.ts` applies to the same links. It conflates the PLACES a window occurs
-with the CONTEXTS it reaches, and saturation is defined over contexts. Proved on
-`test/49`'s fixture (N = 5, `sqrt(N)` = 3): `fran` sits in 4 containers yet its
-full climb reaches 2 contexts — discriminative — and the rule called it
-saturated, as it did `of f`, `fra`, `is`, `ranc`, `ance`. On the 31.7M-node
-store no such window climbed unsaturated (18 composition queries; those climbs
-were 38% of all visits), because at `sqrt(N)` = 1,560 a full page of containers
-rarely converges on few contexts — but the rule is the same wrong reading at
-both scales. The streamed seed stays.
+Candidates rank by `contentLen(id, answerLen + 1)`, descending, with
+first-inserted breaking ties. The score is length itself, so the first candidate
+that passes every filter wins, and no shorter candidate's bytes are ever read.
 
-Trace records the first deciding stop as
-`SaturationStop { reason, node, observed, limit }` plus `visited`/`maxDepth`;
-absent when unsaturated or untraced.
+## Junction ascent — guards against a budget (`mind/junction.ts`)
 
-## pivotInto — longest-wins
+`junctionContainersFrom` keeps three disciplines apart:
 
-`mind/resonance.ts:pivotInto` ranks candidates by `contentLen(id, answerLen+1)`
-descending (first-inserted tie-break). The byte score is length itself, so the
-scan is decided at the first candidate that passes every filter — a shorter
-candidate can never outscore it. At most one winner's bytes are reconstructed;
-every shorter proposal is skipped without a read. Saturation, not cap.
+- **Phrase-scale reads.** `bytesPrefix(maxContainer + 1)` per visit; a node past
+  the cap prunes its branch.
+- **Hub guards, which are true saturations.** A node is not expanded when
+  `parentsFirst(bound + 1)` or one `containersSlice` page exceeds `bound`.
+- **The expansion budget, a net.** At most `bound · W` pops, shared across a
+  tier's walks. Running out is an abstention (`junctionBudgetExhausted`), and
+  the search falls through to the resonance tier.
 
-## Junction — hub guards vs. budget
+Two tightenings were refuted:
 
-`mind/junction.ts:junctionContainersFrom` has three disciplines:
-
-- **Phrase-scale reads** — `bytesPrefix(maxContainer+1)` per visit; a node
-  beyond the cap prunes its branch.
-- **Per-node hub guards** (real saturations) — `parentsFirst(bound+1) > bound`
-  not expanded; one `containersSlice(bound+1)` page beyond `bound` not expanded.
-  Each is exact below `bound`.
-- **Expansion budget** — at most `bound * W` pops total (shared across a tier's
-  walks). Budget exhaustion is an abstention (`junctionBudgetExhausted`) that
-  falls through to the resonance tier — a net, not a saturation.
-
-Refuted tightening: applying `edgeAncestors`' cumulative lateral-cone limit here
-would discard half the successful junctions (measured lateral 1425/1426 at
-`bound` ~ 570).
-
-Refuted early-stop: **one-cone-exhausted** — stopping when one side's upward
-cone empties — is wrong in both hub-guarded and hub-flagged forms. A junction
-can be reachable from only one side when that side's seed is a fold sub-node of
-the container (`test/16`: "cold or hot" reached from window "cold" while 3-byte
-"hot" cone is empty; `test/34` n-ary binding fails the same way). Exhausting one
-cone never proves no junction remains; the walk must keep the `bound*W` net
-after per-node saturations.
+- **The lateral-cone limit from `edgeAncestors`** would discard half the
+  successful junctions (lateral 1425 of 1426 at `bound` ≈ 570).
+- **Stopping when one side's cone is exhausted** is wrong. A junction can be
+  reachable from only one side when that side's seed is a fold sub-node of the
+  container. In `test/16`, `cold or hot` is reached from `cold` while the cone
+  of `hot` is empty. Exhausting one cone never proves that no junction remains.
 
 ## Pins
 
-- `test/16` — one-cone-exhausted refutation (bridge junction).
-- `test/34` — one-cone-exhausted refutation (n-ary cross-region binding).
-- `test/27` — saturation-drop gate (leading/trailing saturated intervals).
+- `test/16`, `test/34` — refute stopping when one cone is exhausted, in the
+  bridge junction and in n-ary cross-region binding.
+- `test/27` — dropping saturated leading and trailing intervals from the climb.
+- `test/49` — refutes treating container fan-out as a hub.

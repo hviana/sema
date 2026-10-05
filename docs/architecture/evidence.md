@@ -1,256 +1,179 @@
 # Witnessed Evidence — The Question Names the Step
 
-> **Law:** a stored form is identified by the material at hand when every one of
-> its bytes lies in a W-window that material holds — in any order, at any place,
-> and wherever each piece of the material came from. A form witnessed in every
-> byte but one contiguous span of content is ANOTHER INSTANCE of the same
-> question: it says what the question's relation is, never what it asks about. A
-> step the question did not name has to be paid for by material the question
-> still owes.
+> **Law:** the material at hand identifies a stored form when every byte of the
+> form lies in a `W`-window that the material holds, in any order and wherever
+> each piece came from. A form witnessed in every byte but one contiguous span
+> of content is **another instance** of the same question: it says what the
+> question's relation is, never what the question asks about. A step the
+> question did not name is paid for from what the question still owes.
 
-## The operation — `src/mind/evidence.ts`
+**Why.** A question rarely repeats the corpus's wording or byte order, and a
+derivation stands on nodes the asker never wrote. Without a reading of what the
+question _names_, a chain follows the most-poured continuation and voices a
+stranger's fact. `Who is the director of The Jerk?` once walked on to Carl
+Reiner's citizenship.
 
-`witness(form, indexes, W)` reads one form against a list of window indexes
-(`windowIndex`). It is the order-free reading of correspondence, beside
-`alignRuns` (which produces runs) and `junctionContainersFrom(…, unordered)`
-(which finds containers). It is exact, deterministic and linear: one index per
-source and one probe per window of the form. A window is credited to the LAST
-source that holds it, so source 0 (the question) is credited only with what
-nothing else at hand supplies. A form shorter than W is never witnessed. The
-form's own unwitnessed bytes come back as its `residue`.
+## The operation — `witness` (`src/mind/evidence.ts`)
 
-## Where the material comes from
+`witness(form, indexes, W)` reads one form against one window index per source
+of material (`windowIndex`). It is the order-free reading, beside `alignRuns`
+(ordered runs) and the unordered `junctionContainersFrom` (containers).
 
-The corpus records, for every continuation, the questions that establish it: its
-predecessors. A 2Wiki fact `The father of Frederick II is Peter III of
-Aragon.`
-is established by `Frederick II` and by `Frederick II father`. The asker's
-question rarely repeats either one byte for byte, but it often holds every byte
-of one of them.
+- It is exact and linear: one probe per window of the form.
+- A window is credited to the last source that holds it, so the question
+  (source 0) is credited only with what nothing else supplies.
+- A form shorter than `W` is never witnessed.
+- The form's unwitnessed bytes come back as its `residue`.
 
-The derivation stands on more than the question. The node it is following is
-material too. On the second hop of
-`Where was the place of death of the
-director of film Beat Girl?` the node is
-`Edmond T. Gréville`, which the first hop reached and the asker never wrote. The
-establishing question `Edmond T.
-Gréville place of death` is held by neither the
-question nor the first hop's fact, only by both. Measured over 5,236 held-out
-2WikiMultihopQA compositional questions, such a context is wholly witnessed by
-the question alone 69 times, and by the question plus the first hop 2,153 times.
+## The material
 
-An establishing context is a DEPOSITED context: a predecessor with structural
-parents or containers is a span interned inside bigger forms, and it inherits
-their edges. Witnessing such a fragment named every fact it is a piece of (the
-fragment `born?` named nine strangers' birthplaces on the 2Wiki fixture with
-one-hop questions), so it never counts — the same structural predicate
-`pivotInto` reads.
+For every continuation, the corpus records the contexts that establish it, its
+predecessors. `The father of Frederick II is Peter III of Aragon.` is
+established by `Frederick II` and by `Frederick II father`. The material is the
+question plus the node the derivation stands on. On the second hop of
+`Where was the place of death of the director of film Beat Girl?`, the node is
+`Edmond T. Gréville`, and `Edmond T. Gréville place of death` is held by neither
+the question nor the node alone, only by both. Over 5,236 held-out 2Wiki
+questions, the question alone witnessed such a context 69 times, and the
+question plus the first hop 2,153 times.
+
+Only a **deposited** context establishes anything. A predecessor with structural
+parents or containers is a span inside bigger forms and inherits their edges.
+Witnessing that fragment named every fact it is a piece of: `born?` named nine
+strangers' birthplaces.
 
 ## Another instance of the question — `coInstanceFiller`, `byCoInstance`
 
-The question rarely spells the relation the way the corpus does.
-`When was the
-director of film Jinpa born?` reaches `Pema Tseden`, whose fact is
-established by `Pema Tseden date of birth`: no window joins `born` to
-`date of birth`, so nothing is witnessed. What joins them is another instance of
-the question.
+`When was the director of film Jinpa born?` reaches `Pema Tseden`, whose fact is
+established by `Pema Tseden date of birth`. No window joins `born` to
+`date of birth`. What joins them is another instance of the question.
 
-A **co-instance** is a stored context that shares the question's FRAME, its
-opening and its close byte for byte under the response's equivalence, around ONE
-different filler, and whose filler is a thing the corpus knows: a stored context
-with continuations of its own. `Where was Peter Jackson born?`, read against
-`Where was the director of film Beat Girl born?`, shares `Where was` and `born?`
-and leaves `Peter Jackson`. Three conditions make the reading exact, and each
-was measured necessary:
+A **co-instance** is a stored context that shares the question's frame, its
+opening and its close byte for byte under the response's equivalence (together
+at least `W`), around one different filler. Three conditions make that reading
+exact, and each was measured to be necessary:
 
-- **Order.** A frame is not a bag of windows. Read order-free,
-  `Lyon is a city in France` passes for an instance of
-  `what if the capital of France were Lyon?`, which NAMES Lyon, and a
-  coincidental window inside a filler splits it.
-- **The filler is an entity.**
-  `Explain how photosynthesis converts sunlight
-  into chemical energy.` shares
-  a frame with `Explain how photosynthesis
-  works.`, but its slot holds a
-  description of the frame's own subject, and it answers the question. The
-  filler is the longest stored context opening where the slot opens (up to one
-  window earlier: the `T` of `Taika` can sit in the question's `as t`).
-- **The frame is unsaid.** Every frame window must be held by the material, so
-  on the walk a frame a product already said cannot name a second step.
-  `Who is the father of …?` names the second hop of
-  `Who is the father of the director of film Beat Girl?` and not the
-  grandfather. Scaffolding windows are exempt, because they are nobody's
-  evidence (`is` in `Which country Leo Mittler is from?`).
+- **Order.** Read order-free, `Lyon is a city in France` passes for an instance
+  of `what if the capital of France were Lyon?`.
+- **The filler is an entity.** It is the longest stored context with
+  continuations of its own that opens where the slot opens, or up to one window
+  earlier. In `Explain how photosynthesis converts sunlight…` the slot holds a
+  description of the subject, and that is no other instance.
+- **The frame is unsaid.** Every frame window must be held by the material, with
+  scaffolding windows exempt. So a frame a product already said cannot name a
+  second step: `father of` names the second hop of a father question, never the
+  grandfather.
 
-The co-instance's continuation is established by other contexts too
-(`Peter Jackson place of birth`), and the one holding the filler spells the
-relation the corpus's way: a RELATION FRAME, `` · `place of birth`. A frame
-counts only where two co-instances spell it alike. One alignment agrees with
-nothing, which is the bar `reference` holds a frame to (`MIN_INSTANCES`). The
-exact tier's second reading (`byCoInstance`, run only when no establishing
-context is witnessed outright) puts the node the derivation stands on in each
-frame and looks the result up by content: `Edmond T. Gréville place of birth`
-exists, so its continuation is named. Neither the equivalence nor the frame is
-stored as a unit, and nothing is approximate.
+The co-instance's continuation is also established by contexts that hold the
+filler (`Peter Jackson place of birth`), and they spell the relation the
+corpus's way, as a **relation frame** (`relationFrames`). A frame counts only
+where two co-instances spell it alike, the same bar `reference` holds
+(`MIN_INSTANCES`).
 
-**The proposals are the consensus climb's.** The climb already scores the stored
-forms the question's regions reach, and the co-instances are among its points.
-Its scored anchors are published on the question when it runs, and the tier
-reads the `chainReach(W)` most corroborated of them. It climbs nothing of its
-own. A first version climbed every question window itself and cost the 116-query
-battery +16% climb visits for zero namings. Two consequences follow, both
-pinned:
+`byCoInstance` puts the node into each frame and looks the result up by content.
+If `Edmond T. Gréville place of birth` exists, its continuation is named. It
+runs only when nothing is witnessed outright. Neither the frame nor the
+equivalence is stored, and nothing in the reading is approximate.
 
-- A pick made before the climb read less evidence than one made after, so the
-  response's pick memo is cleared when the points arrive. Traced and untraced
-  responses agree.
-- Recall's argument binding, which runs before the climb, asks for it first when
-  the argument has several continuations and the question names none outright.
-  That is exactly where the choice would otherwise be blind.
+**The proposals are the climb's.** The tier reads the `chainReach(W)` most
+corroborated of the consensus climb's ranked points (`asked.points`), and climbs
+nothing itself. A first version climbed on its own and cost 16% more climb
+visits for no naming at all. This has two consequences:
 
-A question the corpus holds verbatim is its own instance and reads no frames.
-Frames are read once per question (and once per walk material), and every node
-pays only the exact lookups.
+- the pick memo is cleared when the points arrive (`memoization.md`);
+- recall's argument binding asks for the climb first when its choice would
+  otherwise be blind.
 
-The same reading refuses the co-instance as an ANSWER, because its own
-continuation speaks of its own filler. Recall's consensus-anchor tier does not
-ground it: `Where was the performer of song God (John Lennon Song) born?`
-elected `Where was Nicki Minaj (Nicki Minaj Song) born?`. Fusion does not fuse
-it as a further topic. A CAST comparison does not take it as its dominant: it
-set `Where was Shakira (Shakira Song) born?` against `John Lennon` and voiced
-Shakira's birthplace.
+A question stored verbatim is its own instance and reads no frames.
 
-## Arguments the question holds under the response's equivalence
+**A co-instance is never the answer.** Its own continuation speaks of its own
+filler. So:
 
-Recognition matches bytes and the query fold's own boundaries. 2Wiki title-cases
-its questions (`… of film Man At Bath work at?` for the stored `Man at Bath`),
-and a title inside a question lines up with none of the fold's cuts. When
-recall's argument binding finds no recognised argument, the stored forms the
-consensus climb reaches become candidates if the question holds them under the
-response's equivalence (`canonHeldPoints`: canonical containment,
-offset-preserving, so the span is the question's own). The approximate climb
-proposes and exact containment decides. This is read after the clean-resonance
-tier, so a near-identical question pays no climb for it. The canonical-form
-index it relies on is the one the trainer builds after training
-(`buildCanonIndex`, progress.ts).
+- recall's consensus anchor refuses it, where once
+  `Where was Nicki Minaj (Nicki Minaj Song) born?` answered another performer's
+  question;
+- fusion does not fuse it as a further topic;
+- a CAST comparison does not take it as its dominant, where once Shakira's
+  birthplace was voiced against `John Lennon`.
 
-A fragment that answers other questions is no argument and no independent piece
-of the question either. It is set aside BEFORE the binding looks for one maximal
-argument, so `director` no longer cancels `Man at Bath`. The same predicate
-gates CAST's redirection: the substitute `ong)?`, the tail of every
-`… (… Song)?` question, voiced a stranger's birthplace.
+## Arguments held under the response's equivalence
+
+2Wiki title-cases its questions (`Man At Bath` for the stored `Man at Bath`),
+and such a title lines up with none of the fold's cuts. When recall's argument
+binding finds no recognised argument, the stored forms the climb reaches become
+candidates, if the question canonically contains them at their own offsets
+(`canonHeldPoints`). The climb proposes, and exact containment decides. This
+relies on the canonical index the trainer builds (`buildCanonIndex`).
+
+A fragment that answers other questions is set aside before the binding looks
+for one maximal argument, so `director` no longer cancels `Man at Bath`. The
+same predicate refuses CAST's redirection substitute `ong)?`, the tail of every
+`… (… Song)?` question.
 
 ## Its consumers
 
-| Where                                                                             | What it decides                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chooseNext` (traverse.ts)                                                        | **The exact tier.** It names the continuation one of whose establishing contexts (other than the node) is witnessed by the question plus the node, with the question supplying at least one window the node does not. It ranks first among the readings; the distributional ladder decides only when nothing is named, or among continuations named equally.                                                                                                                     |
-| `askedEvidence` (traverse.ts)                                                     | The question spans that named a pick. A mechanism projecting through the pick accounts for them, because evidence travels (mechanism-market.md). Recall's argument binding uses this.                                                                                                                                                                                                                                                                                            |
-| `preConsumed` (pipeline.ts)                                                       | When a grounding does not declare `used`, what it spoke for is the forms inside its answer that the question already holds. The entity the answer added stays pivotable.                                                                                                                                                                                                                                                                                                         |
-| The walk (reasoning.ts)                                                           | A pivot is NAMED when one of its continuation's establishing contexts is witnessed by what of the question no product has said yet, plus the pivot. A named pivot MOVES. An unnamed one is offered only while the derivation still owes something, and the law then decides by carrying. No grounding owns the next step: a CAST grounding used to move through any term inside its answer, unasked (`Who is the director of The Jerk?` walked on to Carl Reiner's citizenship). |
-| `answersOtherQuestions` (traverse.ts) — cover sites and recall's argument binding | A FRAGMENT is a form that sits inside other forms, has several continuations, and leaves at least one window of the question beyond it. It answers other questions, so it leads somewhere for this question only when the question names one of its continuations. Recall's binding read the same fragment (`director`) and voiced the most-poured stranger's fact.                                                                                                              |
-| `byCoInstance` (traverse.ts)                                                      | The exact tier's second reading: the relation read off another instance of the question, transferred to the node by an exact substitution.                                                                                                                                                                                                                                                                                                                                       |
-| Recall's consensus anchor, fusion roots                                           | A co-instance of the question is never voiced as its answer, nor fused as a further topic.                                                                                                                                                                                                                                                                                                                                                                                       |
-| CAST comparison (mechanisms/cast.ts)                                              | A comparison voices two structures, so the question must evidence the analog with a window of its own: neither inside the dominant's runs nor scaffolding. `father of Frederick II?` evidenced `Peter III of Aragon father` only with `father` and `of`, and the comparison glued that bare question onto the answer.                                                                                                                                                            |
-
-A cover span made of nothing but scaffolding (every window a hub,
-`scaffoldSpans`) is not accounted. The form recognised there, such as the song
-`What` in the trained store, is one of thousands the bytes could name. This is
-measured only on the trained store (`What country is Jerry Bock a citizen of?`
-was won by `The performer of What is Melinda Marx.` glued onto the right fact).
-A synthetic fixture could not reproduce that regime, because content addressing
-folds every filler's `What` into a handful of shared nodes, so no suite test
-pins this rule.
+| Where                                          | What it decides                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chooseNext` (`traverse.ts`)                   | **The exact tier.** A continuation is named when one of its establishing contexts other than the node is witnessed by the question plus the node, and the question supplies a window the node lacks. Named picks rank first; then the co-instance reading; then the distributional ladder. |
+| `askedEvidence` (`traverse.ts`)                | the question spans that named a pick, which a projecting mechanism then accounts for                                                                                                                                                                                                       |
+| `preConsumed` (`pipeline.ts`)                  | when a grounding declares no `used`: the forms inside its answer that the question already holds. The entity the answer added stays pivotable                                                                                                                                              |
+| the walk (`reasoning.ts`)                      | a named pivot moves; an unnamed one is offered only while the derivation still owes something, and the closure law decides it by carrying                                                                                                                                                  |
+| `answersOtherQuestions` (`traverse.ts`)        | a fragment (a form inside others, with several continuations, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                                           |
+| recall's anchor, fusion roots, CAST comparison | a co-instance is never voiced or fused; a comparison needs a window of its own evidencing the analog                                                                                                                                                                                       |
 
 ## What the question owes
 
-The derivation is born owing only its discriminative material. The bytes a
-corpus-global scaffolding window reaches (`scaffoldExtents`, the same "hub"
-reading as `allWindowsAreScaffolding` and the bridge's `explainedSpan`) are
-nobody's debt. Otherwise a step could claim to pay `Who is the` by restating
-`is`, which every fact holds. Pricing is untouched: the ladder still charges
-every unexplained byte, because for a question made only of scaffolding,
-covering those bytes is the evidence. Making scaffolding free in the market was
-measured and refused, because it changed dialogue answers
-(`How are you
-today?`).
-
-The hub reading behind `scaffoldExtents` is floored at `chainReach(W)`
-containers. Inside one deposit's fold, a window is already contained by up to
-that many chunks and branches, so on a store of a few facts the √N reading would
-call every window frame. That count measures fold structure, not corpus
-commonality (`test/22`'s two-fact chains are exactly that regime).
+A derivation is born owing only its discriminating material. Bytes reached by a
+scaffolding window (`scaffoldExtents`, the hub reading, `commonality.md`) are
+nobody's debt, so no step pays `Who is the` by restating `is`. A cover span made
+only of scaffolding is not accounted. The trained store's song `What` is one of
+thousands the bytes could name. Pricing is untouched: the ladder still charges
+every unexplained byte. Making scaffolding free in the market was measured and
+refused, because it changed dialogue answers (`How are you today?`).
 
 ## Bounds
 
-The exact tier reads at most √N establishing contexts per decision, floored at
-`chainReach(W)`. It asks the cheapest candidates first and compares scores
-afterwards in the continuations' own order. It abstains, metered as
-`askedReadsSaturated`, in two cases: the continuation read came back at the √N
-cap, or the question holds no window the node lacks. One short prefix read
-refuses most predecessors before a whole form is reconstructed. Picks are
-memoized per node per question.
+The exact tier reads at most `√N` establishing contexts per decision, floored at
+`chainReach(W)`, asking the cheapest first. It abstains (`askedReadsSaturated`)
+when the read hits the cap, or when the question holds no window the node lacks.
+Picks are memoized per node and per question.
 
 ## Measured
 
-2Wiki held-out fixture: the evidence triples of 300 validation rows, deposited
-as `wiki2.ts` does, with the canonical-form index built as the trainer builds
-it, and asked the rows' own composed questions. Same evidence "plus instances":
-261 one-hop questions about OTHER entities, built from other validation rows by
-replacing the first hop's phrase with its referent
-(`Where was the director of film X born?` → `Where was Óskar Jónasson born?`)
-and answered with the second hop's fact. No test entity has one.
+The fixture holds the evidence triples of 300 held-out 2Wiki rows, deposited as
+`wiki2.ts` does, with the canonical index built. "Plus instances" adds 261
+one-hop questions about other entities.
 
-| Compositional correct (of 133) | Witnessing only (655b192) | Final |
-| ------------------------------ | ------------------------- | ----- |
-| Fixture                        | 52                        | 56    |
-| Plus instances                 | 41                        | 89    |
+| Compositional correct, of 133 | Witnessing only | Now |
+| ----------------------------- | --------------- | --- |
+| fixture                       | 52              | 56  |
+| plus instances                | 41              | 89  |
 
-The first hop is now right on 114 and 109 of the 133. Of the first hops still
-wrong, most name the entity differently from the corpus (`Clara Novello` for
-`Clara Anastasia Novello`). That is an alias, which no byte reading recovers.
+The first hop is right on 114 and 109 of 133. Most of the remaining first-hop
+failures are aliases (`Clara Novello` for `Clara Anastasia Novello`), which no
+reading of bytes recovers. The answers gained with instances are relations no
+window spells: `born` → place of birth, `work at` → employer, `is from` →
+citizenship.
 
-Removing CAST's unasked step cost six right answers on the fixture without
-instances: second hops that were right paraphrases taken without evidence
-(`work at`, `is from`, `When was … born`). The same licence produced the Carl
-Reiner extension on the trained store. Without an instance, nothing names those
-relations, and the chain stops at the first hop. The answers gained plus
-instances are those relations: `born` → place of birth, `Why did … die` → cause
-of death, `study`/`graduate from` → educated at, `work at` → employer, `is from`
-→ country of citizenship.
+On the 31.7M-node store's 116-query battery:
 
-The inference count stays low. Two hops of `father` from a question that says
-`father` once, as in `paternal grandfather`, are not composed: the store holds
-no evidence that `grandfather` composes `father` twice.
-
-On the 31.7M-node store's 116-query battery, two dialogue answers changed
-(neither was correct before). The deterministic read counters rose about 4%
-(`bytesRead`, `ancestorVisits`, `edgeProbes`), with ANN queries up 1%. CPU on
-this workstation varies by ±15% between back-to-back runs of one build, and
-paired runs read 163 s against 152 s and 171 s, then 223 s against 203 s under
-outside load. The co-instance tier read 190 forms over the battery and named
-nothing there: on that store a frame's windows are scaffolding, and the one-hop
-questions it would need are not in the corpus.
+- two dialogue answers changed, neither of which had been correct;
+- the read counters rose about 4%;
+- the co-instance tier named nothing, because there the frame windows are
+  scaffolding and the one-hop instances are absent.
 
 ## Pins
 
-- `test/154` — witnessing semantics. The named continuation beats the
-  most-poured one. The second hop is named by the question plus the introduced
-  entity, whatever grounded the first hop. A question that names no further step
-  is not extended. A fragment voices none of its continuations unless the
-  question names one, in the cover and in recall's argument binding. A
-  comparison needs two things named. An argument held only under the response's
-  equivalence binds. Each assertion was verified by mutation.
-- `test/155` — the relation read off another instance of the frame; absent
-  without two instances that agree; refused for a partly shared frame; never
-  voiced as the answer; a frame a product already said names no further step; a
-  description in the slot is no other instance; traced and untraced responses
-  agree; fusion does not fuse a co-instance, nor does a comparison take one as
-  its dominant. Verified by mutation.
-- `test/76` — a fact the corpus files under an instance's filler is no carriage:
-  `reference` does not construct one for a new referent.
+- `test/154` — witnessing: a named continuation beats the most-poured one;
+  question plus node names the second hop; an unnamed step is not taken; a
+  fragment voices nothing it was not asked; a comparison needs two named things;
+  an argument held only under the equivalence binds.
+- `test/155` — the relation read off another instance: it needs two agreeing
+  instances; it refuses a partly shared frame, a said frame and a description in
+  the slot; it is never voiced as the answer; traced and untraced responses
+  agree; neither fusion nor a comparison takes a co-instance.
+- `test/76` — a fact the corpus files under an instance's filler is no carriage.
 - `test/29` C3 — a further hop inside a comparison's seat waits to be asked.
-- Unpinned, measured only at fixture scale. Excluding fragments from
-  establishing contexts is worth 16 answers on the fixture with one-hop
-  questions. Refusing a fragment as CAST's redirection substitute is worth four.
-  Fragments with inherited edges appear only at that scale.
+- Measured only at fixture scale, with no pin: excluding fragments from
+  establishing contexts (16 answers), and refusing a fragment as CAST's
+  redirection substitute (4 answers).

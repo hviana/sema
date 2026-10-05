@@ -1,87 +1,65 @@
 # Cost Model — One Currency
 
-Every mechanism and every byte competes on one cost ladder defined in
-`src/mind/graph-search.ts`. GraphSearch and `pipeline.ts:think` use the same
-units, so a mechanism-level choice and a byte-level choice are the same kind of
-decision: a lightest derivation.
+> **Law:** every choice, whether a byte inside the search or a mechanism in the
+> market, is a lightest derivation on one ladder (`mind/graph-search.ts`). The
+> price is the question left unexplained, never confidence.
 
-## Ladder (`src/mind/graph-search.ts`)
+**Why.** Exact identity yields no confidence to choose by. What can be measured
+exactly is how much of the question an answer accounts for. Pricing that makes
+the winner the reading that explains the most, not the one most eager to speak.
+When nothing explains the question, silence is the lightest answer.
 
-| Cost      | Value         | Meaning                                                                                                                                                                           |
-| --------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MICRO`   | `1e-3`        | Recognised advance (one `rec` bridge); per-byte unit of the A\* heuristic. A recomposed form's onward edge is also `MICRO`.                                                       |
-| `STEP`    | `1`           | Every edge hop (first or fifth), every computed result, every projection. Charging every hop makes the lightest derivation the shortest chain.                                    |
-| `CONCEPT` | `10`          | Halo-mediated act (synonym hop, consensus climb) and abandoning an edge chain early (`CONCEPT` above chain cost — genuine fixpoint at `+0` always beats giving up at same depth). |
-| `PASS`    | `1000` / byte | Carrying a byte nothing explains. Dominates everything so the search always prefers to recognise.                                                                                 |
+## The ladder
 
-Only the **ordering** `MICRO < STEP < CONCEPT < PASS` matters; any constants
-with that order give the same derivations.
+| Cost      | Value       | Charged for                                                                                                                                  |
+| --------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MICRO`   | `1e-3`      | a recognised advance, and a recomposed form's onward edge; it is also the A\* heuristic's unit per byte                                      |
+| `STEP`    | `1`         | every edge hop, computed result and projection. Charging every hop makes the lightest derivation the shortest chain                          |
+| `CONCEPT` | `10`        | an act mediated by a halo (a synonym hop, the consensus climb), and abandoning a chain early, so that a real fixpoint always beats giving up |
+| `PASS`    | `1000`/byte | carrying a byte nothing explains. It dominates everything, so the search always prefers to recognise                                         |
 
-## Pipeline weighing (`src/mind/pipeline.ts:think`)
+Only the order `MICRO < STEP < CONCEPT < PASS` matters. Any constants with that
+order give the same derivations. The market weighs candidates on the same
+ladder, `moves + PASS·unaccounted`, compared at `STEP` grade
+(`mechanism-market.md`).
 
-Candidates are weighed in ONE place — a mechanism reports `moves` and
-`accounted`, never a price:
+## Two semirings, one engine (`src/derive`)
 
-```
-weight = moves + PASS * unaccounted_bytes
-grade  = floor(weight / STEP)
-```
+- **(min, +), the tropical semiring:** the lightest derivation. Costs add along
+  a derivation, and the cheapest route to a conclusion wins. This powers
+  `cover`, form and continuation rules, edge following, fusion, and the A\*
+  agenda.
+- **(+, +), the arithmetic semiring:** pooled evidence. Rules with
+  `combine: "sum"` add every independent line of evidence for a conclusion
+  instead of keeping the cheapest. This powers the consensus climb's votes
+  (`poolVotes`).
 
-`unaccounted` is what no `accounted` span covers. Comparison is at `STEP`
-resolution: lowest `grade` wins; at equal grade fewer `scaffolding` bytes
-(answer bytes lifted from unrecognised spans) wins; then list order.
+## Admissibility and dominance
 
-## Two semirings
+The heuristic `h = (queryLen − right) · MICRO` is admissible and consistent.
+`MICRO` is the smallest cost per byte, and only the suffix past the item is
+counted.
 
-- **(min, +) tropical** — lightest derivation in `GraphSearch` via `src/derive`
-  (`lightestDerivation`). Cost accumulates with `+`, choice selects `min`.
-  Powers `cover`/`form`/`out`, edge following, fusing, and the A\* agenda
-  (`g + h`).
-
-- **(+, +) arithmetic** — evidence pooling in `src/mind/attention.ts:poolVotes`.
-  Each region's vote is an axiom; rules carry `Rule.combine = 'sum'` so costs to
-  the same anchor **add** rather than minimise. Powers IDF-weighted consensus,
-  `votes`/`votesIdf`/`support`, and `regionSupport`/`regionPeak`.
-
-## Admissibility
-
-The A\* heuristic is admissible and consistent:
-
-```
-h(it) = (queryLen - right) * MICRO
-```
-
-`right` is `p` for `cover(p)` or `j` for `form/out [i,j)`. `MICRO` is the
-minimum per-byte cost in the ladder (every real per-byte cost is `>= MICRO`,
-including `PASS`), and only the suffix past `right` is counted, so `h` never
-exceeds the true remaining cost.
-
-## Dominance — why `PASS ≫ STEP` does not flood the chart
-
-The heuristic charges `MICRO` for a byte the goal will pay `PASS` for, so a
-cover that leaves bytes unexplained lets the search spend up to `PASS / STEP`
-hops looking for one more explained byte. Coverage itself cannot use them: every
-recognised completion of `[i, j)` advances the cover from `i` to `j` at the same
-`MICRO`. So a form or completion of `[i, j)` whose cost has reached that of a
-completion of `[i, j)` already yielded is DOMINATED and fires no rule
-(`buildSearch`, metered as `searchDominated`): every completion it could lead to
-costs at least as much, and a tie goes to the one yielded first. What a
-completion's BYTES could still do — fuse, splice, join — fires from the
-completion the search would stand on for that span, the same cure the join
-license and `deepen` apply. The first hop's stop-here (`STEP + CONCEPT`) is then
-a real horizon: no chain deeper than it is expanded.
+Because the heuristic charges `MICRO` for a byte the goal will charge `PASS`
+for, the search could spend up to `PASS/STEP` hops looking for one more
+explained byte. Coverage cannot use them: every recognised completion of
+`[i, j)` advances the cover at the same price. So a form or completion of
+`[i, j)` that costs as much as one already yielded is **dominated**, and fires
+no rule (`searchDominated`). Fusion, splicing and joining fire from the
+completion the search stands on, never from every alternative it reached. That
+makes the first hop's stop-here (`STEP + CONCEPT`) a real horizon.
 
 ## Policy is not cost
 
-"Computation always wins" is **not** priced into the ladder (a computed result
-costs `STEP`, same as a learned edge). It is enforced by masking: `cover.ts`
-removes recognised sites overlapped by a `ComputedResult`, so the computation is
-the sole completion there. Keep policy in callers; keep the engine neutral.
+"Computation always wins" is not priced. A computed result costs `STEP`, like a
+learnt edge. It is enforced by masking: `cover.ts` removes any recognised site
+overlapped by a computed span. Keep policy in the callers, and keep the engine
+neutral. Tuning `PASS` to encode a preference breaks the one contract the ladder
+has, its order.
 
 ## Pins
 
-- `test/52` — climb consensus instrumentation
-- `test/53` — cross-region probe instrumentation
-- `test/54` — evidence `k` instrumentation
-- `test/55` — cost meter (`Meter`, `CostReport`, `searchPops`/`searchPushes`)
-- `test/151` — dominance: a hub's degree generates no chart work
+- `test/04`, `test/55` — the decider's weighing, and the cost meter.
+- `test/151` — dominance: a hub's degree generates no work in the chart.
+- `test/52`, `test/53`, `test/54` — instrumentation of the climb, the
+  cross-region probe and evidence `k`.

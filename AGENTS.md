@@ -1,9 +1,10 @@
 # AGENTS.md — the Sema development manual
 
-The working manual for anyone (human or AI agent) changing Sema. For pattern
-detail, see `docs/INDEX.md` → `docs/architecture/*.md`. You should be able to
-develop against this document and docs/ alone; read `docs/architecture/` for why
-a pattern holds.
+The working manual for anyone (human or AI agent) changing Sema. Read
+`docs/PHILOSOPHY.md` first: it follows information from deposit to answer and
+says why the parts fit. Then `docs/INDEX.md` routes each task to the law it
+touches in `docs/architecture/`. You should be able to develop against this
+document and `docs/` alone.
 
 ## 1. Orientation
 
@@ -32,7 +33,7 @@ Mental model, top to bottom:
 ```
 mind/pipeline.ts     grounding decider: mechanisms compete on one cost scale
 mind/mechanisms/*    cover · cast · confluence · extraction · reference · recall · prefix-completion · alu
-mind/*               match/project, attention, recognition, junction ascent, graph search, learning, rationale
+mind/*               recognition, attention, match/project, evidence, closure, graph search, learning, rationale
 store.ts             AbstractStore: ALL DAG store domain logic
 store-sqlite.ts      the one concrete backend (thin SQL wrappers)
 geometry.ts + vec/alphabet/sema/canon  vectors, fold, every derived threshold, canonicalizer
@@ -82,6 +83,10 @@ corpus-determined, not interchangeable (`determinism.md`).
 | Weighted deduction + cost ladder     | `src/mind/graph-search.ts` (engine in `src/derive/`)                                               |
 | Match/project family                 | `src/mind/match.ts`                                                                                |
 | Graph traversal, corpus scale        | `src/mind/traverse.ts`                                                                             |
+| Witnessed evidence (`witness`)       | `src/mind/evidence.ts`                                                                             |
+| Closure law and engine (`closeOver`) | `src/mind/derivation.ts`                                                                           |
+| Post-grounding walk and fusion       | `src/mind/reasoning.ts`                                                                            |
+| Canonical windows                    | `src/mind/canonical.ts`                                                                            |
 | Consensus climb + attention          | `src/mind/attention.ts`                                                                            |
 | Substitution bridge (recall tier)    | `src/mind/bridge.ts`                                                                               |
 | Recognition / junction / resonance   | `src/mind/recognition.ts`, `src/mind/junction.ts`, `src/mind/resonance.ts`                         |
@@ -132,8 +137,12 @@ against built `dist/` (`npm test`; one suite:
 numbered suite. Many tests pin contracts that look like implementation details
 (ladder order, span-shape readings, `MechanismResult.complete`, fold invariance,
 recognition idempotence, honest silence). A simplification that fails an
-existing test is wrong until the test is proven wrong. Sublibraries test
-themselves in `src/{alu,derive,rabitq-ivf}/test/` with zero Sema dependency.
+existing test is wrong until the test is proven wrong; read
+`docs/failures/tempting-but-wrong.md` before trying one. `src/alu/` and
+`src/derive/` test themselves in their own `test/` with zero Sema dependency;
+`rabitq-ivf` is pinned by `test/35-ivf`. `test/137` also reads `docs/`: an
+export only the docs describe counts as documented, so deleting its mention can
+fail the dead-export guard.
 
 ## 6. Instrumentation — the meter and the rationale ARE the dev surface
 

@@ -1,75 +1,74 @@
 # Sema Documentation Index
 
-Sema is a single system stated three ways: the law lives in `docs/architecture/`
-(what holds), the prescription in `AGENTS.md` (what to do and where), and the
-proof in `test/` (pins that fail when the law is broken).
+Sema is one system, stated four ways:
 
-## Routing — what to read for each task
+| Where                | It says                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `docs/PHILOSOPHY.md` | the path of information from deposit to answer, and why it holds together. Read it first. |
+| `docs/architecture/` | the laws: what holds and why, measured                                                    |
+| `AGENTS.md`          | the prescription: what to do, and where                                                   |
+| `test/`              | the proof: pins that fail when a law is broken                                            |
 
-| Task                        | Read                                                                               | Why                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Add a mechanism             | `docs/architecture/mechanism-market.md` + `docs/mechanisms/*.md`                   | Market contract: the four constraints                                                 |
-| Add a threshold             | `docs/architecture/thresholds.md`                                                  | All cutoffs are formulas over D/W/N; `config.ts` holds budgets only                   |
-| Debug an answer             | `docs/architecture/cost-model.md` + `src/meter.ts`                                 | One ladder decides every grounding choice                                             |
-| Understand the fold         | `docs/architecture/fold-contract.md`                                               | Deposit and inference compute the same tree                                           |
-| Add a store backend         | `docs/architecture/store.md` + `docs/architecture/bounded-reads.md`                | `AbstractStore` owns domain logic; backends are thin wrappers with capped reads       |
-| Add an ALU operation        | `src/alu/README.md`                                                                | One `registry.derive` per op composing existing ops; no new `derive` needed           |
-| Add a matcher or projection | `docs/architecture/match-project.md`                                               | Mechanisms are `(matcher, direction, gate)` configs over the shared `match.ts` family |
-| Add a deduction rule        | `docs/architecture/cost-model.md` + `docs/architecture/determinism.md`             | Place cost on the ladder, keep heuristic admissible, extend `classifyMove`            |
-| Change vector search        | `docs/architecture/exact-vs-approximate.md` + `docs/architecture/bounded-reads.md` | Scores propose, bytes dispose; ANN is bounded by `hubBound`                           |
-| Profile or bound work       | `docs/architecture/meter.md` + `docs/architecture/bounded-reads.md`                | `meter.ts` is write-only; counters are product, phases are hints                      |
+`docs/INVARIANTS.md` routes every law to its code and its pins.
 
-## Architecture laws (15)
+## What to read for each task
 
-| Law | File                                        | Summary                                                                                                                                                                                                                                                                                                                                                  | Pins                                         |
-| --- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| 1   | `docs/architecture/determinism.md`          | No `Math.random`/`Date.now` in behaviour; seed-derived randomness; corpus-determined tie-breaks                                                                                                                                                                                                                                                          | `test/20`                                    |
-| 2   | `docs/architecture/thresholds.md`           | Every decision cutoff derived in `geometry.ts` over D/W/N; no tunable knobs                                                                                                                                                                                                                                                                              | `test/40`, `test/64`                         |
-| 3   | `docs/architecture/exact-vs-approximate.md` | Vector scores rank only; identity via content-addressed lookup; six graded ladders                                                                                                                                                                                                                                                                       | `test/51`                                    |
-| 4   | `docs/architecture/cost-model.md`           | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; weight `moves + PASS·unaccounted`; `STEP`-grade compare                                                                                                                                                                                                                                                   | `test/04`, `test/55`                         |
-| 5   | `docs/architecture/match-project.md`        | Shared `match.ts` family (`locate`/`alignGraded`/`frameSlots`/`project`); voicing gates belong to consumers                                                                                                                                                                                                                                              | `test/24`, `test/76`                         |
-| 6   | `docs/architecture/mechanism-market.md`     | `PipelineMechanism` (`floor`/`run`/`parse`); admissible-floor pruning, investment discipline, run-ahead bounds                                                                                                                                                                                                                                           | `test/01`, `test/04`, `test/153`             |
-| 7   | `docs/architecture/commonality.md`          | Three: global (`reachOf`+`dominates`), weave-local (`depth[]`), window rarity                                                                                                                                                                                                                                                                            | `test/17`, `test/34`                         |
-| 8   | `docs/architecture/bounded-reads.md`        | No per-query read grows with N; `hubBound=√N` enforced at store via LIMIT/probe/prefix caps                                                                                                                                                                                                                                                              | `test/77`, `test/90`                         |
-| 9   | `docs/architecture/store.md`                | `AbstractStore` owns dedup/indexing/batch; `store-sqlite.ts` is thin wrappers; canon index optional                                                                                                                                                                                                                                                      | `test/08`                                    |
-| 10  | `docs/architecture/fold-contract.md`        | `perceiveDeposit` and `perceive` agree; the read side names a branch as `intern` does; `contentLevels` is single boundary rule; no W/offset dependence                                                                                                                                                                                                   | `test/59`, `test/63`, `test/148`, `test/152` |
-| 11  | `docs/architecture/memoization.md`          | `Precomputed` is per-response lazy cache (promise-cached async); `beginResponse`/`endResponse` lifecycle                                                                                                                                                                                                                                                 | `test/42`                                    |
-| 12  | `docs/architecture/saturation.md`           | Every walk names a deciding saturation beside its cap; cap is safety net, not decision                                                                                                                                                                                                                                                                   | `test/27`, `test/16`                         |
-| 13  | `docs/architecture/meter.md`                | `meter.ts` is write-only work accounting; counts are exact, phases nest                                                                                                                                                                                                                                                                                  | `test/55`                                    |
-| 14  | `docs/architecture/closure.md`              | A derivation is closed when its structure accounts for the question's remainder; every transition asks that law, one engine walks the layers                                                                                                                                                                                                             | `test/133`–`151`                             |
-| 15  | `docs/architecture/evidence.md`             | A stored form is identified when the material at hand (question ∪ the node a derivation stands on) witnesses every byte of it, order-free; the question NAMES a continuation through its establishing context, or through another instance of its frame (a co-instance, never voiced as the answer); a step it did not name pays from what is still owed | `test/154`, `test/155`                       |
+| Task                           | Read                                                            |
+| ------------------------------ | --------------------------------------------------------------- |
+| Understand the whole           | `PHILOSOPHY.md`                                                 |
+| Change perception or identity  | `fold-contract.md`, `store.md`, `exact-vs-approximate.md`       |
+| Add a store backend            | `store.md`, `bounded-reads.md`                                  |
+| Add or change a threshold      | `thresholds.md`                                                 |
+| Add a mechanism                | `mechanism-market.md`, `match-project.md`, `docs/mechanisms/`   |
+| Add a deduction rule           | `cost-model.md`, `closure.md`, `determinism.md`                 |
+| Change what counts as evidence | `evidence.md`, `commonality.md`                                 |
+| Change vector search           | `exact-vs-approximate.md`, `halo-sketch.md`, `bounded-reads.md` |
+| Add a walk or a fan-out        | `bounded-reads.md`, `saturation.md`                             |
+| Profile or bound work          | `meter.md`, `memoization.md`, `caches.md`                       |
+| Add an ALU operation           | `src/alu/README.md`                                             |
+| Simplify something             | `docs/failures/tempting-but-wrong.md` first                     |
 
-## Mechanisms (8)
+## The laws (`docs/architecture/`)
 
-| Mechanism         | File                                   | Role                                                      |
-| ----------------- | -------------------------------------- | --------------------------------------------------------- |
-| cover             | `docs/mechanisms/cover.md`             | Exact/computed-span covering via `GraphSearch`            |
-| cast              | `docs/mechanisms/cast.md`              | Weave-local analogy via `depth[]` frame gate              |
-| confluence        | `docs/mechanisms/confluence.md`        | Corpus-global filler/scaffolding gate over climb          |
-| extraction        | `docs/mechanisms/extraction.md`        | Located-frame read-out with anchored span accounting      |
-| reference         | `docs/mechanisms/reference.md`         | Slot-bound voicing of asker-supplied referents            |
-| recall            | `docs/mechanisms/recall.md`            | Nearest stored form; echo tier via substitution bridge    |
-| prefix-completion | `docs/mechanisms/prefix-completion.md` | Literal prefix of exactly one trained form                |
-| alu               | `docs/mechanisms/alu.md`               | Authoritative computed spans (`parse` → `aluToMechanism`) |
+| #  | Doc                       | Law                                                                                                                |
+| -- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 1  | `determinism.md`          | the same seed, deposits and question give the same bytes; ties are broken by the corpus, never by chance           |
+| 2  | `thresholds.md`           | every cutoff is a formula over `D`, `W`, `N`; `config.ts` holds budgets only                                       |
+| 3  | `exact-vs-approximate.md` | scores propose, bytes dispose; every graded ladder is exact first                                                  |
+| 4  | `cost-model.md`           | one currency: `MICRO < STEP < CONCEPT < PASS`, and the price is the unexplained question                           |
+| 5  | `match-project.md`        | a mechanism is `(matcher, direction, gate)` over one family; the gate belongs to the consumer                      |
+| 6  | `mechanism-market.md`     | one interface, one price; never compute what cannot change the decision                                            |
+| 7  | `commonality.md`          | frame against filler is read over a named population: corpus, cohort or places, never substituted                  |
+| 8  | `bounded-reads.md`        | no per-query read grows with `N`; the store enforces `hubBound = ⌈√N⌉`                                             |
+| 9  | `store.md`                | a node is named by its content; `AbstractStore` owns every domain decision                                         |
+| 10 | `fold-contract.md`        | deposit and question fold the same bytes into the same tree and the same node; nothing outside the bytes shapes it |
+| 11 | `memoization.md`          | asking never writes; shared analyses are computed once per response, and tracing changes no answer                 |
+| 12 | `saturation.md`           | every walk names the stop that decides it; the cap is only a net                                                   |
+| 13 | `meter.md`                | the meter is write-only; counters are exact, milliseconds are hints                                                |
+| 14 | `closure.md`              | a step is admitted only when it closes, moves to unconsumed structure, or carries what is owed                     |
+| 15 | `evidence.md`             | the question names the step; another instance of its frame says what the relation is, never what it asks about     |
 
-## Supporting docs
+Supporting docs: `halo-sketch.md` (distributional memory), `caches.md` (every
+acceleration is a budget), `factored-machinery.md` (one definition, many
+consumers).
 
-| Doc                                       | Role                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `docs/architecture/caches.md`             | Every acceleration is a `BoundedMap`; miss re-derives; budgets in `StoreConfig` |
-| `docs/architecture/halo-sketch.md`        | Halo & sketch — distributional memory, quantization, bottom-k profiles          |
-| `docs/architecture/factored-machinery.md` | Single-definition contracts table — one owner per shared symbol                 |
+## Mechanisms (`docs/mechanisms/`)
 
-## Cross-cutting
+| Mechanism           | Answers by                                                                    |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `cover`             | composing the question from its recognised sites, by graph search             |
+| `cast`              | carrying structure between woven forms: substitution, redirection, comparison |
+| `confluence`        | intersecting what independent conditions reach                                |
+| `extraction`        | reading a span between frames located in the question                         |
+| `reference`         | voicing a learnt frame's slot with the asker's own bytes                      |
+| `recall`            | the nearest stored form, or honest silence                                    |
+| `prefix-completion` | completing a known beginning of exactly one form                              |
+| `alu`               | computation, which is authoritative                                           |
 
-- `docs/PHILOSOPHY.md` — the path of information, end to end: how a deposit
-  becomes a content-addressed tree and DAG, the two vector spaces (gist: form;
-  halo: use), attention built on the structure, how answers are composed and
-  priced, and the hypotheses the path invites.
-- `docs/INVARIANTS.md` — the five invariants (determinism, derived thresholds,
-  exact-decides, one cost currency, bounded reads) with file-level routing.
-- `docs/failures/tempting-but-wrong.md` — refuted simplifications that passed
-  review but failed pins.
-- `docs/harness/gates.md` — how `AGENTS.md` recipes, the meter's public path
-  (`profile: true` → `mind.lastCost`), and `test/*.test.mjs` enforce the laws.
-- `docs/architecture/` — per-law derivation: each file says why, not how.
+## Elsewhere
+
+- `docs/failures/tempting-but-wrong.md` — shortcuts that passed review and
+  failed the evidence.
+- `docs/harness/gates.md` — the four executable gates.
+- `src/derive/`, `src/alu/`, `src/rabitq-ivf/` — firewalled sublibraries, each
+  with its own README and tests.

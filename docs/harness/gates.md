@@ -1,58 +1,53 @@
 # Gates
 
-Four executable gates. Each: run the command, check what it guards, follow its
-§.
+There are four executable gates. The laws in `docs/architecture/` are enforced
+by these and by the pins each law lists.
 
-## 1 — Correctness (all suites)
+## 1. Correctness — every suite
 
 ```bash
-npm test
+npm test          # tsc, then node --test over test/**/*.test.mjs against dist/
 ```
 
-Guards honest silence, determinism, and every pinned contract. Silence:
-unrelated queries ground to nothing (`test/28`, `50`, `56`, `67`, `76`, `84`).
-Determinism: same seed + deposit order + query gives byte-identical answer
-(`test/20`). Every invariant is pinned, the closure law included
-(`test/133`–`151`). §14–25 (pipeline), §64 (derived thresholds), AGENTS.md §2
-invariants 1–5.
+This gate guards every pinned contract, and two in particular:
 
-## 2 — Work accounting (profiler)
+- **Honest silence.** An unrelated question grounds to nothing (`test/28`,
+  `test/50`, `test/56`, `test/67`, `test/76`, `test/84`).
+- **Determinism.** The same seed, deposit order and question give a
+  byte-identical answer (`test/20`).
+
+The closure law is pinned in `test/133`–`151`, and the docs themselves are read
+by `test/137`: an export that only the docs describe counts as documented.
+
+## 2. Work accounting — the profiler
 
 ```js
-const mind = new Mind({ profile: true }); // meter attached per response
-await mind.respondText(q); //              then read mind.lastCost
+const mind = new Mind({ profile: true });
+await mind.respondText(q);
 console.log(formatReport(mind.lastCost)); // sumReports() over several
 ```
 
-The public path is the harness (`AGENTS.md` §6); there is no separate bench
-script. Guards without trace: counters exact and diffable between COLD runs;
-phases nest (not disjoint — each phase is charged by its own layer); shared
-analyses charged to themselves, not to the first toucher; millisecond fields are
-non-deterministic hints only. With an `inspectRationale` callback attached,
-recognition idempotence still holds (`test/42`). `src/meter.ts`,
-`docs/architecture/meter.md`, §55, `AGENTS.md` §6.
+The public path is the harness: there is no separate bench script (`AGENTS.md`
+§6, `meter.md`). Compare cold runs by their counters. Attaching an
+`inspectRationale` callback must not change the answer (`test/42`).
 
-## 3 — Dependency footprint
+## 3. Dependency footprint
 
 ```bash
 node --test test/88-dependency-footprint.test.mjs
 ```
 
-Guards `dist/src` imports only `node:` + relative paths, and `package.json`
-declares no `dependencies` (examples use `devDependencies` lazily). The
-near-zero footprint is a product feature. AGENTS.md §7, §3 (store has one
-runtime dep: `node:sqlite`).
+`dist/src` may import only `node:` builtins and relative paths, and
+`package.json` declares no `dependencies` (`AGENTS.md` §7).
 
-## 4 — Fold invariance and sublinear scaling
+## 4. Fold invariance and sublinear scaling
 
 ```bash
 node --test test/59-fold-invariance.test.mjs test/63-fold-invariants.test.mjs
 node --test test/14-scaling.test.mjs
 ```
 
-Guards: `59+63` — segmentation is content-defined (`contentBoundaries`), not
-positional; grid regression (14.3% survival) cannot pass. `14` — inference cost
-is sublinear in corpus size (power-law exponent ≪ 1) and constant-rate in input
-length; measured on independent disjoint corpora via log–log slope.
-`src/geometry.ts` (`contentLevels`), `docs/architecture/fold-contract.md` +
-`bounded-reads.md`, §59, §63.
+- `test/59` and `test/63`: segmentation is content-defined, so the grid's 14.3%
+  shift survival cannot pass (`fold-contract.md`).
+- `test/14`: inference is sublinear in corpus size, measured as a log–log slope
+  over independent corpora, and linear in input length (`bounded-reads.md`).

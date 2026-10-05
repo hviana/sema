@@ -1,102 +1,121 @@
-# Store — AbstractStore Owns the Domain, Adapters Own the Wires
+# Store — A Content-Addressed DAG, One Owner of Its Logic
 
-> **Law:** `AbstractStore` (`src/store.ts`) owns every domain decision — dedup,
-> near-dedup, gist/halo indexing, containment, batching, LRU, compaction.
-> `SQliteStore` (`src/store-sqlite.ts`) implements only `_db*`/`_vec*` thin
-> wrappers.
+> **Law:** a node is named by its content, and equal content is stored once.
+> `AbstractStore` (`src/store.ts`) owns every domain decision: dedup, merge,
+> indexing, containment, batching, caching and maintenance. A backend
+> (`store-sqlite.ts`) implements only thin `_db*`/`_vec*` wrappers.
 
-## Template method
+## Nodes
 
-```
-AbstractStore          all logic: caches, merge gates, halo schedule,
-                       buffers, chain transparency, length walks
-  └─ SQliteStore       SQL + VectorDatabase glue — one statement per method
-  └─ <NewBackend>      same contract — subclass AbstractStore only
-```
+| Kind        | Id                                              | Stored as                                                |
+| ----------- | ----------------------------------------------- | -------------------------------------------------------- |
+| byte leaf   | implicit, `-(byte+1)` in `−256…−1`              | nothing — it always exists                               |
+| branch      | dense `0,1,2,…`, minted in order, never deleted | its ordered child ids                                    |
+| flat branch | as a branch                                     | raw bytes, with an empty `kids` marker (`flatKidsBytes`) |
 
-A new backend subclasses `AbstractStore`; never re-implements dedup or batching.
+An id is an arbitrary mark; content decides which mark a thing gets. A subtree
+shared by a thousand deposits is one node with a thousand parents, so storage
+grows with distinct content, not with volume, and every span the fold produced
+can be addressed.
 
-## IDs and leaves
+## Interning — dedup, then same bytes, then near, then mint
 
-Branch ids are dense non-negative `0,1,2,…` (`_nextId`, never deleted).
-Single-byte leaves are **implicit** negative ids `-256..-1` (`-(byte+1)`), never
-a row. `has(id)` is `id < 0 || id < _nextId`.
+`intern` runs four steps, in order:
 
-## Flat branches and bytes
+1. **Exact dedup.** `findLeaf` or `findBranch` looks for equal content: a cache
+   first, then a durable probe, so dedup survives a cold cache or a resumed run.
+2. **Same bytes, same node.** A branch whose children name nothing reuses the
+   flat node over the same bytes. Its gist is re-captured, because the same
+   bytes fold differently standing alone and embedded, and the index must hold
+   the gist that a direct query will present (`fold-contract.md`).
+3. **Near dedup.** This applies to branches only, and only against whole
+   experiences still in the write buffer. The gist proposes a candidate, which
+   must reach the branch's own `identityBar`. The bytes then decide: the two
+   must be identical except for one span of at most `W` bytes
+   (`differsByOneWindow`). This is the only place two different contents share
+   an id.
+4. **Mint** a new id.
 
-A branch whose kids are all leaves is **flat** — stored as raw bytes in `leaf`
-with an empty `kids` blob as marker (`flatKidsBytes`/`flatBytesKids`). Dedup
-probes hash then verify: `hashOf`→`h`→`LIMIT 1` fetch→byte compare (bloom
-negative filter first). `flatBranchMayExist(bytes)` is the filter alone — its
-`false` is exact, its `true` means "look it up" — for a caller that will verify
-anyway: `exactNode` (primitives.ts) refuses a stream whose level-0 segment
-cannot exist before naming any node, so a resolve miss costs hashing.
-`findFlatBranch` memoizes HITS (`_flatKey`, keyed by the bytes themselves) and
-never misses — the filter answers first, so a span that is not stored builds no
-key, while the segments the identity fold names, asked by every span that
-contains them, cost a map hit. `flatSpans(bytes)` returns a prober over ONE
-buffer that answers exactly `findFlatBranch(bytes.subarray(s, e))`. `hashOf` is
-FNV-1a, a left fold, so the prober extends the hash each start was last probed
-at, and keeps one byte-short copy for the edge scan's trimmed retry. A span
-scanner sweeping ends upward pays O(1) per probe instead of O(span).
-Recognition's interior pass was hashing O(n·reach²) bytes: 251,660,406 for one
-response on the 31.7M-node store (`test/153.4`).
+A refuted alternative: probing the flushed ANN index for near targets. It was
+the dominant training cost, and it was wrong. The 1-bit code ranked a
+byte-distinct branch as nearest and collapsed two different subtrees onto one id
+(`test/02`).
 
-`leadsSomewhere(id)` — `hasNext || hasHalo` — is the admission predicate's ONE
-raw definition; `traverse.ts` memoises its edge tier per response.
+## Relations on the nodes
 
-`bytes(id)`/`bytesPrefix(id, cap)` are shared with `BoundedMap` caches — callers
-must **never mutate** the returned buffer. `contentLen(id, cap)` walks with
-memo; when `cap` is given it saturates (`>= cap` without finishing) so one huge
-root never costs a full walk.
+- **Continuation edges.** An edge is a unique `(src, dst)` pair, so
+  `prevCount(dst)` counts distinct establishing contexts, never repetitions.
+- **Containment.** `addContainer(child, parent)` buffers per child, and the
+  flush appends packed pages (`_dbAppendContain`) without rewriting the list.
+  `containersSlice` pages through it.
+- **Gist index** (content) and **halo index** (company). Both are RaBitQ-IVF ANN
+  over node ids. Gists wait in `_pendingGist` until `indexSubtree` promotes them
+  in batches. Halos accumulate exactly in session and persist 2-bit quantized
+  (`halo-sketch.md`).
+- **Sketches.** `sketchGet`/`sketchPut` hold durable derived state: a miss costs
+  time, never correctness.
 
-## Gist, halo, dedup
+`leadsSomewhere(id) = hasNext || hasHalo` is the one raw admission predicate: a
+form is knowledge only if it continues somewhere or keeps company.
 
-On `put*`, content dedup (`hashOf`→probe→mint) gates first. Short keys are
-cached (`DEDUP_KEY_MAX` bypass). Near-dedup: `identityBar(D, W, len)`, one
-window apart. Gists sit in `_pendingGist` (byte-budgeted `BoundedMap`);
-`indexSubtree` & `pourHalo` promote via `_vecContentUpsert`/`_vecHaloUpsert` in
-`batchSize` batches. Buffers flush on cadence, `commit()`, and close. Halo mass
-re-indexes geometrically (`mass<=4 || powerOfTwo`) and encodes 2-bit quantized.
-Canon index is optional: `canonAdd`/ `canonFind`/`canonCount` over 32-bit
-canonical hashes, caller verifies bytes. The SQLite backend keeps a negative
-filter over the canon hashes too (kept exact on `canonAdd`; the table is never
-deleted from), because recognition and the join probe it once per span and
-almost every answer is "no such key". It is PERSISTED (`canon_bloom`) in the
-same transaction as the canon rows it covers, stamped with that commit's
-`canon.upto`; an open whose meta disagrees with the stamp (rows written without
-it) rebuilds it by one scan of the h column — seconds on a trained store, paid
-once instead of per process (`test/36`).
+## Probes that do not grow with N
 
-## Containment, batching, LRU
+Hot paths read through `LIMIT` variants, point probes and capped byte reads, and
+full scans are for maintenance only (`bounded-reads.md`). Flat lookups are
+hashed, then verified:
 
-`addContainer(child,parent)` buffers per child; flush appends via
-`_dbAppendContain` (packed pages, geometric merge) — never rewrite the whole
-list. `containersSlice` pages through it. Edges and kids write through the same
-deferred transaction.
+- `flatBranchMayExist` is a negative filter, so its `false` is exact.
+- `findFlatBranch` memoizes hits only, and a miss builds no key.
+- `flatSpans(bytes)` extends one FNV-1a hash per start position, so sweeping a
+  span's ends costs O(1) per probe instead of O(span). Recognition's interior
+  pass once hashed 251,660,406 bytes for a single response (`test/153.4`).
 
-Every in-memory cache is a `BoundedMap` with byte accounting and eviction (`lru`
-vs `smallest` + `clock`/`reorder` recency). ANN reads
-(`resonate`/`resonateHalo`) are content-addressed (`vecKey`) and dropped on any
-index mutation; `RESONATE_CACHE_MAX=4096`.
+`bytes(id)` and `bytesPrefix(id, cap)` return buffers shared with the caches.
+Callers must never mutate them.
 
-## Maintenance (incremental)
+## The canonical index — optional, injected, verified
 
-- `compactContentIndex(minParents)` — scans only entries since last watermark
-  (`_vecContentEntriesSince`), removes indexed-but-isolated nodes (`<minParents`
-  parents, no edges/halos), compacts the vector DB.
-- `repairContentIndex(regenerateGist)` — walks `_dbEdgeOrHaloIds()` candidates
-  only, re-inserts missing bridge nodes whose gists were evicted before
-  indexing.
-- `buildCanonIndex` (`_buildCanonIndex`) — iterates `eachContent(fromId)` and
-  `canonAdd`s; `fromId` makes refresh incremental.
+`canonAdd`, `canonFind`, `canonCount` and `eachContent` are an optional backend
+capability. Without it, `resolve` has no equivalence fallback.
 
-Full scans (`parents()`, `next()`, `containers()`) are maintenance-only — hot
-paths use `LIMIT`ed probes (`parentsFirst`/`nextFirst`/`prevFirst`), `has*`,
-`prevCount`.
+- **The store never learns the equivalence.** The caller injects the
+  canonicalizer (`Canon`, for example `textCanon`).
+- **Every candidate is hash-then-verified:** the stored bytes are
+  re-canonicalized and compared, so a collision costs a read, never a wrong id.
+- **`buildCanonIndex` runs after training** and is incremental from a watermark.
+  A fixture store that skips it under-reports every case variant.
+- **SQLite keeps a negative filter over the canonical hashes** (`canon_bloom`).
+  It is persisted in the same transaction as the rows it covers and stamped with
+  `canon.upto`. An open whose stamp disagrees rebuilds the filter once
+  (`test/36-bloom`).
+
+## Caches and maintenance
+
+Every in-memory cache is a byte-budgeted `BoundedMap` (`caches.md`). ANN read
+caches are keyed by content (`vecKey`), dropped on any index mutation, and
+cleared at `RESONATE_CACHE_MAX`.
+
+Maintenance is incremental:
+
+- `compactContentIndex` removes isolated index entries written since its last
+  watermark.
+- `repairContentIndex` re-inserts bridge nodes whose gists were evicted before
+  they were indexed.
+- `buildCanonIndex` extends the canonical index from a given id.
 
 ## Adding a backend
 
-Implement every `protected abstract _db*`/`_vec*` in `src/store.ts` as a thin
-wrapper around your storage. Keep `_dbGet*First`/`Slice` as real `LIMIT` queries
-and `has*`/`COUNT` as point probes — never materialise-then-slice.
+1. Subclass `AbstractStore` and implement every
+   `protected abstract _db*`/`_vec*` method as a thin wrapper. Never
+   re-implement dedup or batching.
+2. Keep the `*First`/`*Slice` methods as real `LIMIT ?` queries, and keep `has*`
+   and counts as point probes. Never materialise a list and then slice it.
+3. Run the whole suite with your store substituted.
+
+## Pins
+
+- `test/08` — storage: the node layout, halo persistence and 2-bit round trip,
+  the `haloMass`/`hasHalo` contract, and survival across a reopen.
+- `test/02` — exact round trip: near dedup never merges distinct bytes.
+- `test/36-bloom` — the filters' exactness and persistence.
+- `test/153.4` — the span prober answers exactly what `findFlatBranch` answers.

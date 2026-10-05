@@ -1,58 +1,72 @@
-# Reference — Voicing a Slot with the Asker's Bytes
+# Reference — Voice a Slot With the Asker's Bytes
 
-Reference voices a slot of a learned frame with the bytes the asker supplied in
-that position — asserting _position_, not equivalence. The bytes are the
-asker's, so voicing them cannot fabricate corpus knowledge; the fabricable claim
-is the _relation_ about them, which the licence withholds.
+`reference` learns a frame from worked examples and voices its slot with the
+bytes the asker put in that position (`src/mind/mechanisms/reference.ts`). It
+asserts _position_ ("this is the thing you named, where the corpus keeps one"),
+not equivalence. The voiced bytes are the asker's, so they cannot fabricate
+corpus knowledge. What can be fabricated is the relation claimed about them, and
+the licence exists to withhold that.
 
-## Matcher — `frameSlots` inventory
+The substitution bridge refuses this shape, and is right to. A substitution
+asserts that two spans mean the same, which no corpus can corroborate for bytes
+it has never seen.
 
-The shared matcher is `frameSlots` (`src/mind/match.ts`) via
-`Precomputed.frames()`.
+## Matcher — the frame inventory
 
-- Seeded at origin `(0,0)`, `alignAround` finds common runs (seed `W`) then
-  sweeps both directions; each gap is contracted by `contractGap` to its varying
-  core (shared prefix/suffix stripped) and tagged
-  `substitution | insertion | deletion`.
-- `frameSlots` **reports, never judges**: every gap (any kind, any size), sorted
-  by `qs`, plus `covered` (shared bytes) and `matched` spans. No gate is applied
-  there.
+`Precomputed.frames()` reads the ranked candidates as instances of the
+question's own frame, through `frameSlots`, which reports and elects nothing
+(`match-project.md`).
 
-## Gate — reference elects and licences; matcher does not
+Its supply is the shared top-`k` resonance, so a frame the corpus instantiates
+only once within `k` is out of reach. Measured on the trained store,
+`How do you say 'flurbish' in French?` finds one instance of its frame in the
+top 24, so `reference` abstains. Widening the supply is not the fix: abstaining
+on thin evidence is.
 
-All voicing gates belong to the **consumer**
-(`src/mind/mechanisms/reference.ts`), not the matcher. A shared layer that
-refused on their behalf would be reference-shaped and hide most real pairings.
+## Election and voicing gates
 
-- **Election:** `electFrame` groups inventory by full slot signature
-  (`qs:qe,...`) and keeps the modal group — one frame, not one slot.
-- **Carriage licence:** `carriesFillers` —
-  `substituteAll(contA, fillersA→fillersB) == contB` byte-exact, all slots
-  simultaneously (longest needle first). Constant continuations pass vacuously;
-  filler-dependent content is refused.
-- **Four voicing gates** (in `voiceable` + caller):
-  1. frame `dominates` query (`covered > |query|/2`);
-  2. every slot reaches one window `W` on _both_ sides;
-  3. no insertion/deletion (substitutions only);
-  4. fillers pairwise distinct. Additional: referents pairwise distinct and no
-     slot inside `answeredSpans`.
+`electFrame` keeps the modal group of instances that place the question's slots
+alike. It needs at least `MIN_INSTANCES = 2`, because one alignment agrees with
+nothing. Each instance must also be voiceable:
 
-Matched frame + every slot is `accounted`; `complete: true`.
+1. the frame dominates the question, covering more than half of it;
+2. every slot reaches one window `W` on both sides;
+3. substitutions only, with no insertion or deletion;
+4. the fillers are pairwise distinct, the referents are distinct, and no slot
+   lies inside an already answered span.
+
+## The licence — what a new referent may inherit
+
+Each instance's continuation is followed, one at a time, because refusal is the
+common outcome and usually comes on the second instance. Two checks apply:
+
+- **Co-variation.** `carriesFillers` requires
+  `substituteAll(contA, fillersA → fillersB) == contB`, byte for byte, for all
+  slots at once. Content that depends on which filler stands in the slot is
+  refused.
+- **A fact filed under a filler is not a carriage.** A continuation that does
+  not vary passes co-variation vacuously, and coincidence lives there. If an
+  instance's answer is a continuation of its own filler, it is something the
+  corpus knows _about_ that filler. Two people born in Wellington once gave an
+  unknown `Zorblax` the same birthplace. `Run gcc hello.c` is filed under the
+  question alone, so it still carries.
 
 ## Cost
 
-`moves = STEP·slots + STEP` (one binding per slot + one edge follow). Not
-`CONCEPT` — byte identity, not halo. `scaffolding` is never reported; a referent
-is explained, not carried for lack of explanation.
-
-`floor` is `STEP+STEP`, investment-disciplined before touching `frames()`.
+`moves = STEP · slots + STEP`: one binding per slot and one edge followed. It is
+not `CONCEPT`, because the reading is byte identity, not halo. The matched frame
+and every slot are `accounted`, the answer is `complete`, and no scaffolding is
+reported. The floor is `2·STEP`, checked with `worthRunning` before `frames()`
+is touched.
 
 ## Provenance
 
-`provenance: "reference"` with trace steps `bindReferent` / `referenceLicence`.
+`reference`, with the trace steps `bindReferent` and `referenceLicence`.
 
 ## Pins
 
-- `test/76-reference-binding` — inventory vs gate split, carried/absorbed/
-  refused, multi-slot licence, `complete` and answered-span guard.
-- `test/76-type-level-company` — type-level halo company underpinning.
+- `test/76-reference-binding` — the split between inventory and gate; carried,
+  absorbed and refused frames; the multi-slot licence; `complete`; the guard on
+  answered spans; a fact filed under its filler is no carriage.
+- `test/76-type-level-company` — the halo company by type that the inventory's
+  supply relies on.

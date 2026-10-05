@@ -1,85 +1,45 @@
 # Bounded Reads — No Per-Query Read Grows With the Corpus
 
-> **Law:** the cost of one query is proportional to the query, not to how much
-> was learned. No per-query read may grow with corpus size N.
+> **Law:** a query's cost is proportional to the query, not to how much was
+> learned. Every fan-out, walk and disambiguation reads at most the oldest
+> `hubBound = ⌈√N⌉` entries, and the store enforces it.
 
-Every fan-out, walk, and disambiguation reads at most the OLDEST `hubBound` —
-`ceil(sqrt(N))`, floored at 2 for a near-empty store. A better-supported
-candidate beyond that prefix is invisible: a trade, and there is no second
-convention.
+**Why.** Keeping everything means some nodes sit inside everything. A read that
+follows them in full makes a bigger memory a slower thinker. The cap is a trade:
+a better-supported candidate beyond the oldest `√N` is invisible. There is one
+convention for this trade, and no second one. Deciding _when to stop_ inside the
+cap is the walk's own saturation (`saturation.md`).
 
-## Scale
+## Scale — defined once (`mind/traverse.ts`)
 
 ```
-corpusN(ctx) = max(2, store.edgeSourceCount())   // distinct learnt contexts
-hubBound(ctx) = ceil(sqrt(corpusN(ctx)))          // >= 2, the store cap
-hubCap(ctx, ids) = ids.slice(0, hubBound(ctx))    // list-side reading
-boundFor(n) = ceil(sqrt(max(2, n)))               // ctx-free reading
+corpusN(ctx)     = max(2, store.edgeSourceCount())   // distinct learnt contexts
+hubBound(ctx)    = ⌈√corpusN⌉                        // the store cap
+hubCap(ctx, ids) = ids.slice(0, hubBound(ctx))       // the list-side reading
+boundFor(n)      = ⌈√max(2, n)⌉                      // the ctx-free reading
 ```
 
-Defined once in `mind/traverse.ts` (`corpusN`, `hubBound`, `hubCap`,
-`boundFor`). Every consumer imports them; never re-derive them inline.
+Import these, and never re-derive them inline: no `edgeSourceCount()` or
+`Math.sqrt` at a call site, and no private per-walk limit.
 
-## Enforcement at the store level
+## Enforcement — the store, not the caller
 
-The cap is not advisory — adapters must make bounded reads bounded in SQL.
+| Kind                | Methods                                                          | Contract                                                                                                                                                                                                                                         |
+| ------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| LIMITed reads       | `nextFirst`, `prevFirst`, `parentsFirst`, `containersSlice`      | A real `LIMIT ?`, with the same `ORDER BY` as the full read, never a materialise-then-slice. Reading `bound + 1` decides "hub or not" exactly.                                                                                                   |
+| existence probes    | `hasNext`, `hasParents`, `hasContainers`, `hasHalo`, `prevCount` | One indexed `EXISTS`/`COUNT`, with no vector decode and no blob unpack. Use these, never `next(id).length > 0`.                                                                                                                                  |
+| prefix-capped reads | `bytesPrefix(id, cap)`, `contentLen(id, cap)`                    | They stop at the cap: `contentLen` is exact below it and reports `≥ cap` otherwise. An oversized candidate is rejected on the length probe alone. Uncapped reads in the weave, junction walks or bridge cost seconds per query on a large store. |
+| transparent runs    | `chainRun(id)`                                                   | One recursive CTE climbs a run of single-parent, edge-less nodes. It is cached for the store's lifetime and dropped on writes that break transparency.                                                                                           |
 
-### 1. LIMITed reads — real `LIMIT ?`
-
-`nextFirst(id, limit)`, `prevFirst(id, limit)`, `parentsFirst(id, limit)`,
-`containersSlice(child, offset, limit)`.
-
-Same statement and `ORDER BY` as the full read, with `LIMIT ?`. Never
-"materialise then slice". Reading `hubBound + 1` parents decides "hub or not"
-exactly without reading the rest. Implemented as thin wrappers in
-`store-sqlite.ts` over `AbstractStore` in `store.ts`.
-
-### 2. Existence probes — indexed point probes
-
-`hasNext(id)`, `hasParents(id)`, `hasContainers(child)`, `hasHalo(id)`,
-`prevCount(id)`.
-
-One indexed `EXISTS` / `COUNT` probe that never decodes vectors or unpacks
-blobs. Use them for every "does this lead anywhere?" question instead of
-`next(id).length > 0` or `prev(id).length`. `prevCount` is the reverse-edge
-support count for `chooseNext`/`chooseAmong`; `hasNext`/`hasHalo` gate the
-`leadsSomewhere` admission predicate in `mind/traverse.ts`.
-
-### 3. Prefix-capped reads — reject without reconstruction
-
-`bytesPrefix(id, cap)` and `contentLen(id, cap)`.
-
-`contentLen` under a cap returns an exact length below the cap and `>= cap`
-otherwise — an indexed memo walk that stops early, never a full subtree walk.
-`bytesPrefix` stops after `cap` bytes. A candidate exceeding the cap is rejected
-on the length probe alone; the weave, junction walks, and bridge all read this
-way. Uncapped reads there cost seconds per query on a large store.
-
-### 4. Transparent scaffolding — one bounded read
-
-`chainRun(id)` climbs a run of transparent nodes (exactly one parent, no edges)
-in a single recursive CTE, cached for the store lifetime and dropped on writes
-that break transparency. The climber hops the whole run where a node-at-a-time
-ascent would pay three probes per node.
-
-## Maintenance only
-
-The full materialising reads — `next(id)`, `prev(id)`, `parents(id)`,
-`containers(child)` — exist for inspection, repair, and compaction only
-(`compactContentIndex`, `repairContentIndex`). Keep them off hot paths.
-
-## Adding a walk
-
-Any new fan-out walk uses `hubBound`/`hubCap`. Do not call `edgeSourceCount()`
-or `Math.ceil(Math.sqrt(...))` inline, and do not invent a per-walk limit. The
-walk's saturation decision (when to stop) is separate from the cap (the safety
-net); a walk with only a cap drifts to the cap.
+The full reads (`next`, `prev`, `parents`, `containers`) exist for inspection
+and maintenance only (`compactContentIndex`, `repairContentIndex`).
 
 ## Pins
 
-- `test/14` — sublinear inference in corpus size and constant-rate in input
-  length; training throughput floor; exact recall at scale.
-- `test/89` — completion recursion stays output-sensitive (nested searches/pops
-  sublinear); guards the count of reads, not just per-read size.
-- `test/90` — connector probe (`offerConnectors`) reads by the query length
-  (`QUERY.length + 1`), not by the learnt continuation; per-read size bound.
+- `test/14` — inference is sublinear in corpus size and linear in input length;
+  recall stays exact at scale.
+- `test/89` — completion recursion is output-sensitive: the _number_ of reads is
+  bounded, not just their size.
+- `test/90` — the connector probe reads by the query's length, not by the learnt
+  continuation's.
+- `test/119` — the derivation's work is flat in `N` for a byte-identical answer.

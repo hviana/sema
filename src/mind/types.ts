@@ -400,9 +400,8 @@ export interface MindContext extends GraphSearchHost {
    *  with `bytesToTree` on every turn, so every key was fresh and this cache
    *  could not hit even once — the O(suffix) claim above described an
    *  intention rather than the code.  It now grows the context through
-   *  {@link stablePrefixFoldIncremental}, which reuses each already-folded
-   *  segment: measured over four turns, turn 4 shared 69 of its 95 nodes with
-   *  turn 3 (26 new ≈ the new turn's own size). */
+   *  contentFoldIncremental, which reuses each already-folded segment as the
+   *  same object (~92% of nodes reused by identity across turns). */
   _resolvedSubtrees: WeakMap<Sema, { id: number; len: number }> | null;
   /** Completed assistant-turn byte spans in the current cumulative query.
    *  Empty for ordinary respond(); response-scoped structural context for
@@ -435,18 +434,14 @@ export interface MindContext extends GraphSearchHost {
    *  never a correctness risk. */
   _gistCache: BoundedMap<number, Vec>;
   /** DEPOSIT-path perception cache: content key (latin1) of a deposited
-   *  input → its accumulated turn BOUNDARIES plus reusable fold state.  A
-   *  deposit whose content extends a cached entry IS a conversation context
-   *  grown by one turn — the cached length is the new boundary — so it
-   *  folds with the SAME stable-prefix fold query-time perception uses
-   *  (structural train/inference agreement, load-bearing for recall),
-   *  reusing every already-folded segment via `stable` (see StableFold) —
-   *  O(turn) per deposit instead of O(context).  A first-seen input takes the
-   *  same fold with no boundaries at all, and caches the segments it produced
-   *  so a later turn of the same conversation reuses them.  Purely a
-   *  performance cache for the FOLD STATE; the boundaries are semantic but
-   *  derived only from the deposit sequence itself (an evicted chain falls
-   *  back to plain-fold behavior, exactly the pre-boundary shape). */
+   *  input → its reusable content-fold state ({@link DepositCacheEntry}).  A
+   *  deposit whose bytes extend a cached entry reuses that entry's
+   *  already-folded segments (contentFoldIncremental) — O(turn) per deposit
+   *  instead of O(context) — and gets exactly the tree a cold fold would
+   *  give, the same one query-time perception computes.  It holds no turn
+   *  boundaries: the fold imposes none (fold-contract.md).  Written only by
+   *  conversational deposits, so the 8-entry budget keeps the live chains;
+   *  an evicted chain costs a re-fold, never a different tree. */
   _depositTrees: BoundedMap<string, DepositCacheEntry>;
   /** The byte lengths present in {@link _depositTrees} — the candidate
    *  prefix lengths probed (longest first).  Drifts on eviction (a stale

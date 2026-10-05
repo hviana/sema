@@ -1,90 +1,70 @@
-# Caches — Every Acceleration Is a BoundedMap
+# Caches — Every Acceleration Is a Budget
 
-> **Law:** every acceleration is a `BoundedMap` with a byte budget. A miss
-> re-derives from durable state. Degradation order is speed/reach lost, never
-> identity.
+> **Law:** every acceleration is a byte-budgeted `BoundedMap`, and a miss
+> re-derives from durable state. Eviction may cost speed or reach. It never
+> changes what is stored, what is resolved or what tree is folded.
 
-No cache may change what is stored, what is resolved, or what tree is folded.
-Eviction costs a re-read, a re-walk, or a narrower reach — never a wrong answer
-or a wrong tree.
+**Why.** Resident memory is capped by configuration, not by how much was learnt,
+so a large store does not need a large machine. That holds only if every cache
+can forget without being wrong.
 
-## `BoundedMap` — the one cache primitive
+## `BoundedMap` — the one cache primitive (`src/store.ts`)
 
-`src/store.ts:BoundedMap<K,V>` — LRU with byte accounting (`maxBytes`, `sizeOf`,
-`evict`, `recency`).
+An LRU with byte accounting (`maxBytes`, `sizeOf`), whose eviction is amortised
+O(1) over a persistent cursor. It has two settings:
 
-- `evict: "lru"` — uniform-cost entries (dedup, vectors, records).
-- `evict: "smallest"` — variable-cost reconstruction (`_bytesCache`): protects
+**`evict`, which entry goes:**
+
+- `"lru"` — for entries of uniform cost.
+- `"smallest"` — for variable-cost reconstructions (`_bytesCache`). It protects
   expensive large branches over cheap leaves.
-- `recency: "reorder"` (default) — exact LRU via `delete+set`; required when
-  eviction choice is load-bearing (`_depositTrees` — 8 entries, victim changes
-  fold).
-- `recency: "clock"` — bit instead of reorder; only for transparent caches where
-  wrong victim costs a re-read (`_bytesCache`, `_recCache`). Measured: same
-  entries cached, hot-path time 55% → bit.
 
-Persistent cursor over V8 insertion order makes eviction amortised O(1);
-candidate window for `"smallest"` never rescans from front.
+**`recency`, how use is recorded:**
 
-## Store caches — budgets in `src/config.ts:StoreConfig`
+- `"reorder"`, the default — exact LRU. It is required wherever the choice of
+  victim is load-bearing.
+- `"clock"` — a use bit. It is only for transparent caches, where a wrong victim
+  costs a re-read: `_bytesCache` and `_recCache`. It caches the same entries as
+  `"reorder"`, at a fraction of the hot-path time.
 
-| Cache               | Field                      | Budget                       | `sizeOf`            | Eviction       |
-| ------------------- | -------------------------- | ---------------------------- | ------------------- | -------------- |
-| dedup leaf/branch   | `_leafKey` / `_branchKey`  | `dedupCacheMax` 1M entries   | 1                   | lru            |
-| flat-branch hits    | `_flatKey`                 | `dedupCacheMax` 1M entries   | 1                   | lru+clock      |
-| reconstructed bytes | `_bytesCache`              | `bytesCacheMax` 20 MB        | `byteLength`        | smallest+clock |
-| content length      | `_lenCache`                | `bytesCacheMax`              | 16                  | lru            |
-| node records        | `_recCache`                | `recCacheBytes` 10 MB        | leaf+4·kids+12      | lru+clock      |
-| pending gists       | `_pendingGist`             | `pendingGistBytes` 16 MB     | `byteLength` (D·4)  | lru            |
-| halo exact / norm   | `_haloExact` / `_haloNorm` | `haloCacheBytes` 16 MB each  | `byteLength`        | lru            |
-| skipped interiors   | `_coveredIds`              | `coveredIdsMax` 100K entries | 1                   | lru            |
-| indexed ids         | `_indexedIds`              | `coveredIdsMax`              | 1                   | lru            |
-| transparent chains  | `_chainMemo`               | `chainCacheBytes` 16 MB      | 4·len+32            | lru            |
-| ingest memo         | `CachedIngest._memo`       | `ingestCacheBytes` 50 MB     | vector+ids+keyBytes | lru            |
+## Store caches — budgets in `StoreConfig` (`src/config.ts`)
 
-ANN read caches (`_resonateCache`, `_resonateHaloCache`) are `Map<string,Hit[]>`
-keyed by `vecKey(v)+":"+k`, dropped on any index mutation.
-`vectorCacheMb`/`sqliteCacheMb` are pure page-cache latency knobs.
+| Cache                          | Field                         | Default budget               | Eviction         | A miss costs                                       |
+| ------------------------------ | ----------------------------- | ---------------------------- | ---------------- | -------------------------------------------------- |
+| dedup keys                     | `_leafKey` / `_branchKey`     | `dedupCacheMax`, 1M entries  | lru              | a durable content probe                            |
+| flat-branch hits               | `_flatKey`                    | `dedupCacheMax`              | lru + clock      | a hashed probe                                     |
+| reconstructed bytes            | `_bytesCache`                 | `bytesCacheMax`, 20 MB       | smallest + clock | a subtree walk                                     |
+| content length                 | `_lenCache`                   | `bytesCacheMax`              | lru              | a capped walk                                      |
+| node records                   | `_recCache`                   | `recCacheBytes`, 10 MB       | lru + clock      | a row read                                         |
+| pending gists                  | `_pendingGist`                | `pendingGistBytes`, 16 MB    | lru              | a DAG climb                                        |
+| exact halos / norms            | `_haloExact` / `_haloNorm`    | `haloCacheBytes`, 16 MB each | lru              | decoding the 2-bit row                             |
+| skipped interiors, indexed ids | `_coveredIds` / `_indexedIds` | `coveredIdsMax`, 100K        | lru              | a re-check                                         |
+| transparent chains             | `_chainMemo`                  | `chainCacheBytes`, 16 MB     | lru              | one CTE; dropped on writes that break transparency |
+| ingest memo                    | `CachedIngest._memo`          | `ingestCacheBytes`, 50 MB    | lru              | a re-fold (the ids are hash-consed)                |
 
-`_bytesCache` only caches complete reconstructions — `bytesPrefix(id,cap)` with
-`got < cap`; a truncated prefix is never stored. `_chainMemo` is dropped on any
-write that could break transparency; `_pendingGist` eviction falls back to DAG
-climb; halo eviction re-decodes the durable 2-bit row.
+- `_bytesCache` stores only complete reconstructions. A truncated prefix is
+  never cached.
+- The ANN read caches (`_resonateCache`, `_resonateHaloCache`) are keyed by
+  `vecKey(v):k`, dropped on any index mutation, and cleared at
+  `RESONATE_CACHE_MAX`.
+- `vectorCacheMb` and `sqliteCacheMb` only tune page-cache latency.
 
-## Mind caches — session and per-response
+## Mind caches — the session
 
-| Cache               | Location                                         | Budget    | Scope / invalidation                                               |
-| ------------------- | ------------------------------------------------ | --------- | ------------------------------------------------------------------ |
-| `_gistCache`        | `Mind._gistCache`                                | 32 MB     | session-lifetime, never invalidated (perception pure)              |
-| `_depositTrees`     | `Mind._depositTrees`                             | 8 entries | session; `perceiveDeposit` only when `conversational`              |
-| `_depositLens`      | `Mind._depositLens`                              | —         | byte lengths for prefix probes; cleared with map when >64          |
-| `_internIds`        | `Mind._internIds: WeakMap<Sema,number>`          | —         | Mind lifetime; ids permanent                                       |
-| `_resolvedSubtrees` | `Mind._resolvedSubtrees: WeakMap<Sema,{id,len}>` | —         | per-response/conversation; fast path only when `visit===undefined` |
+- **`_gistCache`** (32 MB): node gists, kept for the session's lifetime and
+  never invalidated, since perception is pure.
+- **`_depositTrees` / `_depositLens`**: up to 8 folds, keyed by their bytes,
+  written only by conversational deposits, so that a growing context re-folds
+  only its suffix (`fold-contract.md`). Both reset together when the length set
+  exceeds 64.
+- **`_internIds`** (a `WeakMap` from tree node to id): skips re-interning a
+  shared subtree. The ids it holds are permanent.
 
-`REACH_MEMO_MAX` / `STRUCT_MEMO_MAX` 100K (`src/mind/traverse.ts`) — whole-climb
-and per-node structural probes (`hasNext`/`prevCount`/`hasParents`); cleared on
-write or when cap reached. `reachMemo`/`structCaches` keyed by `_structMemoKey`,
-bypassed under trace.
-
-## Deposit caches — offset-keyed, caller-discharged
-
-`_depositTrees`/`_depositLens`/`_internIds`/`_resolvedSubtrees` key **offsets**,
-not bytes, for O(1) reuse. Offsets alone cannot witness byte agreement — caller
-must discharge it.
-
-- Correct: conversation append — each turn extends the prior cumulative context
-  by its own bytes; longest cached proper prefix hit (`L < bytes.length`) reuses
-  `contentFoldIncremental` segments bit-identically.
-- Wrong: mismatched `prev` reused by offset produced wrong tree (336 vs 400
-  bytes) — a coincidental prefix length aliased unrelated content.
-- Now: `perceiveDeposit` keys by `latin1(bytes.subarray(0,L))` (prefix bytes),
-  probes longest cached proper prefix first; `_depositTrees` populated only for
-  conversational deposits (budget discipline), otherwise cold path always
-  correct.
+Per-response memos are in `memoization.md`.
 
 ## Pins
 
-- `test/91` — `chainRun` via capped `_prefix`: bounded transparent-chain hop,
-  not per-node probes.
-- `test/96` — `_bytesCache` is byte-accounted `BoundedMap` that evicts; miss
-  re-derives.
+- `test/96` — `_bytesCache` is a byte-accounted `BoundedMap` that evicts, and a
+  miss re-derives.
+- `test/91` — `chainRun` hops a transparent chain in one bounded read, not with
+  probes per node.

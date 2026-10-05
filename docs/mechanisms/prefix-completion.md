@@ -1,54 +1,51 @@
-# Prefix Completion — Literal Opening of One Trained Form
+# Prefix Completion — Complete a Known Beginning
 
-The query is a proper prefix of exactly one trained form. That form is voiced
-whole; nothing is invented.
+When the question is a proper prefix of exactly one trained form, that form is
+voiced whole and nothing is invented
+(`src/mind/mechanisms/prefix-completion.ts`).
 
-## Gate — exactly one opener
+## Supply — one union, decided once
 
-A candidate is a form whose bytes literally open with the query (every query
-byte matched in order from offset zero). Grounding requires **exactly one
-distinct continuation** over the candidate set:
+Resonance cannot rank a proper prefix. On the trained store, the cosine between
+a prefix and its form falls from 0.96 at one truncated byte to 0.62 at three,
+against a reach bar of 0.875. So the candidates come from two supplies:
 
-- **Candidates** = `formsOpenedBy` (content-addressed window index) ∪ memoised
-  `resonance` top-k — evaluated as one union so an exact-index ambiguity cannot
-  be hidden by the approximate tier.
-- **Distinctness** is by continuation bytes, not form id.
-- **Zero or ≥2 distinct continuations → refuse** (the prefix trap).
+- **`formsOpenedBy`** (`traverse.ts`) reads the write side's window index, which
+  is position-invariant, and climbs containment and then parents to the deposits
+  a prefix opens. It is bounded by `hubBound`.
+- **The response's top-`k` resonance.**
 
-## Cost (`src/mind/graph-search.ts`)
+The two are concatenated, and the guards decide once over the union. A chain
+that tried one supply and then the other would let the approximate tier override
+an ambiguity the exact one found.
 
-| Symbol | Value | Rule                                              |
-| ------ | ----- | ------------------------------------------------- |
-| `STEP` | 1     | maximal claim: every query byte literally matched |
+## Guards
 
-`floor` returns `STEP`; `run` returns one candidate with `moves = STEP`,
-`accounted = [[0, query.length]]`, `bytes = form`.
+1. **Literal opening.** Every byte of the question matches the form in order
+   from offset 0.
+2. **Exactly one distinct continuation**, compared by bytes, not by form id.
+   Zero or two or more means refusal: that is the prefix trap.
+3. **Readable.** If any candidate saturates its capped `bytesPrefix` read, none
+   is licensed.
+4. **At least one window.** A continuation shorter than `W` cannot be voiced,
+   and counts as disagreement.
 
-## `complete` flag
+## Cost
 
-The result carries `complete` semantics: the grounded bytes are a trained form
-reached by identity. Post-grounding (`reason` → `fuse`) must not extend them.
+`STEP`, with `accounted = [[0, query.length]]`, since every byte is literally
+matched. The result is **not** `complete`: the form may carry more beyond the
+remainder this step voiced. The floor checks `worthRunning(STEP)` before either
+supply is touched, and returns `null` when the question leaves no room for a
+continuation within the phrase cap.
 
-## Guards (from `src/mind/mechanisms/prefix-completion.ts`)
+The mechanism is registered after `recall`, so an exact self-match wins ties.
 
-1. **Unreadable veto** — a saturating `bytesPrefix` read is a standing
-   disagreement; if any candidate saturates, none is licensed.
-2. **One grouping window** — continuation must be ≥ `W` (`maxGroup`);
-   sub-quantum tails are unvoiceable and also count as disagreement.
-3. **Uniqueness** — as above.
+## Provenance
 
-Structural pre-check (`floor`): `query.length * W < query.length + W` → `null`
-(no room for a perceivable continuation).
-
-## Where it runs
-
-Last grounding mechanism in `defaultMechanisms` (`mind/pipeline.ts`); registered
-after recall so an exact self-match (`IDENTITY`) wins ties. Shares
-`formsOpenedBy` (`mind/traverse.ts`) and `Precomputed.resonance()`.
+`prefix`.
 
 ## Pins
 
-- `test/70-prefix-completion.test.mjs` — literal prefix, ambiguity, sub-quantum,
-  saturating-read veto, determinism.
-- `test/72-prefix-candidate-supply.test.mjs` — `formsOpenedBy` ∪ `resonance`
-  union supply; resonance alone cannot rank a proper prefix.
+- `test/70` — a literal prefix, ambiguity, a sub-quantum tail, the veto on a
+  saturating read, and determinism.
+- `test/72` — the union supply; resonance alone cannot rank a proper prefix.

@@ -1,68 +1,75 @@
-# Recall — Nearest Stored Form
+# Recall — The Nearest Stored Form
 
-Recall resonates the whole query's gist against the content index and grounds
-the nearest learned form. Resonance proposes; bytes decide.
+`recall` answers with the continuation of the stored form nearest the question.
+Resonance proposes, and bytes decide (`src/mind/mechanisms/recall.ts`). Its
+tiers degrade in order, and each one is priced as what it is. A tier that only
+resembles accounts for little, so anything that explains more beats it.
 
-## Gist and budget
+## Supply and budget
 
-Query gist is `pre.guide`; the single top-k read is `pre.resonance()` shared
-across the response. `Precomputed.k = 2·recallQueryK` tiers 0b/1/2/3 through it;
-the last tier re-folds bytes.
+All tiers read the response's single top-`k` resonance (`pre.resonance()`,
+`k = 2·recallQueryK`), guided by the query gist. The last tier re-folds the
+hit's bytes instead of trusting its estimate.
 
-## Tiers (degrading)
+## Tiers
 
-| Tier | Name                  | Gate                                                                                                                                                       | Action                                                                                                            |
-| ---- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 0    | Exact identity        | `pre.queryResolved` exists                                                                                                                                 | Reverse-recall (`reverseContext`) to best-resonating predecessor at `STEP`                                        |
-| 0b   | RC8 argument binding  | One maximal `≥2W` edge-source constituent, no substantial `≥2W` form outside it                                                                            | `follow` its continuation; refuses if result is a subspan of the query                                            |
-| 1    | Clean resonance       | `score ≥ identityBar(D,W,len)` per hit                                                                                                                     | `project` hit; restating hits (bytes or `canon`-equivalent) only via reverse-recall                               |
-| 2    | Scaffolding-dominated | `score ≥ significanceBar(D)` and consensus-climb anchor clears `consensusFloor(N)` or `dominates(breadth,1) && peak>ln2`, and query is not all-scaffolding | `project` anchor at `CONCEPT`; refuses if continuation voices the anchor's displaced filler or is a query subspan |
-| 3    | Last resort + bridge  | Query-relative fraction `max(0,cos−sig)·√(lenG/lenQ) ≥ reachThreshold(W)`                                                                                  | Best grounded `project` hit at `STEP`                                                                             |
+| Tier | Name                                   | Gate                                                                                                                                                                                                                                         | Action                                                                                      |
+| ---- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 0    | exact identity                         | the question resolves                                                                                                                                                                                                                        | reverse-recall to its best-resonating predecessor, at `STEP`                                |
+| 0b   | argument binding                       | one maximal recognised constituent of at least `2W` that is an edge source, with no substantial form outside it. Fragments that answer other questions are set aside first. When the pick would otherwise be blind, the climb is asked first | `follow` its continuation, guided by the whole question                                     |
+| 1    | clean resonance                        | per hit, `score ≥ identityBar(D, W, len)`                                                                                                                                                                                                    | `project` the hit. A hit that restates the question goes only through reverse-recall        |
+| —    | an argument held under the equivalence | no argument recognised, and a canonical index present                                                                                                                                                                                        | the climb's points that the question canonically contains bind as arguments (`evidence.md`) |
+| 2    | scaffolding-dominated                  | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding                                                                                     | `project` the anchor at `CONCEPT`                                                           |
+| 3    | last resort                            | the share of the question the grounding explains, `max(0, cos − sig)·√(lenG/lenQ) ≥ reachThreshold(W)`                                                                                                                                       | `project` the best grounded hit, at `STEP`                                                  |
+| 3b   | substitution bridge                    | only after every gist tier failed (below)                                                                                                                                                                                                    | align and substitute                                                                        |
 
-W = `maxGroup` (river window); bars from `src/geometry.ts`.
+**Tier 2 refuses three things.** Each would voice the anchor's own occupant as
+the asker's:
+
+- a continuation that voices the anchor's displaced filler
+  (`voicesDisplacedFiller`);
+- a continuation that is a subspan of the question;
+- an anchor that is a co-instance of the question (`evidence.md`).
+
+Putting the asker's referent in that place is `reference`'s job, because it
+needs the corpus's own evidence of carriage.
 
 ## Echo — the refusing tail
 
-If no tier grounded, the exact cosine of the top hit is re-folded (`gistOf` on
-its bytes). It uses that exact value in the same chance-corrected fraction —
-never the RaBitQ estimate. Below `reach` → silence; restating → silence;
-otherwise the hit's own bytes are returned as an ungrounded echo.
+When no tier grounds, the top hit's exact cosine is recomputed from its bytes
+and read with the same chance-corrected fraction. The outcome is one of two:
 
-## Provenance
+- **Silence,** when the fraction is below reach, or when the hit restates the
+  question.
+- **An echo,** otherwise: the hit's own bytes, labelled `recall-echo` and
+  declaring `used: ∅`. It tells the asker that the answer is near, not derived.
 
-Grounded answers carry `recall`; the echo carries `recall-echo` (`echoed: true`
-on `RecallResult`); it declares `used: ∅`. Consumers distinguish a continuation
-through learned edges from a near-identity echo.
+## The substitution bridge — refusal path only (`src/mind/bridge.ts`)
 
-## Substitution bridge — refusal-path only (`src/mind/bridge.ts`)
+The bridge aligns a candidate around the rarest stored windows. A mismatch
+becomes a corroborated substitution only when all of these hold:
 
-Runs only after every gist tier failed, reusing the same top-k proposals (the
-bridge's cap is `2·recallQueryK`; every proposal is byte-verified). A candidate
-context is byte-aligned around the rarest stored W-windows. A mismatch becomes a
-corroborated substitution only when its query span is corpus-attested (every
-W-window stored, one reused ≥2 containers), its geometry clears
-`conceptThreshold(D)` or its halo clears `significanceBar(D)`, its frame is
-unanimous, and the raw gap is length-balanced. Coverage must dominate the query
-and no dismissed gap may hide known content (`dismissedKnownContent` gate). Cost
-is `CONCEPT` per substitution plus `STEP`; accounted spans include matched and
-substituted ranges (so a 28/29-byte paraphrase is not charged `PASS` per
-substituted byte — the double-charge that let `cast` outbid the bridge).
-Zero-substitution identity bridges carry `complete: true` (the whole read-out);
-substituted bridges do not.
+- the question's span is attested in the corpus;
+- the geometry clears `conceptThreshold`, or the halo clears `significanceBar`;
+- the frame is unanimous;
+- the gap is balanced in length.
 
-Scaffolding-only queries abstain: when every window that could anchor is
-saturated (corpus-global scaffolding, `allWindowsAreScaffolding`), the bridge
-returns nothing — one substituted word cannot carry the load.
+Coverage must dominate the question, and no dismissed gap may hide known content
+(`dismissedKnownContent`). Each substitution costs `CONCEPT`, and the
+substituted spans are accounted. A question made only of scaffolding abstains,
+because one substituted word cannot carry it. A zero-substitution identity
+bridge is `complete`.
 
 ## Cost
 
-Tiers 0/1/3 price `STEP` (one hop); tier 2 and the bridge price `CONCEPT` per
-substitution/scaffold step. Mechanism `floor` is `STEP`; weight is
-`moves + PASS·unaccounted`.
+Tiers 0, 0b, 1 and 3 cost `STEP`. Tier 2 and the bridge cost `CONCEPT` per
+substitution or scaffolding step. The floor is `STEP`.
 
 ## Pins
 
-- `test/03-recall.test.mjs` — exact identity and reverse-recall
-- `test/16-bridge.test.mjs` — corroborated substitutions
-- `test/73-scaffolding-only-bridge-abstains.test.mjs` — scaffolding-only queries
-  stay silent
+- `test/03` — exact identity and reverse-recall.
+- `test/16`, `test/56` — corroborated substitutions, and the bridge's admission
+  by identity.
+- `test/73` — a question made only of scaffolding stays silent.
+- `test/154.6`, `test/154.8` — a stranger fragment is not bound; an argument
+  held only under the equivalence binds.

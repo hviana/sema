@@ -136,11 +136,11 @@ export class BoundedMap<K, V> {
     /** How a HIT records recency.
      *
      *  `"reorder"` (default) promotes the entry to most-recent by
-     *  `m.delete(k); m.set(k, v)` — exact LRU, and the only policy that is
-     *  safe for a cache whose CONTENTS are load-bearing rather than merely
-     *  warm.  `_depositTrees` (8 entries, feeds stablePrefixFoldIncremental)
-     *  is exactly that: which of its entries survives changes how the next
-     *  turn FOLDS, so test/13 D1 flips answer when the victim changes.
+     *  `m.delete(k); m.set(k, v)` — exact LRU, the policy for any cache whose
+     *  choice of victim must follow use exactly.  `_depositTrees` (8 entries,
+     *  feeds contentFoldIncremental) keeps it so the live conversation chains
+     *  stay warm; its reuse is transparent, so a wrong victim costs a re-fold,
+     *  never a different tree (fold-contract.md).
      *
      *  `"clock"` records recency as a BIT instead of as position, spent by
      *  the eviction sweep (see `nextOldest`).  Correct only for a TRANSPARENT

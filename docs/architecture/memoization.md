@@ -1,96 +1,82 @@
-# Memoization — Shared Evidence Without Duplication
+# Memoization — Shared Evidence, Computed Once
 
-> **Law:** asking never writes, so structural reads are pure during one
-> response. Memoization elides probes, not evidence.
+> **Law:** asking never writes, so within one response every structural read is
+> pure. A memo may skip a probe. It may never change what inference computes.
 
-Two layers: `Precomputed` (response-scoped shared analyses) and `Mind`
-per-response memos. Both are accelerators that must not change what inference
-computes.
+**Why.** One question is read by up to eight mechanisms, and the same analysis
+(the consensus climb, the weave, a resonance query) must not be paid eight
+times. Nor may whoever asked first be billed for everyone.
 
-## Precomputed — one response, one container
+## `Precomputed` — one response, one container (`mind/pipeline-mechanism.ts`)
 
-`Precomputed` (`src/mind/pipeline-mechanism.ts`) is the sole place a response's
-shared evidence lives. Created by `think` (`src/mind/pipeline.ts`) before the
-mechanism loop.
+`think` creates it before any mechanism runs. It is the only place a response's
+shared evidence lives.
 
-### Eager — populated before any `floor`/`run`
+**Eager**, populated before any `floor` or `run`:
 
-- `rec: Recognition` — structural + canonical decomposition (`recognise`)
-- `computed: ComputedSpan[]` — `parse()` results from all mechanisms (e.g. ALU)
-- `guide: Vec` — query gist, the response-wide disambiguation guide
-- `k: number` — `cfg.recallQueryK * 2`, the breadth for resonance/weave/climb
+- `rec`, the recognition;
+- `computed`, every mechanism's `parse` spans;
+- `guide`, the query gist;
+- `k = 2·recallQueryK`.
 
-### Lazy — computed on first touch, cached by promise
+**Lazy**, cached by promise, so the first caller starts the work and every later
+caller awaits it:
 
-Expensive analyses are `async` and cached by promise: the first caller starts
-the work, every later caller awaits the same promise.
+- `attention()`, the consensus climb;
+- `weave()`;
+- `resonance()`, the single top-`k` ANN query;
+- `frames()`;
+- `spanShapedOf(anchor)` / `spanShapedAll()`;
+- the window identities `queryWindows`, `queryResolved` and `windowsOf`;
+- `reachMemo`.
 
-- `attention()` — `climbAttentionAll` (roots + ranked anchors)
-- `weave()` — `alignGraded` over top-k anchors
-- `resonance()` — `store.resonate(guide, k)` (single ANN query)
-- `frames()` — `frameSlots` inventory from resonance
-- `spanShapedOf(anchor)` / `spanShapedAll()` — per-anchor `skillExemplar`,
-  memoised per id
-- `queryWindows` / `queryResolved` / `windowsOf(anchor)` — W-window identities
-- `reachMemo` — `sharedReachMemo(ctx)` (ancestor reach, § below)
+A mechanism that never asks pays nothing, and two that ask the same question pay
+once. A `floor` checks `worthRunning` before it first touches an expensive
+analysis (`mechanism-market.md`). Each shared analysis is charged to its own
+meter phase through `Precomputed.shared`, never to whichever mechanism touched
+it first (`meter.md`).
 
-A mechanism that never asks pays nothing; two mechanisms asking the same
-question pay once. `floor()` must gate on `worthRunning` before first-touching
-an expensive analysis.
+## Mind memos — `beginResponse` → `endResponse` (`mind/mind.ts`)
 
-## Mind memos — `beginResponse` → `endResponse`
+`respond` takes fresh maps. `respondTurn` reuses the conversation's maps, which
+are content-keyed across turns.
 
-`Mind` (`src/mind/mind.ts:beginResponse`/`endResponse`) swaps per-response state
-for each inference call. `respond` takes fresh maps; `respondTurn` reuses the
-conversation's persistent ones (content-keyed, cross-turn).
+| Memo                                                 | Key                   | Lifetime                            |
+| ---------------------------------------------------- | --------------------- | ----------------------------------- |
+| `perceiveMemo`                                       | bytes + boundary set  | response or conversation            |
+| `recogniseMemo`, `climbMemo`                         | bytes                 | response or conversation            |
+| `canonMemo`                                          | bytes                 | response, when a `canon` is set     |
+| `_resolvedSubtrees`                                  | tree node (`WeakMap`) | response or conversation            |
+| `_edgeChoice` (the pick memo), `_edgeAsked`          | node / question       | response; cleared at the end        |
+| `sharedReachMemo`, structural probes (`traverse.ts`) | node                  | cleared on write or at 100K entries |
 
-| Memo                | Key                                       | Scope                                        |
-| ------------------- | ----------------------------------------- | -------------------------------------------- |
-| `perceiveMemo`      | `perceiveKey(bytes)` (latin1)             | response / conversation                      |
-| `recogniseMemo`     | `latin1(bytes)`                           | response / conversation                      |
-| `climbMemo`         | `latin1(bytes)`                           | response / conversation                      |
-| `canonMemo`         | `latin1(bytes)`                           | response (when `canon` set)                  |
-| `_resolvedSubtrees` | `WeakMap<Sema, {id,len}>` (node identity) | response / conversation                      |
-| `_edgeChoice`       | `Map<nodeId, pick>`                       | response only — **cleared** in `endResponse` |
-| `_gistCache`        | `BoundedMap<nodeId, Vec>` 32 MB           | **session-lifetime** (not per-response)      |
+`foldTree` takes the `_resolvedSubtrees` fast path only when no visitor is
+passed. A walk that emits sites always descends in full, and the cache only
+elides store probes.
 
-`_gistCache` (≈ 8K gists at D=1024) survives across responses; all others are
-dropped or cleared at `endResponse`. `_resolvedSubtrees` elides store probes
-when `visit` is absent; with a visitor it still walks in full (see
-`src/mind/primitives.ts:foldTree`).
+## The trace boundary
 
-## Trace boundary — what is bypassed
+A traced response must emit every step and still give the same answer.
 
-Traced responses must emit every step, but must not change the answer.
-
-- **Bypassed:** `_edgeChoice` via `guidedNext`
-  (`src/mind/traverse.ts:guidedNext`) and `sharedReachMemo`
-  (`src/mind/traverse.ts:sharedReachMemo`). Both return fresh empty maps when
-  `ctx.trace !== null`; `chooseNext` recomputes identically (pure over store +
-  guide).
-- **Always consulted:** `perceiveMemo`, `recogniseMemo`, `climbMemo` (and their
-  underlying `perceive`/`recognise`/`climbAttention` caches). Bypassing breaks
-  idempotence.
-
-`foldTree`'s subtree fast path is taken only when no `visit` is supplied. With a
-visitor (recognition, attention) the walk still descends; the cache elides only
-probes. Bypassing `recogniseMemo` under trace re-ran `recogniseImpl` with a warm
-`_resolvedSubtrees` and emitted fewer sites (observed 31 → 5) — a correctness
-change, not just a slowdown.
-
-## Meter — charge work to itself
-
-Shared analyses are charged to their own phase (`meter.time(phase, fn)` in
-`Precomputed.shared`), not to the mechanism that first touched them
-(`src/meter.ts:PhaseCost`). Without this, the profile reads "cast.floor costs 2
-s" when the cost was the consensus climb cast paid for on everyone's behalf.
+- **Bypassed under trace:** the pick memo (`guidedNext`) and `sharedReachMemo`.
+  Both return fresh maps, and `chooseNext` recomputes the same pick from the
+  store and the question.
+- **Always consulted:** `perceiveMemo`, `recogniseMemo` and `climbMemo`.
+  Bypassing `recogniseMemo` once re-ran recognition over a warm subtree cache
+  and emitted 5 sites instead of 31. That was a change in the answer, not just a
+  slowdown.
+- **The pick memo is cleared when the climb publishes its points.** A pick made
+  earlier read less evidence, and keeping it made traced and untraced responses
+  disagree.
 
 ## Adding a shared analysis
 
-Add one lazy method to `Precomputed`. No new memo map elsewhere. Gate it behind
-`worthRunning` in `floor()`.
+Add one lazy method to `Precomputed`, never a memo map elsewhere, and guard it
+behind `worthRunning` in `floor`.
 
 ## Pins
 
-- `test/42` — recognition idempotence under trace: traced and untraced
-  `recognise` return the same site count and cached object.
+- `test/42` — recognition is idempotent under trace: same site count, same
+  cached object.
+- `test/155.4` — traced and untraced responses agree once the climb publishes
+  its points.

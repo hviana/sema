@@ -1,137 +1,129 @@
-# Fold Contract — One Tree For The Same Bytes
+# Fold Contract — One Tree for the Same Bytes
 
-> **Law:** `perceiveDeposit` ≡ `perceive` — same bytes ⇒ same tree and same node
-> id. Deposit imposes nothing (no boundaries, no turn convention). Geometry
-> never sees conversation metadata.
+> **Law:** perception is a pure function of the bytes. A deposit
+> (`perceiveDeposit`) and a question (`perceive`) fold the same bytes into the
+> same tree, and the read side names that tree with the node the write side
+> interned. Nothing absent from the bytes may shape the tree: turn boundaries,
+> offsets and index-aligned grids are excluded.
 
-## The identity
+Identity is content (`store.md`), so a question finds what memory holds only if
+it is cut exactly as the deposit was. When the two sides disagreed, alignment
+went quadratic (5.2M cells on a 476-byte context, against 0 when they agree),
+and cumulative contexts stopped resolving to what they were trained as.
+Conversation state (`ConversationState`, `answeredSpans`, `currentTurnStart`) is
+API metadata and never reaches the geometry. Passing turn boundaries into the
+fold is a correctness bug, not a tuning choice.
 
-Perception is a pure function of the bytes. The deposit path and the inference
-path compute the same content-defined fold for the same input, so a trained
-context node and `resolve(query)` reach the same node. When the two sides
-disagreed, alignment went quadratic (measured 5.2M cells on a 476-byte context
-vs 0 when they agree) and cumulative contexts stopped resolving to what they
-were trained as.
+## The boundary rule — `contentLevels`
 
-## Deposit imposes nothing
+`contentLevels` is the one boundary rule, and `contentBoundaries` is its
+projection.
 
-No boundaries, no turn convention, nothing read out of the bytes. Conversational
-turn offsets are API metadata — they feed `ConversationState`, `answeredSpans`
-and `currentTurnStart`; the geometry never sees them. Passing turn boundaries
-into the fold is a correctness bug, not a tuning choice.
+- **Cuts.** A rolling hash runs over a bounded window of the bytes, and a cut
+  falls where it vanishes. A cut is level `L` when the hash vanishes mod
+  `W^(L+1)`, so level-`L` cuts nest inside level-`(L−1)` cuts, and a level-`L`
+  span averages `W^(L+1)` bytes.
+- **Segments.** A segment runs from `W−1` bytes to `seats.length` bytes, the
+  most one flat node folds, with a forced cut at the maximum.
+- **Grouping.** `groupByLevel` groups segments by their level, never by count.
 
-## Boundaries vs reuse — two problems
+**Why content, not position.** A change moves only the cut it falls inside.
+After shifts of 1–7 bytes, 99.7% of cuts on real deposits survive, against 14.3%
+for a fixed grid. Grouping by index (a stride, a tile, a fixed-arity row such as
+`riverFold`'s `W`-ary grouping from byte 0) makes the same run a different
+subtree at a different offset.
 
-`contentFoldIncremental` and `stablePrefixFold` solve different problems;
-conflating them is what once put an imposed boundary set on the inference path.
+**The distribution is load-bearing.** Each of these has been changed
+experimentally, and each change broke tests:
 
-| Mechanism                | What it buys                                              | Cost / shape                                                                                    |
-| ------------------------ | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `contentFoldIncremental` | Transparent segment reuse (cost only)                     | Imposes nothing; tree identical to the cold fold                                                |
-| `stablePrefixFold`       | Caller-supplied cuts left-nested for prefix-ROOT identity | One prefix-ROOT per cut becomes an identical subtree (and same node id) inside the grown stream |
+| Change                  | Tests broken    |
+| ----------------------- | --------------- |
+| cut rate                | 15–18           |
+| bits read               | 19–21           |
+| normalized chunking     | 5–6             |
+| relaxing the forced cut | the same suites |
 
-Both carry the same precondition: `prev` must be a fold of a byte-identical
-prefix — reuse is keyed on `[start,end)` offsets, which cannot witness byte
-agreement. A mismatched `prev` produced a wrong tree on 336 of 400 random
-streams. `perceiveDeposit` discharges this via the prefix bytes as cache key; a
-conversation advances only by append. A caller that cannot prove the prefix must
-pass no `prev`.
-
-## Identity must not depend on W or absolute offset
-
-`contentLevels` is the single boundary rule (rolling hash over a bounded
-window). Any grouping by index — stride, tile, fixed-arity row — reintroduces
-the grid's phase bug: `riverFold` groups `W`-ary from byte 0, so the same byte
-run is a different subtree at a different offset. The content-defined hash
-removes this: a change upstream moves only the cut it falls inside; downstream
-cuts and segments are unchanged (99.7% cuts preserved on real deposits after
-shifts of 1..7 bytes vs 14.3% for the grid). The `groupByLevel` above the
-segments splits by content level, not by count.
-
-## `contentLevels` is single source; `contentBoundaries` is projection
-
-`contentBoundaries(space, bytes)` is `contentLevels(space, bytes).cuts`. It once
-carried its own rolling-hash loop, which is how a write side and a read side
-drift without a type error. Levels are read from the hash the cut was accepted
-at — level `L` when `h` vanishes mod `W^(L+1)` — so level-`L` cuts nest inside
-level-`(L-1)` and expected span is `W^(L+1)` bytes.
+The forced cut accounts for 32% of all cuts. Every mechanism downstream is
+fitted to this distribution, so any change here must be re-measured on the whole
+suite. A second copy of the hash loop, which `contentBoundaries` once carried,
+lets the write side and the read side drift without a type error.
 
 ## One shape, two algebras
 
-Which items group under which parent is decided by the cut levels, the keyring
-and — inside an over-long row — each item's `itemKey` (eight raw gist
-coordinates). `groupByLevel`/`foldSlice` are written ONCE over a fold algebra
-(`join`, `key`) and run over two of them: the vector fold (`perceive`) and the
-identity fold (`contentIdentity`), which names the node a stream folds to by
-asking the store bottom-up and reads only the coordinates `itemKey` hashes,
-lazily, with the same float32 additions in the same order. `exactNode` is the
-identity fold, so resolving a span builds no D-dimensional gist and leaves
-nothing in the perception memo (measured on the 31.7M-node store: one join query
-went 185 s / 4.4 GB retained → 40 s / 81 MB, same answer). A grouping rule
-written twice would be a write/read drift waiting to happen; written once, the
-two folds cannot disagree about the tree.
+`groupByLevel` and `foldSlice` are written once, over a fold algebra (`join`,
+`key`), and run over two algebras:
 
-## Same tree is not enough — the read side names as the write side names
+- **The vector fold (`perceive`)** produces gists.
+- **The identity fold (`contentIdentity`)** names the node a stream folds to by
+  asking the store bottom-up as it folds.
 
-The store's `intern` names a branch by its children, and when they name none it
-looks up the FLAT node over the same bytes and REUSES it (step 1b, "same bytes,
-same node"). Every deposit interns flat nodes — its whole input and each
-canonical window — so a later deposit's branch is often stored as an earlier
-deposit's window (`ver` + `!` stored as the window `ver!`). The same tree is
-then named by a node no child lookup can reach. `exactNode` and `foldTree` name
-a branch exactly as `intern` does (`branchNaming`, `src/mind/primitives.ts`):
-the children first, the flat node over the same bytes when they name nothing —
-and an unnamed child does not settle it, since the write side minted that child
-and still reached step 1b. Measured on the 31.7M-node store: 7 of 80 dialogue
-turns asked verbatim had resolved to nothing and fell to the composition path
-(26–41 s); they now resolve to their own context.
+Inside an over-long row, grouping also reads each item's `itemKey`: eight raw
+gist coordinates. The identity fold computes only those coordinates, lazily,
+with the same float32 additions in the same order. `exactNode` is the identity
+fold, so resolving a span builds no `D`-dimensional gist. On the 31.7M-node
+store, one join query went from 185 s and 4.4 GB retained to 40 s and 81 MB,
+with the same answer. Written once, the two folds cannot disagree about the
+tree.
 
-A name found only through the bytes is where the exact lookup used to MISS, and
-a flat index entry is not a learnt structure, so `resolve` still asks the
-canonical class there (`exactNaming`'s `byBytes`): it holds the learnt member
-that leads somewhere, when there is one. The store holds such byte-only names
-from an earlier deposit path (today's deposits always intern the structure
-beside the flat copy), which is why `test/152` builds the state through the
-store's write API.
+## The read side names as the write side names
 
-One stored turn of the same set still does not resolve: its context was stored
-with cuts at the ends of the conversation's EARLIER contexts (103 and 227 bytes
-into a 257-byte context) — a boundary-imposed shape neither today's deposit path
-nor the training-time one produces from these bytes, and that the read side
-could reproduce only by guessing turn boundaries, which this contract forbids.
+The store's `intern` names a branch by its children first. When the children
+name nothing, it reuses the flat node over the same bytes ("same bytes, same
+node"). Deposits intern flat nodes, so a later deposit's branch is often stored
+as an earlier deposit's window: `ver` + `!` is stored as the window `ver!`.
+`branchNaming` (`mind/primitives.ts`) applies the same order on the read side,
+in `exactNode` and `foldTree`, and an unnamed child does not settle the
+question. On the 31.7M-node store, 7 of 80 dialogue turns asked verbatim used to
+resolve to nothing, costing 26–41 s each on the composition path. They now
+resolve to their own context.
 
-## Optional canonical capability
+A name found only through the bytes is a flat entry, not a learnt structure. In
+that case `resolve` also asks the canonical class (`exactNaming`'s `byBytes`)
+for the member that leads somewhere. That class is an optional capability
+(`store.md`), and its candidates are hash-then-verified.
 
-`canonAdd`/`canonFind` (`src/store.ts` — `canonCount`/`eachContent`) is an
-optional backend capability. A backend may omit all four; resolution then has no
-equivalence fallback. The store never learns the equivalence — the canonicalizer
-(`Canon` in `src/canon.ts`, e.g. `textCanon`) is injected by the caller and
-every candidate is hash-then-verified (re-canonicalize stored bytes, compare). A
-hash collision costs a read, never a wrong id.
+Known limit: a context stored with cuts at the ends of earlier turns does not
+resolve. No current deposit path produces that shape, and reproducing it would
+mean guessing turn boundaries, which this contract forbids.
 
-## Cost of changing the cut distribution
+## Canonical windows — finding a span whatever the fold did
 
-The cut rate, which bits are read, `minLen`/`maxLen`, and the forced cut at
-`maxLen` set the segment distribution every downstream mechanism is fitted to.
-Each has been changed experimentally and cost 5–21 tests (rate: 15–18, bits:
-19–21, normalized chunking: 5–6). `W-1` is the minimum (one window minus one);
-`seats.length` is the maximum (one flat node folds exactly one segment). The
-forced cut is load-bearing — relaxing it to reduce the current 32% forced rate
-looked like a tidying but broke the same suites. Re-measure the whole suite for
-any change here.
+Besides its tree, every deposit interns flat nodes:
+
+- its whole stream;
+- each window of `W−1` and `W` bytes, contained by the chunks it overlaps
+  (`canonicalWindows`, `indexSubSpans`).
+
+Recognition's canonical reading chains these windows up to `chainReach = W²`
+leaf ids from a position. This write/read pair finds a form embedded at an
+offset where the question's own cuts do not line up with it (`canonical.ts`).
+
+## Incremental folds — reuse is not boundaries
+
+`contentFoldIncremental` reuses already-folded segments of a byte-identical
+prefix. The result is the cold fold's tree, so the reuse changes cost only. It
+is the only fold any internal path computes: `perceiveDeposit` keys the reuse on
+the prefix bytes, and a conversation advances only by appending.
+
+`stablePrefixFold` is a separate, public geometry capability. It takes cuts
+supplied by the caller and nests them to the left, so that each prefix root is
+an identical subtree inside the grown stream. No path inside the mind supplies
+such cuts, and confusing the two capabilities is how an imposed boundary set
+once reached inference.
+
+Both capabilities require `prev` to be a fold of a byte-identical prefix. Reuse
+is keyed on offsets, and offsets cannot witness that the bytes agree: a
+mismatched `prev` produced a wrong tree on 336 of 400 random streams. A caller
+that cannot prove its prefix must pass no `prev`.
 
 ## Pins
 
-- `test/59` — shift invariance floors (content-defined cuts preserved over
-  random binary and prose).
-- `test/63` — offset/W invariance and `contentLevels` distribution expectations.
-- `test/148` — the identity fold names exactly what the vector fold names (every
-  sub-span of corpus and noise), and groups exactly as it does over long
-  low-entropy streams that force the `itemKey` split.
+- `test/59` — shift invariance: content-defined cuts survive shifts in random
+  binary and in prose.
+- `test/63` — offset and `W` invariance, and the expected `contentLevels`
+  distribution.
+- `test/148` — the identity fold names exactly what the vector fold names, and
+  groups as it does over long low-entropy streams that force the `itemKey`
+  split.
 - `test/152` — a deposit stored through an earlier deposit's flat window
-  resolves to its own context, both folds name it, and it is answered on the
-  exact path.
-
-See:
-`src/geometry.ts:contentLevels`/`contentBoundaries`/`contentFoldIncremental`/`stablePrefixFold`/`contentIdentity`;
-`AGENTS.md` §2 invariants.
+  resolves to its own context, and is answered on the exact path.

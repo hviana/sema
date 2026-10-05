@@ -122,18 +122,17 @@ export async function deposit(
   { tree: Sema; rootId: number; ids: Map<Sema, number>; changed: Sema[] }
 > {
   const bytes = inputBytes(ctx, input);
-  // Deposit-shaped perception: stable-prefix tree SEEDING (see
-  // perceiveDeposit) — an accumulated context re-folds only its new suffix,
-  // O(turn) instead of O(context) per conversation turn.  Cache-only here
-  // (no store-probe fallback): a knownPrefixLength scan on every novel fact
-  // would cost O(n²) hashing, while conversation replays are always warm —
-  // re-deposition replays from the first turn, rebuilding the cache as it
-  // goes.  `conversational` scopes the STABLE-PREFIX variant (turn-boundary
-  // folding, matching query-time perception) to ingestPair's own growing
-  // context argument — a bare ingestOne deposit whose bytes merely happen
-  // to extend an earlier UNRELATED deposit (no conversational relationship)
-  // must keep the plain fold, or two coincidentally-prefix-sharing facts
-  // would stop sharing structure with each other.
+  // Deposit-shaped perception (perceiveDeposit): the plain content fold, the
+  // same tree inference computes for these bytes.  An accumulated context
+  // reuses the already-folded segments of its cached prefix
+  // (contentFoldIncremental), so it re-folds only its new suffix — O(turn)
+  // instead of O(context) per conversation turn.  The reuse is transparent:
+  // a hit saves time and never changes the tree.  Cache-only here (no
+  // store-probe fallback): conversation replays are always warm, because
+  // re-deposition replays from the first turn and rebuilds the cache as it
+  // goes.  `conversational` only decides which deposits WRITE the cache —
+  // ingestPair's growing context, not every unrelated fact — a budget
+  // choice, not a correctness one (fold-contract.md).
   const tree = perceiveDeposit(ctx, bytes, conversational);
 
   const ids = new Map<Sema, number>();

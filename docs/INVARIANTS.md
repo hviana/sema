@@ -1,19 +1,37 @@
-# INVARIANTS — Laws, Proofs, Derivations
+# INVARIANTS — Where Each Law Lives and What Pins It
 
-| #  | Law                                  | Defined in                                                                                                                                                             | Pins                           | Doc                       |
-| -- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------- |
-| 1  | Determinism                          | `src/config.ts:seed` `src/alphabet.ts:Alphabet` `src/mind/traverse.ts:guidedFirst`                                                                                     | `test/20` `test/42`            | `determinism.md`          |
-| 2  | Derived thresholds                   | `src/geometry.ts:mergeThreshold,identityBar,reachThreshold,significanceBar,consensusFloor,dominates`                                                                   | `test/64` `test/40`            | `thresholds.md`           |
-| 3  | Exact decides / approximate proposes | `src/mind/primitives.ts:resolve` `src/mind/match.ts:locate,alignGraded` `src/mind/resonance.ts:bridge`                                                                 | `test/51`                      | `exact-vs-approximate.md` |
-| 4  | One cost currency                    | `src/mind/graph-search.ts:MICRO,STEP,CONCEPT,PASS` `src/derive:lightestDerivation` (min,+) `src/mind/attention.ts:poolVotes` (+,+)                                     | `test/55` `test/04`            | `cost-model.md`           |
-| 5  | Bounded reads                        | `src/store.ts:AbstractStore:nextFirst,parentsFirst,containersSlice,hasNext,bytesPrefix` `src/mind/traverse.ts:hubBound,hubCap`                                         | `test/90` `test/14`            | `bounded-reads.md`        |
-| 6  | Fold contract                        | `src/geometry.ts:contentLevels,contentIdentity` `src/mind/primitives.ts:branchNaming` `src/mind/canonical.ts:canonicalWindows,chainReach` `src/canon.ts:canonicalizer` | `test/59` `test/63` `test/152` | `fold-contract.md`        |
-| 7  | Mechanism market                     | `src/mind/pipeline-mechanism.ts:PipelineMechanism,Precomputed` `src/mind/pipeline.ts:think,worthRunning`                                                               | `test/01` `test/04` `test/153` | `mechanism-market.md`     |
-| 8  | Two commonality measures             | `src/mind/traverse.ts:reachOf,dominates,corpusN` (global) `cast.ts:depth[],MIN_WEAVE` (weave-local)                                                                    | `test/17` `test/34`            | `commonality.md`          |
-| 9  | Memoization idempotence              | `src/mind/pipeline-mechanism.ts:Precomputed` `src/mind/mind.ts:beginResponse,endResponse,_resolvedSubtrees`                                                            | `test/42`                      | `memoization.md`          |
-| 10 | Caches as budgets                    | `src/store.ts:BoundedMap` `src/config.ts:StoreConfig:bytesCacheMax,recCacheBytes,haloCacheBytes`                                                                       | `test/96` `test/91`            | `caches.md`               |
-| 11 | Honest degradation                   | `src/mind/pipeline.ts:weight=moves+PASS*unaccounted` `src/store.ts:BoundedMap:miss→re-derive`                                                                          | `test/28` `test/84`            | `store.md`+`caches.md`    |
-| 12 | Meter contracts                      | `src/meter.ts:Meter,PhaseCost,time` `src/mind/pipeline-mechanism.ts:Precomputed.shared`                                                                                | `test/55`                      | `meter.md`                |
-| 13 | Saturation                           | `traverse.ts:edgeAncestors,types.ts:SaturationReason` `src/mind/junction.ts:junctionContainersFrom` `src/mind/resonance.ts:pivotInto`                                  | `test/27` `test/16`            | `saturation.md`           |
-| 14 | Closure                              | `src/mind/derivation.ts:admissible,advance,closeOver`                                                                                                                  | `test/133`–`151`               | `closure.md`              |
-| 15 | Witnessed evidence                   | `src/mind/evidence.ts:witness,windowIndex` `src/mind/traverse.ts:chooseNext,askedEvidence,namedContinuations,answersOtherQuestions,coInstanceFiller,scaffoldExtents`   | `test/154`, `test/155`         | `evidence.md`             |
+`AGENTS.md` §2 names the five invariants that every change must keep. This table
+routes all fifteen laws (numbered as in `INDEX.md`) to the code that defines
+them and the tests that fail when they break.
+
+| #  | Law                    | Defined in                                                                                                                                 | Pins                                         |
+| -- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| 1  | Determinism            | `config.ts` (`seed`), `alphabet.ts`, `traverse.ts` (`guidedFirst`, `chooseNext`)                                                           | `test/20`, `test/42`                         |
+| 2  | Derived thresholds     | `geometry.ts`, `traverse.ts` (`corpusN`, `hubBound`, `atomReach`), `canonical.ts` (`chainReach`)                                           | `test/40`, `test/64`, `test/78`              |
+| 3  | Exact decides          | `mind/primitives.ts` (`resolve`, `exactNode`), `match.ts` (`locate`, `alignGraded`), `resonance.ts` (`bridge`), `attention.ts`             | `test/51`, `test/56`                         |
+| 4  | One cost currency      | `graph-search.ts` (`MICRO`, `STEP`, `CONCEPT`, `PASS`), `src/derive` (min, +), `attention.ts` (`poolVotes`, +, +), `pipeline.ts` (`weigh`) | `test/04`, `test/55`, `test/151`             |
+| 5  | Match → project → gate | `match.ts`                                                                                                                                 | `test/24`, `test/47`, `test/76`              |
+| 6  | Mechanism market       | `pipeline-mechanism.ts` (`PipelineMechanism`, `Precomputed`), `pipeline.ts` (`think`, `worthRunning`)                                      | `test/01`, `test/04`, `test/153`             |
+| 7  | Commonality            | `traverse.ts` (`reachOf`, `dominates`, `hubWindows`), `cast.ts` (`depth[]`, `MIN_WEAVE`), `bridge.ts` (rarity)                             | `test/17`, `test/34`, `test/73`              |
+| 8  | Bounded reads          | `store.ts` (`*First`, `containersSlice`, `has*`, `bytesPrefix`, `chainRun`), `traverse.ts` (`hubBound`, `hubCap`)                          | `test/14`, `test/89`, `test/90`, `test/119`  |
+| 9  | Store                  | `store.ts` (`AbstractStore`, `intern`), `store-sqlite.ts`                                                                                  | `test/02`, `test/08`, `test/36-bloom`        |
+| 10 | Fold contract          | `geometry.ts` (`contentLevels`, `contentIdentity`), `primitives.ts` (`branchNaming`), `canonical.ts`, `canon.ts`                           | `test/59`, `test/63`, `test/148`, `test/152` |
+| 11 | Memoization            | `pipeline-mechanism.ts` (`Precomputed`), `mind.ts` (`beginResponse`, `endResponse`)                                                        | `test/42`, `test/155.4`                      |
+| 12 | Saturation             | `traverse.ts` (`edgeAncestors`), `junction.ts` (`junctionContainersFrom`), `resonance.ts` (`pivotInto`), `types.ts` (`SaturationStop`)     | `test/16`, `test/27`, `test/34`, `test/49`   |
+| 13 | Meter                  | `meter.ts`, `Precomputed.shared`                                                                                                           | `test/55`                                    |
+| 14 | Closure                | `derivation.ts` (`admissible`, `advance`, `closeOver`)                                                                                     | `test/133`–`151`                             |
+| 15 | Witnessed evidence     | `evidence.ts` (`witness`, `windowIndex`), `traverse.ts` (`chooseNext`, `answersOtherQuestions`, `coInstanceFiller`, `scaffoldExtents`)     | `test/154`, `test/155`, `test/76`            |
+
+Caches (`caches.md`: every acceleration is a `BoundedMap`, and a miss
+re-derives) are pinned by `test/91` and `test/96`.
+
+## Honest silence
+
+Every law above serves one contract the code cites by this file's name: **when
+the evidence does not decide, say less, never something invented.** A budget
+that runs out abstains and is counted (`junctionBudgetExhausted`). A cache miss
+re-derives, never approximates. A question whose every window is scaffolding is
+not bridged. When nothing accounts for the question, the price makes silence the
+lightest answer, and an answer that is only near says so. A gap is honest; an
+assembly carrying content the evidence did not license is a fabrication. Pinned
+by `test/28`, `test/73` and `test/84`.

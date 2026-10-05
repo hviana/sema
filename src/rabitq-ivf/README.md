@@ -25,20 +25,23 @@ detected by length.
 - **Clusters, not a graph.** The collection is partitioned into clusters, each
   with a binary pivot code and its member codes packed in fixed-size chunk
   blobs.
-- **Insert = route + append.** Find the nearest pivot (one linear Hamming scan
-  of the RAM-resident pivot table) and append to that cluster's tail chunk. No
-  beam search, no neighbour rewiring — per-insert cost is essentially flat in
-  collection size.
+- **Insert = route + append.** Find a nearest pivot and append to that cluster's
+  tail chunk. Routing is two-level: Hamming-scan the RAM-resident majority-bit
+  super-pivots (one per 64 clusters), then the members of the 4 nearest groups.
+  There is no beam search and no neighbour rewiring, so the cost of an insert is
+  essentially flat in collection size.
 - **Query = probe + scan.** Rank all pivots with the accurate RaBitQ estimator,
   scan the `ceil(efSearch/4)` nearest clusters with the same estimator, keep the
   top k. Per-query storage reads are bounded by nprobe × chunks-per-cluster —
   constant once the collection has split.
 - **Adaptive, deterministic splits.** A cluster reaching 4096 entries is
   median-split on the margin between two farthest-point seeds (two exact halves,
-  cascade-proof), and both halves get fresh majority-bit pivots. There is no
-  RNG: the index is a pure function of the insertion sequence.
-- **Same durability discipline as the rest of Sema**: WAL, batched caller-owned
-  transactions (`upsertMany`), 1 KiB pages, 64 MiB WAL autocheckpoint.
+  cascade-proof), and both halves get fresh majority-bit pivots. Splitting and
+  routing use no randomness, and RaBitQ's rotation is seeded, so the index is a
+  pure function of the seed and the insertion sequence.
+- **The same durability discipline as the rest of Sema:** WAL, batched
+  caller-owned transactions (`upsertMany`), 1 KiB pages, 64 MiB WAL
+  autocheckpoint.
 
 ## Usage
 

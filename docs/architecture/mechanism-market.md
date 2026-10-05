@@ -1,116 +1,112 @@
-# Mechanism Market — The Free-Will Architecture
+# Mechanism Market — Many Ways of Thinking, One Price
 
-Every grounding mechanism — including the ALU and user extensions — speaks one
-interface (`mind/pipeline-mechanism.ts`). The decider in `mind/pipeline.ts`
-(`think`) holds a plain list and never branches on which mechanism it holds.
+> **Law:** every grounding mechanism, including the ALU and user extensions,
+> speaks one interface (`mind/pipeline-mechanism.ts`). The decider (`think`,
+> `mind/pipeline.ts`) weighs every candidate in one currency and never asks
+> which mechanism produced it.
 
-## Interface
+A question can be answered in several ways that are not interchangeable: compose
+it, carry structure between woven forms, intersect conditions, read a frame,
+voice a slot, recall the nearest form, complete a beginning, or compute. Sema
+keeps all of them and lets the evidence choose.
+
+## The interface
 
 ```ts
 interface PipelineMechanism {
-  parse?(query: Uint8Array): Promise<ComputedSpan[]>; // authoritative spans
-  floor(ctx, query, pre, worthRunning): Promise<number | null>; // bound or null
-  run(ctx, query, pre): Promise<MechanismResult[]>; // candidates
+  parse?(query): Promise<ComputedSpan[]>; // authoritative spans, collected before any floor
+  floor(ctx, query, pre, worthRunning): Promise<number | null>; // admissible bound, or null
+  run(ctx, query, pre): Promise<MechanismResult[]>;
 }
 interface MechanismResult {
-  bytes: Uint8Array;
-  accounted: Array<[number, number]>;
-  moves: number;
-  used?: ReadonlySet<number>;
-  scaffolding?: number;
-  provenance?: string;
-  complete?: boolean;
+  bytes;
+  accounted: Array<[number, number]>; // spans of the query explained
+  moves: number; // work done, on the cost ladder
+  used?;
+  scaffolding?;
+  provenance?;
+  complete?;
 }
 ```
 
-- `parse` is optional; all results are collected into `Precomputed.computed`
-  before any `floor`/`run`.
-- `floor` returns `null` when structurally impossible, otherwise an admissible
-  lower bound (never overstates cost).
-- `run` returns candidates with travelling evidence (below).
+`floor` returns `null` when the mechanism cannot apply. Otherwise it returns a
+lower bound that never overstates the cost.
 
-## Decider
+## The decider
 
-`think` iterates `defaultMechanisms` in list order:
+The default order is
+`cover, cast, confluence, extraction, reference, recall,
+prefix-completion`,
+then the ALU (`aluToMechanism`), then extensions. A mechanism reports what it
+did, never a price. The decider prices it in one place (`cost-model.md`):
 
 ```
-defaultMechanisms = [cover, cast, confluence, extraction, reference, recall,
-                     prefix-completion] + ALU (`aluToMechanism`) + extensions
+weight = moves + PASS · unaccountedBytes      grade = ⌊weight / STEP⌋
 ```
 
-Weight is one currency: `weight = moves + PASS · unaccountedBytes` where
-`unaccountedBytes = unexplainedSpans(query.length, accounted)`. Comparison is at
-`STEP` grade ; equal grade prefers fewer `scaffolding` bytes, then list order.
+The lowest grade wins. At equal grade, fewer `scaffolding` bytes win, then the
+earlier mechanism in the declared order.
 
 ## Four constraints
 
-1. **Decoupled** — zero cross-imports between `mind/mechanisms/*`. Adding one
-   never touches another; no mechanism asks what already decided.
-2. **Declared competence** — binary structural gates inside `floor`/`run` (query
-   length, anchor shape, weave existence). Never a learned score; rationale
-   states why a mechanism abstained.
-3. **Visible budget** — every corpus-scale loop is capped at a named constant:
-   `√N` via `hubBound`/`hubCap` and `k = 2·recallQueryK` (`Precomputed.k`).
-   Enforced at the store.
-4. **Evidence travels** — every candidate carries `accounted` (query spans
-   explained) and `moves` (priced on `MICRO/STEP/CONCEPT/PASS`); optionally
-   `scaffolding` (answer bytes from unrecognised spans — equal-grade tie-break),
-   `complete` (trained-form continuation reached via identity; post-grounding
-   must not extend) and `provenance`. The decider honours them without knowing
-   who set them.
+1. **Decoupled.** No mechanism imports another or asks what already decided.
+   Adding one touches no other.
+2. **Declared competence.** A mechanism abstains through binary structural gates
+   (query length, anchor shape, whether a weave exists), never through a learned
+   score, and the rationale says why it abstained.
+3. **Visible budget.** Every loop at corpus scale is capped by a named bound:
+   `hubBound`, or `Precomputed.k = 2·recallQueryK` (`bounded-reads.md`).
+4. **Evidence travels.** A candidate carries:
+   - `accounted` and `moves`;
+   - optionally `scaffolding`, the answer bytes lifted from unrecognised spans,
+     which only breaks ties;
+   - `complete`, a continuation reached by identity, which nothing after
+     grounding may extend;
+   - `used`, the anchors it speaks for;
+   - `provenance`.
+
+   The decider honours all of these without knowing who set them.
 
 ## Two disciplines
 
-- **Admissible-floor pruning.** `floor` runs for every mechanism in list order
-  before any `run`. `run` fires only if `worthRunning(floor)` where
-  `worthRunning = (floor) => best === null || grade(floor) < grade(best.weight)`.
-  Cover runs first so a near-zero-cost computed span prunes the rest through the
-  same mechanism — not a special case.
+**Never compute what cannot change the decision.** `floor` runs for every
+mechanism before any `run`, and a mechanism runs only if
+`worthRunning(floor) = best === null || grade(floor) < grade(best)`. Every
+`floor` that would first touch an expensive shared analysis (`attention()`,
+`weave()`, `resonance()`) asks `worthRunning` first, and returns its uninvested
+bound if it would lose. `cast.ts` and `extraction.ts` are the references.
 
-- **A cheaper bound is looked at first.** Before mechanism `m` first-touches
-  anything, every LATER mechanism whose floor grade is strictly below `m`'s runs
-  ahead of it (cheapest first); the lowest grade they reach is `bound`, and any
-  mechanism floored above `bound` is skipped (`meter.mechanismsBounded`). The
-  bound is learnt by calling `floor` with a `worthRunning` that refuses — the
-  investment discipline makes that free. The DECISION is the declared order's: a
-  run-ahead mechanism bounds the final grade whether or not the declared order
-  would have run it (if pruned, the incumbent already sat at or below its
-  floor); every candidate above `bound` loses to the winner, and every mechanism
-  floored at or below it meets the same run-or-prune decision, so `consider`
-  replays the same candidates in declared order. Equal floors are not skipped,
-  so an earlier mechanism keeps the tie it would win. Running ahead is never
-  extra work: only a mechanism floored at or below `p` can prune `p`, and each
-  such mechanism has already run or runs ahead of `p`. Measured on the
-  31.7M-node store: a lowercased Persian turn (#83) went from 18.0 s to 1.2 s,
-  and #114 from 1.9 s to 0.7 s. In both, a grade-1 recall or prefix answer no
-  longer waits behind CAST's climb and weave. Of 42 composition-regime queries,
-  none changed its answer.
+**Look at a cheaper bound first.** Before a mechanism first touches anything,
+every later mechanism whose floor grade is strictly lower runs ahead of it,
+cheapest first. The lowest grade they reach becomes a bound, and any mechanism
+floored above that bound is skipped (`meter.mechanismsBounded`). The decision
+stays the declared order's:
 
-- **Investment discipline.** `worthRunning` is passed _into_ `floor`. A floor
-  that would first-touch an expensive shared analysis (`pre.attention()` climb,
-  `pre.weave()`, `pre.resonance()`) checks `worthRunning(cheapestBound)` first
-  and returns the uninvested bound if it loses. Never compute a shared analysis
-  just to discard it. `cast.ts`/`extraction.ts` are the references.
+- every candidate above the bound loses to the winner;
+- every mechanism at or below the bound meets the same decision it would have
+  met in order;
+- equal floors are never skipped.
 
-## Accounting
+This is never extra work. On the 31.7M-node store a lowercased Persian turn went
+from 18.0 s to 1.2 s, and another query from 1.9 s to 0.7 s, because a grade-1
+recall no longer waited behind CAST's climb. Of 42 composition queries, none
+changed its answer.
 
-- **Extraction:** located frames are always evidence; the span between them
-  counts only when _both_ borders were located. An open-ended read is priced by
-  exclusion (`PASS`/byte).
-- **Reverse reading:** `reverseContext` produces bytes but explains nothing
-  forward: `accounted = []`, weight ≈ `PASS·|query|` — last resort by
-  arithmetic, not rule.
-- **Paid acts are accounted:** the bridge's corroborated substitutions cost
-  `CONCEPT` each in `moves`, so their spans must be `accounted`; otherwise the
-  same act is charged twice (`PASS`/byte dominates).
+## Accounting rules
 
-`accounted` is a cost-ladder quantity; `cover.ts` leaves masked computed spans
-out so `PASS`-bridged bytes are still charged. `narrowDecision` and
-`thinGrounding` are observational only.
+- **Extraction.** Located frames are evidence. The span between two frames
+  counts only when both borders were located, and an open-ended read is priced
+  by exclusion.
+- **Reverse reading.** `reverseContext` produces bytes but explains nothing
+  forward, so `accounted = []`. It is the last resort by arithmetic, not by
+  rule.
+- **A paid act is accounted.** The bridge charges `CONCEPT` per substitution, so
+  the substituted spans are `accounted`. Otherwise one act is charged twice, and
+  `PASS` per byte decides against it.
 
 ## Pins
 
-- `test/01-floor` — floor geometry.
-- `test/04-think` — decider, admissible pruning, investment discipline.
-- `test/153` — run-ahead bounds: the composition market is skipped below CAST's
-  floor, and the decision equals a declared-order oracle.
+- `test/01` — the floor's geometry.
+- `test/04` — the decider, admissible pruning and the investment discipline.
+- `test/153` — the run-ahead bound: a mechanism floored above it is skipped, and
+  the decision equals the declared-order oracle.

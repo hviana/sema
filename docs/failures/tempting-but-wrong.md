@@ -22,171 +22,145 @@ discovering bugs:**
   breaker; it can cause truncation and is not necessarily a budget-related
   measure. Therefore, it must be used wisely.
 
-### 1. `score >= threshold` decides identity
+Each trap below was tried, looked like an improvement, and was measured wrong.
+The laws themselves live in `docs/architecture/`; this file keeps only the
+shortcuts that pass review and fail the evidence.
 
-- **WRONG:** Treat a RaBitQ cosine above a cutoff as proof the bytes are the
-  same node.
-- **WHY:** Scores are estimates that rank and gate; they never decide identity
-  (`AGENTS §2` Invariant 3 — Exact decides / approximate proposes).
-- **CORRECT:** Gate with the score, decide with
-  `resolve`/`findLeaf`/`canonResolve` and re-fold verification. Pinned by
-  `test/51-structural-resonance-ladder.test.mjs` and
-  `test/56-bridge-identity-admission.test.mjs`.
+### 1. Telling the fold where the boundaries are
 
-### 2. `Math.random()` / `Date.now()` on a behavioural path
+- **Tempting:** cut a conversation at its turns before folding, or stamp a
+  deposit as "the next turn" so its prefix is reused.
+- **Refuted:** a cut the question cannot reproduce from its own bytes splits one
+  identity in two. Alignment went quadratic (5.2M cells against 0), and turns
+  asked verbatim stopped resolving. Reusing a `prev` that was not a
+  byte-identical prefix gave a wrong tree on 336 of 400 streams.
+- **Instead:** the content decides every cut, and reuse is keyed by the prefix
+  bytes (`fold-contract.md`; `test/59`, `test/63`, `test/152`).
 
-- **WRONG:** Sample randomness or wall-clock time in grounding, indexing, or
-  tie-breaking.
-- **WHY:** Determinism is the product: same seed + deposit order + query ⇒
-  identical bytes (`AGENTS §2` Invariant 1).
-- **CORRECT:** Derive all randomness from `MindConfig.seed` via `rng`/`Prng`;
-  keep `example/train_base` as the only non-library exception. Pinned by
-  `test/20-stability.test.mjs` and
-  `test/42-recognise-trace-idempotence.test.mjs`.
+### 2. Asking the vector index whether two branches are the same
 
-### 3. Last-inserted tie-break
+- **Tempting:** at intern, probe the ANN index for a near-duplicate to merge.
+- **Refuted:** it was the dominant training cost, and the 1-bit code ranked a
+  byte-distinct branch as nearest, so two different subtrees collapsed onto one
+  id.
+- **Instead:** exact dedup, then same-bytes reuse, then a near merge against the
+  write buffer only, decided by bytes (`store.md`; `test/02`).
 
-- **WRONG:** Break equal-rank ties by picking the most recently inserted
-  edge/node.
-- **WHY:** Tie-breaks must be corpus-determined and stable; last-inserted is
-  recency-dependent (`AGENTS §2` Invariant 1 — first-inserted fallback).
-- **CORRECT:** `guidedFirst`/`chooseNext`/`chooseAmong`: rank then
-  first-inserted (lowest node id / `LIMIT 1` insertion order). Pinned by
-  `test/03-recall.test.mjs` determinism suites.
+### 3. Reading one population's cut with another population's measure
 
-### 4. Tunable threshold in `config.ts`
+- **Tempting:** "common" is common, so corpus reach can decide CAST's frame,
+  weight can stand for distinct structures, and a window's containers can stand
+  for the contexts it reaches.
+- **Refuted:**
+  - corpus reach for the cohort's frame failed the reorder probe (`test/17`);
+  - counting weight instead of distinct structures gave 29/42 against 6/42;
+  - container fan-out read as a hub called `fran` saturated, though it sits in 4
+    containers and reaches only 2 contexts (`test/49`).
+- **Instead:** name the population; three measures, never substituted
+  (`commonality.md`, `saturation.md`).
 
-- **WRONG:** Add a new `threshold: number` to `src/config.ts` and tune it.
-- **WHY:** Every cutoff is a formula over `D`, `W`, or `N` in `src/geometry.ts`;
-  config holds only capacities/budgets (`AGENTS §2` Invariant 2 — Derived
-  thresholds).
-- **CORRECT:** Add `mergeThreshold`/`identityBar`/`significanceBar` etc.
-  derivation in `geometry.ts`; `traverse.ts:hubBound` for scale caps. Pinned by
-  `test/64-two-ended-thresholds.test.mjs` and
-  `test/40-choosenext-scale-guard.test.mjs`.
+### 4. Inventing a bar, or reusing one for a different quantity
 
-### 5. Tuning `PASS` to encode policy
+- **Tempting:** a new number fitted to the case at hand, or a derived bar reused
+  elsewhere because it is derived.
+- **Refuted:** `consensusFloor` is priced for pooled votes, and gating a single
+  fact's support with it refused clear corroboration at N≈325K. A fixed identity
+  cosine tolerates four foreign windows on a long span.
+- **Instead:** a bar is never a new number. Derive it from `D`, `W` and `N` for
+  the quantity it gates (`thresholds.md`; `test/40`, `test/64`).
 
-- **WRONG:** Raise/lower `PASS` (1000/byte) so "computation always wins" or
-  another preference falls out of pricing.
-- **WHY:** The ladder's order `MICRO < STEP < CONCEPT < PASS` is the contract;
-  policy is enforced by masking, not pricing (`AGENTS §2` Invariant 4 — One cost
-  currency; `docs/architecture/cost-model.md` § Policy is not cost).
-- **CORRECT:** Keep `PASS` dominating; enforce precedence in the caller (e.g.
-  `cover.ts` masks recognised sites overlapped by `ComputedResult`). Pinned by
-  `test/04-think.test.mjs` and `test/55-cost-meter.test.mjs`.
+### 5. Stopping a junction walk early
 
-### 6. Reimplementing `locate`/`align` inside a mechanism
+- **Tempting:** stop when one side's upward cone is exhausted, or borrow
+  `edgeAncestors`' lateral-cone limit.
+- **Refuted:** a junction can be reachable from one side only (`cold or hot`
+  from `cold`, while the cone of `hot` is empty), and the lateral limit
+  discarded half of the successful junctions.
+- **Instead:** per-node hub guards, plus the shared `bound·W` net
+  (`saturation.md`; `test/16`, `test/34`).
 
-- **WRONG:** Copy-paste matching logic into `mind/mechanisms/*.ts` with a
-  private gate.
-- **WHY:** Match/project/gate is factored once in `mind/match.ts` (`AGENTS §2`
-  Cross-cutting contracts; `AGENTS §3` — Where things live).
-- **CORRECT:** Configure the shared family:
-  `locate`/`alignRuns`/`alignGraded`/`frameSlots` + `follow`/`reverseContext` +
-  `isSpanShaped`/`carriesFillers` with a `geometry.ts` gate. Pinned by
-  `test/50-cast-analog-consensus-floor.test.mjs`.
+### 6. Reading company by token
 
-### 7. Putting voicing gates in `frameSlots`
+- **Tempting:** a halo of whole-partner signatures; or a sketch of depth 1; or
+  one that stops at the first unit seen twice; or one that includes byte atoms.
+- **Refuted:** in turn, these gave synonyms at 0.146 against a 0.516 bar; no
+  signal (0.0319 against a 0.0416 control); pairs that never met (0.0165 against
+  0.0375); and CAST's analogy gate silenced (0.3636 to 0.2004).
+- **Instead:** a bottom-k sketch of constituents at every depth, keyed by
+  identity, with hubs and atoms excluded (`halo-sketch.md`;
+  `test/76-type-level-company`).
 
-- **WRONG:** Make `frameSlots` refuse pairings that fail `carriesFillers` or
-  reference's four voicing conditions.
-- **WHY:** `frameSlots` reports (contracted gaps tagged
-  substitution/insertion/deletion); `carriesFillers` judges;
-  `Precomputed.frames` inventories — elects nothing (`AGENTS §2` Cross-cutting
-  contracts — `docs/architecture/match-project.md` § Frame reading).
-- **CORRECT:** Report everything in the shared layer; apply
-  `substituteAll(contA, fillersA→fillersB)==contB` and
-  frame-dominance/`W`-reach/distinctness in the consumer (reference). Pinned by
-  `test/47-cast-comparison-coverage.test.mjs`.
+### 7. Letting a fragment speak
 
-### 8. Swapping corpus-global and weave-local commonality
+- **Tempting:** a recognised form with continuations is evidence wherever it
+  appears.
+- **Refuted:** a fragment inherits the edges of every whole it sits in.
+  Witnessing `born?` named nine strangers' birthplaces, the fragment `director`
+  cancelled the argument `Man at Bath`, and `ong)?` voiced a stranger's
+  birthplace.
+- **Instead:** only deposited contexts establish anything, and a fragment that
+  answers other questions leads somewhere only when the question names one of
+  its continuations (`evidence.md`; `test/154`).
 
-- **WRONG:** Use `reachOf`/`dominates(reach,N)` to decide CAST's frame, or
-  `depth[i]`/`dominates(depth, aligned)` to decide climb/IDF.
-- **WHY:** They measure different things: global reach (minority discriminates,
-  powers climb/pooling) vs weave-local depth with `MIN_WEAVE=2` (what the local
-  cohort shares, powers CAST) (`docs/architecture/commonality.md`).
-- **CORRECT:** Climb/attention uses corpus-global;
-  `frame(i) ⇔ depth[i]>MIN_WEAVE ∧ dominates(depth[i],aligned)` for CAST. Pinned
-  by `test/50-cast-analog-consensus-floor.test.mjs` and
-  `test/67-climb-anchor-breadth.test.mjs`.
+### 8. Making scaffolding free
 
-### 9. Materialise-then-slice instead of `LIMIT ?`
+- **Tempting:** scaffolding is nobody's evidence, so charge nothing for it in
+  the market.
+- **Refuted:** dialogue answers changed (`How are you today?`), because for a
+  question made only of scaffolding, covering those bytes is the evidence.
+- **Instead:** scaffolding is nobody's debt in the derivation, while the price
+  still charges every unexplained byte (`evidence.md`).
 
-- **WRONG:** `store.next(id).slice(0, k)` or `parents(id).length` to cap a
-  fan-out.
-- **WHY:** Per-query reads must not grow with `N`; caps are enforced in SQL as
-  `LIMIT ?` / `EXISTS` probes (`AGENTS §2` Invariant 5 — Bounded reads).
-- **CORRECT:** `nextFirst`/`parentsFirst`/`containersSlice` with `hubBound`
-  (`ceil(sqrt(N))`), `hasNext`/`hasParents`/`hasHalo` probes,
-  `bytesPrefix`/`contentLen` caps, `chainRun` CTE. Pinned by
-  `test/14-scaling.test.mjs` and `test/90-connector-read-cap.test.mjs`.
+### 9. Giving a new reading its own analysis
 
-### 10. Bypassing `recogniseMemo` under trace
+- **Tempting:** a new tier climbs, resonates or aligns for itself.
+- **Refuted:** the co-instance tier's private climb added 16% climb visits and
+  named nothing. Reading the shared climb's points named the same things for
+  free.
+- **Instead:** read `Precomputed`, and add an analysis there only if none exists
+  (`memoization.md`).
 
-- **WRONG:** Skip `recogniseMemo`/`perceiveMemo`/`climbMemo` when
-  `ctx.trace !== null` to "emit more steps."
-- **WHY:** Only `guidedNext`/`sharedReachMemo` are trace-bypassed; bypassing
-  recognition re-runs `recogniseImpl` with a warm cache and changes site count —
-  31→5 observed (`AGENTS §2` Cross-cutting — `Precomputed` owns memoization;
-  `docs/architecture/memoization.md`).
-- **CORRECT:** Always consult `recogniseMemo`; `foldTree` already descends fully
-  when `visit` is present. Pinned by
-  `test/42-recognise-trace-idempotence.test.mjs`.
+### 10. Putting a consumer's gate in the shared matcher
 
-### 11. Stopping junction ascent when one cone is exhausted
+- **Tempting:** `frameSlots` refuses what `reference` would refuse anyway.
+- **Refuted:** the shared reading became shaped like `reference` and hid three
+  of four real pairings from every other consumer.
+- **Instead:** the matcher reports, the consumer judges (`match-project.md`;
+  `test/47`).
 
-- **WRONG:** Terminate the `junction.ts` walk as soon as parents or containers
-  run out.
-- **WHY:** Junction ascent climbs both cones within a bounded `√N·W` walk via
-  `WalkCache`; exhausting one cone does not imply the other is exhausted —
-  stopping early misses the shared ancestor (`AGENTS §2` Cross-cutting contracts
-  — `junction.ts` is the shared ascent; `AGENTS §3` — `WalkCache`).
-- **CORRECT:** Continue the live cone until the walk budget is spent or a
-  meeting point is found; cap reads with `hubBound`. Pinned by
-  `test/34-cross-region.test.mjs` and
-  `test/52-climb-consensus-instrumentation.test.mjs`.
+### 11. Dropping weak evidence, or crediting it as strong
 
-### 12. Imposing turn boundaries on `fold`
+- **Tempting:** remove regions shorter than one window from the climb, or count
+  them as exact because their bytes resolve.
+- **Refuted:** dropping them took the suite from 441 to 406. Crediting them as
+  exact let the 3-byte `of` lift a junk root past `consensusFloor`.
+- **Instead:** they vote on their gist and pay the margin that approximate
+  evidence pays, scaled by how much of them is not stored (`attention.ts`).
 
-- **WRONG:** Cut the byte stream at conversation turn edges before folding, so
-  deposits and queries fold differently.
-- **WHY:** Perception is a pure function of the bytes; deposit and inference
-  must compute the same tree for the same input (`AGENTS §1` Orientation — Hard
-  facts).
-- **CORRECT:** Fold content-defined cuts (`contentLevels` in `geometry.ts` +
-  `twoEndedSeat`); turns are API state in `mind/mind.ts`, not segmentation.
-  Pinned by `test/59-fold-invariance.test.mjs` and
-  `test/63-fold-invariants.test.mjs`.
+### 12. Trying the exact supply first, then the approximate
+
+- **Tempting:** a chain of `exact ?? approximate` supplies.
+- **Refuted:** the approximate tier then overrides an ambiguity the exact one
+  found. For prefix completion, two forms opened by the index must refuse,
+  whatever resonance ranks first.
+- **Instead:** one union, decided once by the guards (`prefix-completion.md`;
+  `test/72`).
 
 ### 13. Capping a combinatorial explosion instead of budgeting it
 
-- **WRONG:** Answer a combinatorial explosion with a geometry-derived limit — a
-  cap on the pairs a sweep enumerates, the continuations a hop may offer, the
-  candidates a scan probes. A derived limit is the right cutoff for a DECISION;
-  used as the answer to explosion it is a short-circuit.
-- **WHY:** It stops the computation silently. Reach is lost, the capability that
-  depended on it goes with it, and no test fails, because the tests were written
-  against the capped behaviour. Capping and removing the cap are both wrong:
-  capping truncates, removing lets the cost run, and the two failure modes hide
-  each other.
-- **CORRECT:** BUDGET it. The work is charged in the one currency
-  (`MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`, see
-  `docs/architecture/cost-model.md`), the charge is visible in the meter and the
-  rationale, and the SEARCH decides whether the work is worth paying — so
-  inference is never locked by a limit and nothing is truncated in silence.
-  Where the work is mechanical rather than evidential — enumeration, scans,
-  sweeps — the answer is an algorithm whose cost is structural in the bytes it
-  is given, not a smaller cap.
-- **THE IDEAL:** a universal **closure engine** — one law of closure, stated in
-  the quantities the machine already has (`leadsSomewhere`, the
-  exact-then-canonical identity, `accounted` bytes, the ladder, `hubBound`),
-  from which the reach of a gap, the offer of a hop, the depth of a join and the
-  scope of a substitution are CONSEQUENCES, not four separate decisions. Where
-  the repository stands against it — the engine (`closeOver`), which of the four
-  follow from the law, and the one that does not, with the reason — is stated in
-  `docs/architecture/closure.md`, and nowhere else.
-- **THE STANDARD A CHANGE MUST MEET:** state which consequence it is, and show
-  it following from the law. A change that cannot be stated that way is not
-  ready.
+- **Tempting:** answer an explosion with a derived limit: a cap on the pairs a
+  sweep enumerates, the continuations a hop offers, the candidates a scan
+  probes.
+- **Refuted:** a cap stops the computation silently. Reach is lost, the
+  capability that depended on it goes with it, and no test fails, because the
+  tests were written against the capped behaviour. Capping truncates; removing
+  the cap lets the cost run; each failure hides the other.
+- **Instead:** budget it. Charge the work in the one currency, make it visible
+  in the meter and the rationale, and let the search decide whether it is worth
+  paying (`cost-model.md`). Where the work is mechanical (enumeration, scans,
+  sweeps), the answer is an algorithm whose cost is structural in its input, not
+  a smaller cap. The ideal is one closure law from which the reach of a gap, the
+  offer of a hop, the depth of a join and the scope of a substitution follow as
+  consequences. Where the repository stands against that ideal is stated in
+  `closure.md`, and nowhere else. A change must state which consequence it is,
+  and show that it follows from the law.

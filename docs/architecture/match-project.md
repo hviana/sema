@@ -1,61 +1,70 @@
 # Match → Project → Gate
 
-Every grounding mechanism is a configuration of one shared operation in
-`src/mind/match.ts`. The family is defined once and imported many times;
-duplicating it forks the corpus contract, moving it hides who owns the gate.
+> **Law:** every grounding mechanism is a configuration
+> `(matcher, direction, gate)` over one shared family in `src/mind/match.ts`.
+> The family reports and moves. Only the consumer that speaks decides whether a
+> shape may be voiced.
 
-## The shared family in `mind/match.ts`
+## The family
 
-The match layer locates structure, the project layer moves along the store, and
-the gate layer decides whether the shape licences voicing. All three are pure
-functions over bytes and the store — no mechanism owns a private copy.
+**Match: where the question sits in a learnt form.**
 
-## The triple
+- `locate` — the graded ladder, exact bytes → halo role → gist
+  (`exact-vs-approximate.md`).
+- `alignRuns` — literal `W`-gram runs, the weave.
+- `alignGraded` — literal runs plus halo-matched sites and climb proposals.
+- `alignAround` / `frameSlots` — a seeded frame whose gaps are contracted.
+- `bestHaloMate` — the best halo match within a list.
+- `analogyStrength` / `sharedFrameStrength` — distributional and structural
+  analogy.
 
-| Role                          | Symbols                                                                                                                                                                                                                                                                                          | What it does                                                                            |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| **Match** (locate structure)  | `locate` (exact → halo → gist ladder), `alignRuns` (literal W-gram weave), `alignGraded` (literal + halo gaps), `alignAround` / `frameSlots` (seeded frame with contracted gaps), `bestHaloMate` (in-list halo), `analogyStrength` / `sharedFrameStrength` (distributional + structural analogy) | Finds where a query sits in a learnt form.                                              |
-| **Project** (direction)       | `follow` (forward to fixpoint, first hop may `conceptHop`), `reverseContext` (reverse to context), `project` (forward else reverse), `conceptHop` (halo sibling with edge)                                                                                                                       | Moves along the store from the match — forward toward answers, reverse toward contexts. |
-| **Gate** (structural licence) | `isSpanShaped` (OPEN reading — sparse subsequence), `containsSpan` (STRICT reading — contiguous run or resolved node), `skillExemplar` (anchor → context + answer), `carriesFillers` (substitution carriage — strict voicing licence)                                                            | Two readings; not interchangeable.                                                      |
+**Project: which way to move along the store from the match.**
 
-Mechanisms declare only `(matcher, direction, gate)`. Thresholds behind gates
-live in `src/geometry.ts` — the match layer never invents a cutoff.
+- `follow` — forward to a fixpoint. The first hop may be a `conceptHop`, which
+  borrows a halo sibling's edge.
+- `reverseContext` — backward, to a context.
+- `project` — forward, else backward.
 
-The graded ladder inside `locate` is exact → distributional → geometric:
-content-addressed identity first, halo similarity second, gist resonance last.
-Reordering the ladder or letting an approximate score override an exact hit is a
-correctness bug (see `exact-vs-approximate.md`).
+**Gate: whether the shape licenses voicing.** There are two readings of
+"contained", and they are not interchangeable:
 
-## Frame reading — matcher reports, gate judges, inventory elects nothing
+- `isSpanShaped` — the open reading: a sparse subsequence.
+- `containsSpan` — the strict reading: a contiguous run, or a resolved node.
 
-`frameSlots` is the shared frame reader. It contracts every gap via
-`contractGap` to its varying core, tags it `substitution` / `insertion` /
-`deletion`, and attaches `covered` — the bytes the frame accounts for. It
-applies no gate; it reports.
+Two more gate functions: `skillExemplar` maps an anchor to its context and
+answer, and `carriesFillers` is the substitution licence.
 
-`carriesFillers` is the substitution gate. It judges byte-exactly:
+Every threshold behind a gate is derived in `geometry.ts`. The match layer never
+invents a cutoff.
 
-```
-substituteAll(contA, fillersA → fillersB) == contB
-```
+## Frame reading — the matcher reports, the gate judges, the inventory elects nothing
 
-If the equality holds, voicing through the slot is a derivation; if not, the
-slot cannot carry. This is the only place that decision is made.
+- **`frameSlots` reports.** It contracts every gap to its varying core
+  (`contractGap`), tags it as a `substitution`, `insertion` or `deletion`, and
+  attaches `covered`, the bytes the frame accounts for. It applies no gate.
+- **`carriesFillers` judges, byte for byte:**
+  `substituteAll(contA, fillersA → fillersB) == contB`. If the equality holds,
+  voicing through the slot is a derivation. This is the only place that decision
+  is made.
+- **`Precomputed.frames` is the inventory.** It enumerates every pairing and
+  elects nothing.
 
-`Precomputed.frames` is the inventory. It enumerates every frame pairing the
-match layer finds and elects nothing — ranking and refusal belong to the
-consumer.
+## Why gates belong to the consumer
 
-## Voicing gates belong to the consumer
+A gate placed in the shared layer refuses on everyone's behalf. When
+`reference`'s voicing gates lived in `frameSlots`, the shared reading became
+shaped like `reference`, and it hid three of four real pairings from every other
+consumer, including a definite description standing where a noun stands. So each
+consumer owns its own refusal:
 
-The shared layer never refuses on a consumer's behalf. Reference owns its four
-gates: frame dominates the query, each slot reaches `W` on both sides, no
-insertion/deletion, fillers pairwise distinct — plus `carriesFillers` on the
-chosen pair. CAST, recall, and cover each apply their own gate over the same
-shared inventory. Moving a gate into `match.ts` would hide who owns the refusal.
+- `reference` requires that the frame dominates the query, every slot reaches
+  `W` on both sides, there are substitutions only, the fillers are distinct, and
+  `carriesFillers` holds.
+- CAST, `recall` and `cover` apply their own gates to the same inventory.
 
 ## Pins
 
-- `test/47` — frame reading split (matcher vs gate vs inventory).
-- `test/50` — CAST / reference voicing via `carriesFillers`.
-- `test/24` / `test/76` — match/project family and span-shape readings.
+- `test/47` — the frame reading split into matcher, inventory and gate.
+- `test/50` — voicing through `carriesFillers` in CAST and `reference`.
+- `test/24`, `test/76` — the match and project family and its span-shape
+  readings.

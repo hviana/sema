@@ -1,73 +1,61 @@
-# Determinism — Same Seed + Same Deposits + Same Query ⇒ Same Bytes
+# Determinism — Same Seed, Same Deposits, Same Question, Same Bytes
 
-## The law
+> **Law:** the same `seed`, the same deposit order and the same query give a
+> byte-identical answer. Every path that can reach output is a function of
+> `(seed, store contents, query bytes)`.
 
-> Same `seed` + same deposit order + same query ⇒ byte-identical answer.
+**Why.** An answer meant to be audited, contested or certified must replay.
+Reproducibility is a property of the architecture, not a flag.
 
-Determinism is the product. Every code path that can reach output must be
-deterministic given `(seed, store contents, query bytes)`.
+## Forbidden on a behavioural path
 
-## Forbidden
+- `Math.random` and `Date.now`.
+- Iteration over an unordered collection whose order can reach output.
 
-No `Math.random` or `Date.now` in behaviour, and no iteration over unordered
-collections where order can reach output. Example-only uses
-(`example/train_base`) are outside the library contract. If a test becomes
-flaky, the contract was broken, not the test.
+If a test becomes flaky, the contract was broken, not the test. Uses inside
+`example/` are outside the library contract.
 
 ## All randomness flows from `seed`
 
-`MindConfig.seed` (`src/config.ts:resolveConfig`, `DEFAULT_CONFIG`) is the sole
-entropy root. Subsystems derive deterministically:
+`MindConfig.seed` (`config.ts`) is the only entropy root:
 
-- **Alphabet** — `Alphabet` (`src/alphabet.ts`) via `rng` (`src/vec.ts:rng`)
-  seeded as `seed ^ seedMask`; builds 16→64→256 vectors.
-- **Keyring / Space** — `Space.seats` (`src/sema.ts:Space`) via `makeKeyring`
-  (`src/vec.ts:makeKeyring`) and `rng` seeded from `seed` in `Mind`
-  (`src/mind/mind.ts`); `fold`/`twoEndedSeat`/`companySignature` are pure over
-  `Space`.
-- **Vector indexes** — `VectorDatabase` (`src/rabitq-ivf/src/database.ts`) and
-  `Prng` (`src/rabitq-ivf/src/rabitq.ts`) seeded from config; insertion order is
-  the stored order, not a random choice.
+- the **alphabet** (`alphabet.ts`) is drawn from `rng(seed ^ seedMask)`;
+- the **keyring of seats** (`makeKeyring`) is drawn from the seed in `Mind`;
+- the **vector indexes** (`rabitq-ivf`) are seeded from config, and insertion
+  order is their stored order;
+- **company signatures** are seeded by node id (`companySignature`), not by the
+  seed or by observation order. That is why halo comparisons survive a change of
+  seed while gist comparisons do not (`halo-sketch.md`).
 
-No other PRNG source may affect grounding. Thresholds in `geometry.ts` are
-derived from `D`/`W`/`N`, not sampled.
+## Ties are broken by the corpus
 
-## Tie-breaks are corpus-determined
+Every choice bottoms out in a fixed order, and the fallback is
+**first-inserted**: the lowest node id, or the `LIMIT 1` insertion order. Never
+last-inserted, because that would make an answer depend on recency instead of
+evidence. The order of teaching is part of what was taught, and a correction
+prevails only by evidence.
 
-Every choice bottoms out in a fixed ordering — insertion order or lowest node id
-— not interchangeable (`test/34`). The fallback is **first-inserted**:
+- **`chooseNext` / `guidedFirst`** (`traverse.ts`) try three things in turn: a
+  continuation the question names (`evidence.md`); then distributional support,
+  `prevCount` and then halo mass; then first-inserted.
+- **`chooseAmong`** takes `argmaxCosine` over `candidateGist`, capped at
+  `hubCap`, and resolves ties by stable scan.
+- **Ties in the junction bridge** go to the shortest interior, then the lowest
+  node id.
 
-- `guidedFirst` (`src/mind/traverse.ts:guidedFirst`) — guided pick via
-  `chooseNext` else first-inserted edge (`nextFirst` LIMIT 1).
-- `chooseNext` (`src/mind/traverse.ts:chooseNext`) — capped `nextFirst` read
-  (`hubBound`), ranked by `prevCount` then `haloMass`; equal ⇒ first-inserted.
-- `chooseAmong` (`src/mind/traverse.ts:chooseAmong`) — `hubCap` + `argmaxCosine`
-  over `candidateGist`; first-inserted on tie via stable scan.
-- `companySignature` (`src/sema.ts:companySignature`) — `rng(id ^ 0x9e3779b9)`,
-  i.e. seeded by node id, not observation order.
+When you add a choice among equals, name its tie-break explicitly and make it
+corpus-determined.
 
-Never use last-inserted.
+## Memoization and tracing must not change the answer
 
-## Memoization and trace must not break identity
-
-Per-response memos (`Precomputed`, `perceiveMemo`, `recogniseMemo`, `climbMemo`,
-`_resolvedSubtrees` via `foldTree`, `_edgeChoice`, `_gistCache` in
-`src/mind/mind.ts` / `src/mind/pipeline-mechanism.ts` /
-`src/mind/primitives.ts`) are sound because asking never writes. Only
-`guidedNext`/`sharedReachMemo` are trace-bypassed;
-`perceiveMemo`/`recogniseMemo`/`climbMemo` are always consulted — `foldTree`'s
-subtree fast path skips `visit` (and site emission) for cached subtrees, so
-bypassing makes `recognise` non-idempotent.
-
-## Follow it
-
-When you add any choice among equals, name the tie-break explicitly and make it
-corpus-determined. Thread new randomness through `seed`-derived `rng`; never
-call `Math.random`/`Date.now` on a behavioural path.
+Memos are sound because asking never writes. Which ones a trace bypasses, and
+why the pick memo is cleared when the climb publishes its points, is
+`memoization.md`'s trace boundary.
 
 ## Pins
 
-- `test/42` pins recognition idempotence under trace — traced and untraced
-  `recognise` must return the same cached object and site count.
-- Determinism suites — `test/03`, `test/04`, `test/08`, `test/20` — assert same
-  seed + same training ⇒ byte-identical answers and stores.
+- `test/20`, `test/03`, `test/04`, `test/08` — the same seed and the same
+  training give byte-identical answers and stores.
+- `test/42` — recognition is idempotent under trace.
+- `test/155.4` — traced and untraced responses agree after the climb publishes.
+- `test/34` — tie-breaks are corpus-determined, not interchangeable.

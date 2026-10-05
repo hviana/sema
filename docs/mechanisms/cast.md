@@ -1,80 +1,85 @@
-# CAST — Counterfactual Transfer via Weave
+# CAST — Carry Structure Between Woven Forms
 
-Counterfactual transfer over the query's **weave**: when byte-string evidence
-from multiple independently-learnt structures aligns to genuinely different
-query spans, CAST transfers structure between them (substitution, redirection,
-analogical comparison). One `alignGraded` weave, multiple schemas; each firing
-schema yields its own candidate and `think`'s single weight comparison picks.
+When independently learnt structures align to genuinely different spans of the
+question, CAST (counterfactual transfer) carries structure from one to another
+(`src/mind/mechanisms/cast.ts`). One weave serves three schemas. Each schema
+that fires yields its own candidate, and the market's single comparison picks.
 
-## Matcher
+## Matcher — the weave
 
-`alignGraded` over the current query bytes: literal W-gram runs first, then
-halo-matched `pre.rec.sites`. The product is `pre.weave()` — `points[]` (each
-with graded `runs[]`) and a per-query-byte `depth[]` (how many structures cover
-that byte). CAST's single-vs-multi test is measured from those runs: a second
-point must add ≥ one perception quantum of coverage the widest does not.
+`pre.weave()` is `alignGraded` over the question: literal `W`-gram runs, then
+halo-matched sites and the climb's proposals. It produces `points[]`, each with
+graded `runs[]`, and `depth[]`, the number of distinct structures that cover
+each byte. A second point counts only if it adds at least one perception quantum
+of coverage that the widest point lacks.
 
-## Gate — weave-local discriminative frame
+## Gate — the cohort's frame
 
-Two derived components, both from the weave itself (no tuned threshold):
+Frame is what the cohort of aligned structures shares (`commonality.md`):
 
-1. **MIN_WEAVE = 2** — CAST needs ≥ 2 points to form a weave. Frame requires
-   _more_ than the minimum: `depth[i] > MIN_WEAVE`, i.e. ≥ 3 structures agree on
-   the byte. With only the minimum pair no byte is frame.
+```
+frame(i)  ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)     MIN_WEAVE = 2
+usable(r) ⇔ ¬dominates(framedCount(qs, qe), runLen)
+```
 
-2. **Half-dominance** — `dominates(n, total)` (> half scaffolding no longer
-   discriminates). Per byte:
-   `frame(i) ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)`. Per run:
-   `usable(r) ⇔ ¬dominates(framedCount(qs,qe), runLen)`.
+- **More than a pair must agree.** A pair is ambiguous when insertions are
+  possible, so with only two points no byte is frame.
+- **`depth` counts distinct structures, never weight.** Counting weight lets a
+  shared frame such as `describe it` survive as content, and makes substitution
+  fire on reordered single-fact questions (the measured split was 29/42 against
+  6/42).
+- **The cohort reading cannot be replaced by corpus reach.** A phrase common to
+  the aligned exemplars is frame here even when it is rare in the corpus
+  (`test/17`).
 
-`depth` counts **distinct structures**, not accumulated weight — a byte covered
-by the same structure twice still has depth 1. Counting weight instead lets
-shared frame (" describe it", "the importance of") survive as content and makes
-substitution fire on reordered single-fact queries. The split is 29/42 vs 6/42
-when wrong.
+Further competence checks:
 
-This frame gate is **weave-local** ("what the aligned structures share among
-themselves"), not corpus-local (`reachOf` + `dominates` IDF). A phrase common to
-the aligned exemplars is frame here even when it reaches a corpus minority. Do
-not replace it with the structural IDF — refuted on the `test/17` reorder probe.
-The gate does not use `frameSlots` and therefore **does not consume frame
-slots** — it is not the cohort-local `frameSlots` voice gate.
+- the question is at least two quanta long;
+- there are at least two ranked anchors;
+- the weave touches a committed point of attention;
+- the weave is genuinely woven, not every run restating a recognised site.
 
-Other admission gates (query ≥ 2 quanta, ≥ 2 ranked anchors, weave touches a
-committed attention root, genuinely woven — not every run restating a recognised
-site) are structural competence checks; see `cast.ts`.
+## Schemas
+
+- **Substitution.** A subject the question supplies takes the seat of a
+  displaced structure. The filler is what the subject contributes before the
+  seat, clipped at the seat, so the result does not depend on the weave's
+  elimination order. The substitution must actually displace something.
+- **Redirection.** The question names a substitute by quoting it from its own
+  opening bytes (`…were Lyon?` against `Lyon is a city in France`), and names it
+  after what it displaces. A substitute that is a fragment answering other
+  questions is refused: `ong)?`, the tail of every `… (… Song)?` question, once
+  voiced a stranger's birthplace.
+- **Comparison.** The dominant is seated against one analog, reached through
+  `seatOfNode` and corroborated by `analogyStrength` (halo company). Two guards
+  apply:
+  - the question must evidence the analog with a window of its own, not inside
+    the dominant's runs and not scaffolding;
+  - the dominant must not be a co-instance of the question (`evidence.md`).
+
+  Without them, a bare question was glued onto the answer, and once Shakira's
+  birthplace was set against `John Lennon`.
 
 ## Cost
 
-**2·STEP** (`STEP + STEP`): one projection per transfer act that the taken
-branch performs (halo-mediated analogy adds `CONCEPT`). Weight is
-`moves + PASS·unaccountedBytes` as usual; `accounted` is schema-specific — only
-the two points that schema actually transferred between.
-
-## Investment discipline
-
-Floor is `2·STEP`. Before touching the shared expensive analyses
-(`pre.attention()` climb, `pre.weave()`), check `worthRunning(2*STEP)` and
-return the uninvested bound when it already loses. Never compute a shared
-analysis just to discard it.
+Each transfer act costs `STEP + STEP`, plus `CONCEPT` for a halo-mediated
+analogy. `accounted` covers only the points that schema actually transferred
+between. The floor is `2·STEP`. Before first touching the climb or the weave,
+the floor asks `worthRunning(2·STEP)` and returns its uninvested bound if it
+would lose (`mechanism-market.md`).
 
 ## Provenance
 
-`cast` — the answer came from counterfactual transfer (substitution,
-redirection, or analogical comparison), not from a literal continuation.
+`cast`.
 
 ## Pins
 
-- **test/17 intelligence** — reordered single-fact must not trigger
-  substitution; the weave-local frame (depth as distinct-structure count +
-  half-dominance) is what suppresses it.
-- **test/29 counterfactual** — B/C families pin substitution / redirection /
-  comparison and their seat displacements.
-- **test/43 seat** — `seatOfNode` direction (establishing reverse vs forward vs
-  fallback) that the schemas displace through.
-
-## Source
-
-`src/mind/mechanisms/cast.ts` (`counterfactualTransfer`, `seatOfNode`,
-`MIN_WEAVE`, `weave.depth`), `src/mind/match.ts` (`alignGraded`, `project`),
-`src/geometry.ts` (`dominates`), `src/mind/graph-search.ts` (`STEP`).
+- `test/17` — a reordered single fact does not trigger substitution; it pins the
+  cohort frame.
+- `test/29` — substitution, redirection and comparison, and the displacement of
+  their seats. C3: a further hop inside a comparison's seat waits to be asked.
+- `test/43` — the direction of `seatOfNode`.
+- `test/47`, `test/50` — comparison coverage, the analog consensus floor and the
+  shared guards.
+- `test/154.7`, `test/155.9` — a comparison needs two named things, and never
+  takes a co-instance as its dominant.

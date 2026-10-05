@@ -1063,10 +1063,10 @@ export class Mind implements MindContext {
     // No recognise-memo pre-seeding here: that used to be necessary because
     // the flat/positional fold lost visibility into an earlier turn's own
     // structure once later bytes shifted its position (foldTree no longer
-    // visited the turn's root node).  The STABLE-PREFIX fold (see {@link
-    // ConversationData}) makes every turn's subtree independent of what
-    // follows it by construction, so recognise() finds it correctly on its
-    // own, first-touch, exactly once per turn.
+    // visited the turn's root node).  The content-defined fold (see {@link
+    // ConversationData}) cuts by the bytes, never by position, so an earlier
+    // turn's structure is the same whatever follows it, and recognise() finds
+    // it on its own, first-touch, exactly once per turn.
     this.beginResponse(
       inspectRationale,
       this._canonFor(typeof turn === "string" ? textCanon : null),
