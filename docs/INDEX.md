@@ -62,6 +62,10 @@ proof in `test/` (pins that fail when the law is broken).
 
 ## Cross-cutting
 
+- `docs/PHILOSOPHY.md` — the path of information, end to end: how a deposit
+  becomes a content-addressed tree and DAG, the two vector spaces (gist: form;
+  halo: use), attention built on the structure, how answers are composed and
+  priced, and the hypotheses the path invites.
 - `docs/INVARIANTS.md` — the five invariants (determinism, derived thresholds,
   exact-decides, one cost currency, bounded reads) with file-level routing.
 - `docs/failures/tempting-but-wrong.md` — refuted simplifications that passed
