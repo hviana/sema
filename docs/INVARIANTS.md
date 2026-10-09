@@ -20,7 +20,7 @@ them and the tests that fail when they break.
 | 12 | Saturation             | `traverse.ts` (`edgeAncestors`), `junction.ts` (`junctionContainersFrom`), `resonance.ts` (`pivotInto`), `types.ts` (`SaturationStop`)     | `test/16`, `test/27`, `test/34`, `test/49`   |
 | 13 | Meter                  | `meter.ts`, `Precomputed.shared`                                                                                                           | `test/55`                                    |
 | 14 | Closure                | `derivation.ts` (`admissible`, `advance`, `closeOver`)                                                                                     | `test/133`–`151`                             |
-| 15 | Witnessed evidence     | `evidence.ts` (`witness`, `windowIndex`), `traverse.ts` (`chooseNext`, `answersOtherQuestions`, `coInstanceFiller`, `scaffoldExtents`)     | `test/154`, `test/155`, `test/76`            |
+| 15 | Witnessed evidence     | `evidence.ts` (`witness`, `windowIndex`), `traverse.ts` (`chooseNext`, `answersOtherQuestions`, `coInstanceFiller`, `scaffoldExtents`)     | `test/154`–`156`, `test/76`                  |
 
 Caches (`caches.md`: every acceleration is a `BoundedMap`, and a miss
 re-derives) are pinned by `test/91` and `test/96`.

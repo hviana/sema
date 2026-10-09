@@ -23,7 +23,11 @@
 //   153.3 a bound that does not undercut the dearer floor runs nothing ahead:
 //         a query the cover grounds whole runs the cover alone;
 //   153.4 the span prober answers exactly `findFlatBranch` over the same span,
-//         in every order a scanner can ask in.
+//         in every order a scanner can ask in;
+//   153.5 a mechanism run ahead of the consensus climb is run again at its
+//         declared turn when the climb shows other instances that name its
+//         pick: its reading ahead of the climb is priced as if the question
+//         had not named it, and the declared order would not have priced it so.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -152,4 +156,68 @@ test("153.4 the span prober answers exactly findFlatBranch", async () => {
   assert.ok(asked > 5_000, `probes asked: ${asked}`);
   assert.ok(hits > 50, `the buffer must hold stored flat spans: ${hits}`);
   await store.close();
+});
+
+test("153.5 a mechanism run ahead of the climb is run again when the climb shows what names its pick", async () => {
+  // Measured on the 2Wiki fixture with one-hop questions: recall's argument
+  // binding read `The place of birth of John Lennon is Liverpool.` both times,
+  // owing 49 bytes ahead of the climb and 28 after it, when other instances
+  // (`Where was Peter Jackson born?`) name `place of birth` for `born`.  The
+  // heavier reading lost to a cover that glued the first hop onto it.
+  const fact = (s, r, o) => {
+    const f = `The ${r} of ${s} is ${o}.`;
+    return [[`${s} ${r}`, f], [s, f]];
+  };
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest([
+    ...fact("God", "performer", "John Lennon"),
+    ...fact("John Lennon", "place of birth", "Liverpool"),
+    ...fact("Peter Jackson", "place of birth", "Wellington"),
+    ...fact("Taika Waititi", "place of birth", "Raukokore"),
+    ...fact("Stan Rogers", "place of birth", "Hamilton"),
+    [
+      "Where was Peter Jackson born?",
+      "The place of birth of Peter Jackson is Wellington.",
+    ],
+    [
+      "Where was Taika Waititi born?",
+      "The place of birth of Taika Waititi is Raukokore.",
+    ],
+    [
+      "Where was Stan Rogers (Song) born?",
+      "The place of birth of Stan Rogers is Hamilton.",
+    ],
+  ]);
+  await mind.buildCanonIndex();
+  const text = await mind.respondText(
+    "Where was the performer of song God (John Lennon Song) born?",
+  );
+  assert.ok(
+    (mind.lastCost.counters.mechanismReruns ?? 0) >= 1,
+    "the mechanism run ahead was run again at its declared turn",
+  );
+  assert.equal(text, "The place of birth of John Lennon is Liverpool.");
+  await store.close();
+
+  // Without instances the climb adds nothing to what recall read, and nothing
+  // is run twice: measured on the 31.7M-node store, rerunning whenever the
+  // climb had run cost 26% more bytes read for no changed answer.
+  const bare = new SQliteStore({ path: ":memory:" });
+  const plain = new Mind({ seed: 7, store: bare, profile: true });
+  await plain.ingest([
+    ...fact("God", "performer", "John Lennon"),
+    ...fact("John Lennon", "place of birth", "Liverpool"),
+    ...fact("Peter Jackson", "place of birth", "Wellington"),
+  ]);
+  await plain.buildCanonIndex();
+  await plain.respondText(
+    "Where was the performer of song God (John Lennon Song) born?",
+  );
+  assert.ok(
+    (plain.lastCost.counters.climbs ?? 0) >= 1,
+    "the climb ran after recall was run ahead",
+  );
+  assert.equal(plain.lastCost.counters.mechanismReruns ?? 0, 0);
+  await bare.close();
 });

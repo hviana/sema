@@ -87,6 +87,19 @@ stays the declared order's:
   met in order;
 - equal floors are never skipped.
 
+A result run ahead is the declared order's only if it saw what the declared
+order would have shown it. A mechanism run ahead of the consensus climb reads
+the question without the climb's points, so other instances of the question
+cannot yet name its pick (`evidence.md`), and its result is priced as if the
+question had not named it. When the climb has since run and other instances
+carry a relation (`readsOffInstances`), the mechanism is run again at its
+declared turn (`mechanismReruns`). On the 2Wiki fixture, recall's
+`The place of
+birth of John Lennon is Liverpool.` owed 49 bytes ahead of the
+climb and 28 after it. Rerunning whenever the climb had run cost 26% more bytes
+read on the 31.7M-node store and changed no answer, so the rerun waits for that
+evidence.
+
 This is never extra work. On the 31.7M-node store a lowercased Persian turn went
 from 18.0 s to 1.2 s, and another query from 1.9 s to 0.7 s, because a grade-1
 recall no longer waited behind CAST's climb. Of 42 composition queries, none
@@ -108,5 +121,6 @@ changed its answer.
 
 - `test/01` — the floor's geometry.
 - `test/04` — the decider, admissible pruning and the investment discipline.
-- `test/153` — the run-ahead bound: a mechanism floored above it is skipped, and
-  the decision equals the declared-order oracle.
+- `test/153` — the run-ahead bound: a mechanism floored above it is skipped, the
+  decision equals the declared-order oracle, and a mechanism run ahead of the
+  climb is run again only when instances name its pick.

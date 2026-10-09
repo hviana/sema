@@ -55,10 +55,18 @@ exact, and each was measured to be necessary:
 
 - **Order.** Read order-free, `Lyon is a city in France` passes for an instance
   of `what if the capital of France were Lyon?`.
-- **The filler is an entity.** It is the longest stored context with
-  continuations of its own that opens where the slot opens, or up to one window
-  earlier. In `Explain how photosynthesis converts sunlight…` the slot holds a
-  description of the subject, and that is no other instance.
+- **The filler is an entity, and it is what differs.** It is the longest stored
+  context with continuations of its own that covers the byte where the two forms
+  part (`slotEntity`). It may open up to `chainReach(W)` bytes earlier, because
+  fillers that begin alike share their first word (`Princess Louise …`,
+  `Princess Augusta …`), and it need not fill the slot: the record's `John V` is
+  the question's `John V, Count Of Oldenburg`. The `mother` inside a frame's own
+  `grandmother` never covers that byte, so it is frame. A filler the record
+  spells only under the equivalence (`3Rd Baron` for `3rd Baron`) is found
+  through the canonical class. In
+  `Explain how photosynthesis converts
+  sunlight…` the slot holds a description
+  of the subject, and that is no other instance.
 - **The frame is unsaid.** Every frame window must be held by the material, with
   scaffolding windows exempt. So a frame a product already said cannot name a
   second step: `father of` names the second hop of a father question, never the
@@ -75,10 +83,47 @@ If `Edmond T. Gréville place of birth` exists, its continuation is named. It
 runs only when nothing is witnessed outright. Neither the frame nor the
 equivalence is stored, and nothing in the reading is approximate.
 
-**The proposals are the climb's.** The tier reads the `chainReach(W)` most
-corroborated of the consensus climb's ranked points (`asked.points`), and climbs
-nothing itself. A first version climbed on its own and cost 16% more climb
-visits for no naming at all. This has two consequences:
+**A derivation, read off other instances.**
+`Who is the paternal grandmother of
+Z?` answered `The mother of Y is W.` is a
+co-instance whose continuation no context holding `Z` establishes: it is the end
+of a derivation from `Z`. It is read as two hops meeting at an entity
+(`derivationSteps`): a fact of `Z` (`The
+father of Z is Y.`, established by
+`Z father`) holds `Y`, and `Y mother` establishes the answer. The relation is
+then the pair `· father`, `· mother`, counted only where two instances spell the
+pair alike. It is followed in order from the question's own entity, read between
+the same frame by the same rule: the first step applies to that entity, and the
+second only to the entity the first step's fact holds whole (`heldWhole`:
+`Henry IV of France`, never the stored `Henry` inside it). So the frame a
+product already said does not withhold the second step, and a step is never
+taken out of order or taken again.
+
+**The proposals are the climb's, and their siblings.** One region votes for one
+context, so the climb's points hold one instance of a frame that several
+instances share. Once a co-instance has shown the frame, the contexts its rarest
+non-hub window reaches (`siblingInstances`, the climb's own memoised reach, a
+saturated window proposing nothing) are read as further candidates. What a form
+says as an instance does not depend on the material it is read against, so its
+bytes, filler and relations are read once per question (`instanceBook`); each
+later material, such as the walk's after each product, pays only the frame
+check.
+
+Where the points hold no two agreeing instances, the question's own entity shows
+the frame instead: the longest point the question holds whole, exactly or under
+the equivalence, with continuations of its own (`heldEntity`). What the question
+says around it is read as the frame, and its siblings are read the same way.
+That frame is a hypothesis, not one a co-instance has shown, so it is dropped
+once the first `chainReach(W)` siblings hold no co-instance. A frame every
+window of which is shared by more than `√N` contexts (`maternal grandfather`
+among the other grandparent questions) has no window that enumerates its
+instances under the read bound. Its instances are reachable only through a
+conjunction of windows, and the question stays unanswered.
+
+The tier reads the `chainReach(W)` most corroborated of the consensus climb's
+ranked points (`asked.points`), and climbs nothing itself. A first version
+climbed on its own and cost 16% more climb visits for no naming at all. This has
+two consequences:
 
 - the pick memo is cleared when the points arrive (`memoization.md`);
 - recall's argument binding asks for the climb first when its choice would
@@ -140,27 +185,30 @@ Picks are memoized per node and per question.
 
 ## Measured
 
-The fixture holds the evidence triples of 300 held-out 2Wiki rows, deposited as
+The fixtures hold the evidence triples of 300 held-out 2Wiki rows, deposited as
 `wiki2.ts` does, with the canonical index built. "Plus instances" adds 261
-one-hop questions about other entities.
+one-hop questions about other entities; "plus inference instances" adds 228
+inference questions about other entities (`paternal grandmother`,
+`father-in-law`, …), each answered with its chain's last fact. No test entity
+has a question of its own.
 
-| Compositional correct, of 133 | Witnessing only | Now |
-| ----------------------------- | --------------- | --- |
-| fixture                       | 52              | 56  |
-| plus instances                | 41              | 89  |
+| Correct (strict), of the test rows       | Witnessing only | 0.9.5 | Now |
+| ---------------------------------------- | --------------- | ----- | --- |
+| compositional, fixture (133)             | 52              | 56    | 56  |
+| compositional, plus instances (133)      | 41              | 89    | 98  |
+| inference, plus inference instances (37) | —               | 6     | 21  |
 
 The first hop is right on 114 and 109 of 133. Most of the remaining first-hop
 failures are aliases (`Clara Novello` for `Clara Anastasia Novello`), which no
 reading of bytes recovers. The answers gained with instances are relations no
 window spells: `born` → place of birth, `work at` → employer, `is from` →
-citizenship.
+citizenship, `nationality` → citizenship, and the inference pairs.
 
-On the 31.7M-node store's 116-query battery:
-
-- two dialogue answers changed, neither of which had been correct;
-- the read counters rose about 4%;
-- the co-instance tier named nothing, because there the frame windows are
-  scaffolding and the one-hop instances are absent.
+On the 31.7M-node store's 116-query battery, the derivation reading and the
+entity's frame changed no answer against 0.9.5. Bytes read rose 0.7%, canonical
+lookups 6%, and container reads 13% (about 19 point reads per question, for the
+frame windows' rarity). There the frame windows are scaffolding and the
+instances are absent, so the tier names nothing.
 
 ## Pins
 
@@ -172,8 +220,18 @@ On the 31.7M-node store's 116-query battery:
   instances; it refuses a partly shared frame, a said frame and a description in
   the slot; it is never voiced as the answer; traced and untraced responses
   agree; neither fusion nor a comparison takes a co-instance.
+- `test/156` — a derivation read off other instances: it answers a new entity's
+  question; one instance agrees with nothing; its steps are followed in order,
+  each frame by its own pair; a filler spelled only under the equivalence is an
+  instance.
 - `test/76` — a fact the corpus files under an instance's filler is no carriage.
 - `test/29` C3 — a further hop inside a comparison's seat waits to be asked.
 - Measured only at fixture scale, with no pin: excluding fragments from
-  establishing contexts (16 answers), and refusing a fragment as CAST's
-  redirection substitute (4 answers).
+  establishing contexts (16 answers), refusing a fragment as CAST's redirection
+  substitute (4 answers), the siblings of a co-instance (3 inference and 6
+  compositional answers), the second step held whole (1 inference answer, where
+  a piece of the entity took a step again), and the frame shown by the
+  question's own entity (3 inference and 3 compositional answers). The last
+  resisted a constructed fixture: on small stores the climb keeps the instances
+  among its points. Reducing the fixture showed that no eighth of it could be
+  removed without changing the outcome.

@@ -79,9 +79,12 @@ Three limits were proved and deliberately left out:
 2. **Closure by the query's position in the graph is the layer's, not the
    unit's.** The echo guards stop with the remainder non-empty, and recall's
    reverse tiers close with nothing accounted.
-3. **The extension is not priced into the market.** Only the winner is closed,
-   because pricing every candidate's closure has not been measured
-   (`test/136.2`).
+3. **The extension is not priced into the market.** Only the winner is closed
+   (`test/136.2`). Measured on the 2Wiki fixtures, closing the second or third
+   distinct candidate instead of the winner answered 3–4 of 170 derivation
+   questions the winner missed, and far fewer overall. The early choice rarely
+   costs the better derivation, and the gain did not pay for closing every
+   candidate.
 
 ## Layering
 

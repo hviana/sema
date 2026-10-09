@@ -151,3 +151,68 @@ test("fuseAttention: ordinary multi-topic fusion (no embedded answers) is comple
   );
   await m.store.close();
 });
+
+test("fuseAttention: a confined point whose strongest evidence is below one window is no further topic", async () => {
+  // Measured on the 2Wiki fixture with inference questions: the region `)?`
+  // closing `… film Kathputli (1971 Film)?` voted, rarely and so heavily, for a
+  // stored `Who is the uncle of Auberon Herbert (Landowner)?`, and the fusion
+  // appended that question's answer.  Below one window byte identity is not
+  // evidence (attention.ts); the point also shares `the ` and ` of ` with the
+  // question in several places, so counting shared places alone admitted it.
+  const m = mk(1);
+  await m.ingest([
+    ["Kathputli", "The director of Kathputli is Brij."],
+    [
+      "Who is the uncle of Auberon Herbert (Landowner)?",
+      "The sibling of Aubrey Herbert is George Herbert.",
+    ],
+  ]);
+  const q = enc(
+    "Where was the place of death of the director of film Kathputli (1971 Film)?",
+  );
+  const uncle = m.resolve(
+    enc("Who is the uncle of Auberon Herbert (Landowner)?"),
+  );
+  assert.ok(uncle !== null, "the stored question resolves");
+  const guide = gistOf(m, q);
+  const point = (start, end) => ({
+    anchor: uncle,
+    vote: 7.8,
+    peak: 7.8,
+    idfVote: 7.8,
+    start,
+    end,
+    breadth: 0.04,
+    clusters: 1,
+  });
+  const fuse = async (root) => {
+    const placeholder = { ...root, start: q.length, end: q.length };
+    const pre = {
+      attention: async () => ({
+        roots: [placeholder, root],
+        ranked: [placeholder, root],
+      }),
+      guide,
+    };
+    return dec(
+      (await fuseAttention(m, q, {
+        product: enc("The director of Kathputli is Brij."),
+        accounted: [],
+        remainder: [],
+        cost: 0,
+      }, pre)).product,
+    );
+  };
+  const below = await fuse(point(q.length - 2, q.length));
+  assert.ok(
+    !below.includes("Aubrey"),
+    `a point whose strongest evidence is \`)?\` must not fuse in, got "${below}"`,
+  );
+  // The same point with a window of evidence is judged by the other measures.
+  const window = await fuse(point(q.length - 6, q.length));
+  assert.ok(
+    window.includes("Aubrey"),
+    `the control fuses, so the window is what decided, got "${window}"`,
+  );
+  await m.store.close();
+});

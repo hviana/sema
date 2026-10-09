@@ -1185,15 +1185,6 @@ function coInstanceFrame(
   };
   for (let o = 0; o + W <= a; o++) if (!held(o)) return null;
   for (let o = fe; o + W <= form.length; o++) if (!held(o)) return null;
-  // A FRAME OF NOTHING BUT SCAFFOLDING IS NO FRAME.  `Who is the ` … `?` opens
-  // every question the corpus asks; a form sharing only that with this one is
-  // a different question (`Who is the mother-in-law of William II?` against
-  // `Who is the paternal grandmother of Princess Augusta?`), and the slot it
-  // leaves is no filler.  The frame must hold a window that discriminates.
-  let says = false;
-  for (let o = 0; o + W <= a && !says; o++) says = !hub[o];
-  for (let o = fe; o + W <= form.length && !says; o++) says = !hub[o];
-  if (!says) return null;
   const spans: Array<[number, number]> = [];
   if (a > 0) spans.push([0, a]);
   if (b > 0) spans.push([question.length - b, question.length]);
@@ -1342,7 +1333,7 @@ function byCoInstance(
       );
       if (first === null) continue;
       for (const g of ctx.store.nextFirst(first, allowance)) {
-        if (indexOf(read(ctx, g, formCap + node.length), node, 0) >= 0) {
+        if (heldWhole(ctx, read(ctx, g, formCap + node.length), node)) {
           step = fr.then!;
           break;
         }
@@ -1409,6 +1400,18 @@ interface RelationFrame {
   filler?: Uint8Array;
 }
 
+/** Whether other instances of the question carry a relation — a frame two
+ *  co-instances spell alike — once the consensus climb has shown its points.
+ *  It is the one piece of a question's evidence the climb adds: a reading made
+ *  before it is stale only where this holds (pipeline.ts, `runOf`). */
+export function readsOffInstances(ctx: MindContext): boolean {
+  const whole = ctx._edgeAsked;
+  if (whole === null || whole.points === undefined) return false;
+  const W = ctx.space.maxGroup;
+  return relationFrames(ctx, whole, Math.max(hubBound(ctx), chainReach(W)))
+    .length > 0;
+}
+
 /** The relation frames the question's co-instances carry — a property of the
  *  QUESTION, not of the node asked about, so it is read once per question
  *  (and once per walk material) and every node only pays the exact lookups.
@@ -1444,6 +1447,17 @@ function relationFrames(
   // each form (its bytes, filler and relations) is kept on the question
   // (`instanceBook`) and every later material pays only the frame check.
   const book = instanceBook(whole!);
+  // The question's own entity between a frame — read by the rule that reads
+  // an instance's, once per frame.
+  const entityAt = (co: { open: number; close: number }) => {
+    const at = `${co.open}:${co.close}`;
+    let x = book.entity.get(at);
+    if (x === undefined) {
+      x = slotEntity(ctx, asked.bytes, co.open, asked.bytes.length - co.close);
+      book.entity.set(at, x);
+    }
+    return x;
+  };
   const spelled = new Map<string, RelationFrame>();
   const spell = (
     q: number,
@@ -1464,17 +1478,7 @@ function relationFrames(
     if (then !== undefined) {
       // The question's own entity, read between the same frame by the same
       // rule — the derivation is followed from it.
-      const at = `${co.open}:${co.close}`;
-      let x = book.entity.get(at);
-      if (x === undefined) {
-        x = slotEntity(
-          ctx,
-          asked.bytes,
-          co.open,
-          asked.bytes.length - co.close,
-        );
-        book.entity.set(at, x);
-      }
+      const x = entityAt(co);
       if (x === null) return;
       fr.then = then;
       fr.filler = asked.bytes.subarray(x.span[0], x.span[1]);
@@ -1484,23 +1488,24 @@ function relationFrames(
   const seen = new Set<number>();
   let frame: Array<[number, number]> | null = null;
   let frameSize = 0;
-  const consider = (q: number): void => {
-    if (seen.has(q)) return;
+  // Whether `q` is a co-instance of the question (its filler read).
+  const consider = (q: number): boolean => {
+    if (seen.has(q)) return false;
     seen.add(q);
-    if (!deposited(q)) return;
+    if (!deposited(q)) return false;
     let r = book.forms.get(q);
     if (r === undefined) {
       if (ctx.meter) ctx.meter.coInstanceReads++;
       r = { raw: read(ctx, q, formCap + 1) };
       book.forms.set(q, r);
     }
-    if (r.raw.length > formCap) return;
+    if (r.raw.length > formCap) return false;
     const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
-    if (co === null) return;
+    if (co === null) return false;
     if (r.filler === undefined) {
       r.filler = slotEntity(ctx, r.raw, co.open, r.raw.length - co.close);
     }
-    if (r.filler === null) return;
+    if (r.filler === null) return false;
     // The most specific frame shown — the longest — leads to the siblings.
     const size = co.open + co.close;
     if (frame === null || size > frameSize) {
@@ -1515,6 +1520,7 @@ function relationFrames(
       deposited,
     );
     for (const [one, two] of r.steps) spell(q, co, one, two);
+    return true;
   };
   // Most corroborated first (the climb's own ranking), at most
   // `chainReach(W)` read — the exact tier's own floor.
@@ -1536,6 +1542,34 @@ function relationFrames(
       if (seen.has(q)) continue;
       if (ctx.meter) ctx.meter.coInstanceSiblings++;
       consider(q);
+    }
+  }
+  // THE QUESTION'S OWN ENTITY SHOWS ITS FRAME where no two co-instances
+  // agree.  The climb's points hold the thing the question names (`Ingegerd
+  // Olofsdotter`) even when they hold no instances of what it asks; what the question
+  // says around it is the frame to read siblings by.  It is a hypothesis, not
+  // a frame a co-instance has shown, so it is refuted as soon as it shows
+  // nothing: when the first `chainReach(W)` siblings hold no co-instance —
+  // the exact tier's own floor — the rest are not read (on the trained store a
+  // question's frame reached hundreds of contexts and no instance).
+  if (![...spelled.values()].some((fr) => fr.by.length >= 2)) {
+    if (book.held === undefined && asked === whole) {
+      const x = heldEntity(ctx, asked.bytes);
+      book.held = x === null ? [] : siblingInstances(
+        ctx,
+        asked.bytes,
+        [[0, x[0]], [x[1], asked.bytes.length]],
+        allowance,
+      );
+    }
+    let shown = false;
+    let tried = 0;
+    for (const q of book.held ?? []) {
+      if (!shown && tried >= chainReach(W)) break;
+      if (seen.has(q)) continue;
+      tried++;
+      if (ctx.meter) ctx.meter.coInstanceSiblings++;
+      if (consider(q)) shown = true;
     }
   }
   // ONE INSTANCE AGREES WITH NOTHING.  A relation is read off the corpus only
@@ -1583,6 +1617,7 @@ interface InstanceReading {
 interface InstanceBook {
   forms: Map<number, InstanceReading>;
   siblings?: number[];
+  held?: number[];
   entity: Map<string, { span: [number, number]; id: number } | null>;
 }
 const bookMemo = new WeakMap<object, InstanceBook>();
@@ -1642,6 +1677,37 @@ function instanceSteps(
     }
   }
   return out;
+}
+
+/** Whether `fact` holds `entity` WHOLE: an occurrence no longer stored context
+ *  with continuations of its own contains — `Henry IV of France`, not the
+ *  `Henry` inside it. */
+function heldWhole(
+  ctx: MindContext,
+  fact: Uint8Array,
+  entity: Uint8Array,
+): boolean {
+  const W = ctx.space.maxGroup;
+  const ids = leafIdPrefix(ctx, fact);
+  const cache = getStructCache(ctx);
+  for (
+    let p = indexOf(fact, entity, 0);
+    p >= 0;
+    p = indexOf(fact, entity, p + 1)
+  ) {
+    const end = p + entity.length;
+    let whole = true;
+    for (let st = p; st >= 0 && whole; st--) {
+      for (let en = ids.length; en >= end && whole; en--) {
+        if (en - st <= entity.length || en - st < W) continue;
+        if (ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+        const n = resolve(ctx, fact.subarray(st, en));
+        if (n !== null && cachedHasNext(ctx, n, cache)) whole = false;
+      }
+    }
+    if (whole) return true;
+  }
+  return false;
 }
 
 /** A co-instance's continuation `f` read as the end of a two-hop derivation
@@ -1743,6 +1809,33 @@ function siblingInstances(
   return reach.saturated ? [] : reach.roots.slice(0, allowance);
 }
 const frameMemo = new WeakMap<object, RelationFrame[]>();
+
+/** The question's own entity: the longest of the climb's points the question
+ *  holds whole, exactly or under the response's equivalence, that has
+ *  continuations of its own — `[start, end)` in the question, or null. */
+function heldEntity(
+  ctx: MindContext,
+  question: Uint8Array,
+): [number, number] | null {
+  const points = ctx._edgeAsked?.points;
+  if (points === undefined) return null;
+  const W = ctx.space.maxGroup;
+  const cache = getStructCache(ctx);
+  let best: [number, number] | null = null;
+  for (const id of points.slice(0, chainReach(W))) {
+    const raw = read(ctx, id, question.length);
+    if (raw.length < W || raw.length + W > question.length) continue;
+    if (best !== null && raw.length <= best[1] - best[0]) continue;
+    let at = indexOf(question, raw, 0);
+    if (at < 0 && ctx.canon !== null) {
+      const form = ctx.canon(raw);
+      if (form.length === raw.length) at = indexOf(question, form, 0);
+    }
+    if (at < 0 || !cachedHasNext(ctx, id, cache)) continue;
+    best = [at, at + raw.length];
+  }
+  return best;
+}
 
 /** The perceived gist of a candidate node, through the session gist cache.
  *  Re-gisting a candidate is a full river fold of its bytes — the measured

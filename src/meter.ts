@@ -223,6 +223,9 @@ export class Meter {
   /** Mechanisms skipped because a mechanism floored lower, run AHEAD of them
    *  (pipeline.ts, "a cheaper bound is looked at before a dearer one is paid
    *  for"), already reached a grade their floor cannot beat. */
+  /** Mechanisms run again at their declared turn because the consensus climb
+   *  ran after they were run ahead of it (pipeline.ts, `runOf`). */
+  mechanismReruns = 0;
   mechanismsBounded = 0;
   /** Candidates the decider weighed. */
   candidates = 0;

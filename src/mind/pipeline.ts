@@ -27,7 +27,12 @@ import {
 } from "./derivation.js";
 import { rItem } from "./trace.js";
 import { unexplainedLabel } from "./rationale.js";
-import { hubBound, offsetCanon, scaffoldExtents } from "./traverse.js";
+import {
+  hubBound,
+  offsetCanon,
+  readsOffInstances,
+  scaffoldExtents,
+} from "./traverse.js";
 import { windowIndex, witness } from "./evidence.js";
 import { indexOf } from "../bytes.js";
 import {
@@ -433,7 +438,10 @@ export async function think(
   };
   /** Per mechanism: its floor once computed, and its results once run. */
   const floors = new Map<number, number | null>();
-  const runs = new Map<number, MechanismResult[]>();
+  const runs = new Map<
+    number,
+    { results: MechanismResult[]; points: boolean }
+  >();
   let bound = Infinity;
   const worthAhead = (floor: number) =>
     grade(floor) <
@@ -459,16 +467,40 @@ export async function think(
     floors.set(i, floor);
     return floor;
   };
-  const runOf = async (i: number): Promise<MechanismResult[]> => {
-    let results = runs.get(i);
-    if (results === undefined) {
-      const mech = mechanisms[i];
-      if (meter) meter.mechanismRuns++;
-      results = meter
-        ? await meter.time(`${mech.name}.run`, () => mech.run(ctx, query, pre))
-        : await mech.run(ctx, query, pre);
-      runs.set(i, results);
+  // A RESULT RUN AHEAD IS THE DECLARED ORDER'S ONLY IF IT SAW WHAT THE DECLARED
+  // ORDER WOULD HAVE SHOWN IT.  A mechanism run ahead of the consensus climb
+  // reads the question without the climb's points, so the evidence that names
+  // its pick through another instance (traverse.ts, `byCoInstance`) is not yet
+  // there, and its result is priced as if the question had not named it.  At
+  // its declared turn, after an earlier mechanism ran the climb, it is run
+  // again (`mechanismReruns`) — when other instances of the question carry a
+  // relation, the one evidence the climb adds; otherwise nothing it read has
+  // changed.  Measured on the 2Wiki fixture, recall's
+  // `The place of birth of John Lennon is Liverpool.` was the same bytes, owing
+  // 49 bytes ahead of the climb and 27 after it, and the lighter reading was the
+  // declared order's answer.
+  const pointsShown = () => ctx._edgeAsked?.points !== undefined;
+  const runOf = async (
+    i: number,
+    rerunWorth?: () => boolean,
+  ): Promise<MechanismResult[]> => {
+    const held = runs.get(i);
+    if (
+      held !== undefined &&
+      (held.points || !pointsShown() || !(rerunWorth?.() ?? false))
+    ) {
+      return held.results;
     }
+    const mech = mechanisms[i];
+    if (meter) {
+      meter.mechanismRuns++;
+      if (held !== undefined) meter.mechanismReruns++;
+    }
+    const points = pointsShown();
+    const results = meter
+      ? await meter.time(`${mech.name}.run`, () => mech.run(ctx, query, pre))
+      : await mech.run(ctx, query, pre);
+    runs.set(i, { results, points });
     return results;
   };
   const runAhead = async (mi: number) => {
@@ -547,7 +579,7 @@ export async function think(
       );
       continue;
     }
-    const results = await runOf(mi);
+    const results = await runOf(mi, () => readsOffInstances(ctx));
     for (const r of results) {
       // ONE FORMULA, EVERY CANDIDATE: the chart's derivation reports how many
       // discrete moves it made and which bytes it could not recognise; the
