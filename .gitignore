@@ -22,3 +22,6 @@ data/
 # run artifacts, and the owner's own `Sema — …` notes: never part of the library
 *.log
 Sema*
+
+roteiro-pesquisa.md
+demo-artefatos

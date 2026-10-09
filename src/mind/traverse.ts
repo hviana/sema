@@ -7,8 +7,9 @@
 // project) live in match.ts — the elementary match-and-project operation.
 
 import { cosine, Vec } from "../vec.js";
+import { dominates } from "../geometry.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
-import { gistOf, read, resolve } from "./primitives.js";
+import { canonResolve, gistOf, read, resolve } from "./primitives.js";
 import {
   canonicalWindows,
   chainReach,
@@ -1135,7 +1136,32 @@ export function coInstanceFiller(
   raw: Uint8Array,
   indexes: ReadonlyArray<WindowIndex>,
   question: Uint8Array,
-): { span: [number, number]; spans: Array<[number, number]> } | null {
+): {
+  span: [number, number];
+  spans: Array<[number, number]>;
+  filler: number;
+  open: number;
+  close: number;
+} | null {
+  const frame = coInstanceFrame(ctx, raw, indexes, question);
+  if (frame === null) return null;
+  const found = slotEntity(ctx, raw, frame.open, raw.length - frame.close);
+  return found === null
+    ? null
+    : { ...frame, span: found.span, filler: found.id };
+}
+
+/** The FRAME half of {@link coInstanceFiller}: the opening and close `raw`
+ *  shares with the question, every window of them held by the material and at
+ *  least one of them discriminating — or null.  It reads no store but the hub
+ *  probes, so a reader that asks it of one form against several materials (the
+ *  walk's, after each product) pays the filler search only once. */
+function coInstanceFrame(
+  ctx: MindContext,
+  raw: Uint8Array,
+  indexes: ReadonlyArray<WindowIndex>,
+  question: Uint8Array,
+): { open: number; close: number; spans: Array<[number, number]> } | null {
   const W = ctx.space.maxGroup;
   const form = offsetCanon(ctx, raw);
   const max = Math.min(form.length, question.length);
@@ -1159,38 +1185,70 @@ export function coInstanceFiller(
   };
   for (let o = 0; o + W <= a; o++) if (!held(o)) return null;
   for (let o = fe; o + W <= form.length; o++) if (!held(o)) return null;
-  // THE FILLER IS A THING THE CORPUS KNOWS: a stored context with
-  // continuations of its own, opening where the slot opens (up to one window
-  // earlier — a filler byte can sit in a window the question holds by chance:
-  // the `T` of `Taika` inside `as t` of `was the`).  `Peter Jackson` is one;
-  // `converts sunlight into chemical energy`, the slot of `Explain how
-  // photosynthesis …`, is a description of the frame's own subject, and the
-  // record answers the question.  The longest such context is the filler.
-  // One content-addressed probe per byte (the `keyEnds` reading); only a run
-  // some deposit spelled whole is looked up.
-  const ids = leafIdPrefix(ctx, raw);
-  let best: [number, number] | null = null;
-  const cache = getStructCache(ctx);
-  const reach = Math.min(ids.length, fe + W - 1);
-  for (let st = Math.max(0, a - W + 1); st <= a; st++) {
-    const run: number[] = [];
-    for (let en = st + 1; en <= reach; en++) {
-      run.push(ids[en - 1]);
-      if (en - st < W) continue;
-      // The flat branch over the whole run exists only where some deposit
-      // spelled exactly these bytes — the cheap filter; the context it names
-      // is then looked up by content.
-      if (ctx.store.findBranch(run) === null) continue;
-      if (best !== null && en - st <= best[1] - best[0]) continue;
-      const id = resolve(ctx, raw.subarray(st, en));
-      if (id !== null && cachedHasNext(ctx, id, cache)) best = [st, en];
-    }
-  }
-  if (best === null) return null;
+  // A FRAME OF NOTHING BUT SCAFFOLDING IS NO FRAME.  `Who is the ` … `?` opens
+  // every question the corpus asks; a form sharing only that with this one is
+  // a different question (`Who is the mother-in-law of William II?` against
+  // `Who is the paternal grandmother of Princess Augusta?`), and the slot it
+  // leaves is no filler.  The frame must hold a window that discriminates.
+  let says = false;
+  for (let o = 0; o + W <= a && !says; o++) says = !hub[o];
+  for (let o = fe; o + W <= form.length && !says; o++) says = !hub[o];
+  if (!says) return null;
   const spans: Array<[number, number]> = [];
   if (a > 0) spans.push([0, a]);
   if (b > 0) spans.push([question.length - b, question.length]);
-  return { span: best, spans };
+  return { open: a, close: b, spans };
+}
+
+/** The ENTITY a slot holds: the longest stored context with continuations of
+ *  its own (a thing the corpus knows) that covers the byte where the two forms
+ *  part.  The slot of `raw` lies between its opening `[0, open)` and its close
+ *  at `end`.
+ *
+ *  `Peter Jackson` is one; `converts sunlight into chemical energy`, the slot of
+ *  `Explain how photosynthesis …`, is a description of the frame's own subject.
+ *  THE FILLER IS WHAT DIFFERS, so it reaches past the opening: the `mother`
+ *  inside a frame's own `grandmother` is frame.  It may open up to
+ *  `chainReach(W)` bytes before the openings part — the reach of the write
+ *  side's canonical chains; fillers that begin alike (`Princess Louise …`,
+ *  `Princess Augusta …`) share their first word — and end up to one window into
+ *  the close (a filler byte can sit in a window the question holds by chance:
+ *  the `T` of `Taika` inside `as t` of `was the`).  It need not fill the slot:
+ *  the record's `John V` is the question's `John V, Count Of Oldenburg`.  An
+ *  exact run some deposit spelled whole is looked up first; a filler the record
+ *  spells only under the response's equivalence (`3Rd Baron` for the stored
+ *  `3rd Baron`) has no flat run of its own, and the canonical class is asked
+ *  only where the exact reading found nothing. */
+function slotEntity(
+  ctx: MindContext,
+  raw: Uint8Array,
+  open: number,
+  end: number,
+): { span: [number, number]; id: number } | null {
+  const W = ctx.space.maxGroup;
+  const ids = leafIdPrefix(ctx, raw);
+  const cache = getStructCache(ctx);
+  const reach = Math.min(ids.length, end + W - 1);
+  let span: [number, number] | null = null;
+  let id: number | null = null;
+  const scan = (exact: boolean): void => {
+    for (let st = open; st >= Math.max(0, open - chainReach(W)); st--) {
+      for (let en = reach; en - st >= W && en > open; en--) {
+        if (span !== null && en - st <= span[1] - span[0]) break;
+        if (st + raw.length - en < W) continue;
+        if (exact && ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+        const n = exact
+          ? resolve(ctx, raw.subarray(st, en))
+          : canonResolve(ctx, raw.subarray(st, en));
+        if (n === null || !cachedHasNext(ctx, n, cache)) continue;
+        [span, id] = [[st, en], n];
+        break;
+      }
+    }
+  };
+  scan(true);
+  if (span === null && ctx.canon !== null) scan(false);
+  return span === null || id === null ? null : { span, id };
 }
 
 /** THE RELATION, READ OFF ANOTHER INSTANCE — the exact tier's second reading,
@@ -1230,15 +1288,25 @@ function byCoInstance(
   allowance: number,
 ): AskedEntry {
   const none: AskedEntry = { named: null, spans: new Map() };
-  const frames = relationFrames(ctx, asked, allowance);
-  if (frames.length === 0) return none;
+  const frames = relationFrames(ctx, asked, allowance).filter((fr) =>
+    fr.then === undefined
+  );
+  // A DERIVATION is the question's, not the walk's: its steps are read off the
+  // whole question once, and each step is offered only where the derivation
+  // stands (below) — so the material a product has already said does not
+  // withhold the second step the way it withholds a frame said twice.
+  const whole = ctx._edgeAsked;
+  const chains = whole === null
+    ? []
+    : relationFrames(ctx, whole, allowance).filter((fr) =>
+      fr.then !== undefined
+    );
+  if (frames.length === 0 && chains.length === 0) return none;
   const node = read(ctx, id, formCap);
   const support = new Map<number, Set<number>>();
   const spans = new Map<number, Array<[number, number]>>();
-  const via = new Map<number, { q: number; t: number }>();
-  for (const fr of frames) {
-    const t = resolve(ctx, concatBytes([fr.prefix, node, fr.suffix]));
-    if (t === null || t === id) continue;
+  const via = new Map<number, { q: number; t: number; chain: boolean }>();
+  const credit = (fr: RelationFrame, t: number, chain: boolean): void => {
     for (const n of ctx.store.nextFirst(t, allowance)) {
       if (!nx.includes(n)) continue;
       let by = support.get(n);
@@ -1246,9 +1314,43 @@ function byCoInstance(
       for (const q of fr.by) by.add(q);
       if (!spans.has(n)) {
         spans.set(n, fr.spans);
-        via.set(n, { q: fr.by[0], t });
+        via.set(n, { q: fr.by[0], t, chain });
       }
     }
+  };
+  const at = (prefix: Uint8Array, suffix: Uint8Array): number | null => {
+    const t = resolve(ctx, concatBytes([prefix, node, suffix]));
+    return t === null || t === id ? null : t;
+  };
+  for (const fr of frames) {
+    const t = at(fr.prefix, fr.suffix);
+    if (t !== null) credit(fr, t, false);
+  }
+  for (const fr of chains) {
+    // The FIRST step applies to the thing the question names — its own filler,
+    // resolved — and the SECOND only to an entity the first step's
+    // continuation holds for that same thing: the derivation is followed in
+    // order, from where the question stands, or not at all.
+    const x = resolve(ctx, fr.filler!);
+    if (x === null) continue;
+    let step: { prefix: Uint8Array; suffix: Uint8Array } | null = null;
+    if (x === id) step = fr;
+    else {
+      const first = resolve(
+        ctx,
+        concatBytes([fr.prefix, read(ctx, x, formCap), fr.suffix]),
+      );
+      if (first === null) continue;
+      for (const g of ctx.store.nextFirst(first, allowance)) {
+        if (indexOf(read(ctx, g, formCap + node.length), node, 0) >= 0) {
+          step = fr.then!;
+          break;
+        }
+      }
+    }
+    if (step === null) continue;
+    const t = at(step.prefix, step.suffix);
+    if (t !== null) credit(fr, t, true);
   }
   let best: number[] = [];
   let most = 0;
@@ -1261,8 +1363,11 @@ function byCoInstance(
     } else if (k === most) best.push(n);
   }
   if (best.length === 0) return none;
-  if (ctx.meter) ctx.meter.coInstanceNamings++;
   const first = via.get(best[0]);
+  if (ctx.meter) {
+    ctx.meter.coInstanceNamings++;
+    if (first?.chain) ctx.meter.chainNamings++;
+  }
   if (ctx.trace && first !== undefined) {
     ctx.trace.step(
       "askedByCoInstance",
@@ -1273,7 +1378,8 @@ function byCoInstance(
       ],
       best.map((n) => rItemShort(ctx, n, "named")),
       `${nx.length} continuations — no establishing context is witnessed; ` +
-        `${most} co-instance(s) of the question carry the relation to ` +
+        `${most} co-instance(s) of the question carry the ` +
+        `${first.chain ? "derivation's step" : "relation"} to ` +
         `${best.length === 1 ? "one" : best.length} of them`,
     );
   }
@@ -1285,13 +1391,22 @@ function byCoInstance(
 /** One RELATION FRAME read off a co-instance: an establishing context of the
  *  co-instance's continuation with the filler cut out (`Peter Jackson place
  *  of birth` → `` + · + ` place of birth`).  Any node put in the gap spells
- *  that node's context for the same relation. */
+ *  that node's context for the same relation.
+ *
+ *  A DERIVATION FRAME carries a second step (`then`): the co-instance's
+ *  continuation is reached from its filler in two hops that meet at an entity
+ *  (`Who is the paternal grandmother of Z?` → `The mother of Y is W.`, where
+ *  `Z father` leads to `The father of Z is Y.` and `Y mother` to the answer),
+ *  so the relation is the pair `· father`, `· mother`, followed in order from
+ *  the question's own filler (`filler`). */
 interface RelationFrame {
   /** The co-instances that spell the relation this way (first one traced). */
   by: number[];
   prefix: Uint8Array;
   suffix: Uint8Array;
   spans: Array<[number, number]>;
+  then?: { prefix: Uint8Array; suffix: Uint8Array };
+  filler?: Uint8Array;
 }
 
 /** The relation frames the question's co-instances carry — a property of the
@@ -1324,35 +1439,103 @@ function relationFrames(
   const cache = getStructCache(ctx);
   const deposited = (c: number): boolean =>
     !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
+  // What a form says as an instance does not depend on the material it is
+  // read against — only whether its frame is held does — so the reading of
+  // each form (its bytes, filler and relations) is kept on the question
+  // (`instanceBook`) and every later material pays only the frame check.
+  const book = instanceBook(whole!);
   const spelled = new Map<string, RelationFrame>();
+  const spell = (
+    q: number,
+    co: { spans: Array<[number, number]>; open: number; close: number },
+    step: Step,
+    then?: Step,
+  ): void => {
+    let key = latin1(step.prefix) + "\u0000" + latin1(step.suffix);
+    if (then !== undefined) {
+      key += "\u0001" + latin1(then.prefix) + "\u0000" + latin1(then.suffix);
+    }
+    const known = spelled.get(key);
+    if (known !== undefined) {
+      if (!known.by.includes(q)) known.by.push(q);
+      return;
+    }
+    const fr: RelationFrame = { by: [q], ...step, spans: co.spans };
+    if (then !== undefined) {
+      // The question's own entity, read between the same frame by the same
+      // rule — the derivation is followed from it.
+      const at = `${co.open}:${co.close}`;
+      let x = book.entity.get(at);
+      if (x === undefined) {
+        x = slotEntity(
+          ctx,
+          asked.bytes,
+          co.open,
+          asked.bytes.length - co.close,
+        );
+        book.entity.set(at, x);
+      }
+      if (x === null) return;
+      fr.then = then;
+      fr.filler = asked.bytes.subarray(x.span[0], x.span[1]);
+    }
+    spelled.set(key, fr);
+  };
+  const seen = new Set<number>();
+  let frame: Array<[number, number]> | null = null;
+  let frameSize = 0;
+  const consider = (q: number): void => {
+    if (seen.has(q)) return;
+    seen.add(q);
+    if (!deposited(q)) return;
+    let r = book.forms.get(q);
+    if (r === undefined) {
+      if (ctx.meter) ctx.meter.coInstanceReads++;
+      r = { raw: read(ctx, q, formCap + 1) };
+      book.forms.set(q, r);
+    }
+    if (r.raw.length > formCap) return;
+    const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
+    if (co === null) return;
+    if (r.filler === undefined) {
+      r.filler = slotEntity(ctx, r.raw, co.open, r.raw.length - co.close);
+    }
+    if (r.filler === null) return;
+    // The most specific frame shown — the longest — leads to the siblings.
+    const size = co.open + co.close;
+    if (frame === null || size > frameSize) {
+      [frame, frameSize] = [co.spans, size];
+    }
+    r.steps ??= instanceSteps(
+      ctx,
+      q,
+      r.filler.id,
+      formCap,
+      allowance,
+      deposited,
+    );
+    for (const [one, two] of r.steps) spell(q, co, one, two);
+  };
   // Most corroborated first (the climb's own ranking), at most
   // `chainReach(W)` read — the exact tier's own floor.
   const proposals = points.filter((c) => cachedHasNext(ctx, c, cache))
     .slice(0, Math.min(allowance, chainReach(W)));
-  for (const q of proposals) {
-    if (!deposited(q)) continue;
-    const raw = read(ctx, q, formCap + 1);
-    if (raw.length > formCap) continue;
-    if (ctx.meter) ctx.meter.coInstanceReads++;
-    const co = coInstanceFiller(ctx, raw, [asked.index], asked.bytes);
-    if (co === null) continue;
-    const [fs, fe] = co.span;
-    const filler = raw.subarray(fs, fe);
-    for (const f of ctx.store.nextFirst(q, W)) {
-      for (const c of ctx.store.prevFirst(f, allowance)) {
-        if (c === q || !deposited(c)) continue;
-        const cb = read(ctx, c, formCap + 1);
-        const at = indexOf(cb, filler, 0);
-        if (at < 0) continue;
-        const prefix = cb.subarray(0, at);
-        const suffix = cb.subarray(at + filler.length);
-        if (prefix.length + suffix.length === 0) continue;
-        const key = latin1(prefix) + "\u0000" + latin1(suffix);
-        const known = spelled.get(key);
-        if (known === undefined) {
-          spelled.set(key, { by: [q], prefix, suffix, spans: co.spans });
-        } else if (!known.by.includes(q)) known.by.push(q);
-      }
+  for (const q of proposals) consider(q);
+  // ONE REGION VOTES FOR ONE CONTEXT, so the climb's points hold one instance
+  // of a frame that several instances share.  The siblings are what the
+  // frame's rarest window reaches — the climb's own memoised reach, a
+  // saturated window proposing nothing — read only once a co-instance has
+  // shown what the frame is, and once per question.
+  if (frame !== null) {
+    // The question's own frame decides them; a later material — fewer windows
+    // held, a narrower frame — reads the question's.
+    const siblings = book.siblings ??
+      siblingInstances(ctx, asked.bytes, frame, allowance);
+    if (asked === whole) book.siblings = siblings;
+    for (const q of siblings) {
+      if (seen.has(q)) continue;
+      if (ctx.meter) ctx.meter.coInstanceSiblings++;
+      consider(q);
     }
   }
   // ONE INSTANCE AGREES WITH NOTHING.  A relation is read off the corpus only
@@ -1363,7 +1546,201 @@ function relationFrames(
   // "frames", each an exact lookup for every node asked about.
   for (const fr of spelled.values()) if (fr.by.length >= 2) frames.push(fr);
   frames.sort((a, b) => b.by.length - a.by.length);
+  if (ctx.trace && seen.size > 0) {
+    const show = (fr: RelationFrame): string =>
+      `${decodeText(fr.prefix)}·${decodeText(fr.suffix)}` +
+      (fr.then
+        ? ` → ${decodeText(fr.then.prefix)}·${decodeText(fr.then.suffix)}`
+        : "") +
+      ` (${fr.by.length})`;
+    ctx.trace.step(
+      "relationFrames",
+      [...new Set([...spelled.values()].flatMap((fr) => fr.by))].map((q) =>
+        rItemShort(ctx, q, "co-instance")
+      ),
+      [],
+      `${seen.size} form(s) read; frames ${
+        [...spelled.values()].map(show).join("; ")
+      } — ${frames.length} spelled alike by two or more`,
+    );
+  }
   return frames;
+}
+
+type Step = { prefix: Uint8Array; suffix: Uint8Array };
+
+/** One form's reading as an instance of the question, kept for the question:
+ *  its bytes, its filler (null: none), and the relations it carries — each a
+ *  one-hop step, or a first step with the second it leads to. */
+interface InstanceReading {
+  raw: Uint8Array;
+  filler?: { span: [number, number]; id: number } | null;
+  steps?: Array<[Step, Step | undefined]>;
+}
+
+/** Per question: the forms read as instances, their siblings, and the
+ *  question's own entity per frame. */
+interface InstanceBook {
+  forms: Map<number, InstanceReading>;
+  siblings?: number[];
+  entity: Map<string, { span: [number, number]; id: number } | null>;
+}
+const bookMemo = new WeakMap<object, InstanceBook>();
+function instanceBook(whole: object): InstanceBook {
+  let b = bookMemo.get(whole);
+  if (b === undefined) {
+    bookMemo.set(whole, b = { forms: new Map(), entity: new Map() });
+  }
+  return b;
+}
+
+/** The relations an instance `q` carries from its filler `z`.  Its
+ *  continuation is established by other contexts too (`Peter Jackson place of
+ *  birth`); one that holds the filler spells the relation the corpus's way.
+ *  Where none does, the continuation is not a fact about the filler but the end
+ *  of a DERIVATION from it, read as two hops meeting at an entity (below). */
+function instanceSteps(
+  ctx: MindContext,
+  q: number,
+  z: number,
+  formCap: number,
+  allowance: number,
+  deposited: (c: number) => boolean,
+): Array<[Step, Step | undefined]> {
+  const W = ctx.space.maxGroup;
+  // The filler as the corpus spells it — the co-instance may spell it only
+  // under the response's equivalence.
+  const filler = read(ctx, z, formCap);
+  const out: Array<[Step, Step | undefined]> = [];
+  for (const f of ctx.store.nextFirst(q, W)) {
+    for (const c of ctx.store.prevFirst(f, allowance)) {
+      if (c === q || !deposited(c)) continue;
+      const cb = read(ctx, c, formCap + 1);
+      const at = indexOf(cb, filler, 0);
+      if (at < 0) continue;
+      const prefix = cb.subarray(0, at);
+      const suffix = cb.subarray(at + filler.length);
+      if (prefix.length + suffix.length === 0) continue;
+      out.push([{ prefix, suffix }, undefined]);
+    }
+  }
+  if (out.length > 0) return out;
+  for (const f of ctx.store.nextFirst(q, W)) {
+    for (
+      const [one, two] of derivationSteps(
+        ctx,
+        z,
+        filler,
+        f,
+        q,
+        allowance,
+        formCap,
+        deposited,
+      )
+    ) {
+      out.push([one, two]);
+    }
+  }
+  return out;
+}
+
+/** A co-instance's continuation `f` read as the end of a two-hop derivation
+ *  from its filler `z`: a fact of `z` (`The father of Z is Y.`), established by
+ *  a context that holds `z` with a relation (`Z father`), holds an entity
+ *  (`Y`) that `f` is established by with another relation (`Y mother`).  The
+ *  entity is the longest stored context with continuations of its own that
+ *  both readings hold.  Returns each pair of steps, as frames. */
+function derivationSteps(
+  ctx: MindContext,
+  z: number,
+  filler: Uint8Array,
+  f: number,
+  q: number,
+  allowance: number,
+  formCap: number,
+  deposited: (c: number) => boolean,
+): Array<[
+  { prefix: Uint8Array; suffix: Uint8Array },
+  { prefix: Uint8Array; suffix: Uint8Array },
+]> {
+  const W = ctx.space.maxGroup;
+  const cache = getStructCache(ctx);
+  const out: Array<[
+    { prefix: Uint8Array; suffix: Uint8Array },
+    { prefix: Uint8Array; suffix: Uint8Array },
+  ]> = [];
+  const facts = ctx.store.nextFirst(z, allowance).map((g) => ({
+    g,
+    bytes: read(ctx, g, formCap),
+  }));
+  if (facts.length === 0) return out;
+  for (const p of ctx.store.prevFirst(f, allowance)) {
+    if (p === q || !deposited(p)) continue;
+    const pb = read(ctx, p, formCap + 1);
+    if (pb.length > formCap || indexOf(pb, filler, 0) >= 0) continue;
+    // The meeting entity: the longest span of `p` (at least one window) that a
+    // fact of the filler holds and the corpus knows as a context leading on.
+    let hit: { s: number; e: number; g: number } | null = null;
+    for (let len = pb.length; len >= W && hit === null; len--) {
+      for (let s = 0; s + len <= pb.length && hit === null; s++) {
+        const span = pb.subarray(s, s + len);
+        const holder = facts.find((x) => indexOf(x.bytes, span, 0) >= 0);
+        if (holder === undefined) continue;
+        const e = resolve(ctx, span);
+        if (e === null || e === z || !cachedHasNext(ctx, e, cache)) continue;
+        hit = { s, e: s + len, g: holder.g };
+      }
+    }
+    if (hit === null) continue;
+    const two = { prefix: pb.subarray(0, hit.s), suffix: pb.subarray(hit.e) };
+    if (two.prefix.length + two.suffix.length === 0) continue;
+    for (const c of ctx.store.prevFirst(hit.g, allowance)) {
+      if (!deposited(c)) continue;
+      const cb = read(ctx, c, formCap + 1);
+      const at = indexOf(cb, filler, 0);
+      if (at < 0) continue;
+      const one = {
+        prefix: cb.subarray(0, at),
+        suffix: cb.subarray(at + filler.length),
+      };
+      if (one.prefix.length + one.suffix.length === 0) continue;
+      out.push([one, two]);
+    }
+  }
+  return out;
+}
+
+/** Further instances of a frame a co-instance has shown: the contexts the
+ *  question's RAREST frame window reaches, through the climb's own memoised
+ *  reach.  A window every frame shares is held by every instance; the rarest
+ *  one reaches the fewest contexts, and a saturated reach proposes nothing. */
+function siblingInstances(
+  ctx: MindContext,
+  question: Uint8Array,
+  frame: ReadonlyArray<[number, number]>,
+  allowance: number,
+): number[] {
+  const W = ctx.space.maxGroup;
+  const bound = hubBound(ctx);
+  const ids = leafIdPrefix(ctx, question);
+  const hub = hubWindows(ctx, question);
+  let best: number | null = null;
+  let rarity = bound + 1;
+  for (const [s, e] of frame) {
+    for (let o = s; o + W <= e && o + W <= ids.length; o++) {
+      if (hub[o]) continue;
+      const wid = ctx.store.findBranch(ids.slice(o, o + W));
+      if (wid === null) continue;
+      const r = ctx.store.containersSlice(wid, 0, bound + 1).length;
+      if (r > 0 && r < rarity) {
+        rarity = r;
+        best = wid;
+      }
+    }
+  }
+  if (best === null) return [];
+  const reach = edgeAncestors(ctx, best, corpusN(ctx), sharedReachMemo(ctx));
+  return reach.saturated ? [] : reach.roots.slice(0, allowance);
 }
 const frameMemo = new WeakMap<object, RelationFrame[]>();
 

@@ -281,6 +281,13 @@ export class Meter {
   coInstanceNamings = 0;
   /** Proposed co-instances that tier read and witnessed. */
   coInstanceReads = 0;
+  /** Picks named by a co-instance's DERIVATION — two hops from its filler to
+   *  its continuation, meeting at an entity, carried over in order
+   *  (traverse.ts, `byCoInstance`). */
+  chainNamings = 0;
+  /** Co-instances read off the reach of the question's rarest frame window,
+   *  beside the climb's own points (traverse.ts, `relationFrames`). */
+  coInstanceSiblings = 0;
   /** Cover sites dropped as FRAGMENTS whose several continuations the question
    *  names none of (mechanisms/cover.ts). */
   unaskedFragments = 0;

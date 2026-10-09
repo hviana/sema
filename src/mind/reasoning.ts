@@ -805,9 +805,16 @@ export function fusionLayer(
       // out at 0.40).  So a root is trusted when EITHER measure alone
       // indicates real signal — excluded only when BOTH are weak.  Cheap and
       // synchronous — checked before the async already-answered walk below.
+      //
+      // BELOW ONE WINDOW, BYTE IDENTITY IS NOT EVIDENCE (attention.ts): a
+      // confined, narrow point whose strongest evidence is shorter than a
+      // window — the `)?` closing `… (1971 Film)?`, which also closes a stored
+      // `Who is the uncle of Auberon Herbert (Landowner)?` — is no further topic
+      // however many scaffolding windows (`the `, ` of `) it also shares.
       if (
         root.clusters < 2 && root.breadth <= 0.5 &&
-        sharedPlaces(read(ctx, root.anchor), query, quantum) < 2
+        (root.end - root.start < quantum ||
+          sharedPlaces(read(ctx, root.anchor), query, quantum) < 2)
       ) {
         ctx.trace?.step(
           "singleCluster",
