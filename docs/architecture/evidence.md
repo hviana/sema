@@ -79,25 +79,62 @@ where two co-instances spell it alike, the same bar `reference` holds
 (`MIN_INSTANCES`).
 
 `byCoInstance` puts the node into each frame and looks the result up by content.
-If `Edmond T. Gréville place of birth` exists, its continuation is named. It
-runs only when nothing is witnessed outright. Neither the frame nor the
-equivalence is stored, and nothing in the reading is approximate.
+If `Edmond T. Gréville place of birth` exists, its continuation is named.
+Neither the frame nor the equivalence is stored, and nothing in the reading is
+approximate.
+
+**One measure ranks the two readings:** the question material that evidences a
+continuation. Witnessing counts the question bytes an establishing context
+holds; another instance counts the question frame it shares.
+`In which country
+was the paternal grandmother of Z born?` witnesses `Z mother`
+with the `mother` inside `grandmother` (10 bytes), while three instances of the
+whole frame (40 bytes) spell `· father` there, so the frame names the step. The
+whole question's frames are read once per question, and they bound what any
+material could evidence. When none spans more than the witnessing did, the
+co-instance reading is not made.
 
 **A derivation, read off other instances.**
-`Who is the paternal grandmother of
-Z?` answered `The mother of Y is W.` is a
-co-instance whose continuation no context holding `Z` establishes: it is the end
-of a derivation from `Z`. It is read as two hops meeting at an entity
-(`derivationSteps`): a fact of `Z` (`The
-father of Z is Y.`, established by
-`Z father`) holds `Y`, and `Y mother` establishes the answer. The relation is
-then the pair `· father`, `· mother`, counted only where two instances spell the
-pair alike. It is followed in order from the question's own entity, read between
-the same frame by the same rule: the first step applies to that entity, and the
-second only to the entity the first step's fact holds whole (`heldWhole`:
-`Henry IV of France`, never the stored `Henry` inside it). So the frame a
-product already said does not withhold the second step, and a step is never
-taken out of order or taken again.
+`Who is the paternal
+great-grandmother of Z?` answered `The mother of Y2 is W.`
+is a co-instance whose continuation no context holding `Z` establishes: it is
+the end of a derivation from `Z`. The derivation is read as a **path**
+(`pathSteps`). Each fact on it is established by a context holding the entity
+the path stands on (`Z father` → `The father of Z is Y1.`), and holds the entity
+the next fact stands on (`Y1`). The path ends where an establishing context of
+the answer holds that entity (`Y2 mother`). Each step is its context with the
+entity cut out, so the relation is the sequence `· father`, `· father`,
+`· mother`, counted only where two instances spell it alike.
+
+The path is searched breadth first, so the shortest derivation the corpus holds
+is the one read, and its length comes from the corpus. Each entity expanded is
+one read of its facts out of the exact tier's allowance. A hub is not expanded,
+and a search that spends the allowance reads nothing (`pathReadsSaturated`). A
+path's entities are the ones its facts hold whole and learnt as contexts of
+their own (`entitiesIn`): `Henry IV of France`, never the `Henry` inside it, and
+never `mother`, a piece that holds continuations only by suffix inheritance. A
+fact is read whole for this, because a prefix cut at the material's length holds
+the shorter name. Which entities and paths a form gives does not depend on the
+question, so both are kept for the session and dropped on a write.
+
+The sequence is replayed in order (`replayOf`). Its first step applies at the
+question's own entity. Step `i + 1` applies only at an entity the replay of
+steps `1..i` from that entity reaches. So the frame a product already said does
+not withhold a later step, and no step is taken out of order or taken again.
+
+The derivation starts at what the question's slot names (`startOf`):
+
+- **An entity that fills the slot** (to less than one window) is the start.
+- **A remainder that names nothing** only qualifies the entity, so the entity is
+  still the start: `(1259–1321)` after `Blanche of Portugal`.
+- **A remainder that names one fact of the entity**, witnessed by the slot's own
+  material, describes something through it: the start is the one other entity
+  that fact holds. For
+  `the paternal grandmother of Eleanor of
+  Aquitaine's father`, that is the
+  father.
+- **Anything less determined is no start.** Replaying from the entity alone
+  would answer a question about someone else.
 
 **The proposals are the climb's, and their siblings.** One region votes for one
 context, so the climb's points hold one instance of a frame that several
@@ -209,9 +246,9 @@ has a question of its own.
 
 | Correct (strict), of the test rows       | Witnessing only | 0.9.5 | Now |
 | ---------------------------------------- | --------------- | ----- | --- |
-| compositional, fixture (133)             | 52              | 56    | 56  |
-| compositional, plus instances (133)      | 41              | 89    | 98  |
-| inference, plus inference instances (37) | —               | 6     | 21  |
+| compositional, fixture (133)             | 52              | 56    | 57  |
+| compositional, plus instances (133)      | 41              | 89    | 102 |
+| inference, plus inference instances (37) | —               | 6     | 23  |
 
 The first hop is right on 114 and 109 of 133. Most of the remaining first-hop
 failures are aliases (`Clara Novello` for `Clara Anastasia Novello`), which no
@@ -225,6 +262,23 @@ lookups 6%, and container reads 13% (about 19 point reads per question, for the
 frame windows' rarity). There the frame windows are scaffolding and the
 instances are absent, so the tier names nothing.
 
+A constructed world tests what 2Wiki cannot: derivations of 1 to 5 steps,
+paraphrased and reordered frames, frames composed with a stated relation,
+branching, ambiguous names, and negative controls. It holds 2,098 people and
+5,578 triples, deposited as `wiki2.ts` does, with 60 instances and 152 test
+questions about subjects with no question of their own.
+
+| Correct, of the test questions          | Two-step reading | Path reading |
+| --------------------------------------- | ---------------- | ------------ |
+| depth 1–2, incl. paraphrase, cross-kind | 35 of 52         | 50           |
+| depth 3–5, incl. cross-kind             | 0 of 42          | 41           |
+| a frame composed with a stated relation | 0 of 6           | 6            |
+| all 152                                 | 52               | 115          |
+
+Wrong first hops fell from 42 to 10. With the instances removed, or their
+answers scrambled so that no path joins filler and answer, every answer was the
+same under both readings: the gain is the path, not the instances' answers.
+
 ## Pins
 
 - `test/154` — witnessing: a named continuation beats the most-poured one;
@@ -236,6 +290,12 @@ instances are absent, so the tier names nothing.
   instances; it refuses a partly shared frame, a said frame and a description in
   the slot; it is never voiced as the answer; traced and untraced responses
   agree; neither fusion nor a comparison takes a co-instance.
+- `test/157` — a derivation of any length: three and four steps (across kinds);
+  each frame by its own sequence, in order; the reading that explains more of
+  the question names the step; the start is what the slot names, and a remainder
+  that names nothing only qualifies; a fact holds its entity whole; traced and
+  untraced responses agree. Its scrambled-answer case is a control: no mutation
+  of the reading short of inventing a path breaks it.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an

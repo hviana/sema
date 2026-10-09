@@ -47,7 +47,12 @@ the rule called it saturated.
 
 Candidates rank by `contentLen(id, answerLen + 1)`, descending, with
 first-inserted breaking ties. The score is length itself, so the first candidate
-that passes every filter wins, and no shorter candidate's bytes are ever read.
+that passes every filter wins, and no shorter candidate's bytes are ever read. A
+candidate must be a learnt whole: a span with parents or containers and no halo
+is a piece of bigger forms (`s=70`). Structure alone over-reads, because the
+content-defined cuts can reuse a name's subtree inside its own contexts
+(`William Henry Fellowes`: parents 2, halo 2), and refusing such a name stopped
+the walk one hop short (`test/157`).
 
 ## Junction ascent — guards against a budget (`mind/junction.ts`)
 

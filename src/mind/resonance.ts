@@ -443,7 +443,18 @@ export async function pivotInto(
     // what `parents`/`containers` record.  Reasoning steps THROUGH a fact;
     // a span that was never a fact on its own is not one to step through.
     // No constant enters — it is a structural predicate, not a threshold.
-    if (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) continue;
+    //
+    // …but structure alone over-reads: the content-defined cuts can reuse a
+    // deposited name's subtree inside its own contexts (`William Henry
+    // Fellowes` inside `William Henry Fellowes place of birth`: parents 2), and
+    // the filter then refused a person the corpus learnt whole.  What the
+    // fragment lacks is COMPANY: it was never a context or an answer of its
+    // own, so nothing poured a halo into it (`s=70`: halo no; the name: halo
+    // yes).  A piece is refused; a learnt whole that is also reused is not.
+    if (
+      (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) &&
+      !(ctx.store.haloMass(id) > 0)
+    ) continue;
     // A candidate whose bytes are LONGER than the answer cannot be a substring
     // of it — `indexOf` would return −1 regardless. Prune by length BEFORE
     // reconstructing the bytes: `read` is an UNCAPPED read (bounded-reads.md),

@@ -288,6 +288,12 @@ export class Meter {
    *  its continuation, meeting at an entity, carried over in order
    *  (traverse.ts, `byCoInstance`). */
   chainNamings = 0;
+  /** Entities a derivation's path search expanded — one read of their facts
+   *  each, out of the exact tier's allowance (traverse.ts, `pathSteps`). */
+  pathExpansions = 0;
+  /** Path searches that spent the allowance without reaching the instance's
+   *  answer, and so read no derivation (traverse.ts, `pathSteps`). */
+  pathReadsSaturated = 0;
   /** Co-instances read off the reach of the question's rarest frame window,
    *  beside the climb's own points (traverse.ts, `relationFrames`). */
   coInstanceSiblings = 0;
