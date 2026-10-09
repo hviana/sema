@@ -155,6 +155,21 @@ for one maximal argument, so `director` no longer cancels `Man at Bath`. The
 same predicate refuses CAST's redirection substitute `ong)?`, the tail of every
 `… (… Song)?` question.
 
+A fragment with a single continuation is no safer when it was never learnt as a
+context. Suffix inheritance admits a reused piece once two deposits share it, so
+`ther` carries only the fact of the first `… mother` context deposited after
+that, and cover voiced `Otto the Great`'s mother for
+`Anne of Kiev's
+grandmother`. A piece with no company of its own (no halo) holds
+only inherited continuations, so it answers other questions however few it
+holds. A form learnt as a context keeps its one continuation; the definition,
+bridge and ALU suites fail without that exception. On the 2Wiki fixtures the
+rule cost one answer (a title reached through the subword `sistance`,
+`Resistance` for `résistance`), removed a stranger's fact glued onto another,
+and cut search and lookups by 3–5%. The 116-query battery did not change: on the
+trained store such pieces carry many continuations, and the older rule already
+set them aside.
+
 ## Its consumers
 
 | Where                                          | What it decides                                                                                                                                                                                                                                                                            |
@@ -163,7 +178,7 @@ same predicate refuses CAST's redirection substitute `ong)?`, the tail of every
 | `askedEvidence` (`traverse.ts`)                | the question spans that named a pick, which a projecting mechanism then accounts for                                                                                                                                                                                                       |
 | `preConsumed` (`pipeline.ts`)                  | when a grounding declares no `used`: the forms inside its answer that the question already holds. The entity the answer added stays pivotable                                                                                                                                              |
 | the walk (`reasoning.ts`)                      | a named pivot moves; an unnamed one is offered only while the derivation still owes something, and the closure law decides it by carrying                                                                                                                                                  |
-| `answersOtherQuestions` (`traverse.ts`)        | a fragment (a form inside others, with several continuations, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                                           |
+| `answersOtherQuestions` (`traverse.ts`)        | a fragment (a form inside others, with several continuations or one it only inherited, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                  |
 | recall's anchor, fusion roots, CAST comparison | a co-instance is never voiced or fused; a comparison needs a window of its own evidencing the analog                                                                                                                                                                                       |
 
 ## What the question owes
@@ -214,8 +229,9 @@ instances are absent, so the tier names nothing.
 
 - `test/154` — witnessing: a named continuation beats the most-poured one;
   question plus node names the second hop; an unnamed step is not taken; a
-  fragment voices nothing it was not asked; a comparison needs two named things;
-  an argument held only under the equivalence binds.
+  fragment voices nothing it was not asked, even its one inherited continuation;
+  a comparison needs two named things; an argument held only under the
+  equivalence binds.
 - `test/155` — the relation read off another instance: it needs two agreeing
   instances; it refuses a partly shared frame, a said frame and a description in
   the slot; it is never voiced as the answer; traced and untraced responses

@@ -849,7 +849,12 @@ export function offsetCanon(ctx: MindContext, bytes: Uint8Array): Uint8Array {
  *  the answer of every `… director` one.  Choosing one of several such
  *  continuations by popularity voices some other question's answer.  A
  *  fragment with several continuations leads somewhere FOR THIS QUESTION only
- *  when the question names one (the exact tier below).  A form that is
+ *  when the question names one (the exact tier below).  So does a fragment
+ *  with ONE continuation that was never learnt as a context — no company of
+ *  its own (halo): every continuation it holds is inherited, and which one
+ *  depends on deposit order (`ther` carried only the last `… mother` fact it
+ *  was found reused in).  A form learnt as a context (`Tell me about X`'s `X`,
+ *  a defined term) keeps its one continuation.  A form that is
  *  (nearly) the whole question is not a piece of it: the question says
  *  nothing beyond it, so its continuations answer THIS question.  Read by
  *  every mechanism that projects through a recognised site (cover's sites,
@@ -863,7 +868,8 @@ export function answersOtherQuestions(
   const asked = ctx._edgeAsked;
   if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
   if (!(ctx.store.hasParents(id) || ctx.store.hasContainers(id))) return false;
-  if (ctx.store.nextFirst(id, 2).length < 2) return false;
+  const nx = ctx.store.nextFirst(id, 2).length;
+  if (nx === 0 || (nx < 2 && ctx.store.haloMass(id) > 0)) return false;
   return namedContinuations(ctx, id, asked) === null;
 }
 

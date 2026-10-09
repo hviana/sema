@@ -40,7 +40,13 @@
 //   154.8 an argument the question holds only under the response's
 //         equivalence (`Man At Bath` for the stored `Man at Bath`, inside the
 //         question) still binds: the climb proposes it, canonical containment
-//         decides.
+//         decides;
+//   154.9 a fragment with ONE continuation answers another question too when
+//         it never was a context itself: suffix inheritance gave `ther` the
+//         fact of the context it first found reused (`Otto the Great
+//         mother`), and the cover voiced it for `Anne of Kiev's grandmother`.
+//         (A form learnt as a context keeps its one continuation: the
+//         definition, bridge and ALU suites fail without that exception.)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -364,5 +370,33 @@ test("154.8 an argument held only under the response's equivalence still binds",
     ),
     "The director of At the End of the Tunnel is Rodrigo Grande.",
   );
+  await mind.store.close();
+});
+
+test("154.9 a fragment's one inherited continuation answers another question", async () => {
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  // `ther` closes every `… mother` context; the gate that lets a reused piece
+  // inherit admitted it only once two deposits had reused it, so it carries
+  // the fact of the LAST context alone — one continuation, and no company
+  // of its own, because it was never learnt as a context.
+  await mind.ingest(deposits([
+    ["Anne of Kiev", "mother", "Ingegerd"],
+    ["Yaroslav the Wise", "mother", "Rogneda"],
+    ["Charles the Bald", "mother", "Judith"],
+    ["Otto the Great", "mother", "Matilda"],
+  ]));
+  for (
+    const q of [
+      "Who is Anne of Kiev's grandmother?",
+      "Who is Anne of Kiev's stepmother?",
+    ]
+  ) {
+    const answer = await mind.respondText(q);
+    assert.doesNotMatch(answer, /Otto|Matilda/, `${q} → ${answer}`);
+    assert.match(answer, /Anne of Kiev/, `${q} → ${answer}`);
+  }
   await mind.store.close();
 });
