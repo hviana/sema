@@ -125,6 +125,9 @@ function getStructCache(ctx: MindContext): StructCache | null {
  *  are kept for the session like the climb's reach, and dropped on a write. */
 interface DerivationCache {
   paths: Map<string, Step[][]>;
+  slots: Map<string, { span: [number, number]; id: number } | null>;
+  converges: Map<string, Array<[Arrival, Arrival]>>;
+  facts: Map<number, Map<string, Step>>;
   described: Map<string, Step[] | null>;
   entities: Map<number, Array<{ span: [number, number]; id: number }>>;
 }
@@ -135,7 +138,14 @@ function derivationCache(ctx: MindContext): DerivationCache | null {
   if (c === undefined) {
     derivationCaches.set(
       ctx._structMemoKey,
-      c = { paths: new Map(), entities: new Map(), described: new Map() },
+      c = {
+        paths: new Map(),
+        entities: new Map(),
+        described: new Map(),
+        facts: new Map(),
+        slots: new Map(),
+        converges: new Map(),
+      },
     );
   } else if (
     c.paths.size >= STRUCT_MEMO_MAX || c.entities.size >= STRUCT_MEMO_MAX
@@ -143,6 +153,9 @@ function derivationCache(ctx: MindContext): DerivationCache | null {
     c.paths.clear();
     c.entities.clear();
     c.described.clear();
+    c.facts.clear();
+    c.slots.clear();
+    c.converges.clear();
   }
   return c;
 }
@@ -1030,9 +1043,14 @@ function askedContinuationsImpl(
   }
   const other = byCoInstance(ctx, id, nx, asked, formCap, allowance);
   if (seen.entry.named === null) return other;
+  // The reading that explains more of the question names the step, whether
+  // it names another continuation or fewer of the same: a derivation that
+  // says what its entity must be withholds the siblings witnessing cannot
+  // tell apart.
   if (
     other.named !== null &&
-    other.named.some((n) => !seen.entry.named!.includes(n))
+    (other.named.length !== seen.entry.named.length ||
+      other.named.some((n) => !seen.entry.named!.includes(n)))
   ) {
     const framed = Math.max(
       ...other.named.map((n) =>
@@ -1318,6 +1336,7 @@ function slotEntity(
   raw: Uint8Array,
   open: number,
   end: number,
+  ownSpelling = false,
 ): { span: [number, number]; id: number } | null {
   const W = ctx.space.maxGroup;
   const ids = leafIdPrefix(ctx, raw);
@@ -1348,7 +1367,12 @@ function slotEntity(
   // (`mark`) inside the entity only its canonical class spells, and the
   // canonical pass is asked for longer spans that hold the exact one.  A form
   // in its own spelling holds its names exactly.
-  if (ctx.canon !== null && (span === null || readUnderCanon(ctx, raw))) {
+  // A stored form in its own spelling holds its names exactly; only a
+  // question is read under the response's equivalence.
+  if (
+    !ownSpelling && ctx.canon !== null &&
+    (span === null || readUnderCanon(ctx, raw))
+  ) {
     scan(false);
   }
   return span === null || id === null ? null : { span, id };
@@ -1621,10 +1645,29 @@ function byCoInstance(
   const spans = new Map<number, Array<[number, number]>>();
   const via = new Map<number, { q: number; t: number; chain: boolean }>();
   const named: Array<{ n: number; bytes: number; by: number[] }> = [];
-  const credit = (fr: RelationFrame, t: number, chain: boolean): void => {
+  const credit = (
+    fr: RelationFrame,
+    t: number,
+    chain: boolean,
+    cond?: Map<string, Step>,
+  ): void => {
     const bytes = fr.spans.reduce((a, [s, e]) => a + e - s, 0);
     for (const n of ctx.store.nextFirst(t, allowance)) {
       if (!nx.includes(n)) continue;
+      // A step the derivation says more of names only a fact holding an
+      // entity that is what every instance's was.
+      if (cond !== undefined && cond.size > 0) {
+        const { fact, held } = entitiesIn(ctx, n);
+        if (
+          !held.some((h) =>
+            h.id !== id &&
+            satisfies(ctx, fact.subarray(h.span[0], h.span[1]), cond)
+          )
+        ) {
+          if (ctx.meter) ctx.meter.conditionWithheld++;
+          continue;
+        }
+      }
       named.push({ n, bytes, by: fr.by });
       if (bytes > (strength.get(n) ?? -1)) {
         strength.set(n, bytes);
@@ -1657,7 +1700,7 @@ function byCoInstance(
       if (i === 0) continue;
     }
     const t = at(all[i].prefix, all[i].suffix);
-    if (t !== null) credit(fr, t, true);
+    if (t !== null) credit(fr, t, true, fr.cond?.[i]);
   }
   // ONE MEASURE.  The frames naming a continuation rank by the question
   // material they share — the measure witnessing is ranked by — so `· father`,
@@ -1721,6 +1764,12 @@ interface RelationFrame {
   not?: number;
   /** Per position, the entities the replay from `filler` reaches. */
   replay?: Array<Set<number>>;
+  /** Per position (the entity after step i), the facts EVERY instance's entity
+   *  there holds, spelled with the entity cut out — what the derivation says
+   *  of the entities it stands on, not only how it leaves them. */
+  cond?: Array<Map<string, Step>>;
+  /** The first instance's entities, read for `cond` once another agrees. */
+  first?: Array<Step["to"]>;
 }
 
 /** Whether other instances of the question carry a relation — a frame two
@@ -1790,7 +1839,8 @@ function relationFrames(
     q: number,
     co: { spans: Array<[number, number]>; open: number; close: number },
     step: Step,
-    then?: Step[],
+    then: Step[] | undefined,
+    tos: Array<Step["to"]>,
   ): void => {
     // THE QUESTION'S DERIVATION is what its slot says of its entity, then what
     // the frame says: `Where was the paternal grandmother of Z born?` is
@@ -1814,12 +1864,39 @@ function relationFrames(
       key += latin1(t.prefix) + "\u0000" + latin1(t.suffix) + "\u0001";
     }
     if (not !== undefined) key += `|not:${not}`;
+    // WHAT THE DERIVATION SAYS OF THE ENTITIES IT STANDS ON is what every
+    // instance's entity there is: `Which child of Y is a medic?` answered
+    // `The occupation of C is surgeon.` stands on a child of Y that is a
+    // surgeon, in every instance, though the question never says so.  A fact
+    // one instance's entity lacks says nothing of the derivation.
+    // Read once a second instance agrees on the steps: the first instance's
+    // entities for their facts, then each later one only for those still
+    // shared, an exact lookup of the whole fact — the test the question's
+    // entity will take.
+    const at = said?.steps.length ?? 0;
+    const to = all.slice(0, -1).map((_, i) => i < at ? undefined : tos[i - at]);
     const known = spelled.get(key);
     if (known !== undefined) {
-      if (!known.by.includes(q)) known.by.push(q);
+      if (known.by.includes(q)) return;
+      known.by.push(q);
+      known.cond = (known.cond ?? known.first!.map((e) =>
+        e === undefined ? new Map<string, Step>() : factFrames(ctx, e)
+      )).map((m, i) => {
+        const e = to[i];
+        return m.size === 0 || e === undefined
+          ? new Map<string, Step>()
+          : new Map([...m].filter(([, c]) =>
+            holds(ctx, e.bytes, c)
+          ));
+      });
       return;
     }
-    const fr: RelationFrame = { by: [q], ...all[0], spans: co.spans };
+    const fr: RelationFrame = {
+      by: [q],
+      ...all[0],
+      spans: co.spans,
+      first: to,
+    };
     if (not !== undefined) fr.not = not;
     if (all.length > 1) {
       fr.then = all.slice(1);
@@ -1854,7 +1931,7 @@ function relationFrames(
       });
       r.filler = said === null || "undetermined" in said
         ? null
-        : { id: said.x.id, said: said.steps };
+        : { id: said.x.id, span: said.x.span, said: said.steps };
     }
     if (r.filler === null) return true;
     // The most specific frame shown — the longest — leads to the siblings.
@@ -1879,7 +1956,13 @@ function relationFrames(
       if (!startsWith(all, said)) continue;
       const own = all.slice(said.length);
       if (own.length === 0) continue;
-      spell(q, co, own[0], own.length > 1 ? own.slice(1) : undefined);
+      spell(
+        q,
+        co,
+        own[0],
+        own.length > 1 ? own.slice(1) : undefined,
+        own.slice(0, -1).map((st) => st.to),
+      );
     }
     return true;
   };
@@ -1947,7 +2030,16 @@ function relationFrames(
       (fr.then ?? []).map((t) =>
         ` → ${decodeText(t.prefix)}·${decodeText(t.suffix)}`
       ).join("") +
-      ` (${fr.by.length})`;
+      ` (${fr.by.length})` +
+      (fr.cond ?? []).map((m, i) =>
+        m.size === 0
+          ? ""
+          : ` [${i + 1}: ${
+            [...m.values()].map((c) =>
+              `${decodeText(c.prefix)}·${decodeText(c.suffix)}`
+            ).join(", ")
+          }]`
+      ).join("");
     ctx.trace.step(
       "relationFrames",
       [...new Set([...spelled.values()].flatMap((fr) => fr.by))].map((q) =>
@@ -1962,14 +2054,21 @@ function relationFrames(
   return frames;
 }
 
-type Step = { prefix: Uint8Array; suffix: Uint8Array };
+/** One step of a derivation: a frame around the entity it stands on.  A step
+ *  read off an instance's path also keeps the entity it REACHED there (`to`),
+ *  so what that entity is can be compared across instances. */
+type Step = {
+  prefix: Uint8Array;
+  suffix: Uint8Array;
+  to?: { id: number; bytes: Uint8Array };
+};
 
 /** One form's reading as an instance of the question, kept for the question:
  *  its bytes, its filler (null: none), and the relations it carries — each a
  *  one-hop step, or a first step with the second it leads to. */
 interface InstanceReading {
   raw: Uint8Array;
-  filler?: { id: number; said: Step[] } | null;
+  filler?: { id: number; span: [number, number]; said: Step[] } | null;
   steps?: Array<[Step, Step[] | undefined]>;
 }
 
@@ -2086,6 +2185,73 @@ function entitiesIn(
   return { fact, held: out };
 }
 
+/** Whether `bytes` holds a thing the corpus learnt WHOLE — the test
+ *  {@link entitiesIn} applies to each span of a fact, asked only of these
+ *  bytes: ` is Thistlecombe.` holds `Thistlecombe`; `The date of birth of `
+ *  holds nothing. */
+export function holdsAThing(ctx: MindContext, bytes: Uint8Array): boolean {
+  const W = ctx.space.maxGroup;
+  const ids = leafIdPrefix(ctx, bytes);
+  const cache = getStructCache(ctx);
+  for (let st = 0; st + W <= ids.length; st++) {
+    for (let en = ids.length; en - st >= W; en--) {
+      if (ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+      const n = resolve(ctx, bytes.subarray(st, en));
+      if (
+        n !== null && cachedHasNext(ctx, n, cache) &&
+        ctx.store.haloMass(n) > 0
+      ) return true;
+    }
+  }
+  return false;
+}
+
+/** The facts an entity holds, each spelled with the entity cut out (`The
+ *  occupation of · is surgeon.`): what a derivation's instances may agree the
+ *  entities it stands on are.  A hub's facts come back at the bound and say
+ *  nothing (bounded-reads.md). */
+function factFrames(
+  ctx: MindContext,
+  to: { id: number; bytes: Uint8Array },
+): Map<string, Step> {
+  const memo = derivationCache(ctx);
+  const hit = memo?.facts.get(to.id);
+  if (hit !== undefined) return hit;
+  const bound = hubBound(ctx);
+  const out = new Map<string, Step>();
+  const facts = ctx.store.nextFirst(to.id, bound);
+  if (facts.length < bound) {
+    for (const g of facts) {
+      const fb = read(ctx, g);
+      const at = indexOf(fb, to.bytes, 0);
+      if (at < 0) continue;
+      const step = {
+        prefix: fb.subarray(0, at),
+        suffix: fb.subarray(at + to.bytes.length),
+      };
+      out.set(latin1(step.prefix) + "\u0000" + latin1(step.suffix), step);
+    }
+  }
+  memo?.facts.set(to.id, out);
+  return out;
+}
+
+/** Whether the entity spelled `bytes` holds the fact `c` spells around it —
+ *  an exact lookup of the whole fact. */
+function holds(ctx: MindContext, bytes: Uint8Array, c: Step): boolean {
+  return resolve(ctx, concatBytes([c.prefix, bytes, c.suffix])) !== null;
+}
+
+/** Whether the entity spelled `bytes` holds every fact `cond` names. */
+function satisfies(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  cond: Map<string, Step>,
+): boolean {
+  for (const c of cond.values()) if (!holds(ctx, bytes, c)) return false;
+  return true;
+}
+
 /** A co-instance's continuation `f` read as the end of a DERIVATION from its
  *  filler `z`, of whatever length the corpus shows: a path of facts in which
  *  each fact is established by a context holding the entity the path stands
@@ -2131,7 +2297,6 @@ function pathSearch(
   formCap: number,
   deposited: (c: number) => boolean,
 ): Step[][] {
-  const bound = hubBound(ctx);
   // Where the derivation must arrive: the entities f's own establishing
   // contexts hold, each with the last step it would take.
   const last = new Map<number, Step[]>();
@@ -2150,18 +2315,79 @@ function pathSearch(
     }
   }
   if (last.size === 0) return [];
-  type Stand = { id: number; bytes: Uint8Array; steps: Step[] };
-  let front: Stand[] = [{ id: z, bytes: filler, steps: [] }];
+  return searchWays(
+    ctx,
+    z,
+    filler,
+    allowance,
+    formCap,
+    deposited,
+    (s) =>
+      s.ways.flatMap((way) =>
+        way.length === 0
+          ? []
+          : (last.get(s.id) ?? []).map((step) => [...way, step])
+      ),
+  );
+}
+
+/** The steps that reach fact `g` from an entity spelled `bytes`: g's
+ *  establishing contexts that hold the entity, with it cut out. */
+function stepsInto(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  g: number,
+  allowance: number,
+  formCap: number,
+  deposited: (c: number) => boolean,
+): Step[] {
+  const steps: Step[] = [];
+  for (const c of ctx.store.prevFirst(g, allowance)) {
+    if (!deposited(c)) continue;
+    const cb = read(ctx, c, formCap + 1);
+    const at = indexOf(cb, bytes, 0);
+    if (at < 0) continue;
+    const step = {
+      prefix: cb.subarray(0, at),
+      suffix: cb.subarray(at + bytes.length),
+    };
+    if (step.prefix.length + step.suffix.length > 0) steps.push(step);
+  }
+  return steps;
+}
+
+/** Where a breadth-first derivation search stands: an entity, as the fact that
+ *  reached it spells it, with every way the search reached it at this depth. */
+type Stand = { id: number; bytes: Uint8Array; ways: Step[][] };
+
+/** The breadth-first search a derivation is read by (`pathSearch`,
+ *  `pathTo`): from `z`, through facts each established by a context holding
+ *  the entity the search stands on, until `arrive` completes some ways at the
+ *  depth it stands at — the shortest the corpus holds.  Each entity expanded
+ *  is one read of its facts out of `allowance`; a hub is not expanded, and a
+ *  search that spends the allowance reads nothing (`pathReadsSaturated`). */
+function searchWays(
+  ctx: MindContext,
+  z: number,
+  filler: Uint8Array,
+  allowance: number,
+  formCap: number,
+  deposited: (c: number) => boolean,
+  arrive: (s: Stand) => Step[][],
+): Step[][] {
+  const bound = hubBound(ctx);
+  // An entity stands once per depth, with EVERY way the search reached it
+  // there: two relations that lead to the same child (`· child`, `· heir`)
+  // are two derivations an instance carries, and which one the corpus
+  // deposited first is no reason to read only it.  An entity reached at a
+  // shallower depth is not stood on again.
+  let front: Stand[] = [{ id: z, bytes: filler, ways: [[]] }];
   const seen = new Set<number>([z]);
   let budget = allowance;
   while (front.length > 0) {
-    const out: Step[][] = [];
-    for (const s of front) {
-      if (s.steps.length === 0) continue;
-      for (const step of last.get(s.id) ?? []) out.push([...s.steps, step]);
-    }
+    const out = front.flatMap(arrive);
     if (out.length > 0) return out;
-    const next: Stand[] = [];
+    const next = new Map<number, Stand>();
     for (const s of front) {
       if (budget-- <= 0) {
         if (ctx.meter) ctx.meter.pathReadsSaturated++;
@@ -2171,33 +2397,25 @@ function pathSearch(
       const facts = ctx.store.nextFirst(s.id, bound);
       if (facts.length >= bound) continue;
       for (const g of facts) {
-        // The steps that reach g from where the path stands: g's establishing
-        // contexts that hold the entity, with it cut out.
-        const steps: Step[] = [];
-        for (const c of ctx.store.prevFirst(g, allowance)) {
-          if (!deposited(c)) continue;
-          const cb = read(ctx, c, formCap + 1);
-          const at = indexOf(cb, s.bytes, 0);
-          if (at < 0) continue;
-          const step = {
-            prefix: cb.subarray(0, at),
-            suffix: cb.subarray(at + s.bytes.length),
-          };
-          if (step.prefix.length + step.suffix.length > 0) steps.push(step);
-        }
+        const steps = stepsInto(ctx, s.bytes, g, allowance, formCap, deposited);
         if (steps.length === 0) continue;
         const { fact, held } = entitiesIn(ctx, g);
         for (const e of held) {
-          if (seen.has(e.id)) continue;
-          seen.add(e.id);
-          const bytes = fact.subarray(e.span[0], e.span[1]);
+          let at = next.get(e.id);
+          if (at === undefined) {
+            if (seen.has(e.id)) continue;
+            seen.add(e.id);
+            const bytes = fact.subarray(e.span[0], e.span[1]);
+            next.set(e.id, at = { id: e.id, bytes, ways: [] });
+          }
+          const to = { id: e.id, bytes: at.bytes };
           for (const step of steps) {
-            next.push({ id: e.id, bytes, steps: [...s.steps, step] });
+            for (const way of s.ways) at.ways.push([...way, { ...step, to }]);
           }
         }
       }
     }
-    front = next;
+    front = [...next.values()];
   }
   return [];
 }
@@ -2229,6 +2447,460 @@ function replayOf(
     }
     out.push(new Set(next.keys()));
     front = next;
+  }
+  return out;
+}
+
+/** The derivations from `z` whose last step reaches a fact `goal` accepts,
+ *  shortest first, by the search a co-instance's derivation is read by
+ *  (`searchWays`) — each with that fact and the entity it was reached from,
+ *  as the search spelled it. */
+function pathToFact(
+  ctx: MindContext,
+  z: number,
+  filler: Uint8Array,
+  goal: (g: number) => boolean,
+  allowance: number,
+  formCap: number,
+  deposited: (c: number) => boolean,
+): Array<{ steps: Step[]; fact: number; stand: Uint8Array }> {
+  const bound = hubBound(ctx);
+  let found: Array<{ steps: Step[]; fact: number; stand: Uint8Array }> = [];
+  searchWays(ctx, z, filler, allowance, formCap, deposited, (s) => {
+    const out: Step[][] = [];
+    const facts = ctx.store.nextFirst(s.id, bound);
+    if (facts.length >= bound) return out;
+    for (const g of facts) {
+      if (!goal(g)) continue;
+      for (
+        const step of stepsInto(ctx, s.bytes, g, allowance, formCap, deposited)
+      ) {
+        for (const way of s.ways) {
+          out.push([...way, step]);
+          found.push({ steps: [...way, step], fact: g, stand: s.bytes });
+        }
+      }
+    }
+    return out;
+  });
+  // Only the depth the search stopped at: the shortest.
+  const depth = Math.min(...found.map((f) => f.steps.length));
+  found = found.filter((f) => f.steps.length === depth);
+  return found;
+}
+
+/** What an ANSWER FRAME says of a fact: it is spelled `head`, the entity the
+ *  derivation stood on, `mid`, the answer, `tail` (or the answer first, when
+ *  `answerFirst`).  Read off the instances' last facts — the answer being
+ *  what the fact shares with the instance's continuation — and agreed on like
+ *  any frame, it says, exactly, which bytes of a new fact answer. */
+interface AnswerFrame {
+  head: Uint8Array;
+  mid: Uint8Array;
+  tail: Uint8Array;
+  answerFirst: boolean;
+}
+
+function answerFrameOf(
+  g: Uint8Array,
+  stand: Uint8Array,
+  [rs0, re0]: [number, number],
+): AnswerFrame | null {
+  const at = indexOf(g, stand, 0);
+  if (at < 0) return null;
+  const end = at + stand.length;
+  if (at < rs0 || end <= rs0) {
+    const rs = Math.max(rs0, end);
+    if (rs >= re0) return null;
+    return {
+      head: g.subarray(0, at),
+      mid: g.subarray(end, rs),
+      tail: g.subarray(re0),
+      answerFirst: false,
+    };
+  }
+  const re = Math.min(re0, at);
+  if (rs0 >= re) return null;
+  return {
+    head: g.subarray(0, rs0),
+    mid: g.subarray(re, at),
+    tail: g.subarray(end),
+    answerFirst: true,
+  };
+}
+
+/** The answer a fact spells in an answer frame around the entity `stand`, or
+ *  null when the fact is not spelled that way. */
+function answerIn(
+  g: Uint8Array,
+  stand: Uint8Array,
+  fr: AnswerFrame,
+): Uint8Array | null {
+  const pre = fr.answerFirst ? fr.head : concatBytes([fr.head, stand, fr.mid]);
+  const post = fr.answerFirst ? concatBytes([fr.mid, stand, fr.tail]) : fr.tail;
+  if (g.length <= pre.length + post.length) return null;
+  if (!bytesEqual(g.subarray(0, pre.length), pre)) return null;
+  if (!bytesEqual(g.subarray(g.length - post.length), post)) return null;
+  return g.subarray(pre.length, g.length - post.length);
+}
+
+const frameKey = (fr: AnswerFrame): string =>
+  `${fr.answerFirst ? 1 : 0}\u0000${latin1(fr.head)}\u0000${
+    latin1(fr.mid)
+  }\u0000${latin1(fr.tail)}`;
+
+/** The facts a derivation's full replay from `x` ends on: its steps before
+ *  the last replayed as `replayOf` does, the last one's continuations
+ *  collected — exact lookups of each frame around each entity. */
+function replayFacts(
+  ctx: MindContext,
+  x: number,
+  steps: Step[],
+  formCap: number,
+  allowance: number,
+): Array<{ fact: number; stand: Uint8Array }> {
+  let front = new Map<number, Uint8Array>([[x, read(ctx, x, formCap)]]);
+  const out: Array<{ fact: number; stand: Uint8Array }> = [];
+  for (const [i, step] of steps.entries()) {
+    const next = new Map<number, Uint8Array>();
+    for (const [e, bytes] of front) {
+      const t = resolve(ctx, concatBytes([step.prefix, bytes, step.suffix]));
+      if (t === null) continue;
+      for (const g of ctx.store.nextFirst(t, allowance)) {
+        if (i === steps.length - 1) {
+          out.push({ fact: g, stand: bytes });
+          continue;
+        }
+        const { fact, held } = entitiesIn(ctx, g);
+        for (const h of held) {
+          if (h.id !== e) next.set(h.id, fact.subarray(h.span[0], h.span[1]));
+        }
+      }
+    }
+    front = next;
+  }
+  return out;
+}
+
+/** One CONVERGENCE read off instances of a question about TWO things: the
+ *  derivation each thing takes, both ending at the entity the instance is
+ *  answered with (`Who is both the mother of A and the spouse of B?` →
+ *  `The answer is M.`: `· mother` from A, `· spouse` from B, both to M). */
+export interface Convergence {
+  by: number[];
+  steps: [Step[], Step[]];
+  answers: [AnswerFrame, AnswerFrame];
+}
+
+/** The two things a question names around its frame — and the convergences
+ *  two instances of that frame agree on — or null. */
+export interface ConvergenceReading {
+  x: [{ span: [number, number]; id: number }, {
+    span: [number, number];
+    id: number;
+  }];
+  frames: Convergence[];
+}
+
+const convergenceMemo = new WeakMap<object, ConvergenceReading | null>();
+
+/** A question that names two things around one frame (`Who is both the
+ *  mother of · and the spouse of ·?`) is read the way a one-slot question is
+ *  read off its co-instances (`relationFrames`), with the slot parted where
+ *  the two forms share a run (` and the spouse of `): each side holds a thing
+ *  (`slotEntity`), and an instance whose continuation holds an entity both
+ *  its things reach — each by a derivation of its own (`pathTo`) — shows the
+ *  frame's CONVERGENCE.  Two instances spelling the same pair of derivations
+ *  agree, the agreement every relation read off instances needs.  The
+ *  proposals are the consensus climb's points, read once per question. */
+export function convergenceOf(ctx: MindContext): ConvergenceReading | null {
+  const whole = ctx._edgeAsked;
+  if (whole === null || whole.points === undefined) return null;
+  const hit = convergenceMemo.get(whole);
+  if (hit !== undefined && !ctx.trace) return hit;
+  const out = readConvergence(ctx, whole);
+  convergenceMemo.set(whole, out);
+  return out;
+}
+
+function readConvergence(
+  ctx: MindContext,
+  whole: { bytes: Uint8Array; index: WindowIndex; points?: readonly number[] },
+): ConvergenceReading | null {
+  const W = ctx.space.maxGroup;
+  const Q = whole.bytes;
+  const formCap = 2 * Q.length;
+  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const cache = getStructCache(ctx);
+  const deposited = (c: number): boolean =>
+    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
+  const proposals = (whole.points ?? []).filter((c) =>
+    cachedHasNext(ctx, c, cache)
+  ).slice(0, Math.min(allowance, chainReach(W)));
+  // What a slot holds, by its span — the question's read once per question,
+  // a form's once per session (it does not depend on the question).
+  const memo = derivationCache(ctx);
+  const held = new Map<string, ReturnType<typeof slotEntity>>();
+  // Each side holds a thing LEARNT WHOLE (`entitiesIn`'s law): a word of the
+  // frame (` mother`, `-law?`) holds continuations by inheritance and no
+  // company of its own, and a slot that parts on it holds one thing, not two.
+  const entity = (
+    q: number | null,
+    raw: Uint8Array,
+    s0: number,
+    e0: number,
+  ) => {
+    const k = `${q ?? "Q"}:${s0}:${e0}`;
+    const store = q === null ? held : memo?.slots ?? held;
+    if (!store.has(k)) {
+      const e = slotEntity(ctx, raw, s0, e0, q !== null);
+      store.set(k, e !== null && ctx.store.haloMass(e.id) > 0 ? e : null);
+    }
+    return store.get(k)!;
+  };
+  const things = new Map<string, ConvergenceReading["x"] | null>();
+  const spelled = new Map<string, Convergence>();
+  const candidates: Array<{
+    q: number;
+    raw: Uint8Array;
+    e1: { span: [number, number]; id: number };
+    e2: { span: [number, number]; id: number };
+    key: string;
+    f: Uint8Array;
+  }> = [];
+  let x: ConvergenceReading["x"] | null = null;
+  // The forms are the ones `relationFrames` read as instances of this
+  // question: their bytes are on the question's book.
+  const book = instanceBook(whole);
+  for (const q of proposals) {
+    // A form on the book was read as deposited; any other is probed here and
+    // read onto the book, as `relationFrames` reads it.
+    let r = book.forms.get(q);
+    if (r === undefined) {
+      if (!deposited(q)) continue;
+      if (ctx.meter) ctx.meter.coInstanceReads++;
+      r = { raw: read(ctx, q, formCap + 1) };
+      book.forms.set(q, r);
+    }
+    const raw = r.raw;
+    if (raw.length > formCap) continue;
+    const co = coInstanceFrame(ctx, raw, [whole.index], Q);
+    if (co === null) continue;
+    const form = offsetCanon(ctx, raw);
+    const fs = form.subarray(co.open, form.length - co.close);
+    const qs = Q.subarray(co.open, Q.length - co.close);
+    const mid = sharedRun(fs, qs, W);
+    if (mid === null) continue;
+    const [fa, qa, len] = mid;
+    // What the instance shows comes first: its things, and the derivation
+    // each takes to its answer.  Only an instance that shows a convergence
+    // makes the question's own things worth reading.
+    // The thing the slot opens with is the one the one-thing reading found
+    // there, when it read this form for this question.
+    const known = r.filler != null && r.filler.span[1] < co.open + fa + W &&
+        ctx.store.haloMass(r.filler.id) > 0
+      ? { id: r.filler.id, span: r.filler.span }
+      : undefined;
+    const e1 = known ?? entity(q, raw, co.open, co.open + fa);
+    if (e1 === null) continue;
+    const e2 = entity(q, raw, co.open + fa + len, raw.length - co.close);
+    if (e2 === null || e1.id === e2.id) continue;
+    const key = `${co.open}:${co.close}:${qa}:${len}`;
+    for (const f of ctx.store.nextFirst(q, W)) {
+      candidates.push({ q, raw, e1, e2, key, f: read(ctx, f) });
+    }
+  }
+  // WHAT AN INSTANCE ANSWERS is what its continuation holds beyond the frame
+  // every instance's continuation shares (`The answer is ` … `.`) — the filler
+  // of the answers, read as a co-instance's is: frame shared, filler differs.
+  for (const c of candidates) {
+    let pre = c.f.length, suf = c.f.length;
+    for (const o of candidates) {
+      if (o.q === c.q) continue;
+      let i = 0;
+      while (i < Math.min(c.f.length, o.f.length) && c.f[i] === o.f[i]) i++;
+      let j = 0;
+      while (
+        j < Math.min(c.f.length, o.f.length) - i &&
+        c.f[c.f.length - 1 - j] === o.f[o.f.length - 1 - j]
+      ) j++;
+      pre = Math.min(pre, i);
+      suf = Math.min(suf, j);
+    }
+    // Less than one window of frame is no frame — a letter the answers share
+    // by chance (`…way.`, `…bury.`) stays theirs.
+    if (pre < W) pre = 0;
+    if (suf < W) suf = 0;
+    if (pre + suf >= c.f.length) continue;
+    const answer = c.f.subarray(pre, c.f.length - suf);
+    if (answer.length < W) continue;
+    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${latin1(answer)}`;
+    let shown = memo?.converges.get(ik);
+    if (shown === undefined) {
+      if (ctx.meter) ctx.meter.convergenceReads++;
+      shown = instanceConvergence(
+        ctx,
+        c.raw,
+        c.e1,
+        c.e2,
+        answer,
+        allowance,
+        formCap,
+        deposited,
+      );
+      memo?.converges.set(ik, shown);
+    }
+    if (shown.length === 0) continue;
+    if (!things.has(c.key)) {
+      const [o, cl, qa, len] = c.key.split(":").map(Number);
+      const q1 = entity(null, Q, o, o + qa);
+      const q2 = entity(null, Q, o + qa + len, Q.length - cl);
+      things.set(c.key, q1 && q2 && q1.id !== q2.id ? [q1, q2] : null);
+    }
+    const asked = things.get(c.key)!;
+    if (asked === null) continue;
+    if (c.e1.id === asked[0].id && c.e2.id === asked[1].id) continue;
+    // Forms part the slot where their names happen to share letters
+    // (`Rains and ` against `Evans and `); the question's things are what
+    // the instances are about, whichever parting read them.
+    const about = `${asked[0].id}:${asked[1].id}`;
+    for (const [a, b] of shown) {
+      const k = about + "|" +
+        [a, b].map(({ steps, frame }) =>
+          steps.map((t) => latin1(t.prefix) + "\u0000" + latin1(t.suffix))
+            .join("\u0001") + "\u0003" + frameKey(frame)
+        ).join("\u0002");
+      const known = spelled.get(k);
+      if (known === undefined) {
+        spelled.set(k, {
+          by: [c.q],
+          steps: [a.steps, b.steps],
+          answers: [a.frame, b.frame],
+        });
+      } else if (!known.by.includes(c.q)) known.by.push(c.q);
+      x ??= asked;
+    }
+  }
+  const frames = [...spelled.values()].filter((c) => c.by.length >= 2);
+  if (ctx.trace && spelled.size > 0) {
+    const show = (steps: Step[]): string =>
+      steps.map((t) => `${decodeText(t.prefix)}·${decodeText(t.suffix)}`)
+        .join(" → ");
+    ctx.trace.step(
+      "convergenceFrames",
+      [...new Set([...spelled.values()].flatMap((c) => c.by))].map((q) =>
+        rItemShort(ctx, q, "co-instance")
+      ),
+      [],
+      [...spelled.values()].map((c) =>
+        `${show(c.steps[0])} ⋈ ${show(c.steps[1])} (${c.by.length})`
+      ).join("; ") + ` — ${frames.length} spelled alike by two or more`,
+    );
+  }
+  return frames.length === 0 || x === null ? null : { x, frames };
+}
+
+type Arrival = { steps: Step[]; frame: AnswerFrame };
+
+/** What one instance shows of a convergence: for each pair of derivations by
+ *  which its two things reach a fact holding its `answer` exactly, the steps
+ *  and that fact's answer frame on each side. */
+function instanceConvergence(
+  ctx: MindContext,
+  raw: Uint8Array,
+  e1: { span: [number, number]; id: number },
+  e2: { span: [number, number]; id: number },
+  answer: Uint8Array,
+  allowance: number,
+  formCap: number,
+  deposited: (c: number) => boolean,
+): Array<[Arrival, Arrival]> {
+  const at = (g: number): number => indexOf(read(ctx, g), answer, 0);
+  const ends = (e: { id: number; span: [number, number] }): Arrival[] =>
+    pathToFact(
+      ctx,
+      e.id,
+      raw.subarray(e.span[0], e.span[1]),
+      (g) => at(g) >= 0,
+      allowance,
+      formCap,
+      deposited,
+    ).flatMap((p) => {
+      const s0 = at(p.fact);
+      const fr = answerFrameOf(read(ctx, p.fact), p.stand, [
+        s0,
+        s0 + answer.length,
+      ]);
+      return fr === null ? [] : [{ steps: p.steps, frame: fr }];
+    });
+  const p1 = ends(e1);
+  if (p1.length === 0) return [];
+  const out: Array<[Arrival, Arrival]> = [];
+  for (const b of ends(e2)) for (const a of p1) out.push([a, b]);
+  return out;
+}
+
+/** The longest run two slots share strictly inside both — where a slot holding
+ *  two things parts — as `[at in a, at in b, length]`, at least one window
+ *  long; null when none. */
+function sharedRun(
+  a: Uint8Array,
+  b: Uint8Array,
+  W: number,
+): [number, number, number] | null {
+  let best: [number, number, number] | null = null;
+  let prev = new Uint16Array(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = new Uint16Array(b.length + 1);
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] !== b[j - 1]) continue;
+      const n = cur[j] = prev[j - 1] + 1;
+      const ai = i - n, bj = j - n;
+      if (
+        n >= W && ai > 0 && bj > 0 && i < a.length && j < b.length &&
+        (best === null || n > best[2])
+      ) best = [ai, bj, n];
+    }
+    prev = cur;
+  }
+  return best;
+}
+
+/** Where a question's two things meet by a convergence its instances agree
+ *  on: each derivation replayed from the question's own thing, the answer each
+ *  last fact spells in its side's answer frame (`answerIn`), and the two
+ *  compared byte for byte — the exact tier decides.  Each meet with the two
+ *  facts, its evidence. */
+export function convergenceMeets(
+  ctx: MindContext,
+  reading: ConvergenceReading,
+): Array<{ name: Uint8Array; facts: [number, number]; by: number }> {
+  const W = ctx.space.maxGroup;
+  const whole = ctx._edgeAsked;
+  if (whole === null) return [];
+  const formCap = 2 * whole.bytes.length;
+  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const out: Array<{ name: Uint8Array; facts: [number, number]; by: number }> =
+    [];
+  for (const c of reading.frames) {
+    const side = (k: 0 | 1) =>
+      replayFacts(ctx, reading.x[k].id, c.steps[k], formCap, allowance)
+        .flatMap(({ fact, stand }) => {
+          const name = answerIn(read(ctx, fact), stand, c.answers[k]);
+          return name === null ? [] : [{ fact, name }];
+        });
+    const two = side(1);
+    for (const one of side(0)) {
+      for (const other of two) {
+        if (bytesEqual(one.name, other.name)) {
+          out.push({
+            name: one.name,
+            facts: [one.fact, other.fact],
+            by: c.by.length,
+          });
+        }
+      }
+    }
   }
   return out;
 }
@@ -2269,10 +2941,13 @@ const frameMemo = new WeakMap<object, RelationFrame[]>();
 
 /** The question's own entity: the longest of the climb's points the question
  *  holds whole, exactly or under the response's equivalence, that has
- *  continuations of its own — `[start, end)` in the question, or null. */
-function heldEntity(
+ *  continuations of its own — `[start, end)` in the question, or null.
+ *  `learnt`: only a thing learnt WHOLE, with company of its own as well
+ *  (`entitiesIn`'s law), not a piece that inherits continuations. */
+export function heldEntity(
   ctx: MindContext,
   question: Uint8Array,
+  learnt = false,
 ): [number, number] | null {
   const points = ctx._edgeAsked?.points;
   if (points === undefined) return null;
@@ -2289,6 +2964,7 @@ function heldEntity(
       if (form.length === raw.length) at = indexOf(question, form, 0);
     }
     if (at < 0 || !cachedHasNext(ctx, id, cache)) continue;
+    if (learnt && !(ctx.store.haloMass(id) > 0)) continue;
     best = [at, at + raw.length];
   }
   return best;

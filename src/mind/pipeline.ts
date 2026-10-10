@@ -28,6 +28,8 @@ import {
 import { rItem } from "./trace.js";
 import { unexplainedLabel } from "./rationale.js";
 import {
+  convergenceMeets,
+  convergenceOf,
   hubBound,
   offsetCanon,
   readsOffInstances,
@@ -603,7 +605,26 @@ export async function think(
 
   // (TS cannot see the closure assignments into `best` and narrows it to its
   // initial null, so the read-back needs the assertion.)
-  const decided = best as Candidate | null;
+  let decided = best as Candidate | null;
+  // WHAT THE INSTANCES REFUTE IS NO ANSWER.  A question about two things whose
+  // instances agree on how they meet (traverse.ts, `convergenceOf`) asks for
+  // the entity both derivations reach; where, replayed from its own things,
+  // they reach none, the instances say no entity is both, and an answer that
+  // lists one fact of each (cover's `The mother of X is M. and The spouse of
+  // Y is S.`) claims what they refute.
+  if (decided !== null) {
+    const reading = convergenceOf(ctx);
+    if (reading !== null && convergenceMeets(ctx, reading).length === 0) {
+      ctx.trace?.step(
+        "convergenceRefutes",
+        [rItem(decided.bytes, decided.provenance)],
+        [],
+        "the instances' derivations, replayed from the question's things, meet nowhere",
+      );
+      if (meter) meter.convergenceRefusals++;
+      decided = null;
+    }
+  }
   if (candidates.length > 1) {
     // The runner-up is computed BEFORE the decideGrounding step so its grade
     // margin can ride along in the step's structured data payload; the

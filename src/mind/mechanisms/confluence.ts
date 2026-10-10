@@ -41,7 +41,15 @@
 
 import type { MindContext } from "../types.js";
 import { read } from "../primitives.js";
-import { corpusN, reachOf } from "../traverse.js";
+import {
+  convergenceMeets,
+  convergenceOf,
+  corpusN,
+  heldEntity,
+  holdsAThing,
+  hubBound,
+  reachOf,
+} from "../traverse.js";
 import { dominates } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
 import { insideAnsweredTurn } from "../derivation.js";
@@ -75,6 +83,42 @@ export async function confluenceJoin(
   if (query.length < 2 * W || ctx.store.edgeSourceCount() === 0) return null;
   const { ranked } = await pre.attention();
   if (ranked.length < 2) return null;
+
+  // WHERE INSTANCES SHOW HOW THE CONSTRAINTS MEET, the meet is theirs.  A
+  // question about two things whose instances agree on the derivation each
+  // thing takes to their answer (traverse.ts, `convergenceOf`: `· mother`
+  // from one, `· spouse` from the other) is met where those derivations,
+  // replayed from the question's own things, reach one entity — exact
+  // lookups, the facts on both sides its evidence.
+  const reading = convergenceOf(ctx);
+  if (reading !== null) {
+    const meets = convergenceMeets(ctx, reading);
+    if (meets.length > 0) {
+      const m = meets[0];
+      const bytes = m.name;
+      const t = ctx.trace?.enter("confluence", [rItem(query, "query")]);
+      ctx.trace?.step(
+        "convergeDerivations",
+        [
+          rNode(ctx, m.facts[0], "constraint", m.by),
+          rNode(ctx, m.facts[1], "constraint", m.by),
+        ],
+        [rItem(bytes, "meet")],
+        `the entity both of the question's things reach by the derivations ${m.by} instances agree on`,
+      );
+      t?.done(
+        [rItem(bytes, "answer")],
+        "conjunctive join — learnt convergence",
+      );
+      const steps = reading.frames[0].steps;
+      return {
+        bytes,
+        used: new Set(m.facts),
+        accounted: [[0, query.length]],
+        moves: STEP * (steps[0].length + steps[1].length + 1),
+      };
+    }
+  }
 
   const N = corpusN(ctx);
   // Response-scoped shared memos: the anchor-window identities and the
@@ -114,6 +158,12 @@ export async function confluenceJoin(
     anchor: number;
     vote: number;
     ids: Set<number>;
+    /** What the anchor's evidence holds: the anchor and what it establishes
+     *  (`evidenceOf`), each text read once the stream binds. */
+    evidence?: number[];
+    evidenceIds?: Set<number>;
+    /** The question's discriminative windows this anchor holds. */
+    binds: Set<number>;
     /** Merged [start, end) query spans whose DISCRIMINATIVE windows this
      *  anchor holds — what the constraint BINDS (disjointness reads this). */
     cover: Array<[number, number]>;
@@ -181,6 +231,7 @@ export async function confluenceJoin(
     if (ids.size === 0) continue;
     const cover: Array<[number, number]> = [];
     const held: Array<[number, number]> = [];
+    const binds = new Set<number>();
     let curC: [number, number] | null = null;
     let curH: [number, number] | null = null;
     for (const [off, wid] of queryWin) {
@@ -188,16 +239,63 @@ export async function confluenceJoin(
       if (curH !== null && off <= curH[1]) curH[1] = off + W;
       else held.push(curH = [off, off + W]);
       if (dominates(reachOf(ctx, wid, N, reachMemo), N)) continue; // scaffolding never binds
+      binds.add(wid);
       if (curC !== null && off <= curC[1]) curC[1] = off + W;
       else cover.push(curC = [off, off + W]);
     }
     if (cover.length > 0 && bindsAConstituent(cover)) {
-      streams.push({ anchor: cand.anchor, vote: cand.vote, ids, cover, held });
+      streams.push({
+        anchor: cand.anchor,
+        vote: cand.vote,
+        ids,
+        cover,
+        held,
+        binds,
+      });
     }
     // Early-exit: after 2W anchors, a non-conjunctive query is decided.
     if (--exitAfter <= 0 && streams.length < 2) return null;
   }
   if (streams.length < 2) return null;
+
+  // WHAT A CONSTRAINT SAYS IS WHAT ITS ANCHOR ESTABLISHES.  An anchor binds a
+  // part of the question by its own bytes, but the thing it says of the open
+  // seat may be in its continuation: `Porcelain is translucent` holds its
+  // entity itself, while `Richard Fox mother` establishes `The mother of
+  // Richard Fox is Mary Dudley.`, and only there is `Mary Dudley`.  So a
+  // stream's evidence is the anchor and the continuations that still speak of
+  // what it bound — holding a constituent of it, by the rule the anchor binds
+  // by (`bindsAConstituent`: `Richard Fox`).  Another instance of the
+  // question binds its frame, and its answer (`The answer is Ashgrove.`, `The
+  // place of birth of Liu Yuan is Ashgrove.`) holds none of it, at most a
+  // shard (`birt` of `birthplace`): no evidence of where Kublai Khan was
+  // born.  A hub's continuations come back at the read
+  // bound and say nothing in particular (bounded-reads.md).
+  const bound = hubBound(ctx);
+  const evidenceOf = (st: Stream): number[] => {
+    if (st.evidence === undefined) {
+      const nx = ctx.store.nextFirst(st.anchor, bound);
+      st.evidence = [st.anchor];
+      if (nx.length < bound) {
+        for (const c of nx) {
+          const has = new Set(windowsOfAnchor(c).values());
+          const runs: Array<[number, number]> = [];
+          let cur: [number, number] | null = null;
+          for (const [off, wid] of queryWin) {
+            if (!st.binds.has(wid) || !has.has(wid)) continue;
+            if (cur !== null && off <= cur[1]) cur[1] = off + W;
+            else runs.push(cur = [off, off + W]);
+          }
+          if (bindsAConstituent(runs)) st.evidence.push(c);
+        }
+      }
+      st.evidenceIds = new Set(
+        st.evidence.flatMap((e) => [...windowsOfAnchor(e).values()]),
+      );
+    }
+    return st.evidence;
+  };
+  const asked = ctx._edgeAsked;
 
   // Two streams are INDEPENDENT constraints when the query content they
   // hold is disjoint — each answers a different part of what was asked.
@@ -214,67 +312,84 @@ export async function confluenceJoin(
     b: Stream;
   }
   let met: Meet | null = null;
+  // Whether the question names a thing of its own (see THE SEAT IS A THING).
+  let names: boolean | undefined;
+  const asksAThing = (): boolean =>
+    names ??= heldEntity(ctx, asked?.bytes ?? query, true) !== null;
 
   for (let i = 0; i < streams.length; i++) {
     for (let j = i + 1; j < streams.length; j++) {
       const a = streams[i];
       const b = streams[j];
       if (!disjoint(a, b)) continue;
-      const wa = windowsOfAnchor(a.anchor);
-      const wb = b.ids;
+      evidenceOf(b);
+      const wb = b.evidenceIds!;
+      for (const text of evidenceOf(a)) {
+        const wa = windowsOfAnchor(text);
 
-      // ── The MEET: in both anchors, not in the query ────────────────────
-      // Offsets of A whose window id is shared with B and absent from the
-      // query — merged into maximal contiguous spans (windows overlap, so
-      // consecutive shared offsets weave one span).
-      const spans: Array<[number, number]> = [];
-      let cur: [number, number] | null = null;
-      for (const [off, wid] of wa) {
-        const inMeet = wb.has(wid) && !queryIds.has(wid);
-        if (inMeet) {
-          if (cur !== null && off <= cur[1]) cur[1] = off + W;
-          else spans.push(cur = [off, off + W]);
-        }
-      }
-      if (spans.length === 0) continue;
-
-      const aBytes = read(ctx, a.anchor);
-      for (const [s, e] of spans) {
-        // Scaffolding gate: the span's MOST discriminative window decides.
-        // Content reaching a corpus MAJORITY of contexts discriminates
-        // nothing (the same half-dominance convention every wrapper test
-        // uses); the query-subtraction above already removed everything the
-        // question names, so what survives here is a genuine open-seat
-        // entity.
-        let reach = Infinity;
-        for (let off = s; off + W <= e; off++) {
-          const wid = wa.get(off);
-          if (wid !== undefined && wb.has(wid) && !queryIds.has(wid)) {
-            reach = Math.min(reach, reachOf(ctx, wid, N, reachMemo));
+        // ── The MEET: in both anchors, not in the query ────────────────────
+        // Offsets of A whose window id is shared with B and absent from the
+        // query — merged into maximal contiguous spans (windows overlap, so
+        // consecutive shared offsets weave one span).
+        const spans: Array<[number, number]> = [];
+        let cur: [number, number] | null = null;
+        for (const [off, wid] of wa) {
+          const inMeet = wb.has(wid) && !queryIds.has(wid);
+          if (inMeet) {
+            if (cur !== null && off <= cur[1]) cur[1] = off + W;
+            else spans.push(cur = [off, off + W]);
           }
         }
-        // ONE WINDOW IS NOT AN ENTITY.  The reach above is read at the
-        // finest grain the fold can address, where content-defined window
-        // identity is at its most phase-sensitive: a scaffolding phrase
-        // whose cut happens to land in a rare phase reads as rare content.
-        // Measured on test/29 C3, a 13-context store: the meet of `The Mona
-        // Lisa was painted by Leonardo da Vinci.` and `Hamlet was written by
-        // William Shakespeare.` came out as ` by ` at reach 3 — pure frame,
-        // priced as the corpus's third-rarest content, and voiced as the
-        // entity where the two evidence streams meet.  A single quantum
-        // agrees with half the corpus by accident (the same argument
-        // pipeline-mechanism.ts's proposed-run gate makes about a 4-byte
-        // span), so a meet must clear the two-quantum floor this file's own
-        // entry gate uses — the smallest span that carries a perceivable
-        // unit BEYOND the one being matched.
-        const len = e - s;
-        if (len < 2 * W) continue;
-        if (!isFinite(reach) || dominates(reach, N)) continue;
-        if (
-          met === null || reach < met.reach ||
-          (reach === met.reach && len > met.len)
-        ) {
-          met = { bytes: aBytes.subarray(s, e), reach, len, a, b };
+        if (spans.length === 0) continue;
+
+        const aBytes = read(ctx, text);
+        for (const [s, e] of spans) {
+          // Scaffolding gate: the span's MOST discriminative window decides.
+          // Content reaching a corpus MAJORITY of contexts discriminates
+          // nothing (the same half-dominance convention every wrapper test
+          // uses); the query-subtraction above already removed everything the
+          // question names, so what survives here is a genuine open-seat
+          // entity.
+          const len = e - s;
+          if (len < 2 * W) continue;
+          // THE SEAT IS A THING.  Where the question names a thing of its
+          // own (`heldEntity`: `Zhu Gaoxu`, `My Wife's Lodger` under the
+          // equivalence), what it asks for is one too, and a meet holding no
+          // thing the corpus learnt whole is no answer: what two facts of one
+          // relation share is that relation's frame (`The date of birth of `),
+          // however rare its windows read.  Where it names none (`Which
+          // material is translucent and featherlight?`), the bytes are all the
+          // evidence spells.
+          const piece = aBytes.subarray(s, e);
+          if (asksAThing() && !holdsAThing(ctx, piece)) continue;
+          let reach = Infinity;
+          for (let off = s; off + W <= e; off++) {
+            const wid = wa.get(off);
+            if (wid !== undefined && wb.has(wid) && !queryIds.has(wid)) {
+              reach = Math.min(reach, reachOf(ctx, wid, N, reachMemo));
+            }
+          }
+          // ONE WINDOW IS NOT AN ENTITY.  The reach above is read at the
+          // finest grain the fold can address, where content-defined window
+          // identity is at its most phase-sensitive: a scaffolding phrase
+          // whose cut happens to land in a rare phase reads as rare content.
+          // Measured on test/29 C3, a 13-context store: the meet of `The Mona
+          // Lisa was painted by Leonardo da Vinci.` and `Hamlet was written by
+          // William Shakespeare.` came out as ` by ` at reach 3 — pure frame,
+          // priced as the corpus's third-rarest content, and voiced as the
+          // entity where the two evidence streams meet.  A single quantum
+          // agrees with half the corpus by accident (the same argument
+          // pipeline-mechanism.ts's proposed-run gate makes about a 4-byte
+          // span), so a meet must clear the two-quantum floor this file's own
+          // entry gate uses — the smallest span that carries a perceivable
+          // unit BEYOND the one being matched.
+          if (!isFinite(reach) || dominates(reach, N)) continue;
+          if (
+            met === null || reach < met.reach ||
+            (reach === met.reach && len > met.len)
+          ) {
+            met = { bytes: piece, reach, len, a, b };
+          }
         }
       }
     }

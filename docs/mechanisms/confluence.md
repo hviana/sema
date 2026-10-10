@@ -11,7 +11,20 @@ The streams are the consensus climb's ranked anchors (`pre.attention()`,
 `crossRegionVotes`), each bound by identity to a discriminating span of the
 question. Two streams are independent when their spans are disjoint. The meet is
 a set intersection by content-addressed window identity (`windowsOf`): a window
-present in both anchors and absent from the question.
+present in both constraints' evidence and absent from the question.
+
+**A constraint says what its anchor establishes.** An anchor binds the question
+by its own bytes, but what it says of the open seat may be in its continuation.
+`Porcelain is translucent` holds its entity itself. Under facts deposited by
+subject (`wiki2.ts`), `Richard Fox mother` establishes
+`The mother of Richard Fox is Mary Dudley.`, and only there is `Mary Dudley`. A
+stream's evidence is therefore the anchor plus each continuation that still
+speaks of what the anchor bound: one holding a constituent of it, by the rule
+the anchor binds by (`bindsAConstituent`, a run of at least `2W`). Another
+instance of the question binds its frame. Its answer (`The answer is Ashgrove.`,
+or `The place of birth of Liu Yuan is Ashgrove.`) holds none of that frame, at
+most a shard (`birt` of `birthplace`). A hub's continuations come back at the
+read bound and add nothing.
 
 ## Gate — corpus-global commonality
 
@@ -19,6 +32,59 @@ A window's `reachOf` is gated by `dominates(reach, N)` (`commonality.md`). A
 window reached by a majority of contexts is scaffolding: it never binds a
 condition and never survives the meet. A minority reach is a filler, an entity.
 A meet on a single window, or a span shorter than `2W`, is refused.
+
+**The seat is a thing.** Where the question names a thing of its own, learnt
+whole (`heldEntity` with `entitiesIn`'s law: continuations and company of its
+own, read under the equivalence), what it asks for is a thing too. A meet that
+holds no such thing (`holdsAThing`) is no answer. What two facts of one relation
+share is that relation's frame (`The date of birth of`), and its windows can
+read rarer than any entity. Where the question names nothing learnt whole
+(`Which material is translucent and featherlight?`), the bytes are all the
+evidence spells.
+
+Read off the anchors alone, the meet of two subject-deposited facts was the
+relation they share, voiced as the answer (`date of birth` for
+`Who was born later, X or Y?`). On the 2Wiki fixtures, reading what the anchors
+establish turned 9 such answers into the fact that decides them, with no answer
+lost; bytes read rose about 1% on the questions whose answer did not change. On
+a constructed world, a shared birthplace asked in words no stored context spells
+(`In which city were both X and Y born?`) is now named.
+
+## Where instances show how the constraints meet
+
+A question about two things (`Who is the shared grandfather of A and B?`) is
+read off its instances the way a one-thing question is (`evidence.md`), with the
+slot parted where the two forms share a run (`and`), each side holding a thing
+learnt whole (`convergenceOf`). An instance answered `The answer is G.` shows a
+CONVERGENCE: each of its things reaches a fact holding the answer, by a
+derivation of its own (`· father → · father` from A, `· mother → · father` from
+B, the shortest path the corpus holds). The answer is what the instance's
+continuation holds beyond the frame every instance's continuation shares
+(`The
+answer is` … `.`), exactly; a shared part shorter than one window is not
+frame. The bytes around the entity stood on and the answer are that last fact's
+ANSWER FRAME (`The father of` · `is` ·). Two instances that spell the same pair
+of derivations and frames agree, keyed by the question's things, whichever
+parting read them.
+
+At the question, each derivation is replayed from its own thing, the answer is
+read off each last fact by its frame, and the two are compared byte for byte
+(`convergenceMeets`). A meet is the join's answer, the two facts its evidence;
+two grandfathers that share a first name do not meet. The instances' things and
+derivations do not depend on the question and are read once per session; the
+question's own things are read only once an instance shows a convergence. A
+form's things are read in its own spelling, never under the equivalence.
+
+Measured on the constructed world: with instances answered `The answer is E.`,
+every same-phrasing two-thing question (mother∧spouse, shared birthplace, shared
+grandfather) is answered by the meet, the grandfather 0 → 3 of 3, in both
+deposit orders; scrambled answers, instances answered with a fact, and no
+instances change nothing. The 2Wiki fixtures and the 31.7M-node battery change
+no answer; branch lookups rise 0.3% on two fixtures.
+
+Where the two derivations meet nowhere, the instances say no entity is both, and
+the decider admits no answer (`mechanism-market.md`, what the instances refute
+is no answer).
 
 ## Cost
 
@@ -33,4 +99,9 @@ never touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
 
 - `test/32` — two-condition intersection, invariance to the order of the
   conditions, honest silence on an empty intersection, and relational joins
-  across domains.
+  across domains. Section G: under facts deposited by subject, the meet is read
+  off what the anchors establish; the relation two facts share is no seat; a
+  continuation is evidence only of what its anchor bound.
+- `test/159` — a question about two things: a two-step convergence meets at the
+  shared grandfather in either deposit order; the answer is met whole; instances
+  parting the slot differently still agree; scrambled answers meet nothing.

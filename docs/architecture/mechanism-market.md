@@ -47,6 +47,22 @@ weight = moves + PASS · unaccountedBytes      grade = ⌊weight / STEP⌋
 The lowest grade wins. At equal grade, fewer `scaffolding` bytes win, then the
 earlier mechanism in the declared order.
 
+**What the instances refute is no answer.** The lightest candidate wins among
+those the question's own evidence admits. A question about two things whose
+instances agree on how they meet (`convergenceOf`,
+`docs/mechanisms/confluence.md`) asks for the entity both derivations reach.
+Where those derivations, replayed from the question's own things, meet nowhere,
+the instances say no entity is both. A candidate that lists one fact of each
+side (cover's `The mother of X is M. and The spouse of Y is S.`) claims what
+they refute, and the decision is silence (`convergenceRefutes`,
+`convergenceRefusals`). It is the only refusal the decider makes, and it reads
+no mechanism's provenance. On the constructed world, 12 of 12 such questions
+(divergent paths, a missing premise, repeated evidence, two grandfathers sharing
+a first name) went from a wrong answer to silence in both deposit orders, and no
+answer was lost. On the 2Wiki fixtures and the 31.7M-node battery no question
+has such instances and no answer changed. Reading the instances for every
+answered question costs about 0.2% more branch lookups there.
+
 ## Four constraints
 
 1. **Decoupled.** No mechanism imports another or asks what already decided.
@@ -124,3 +140,5 @@ changed its answer.
 - `test/153` — the run-ahead bound: a mechanism floored above it is skipped, the
   decision equals the declared-order oracle, and a mechanism run ahead of the
   climb is run again only when instances name its pick.
+- `test/159` 159.4 — where a question's instances agree on a convergence its
+  things meet nowhere, the response is silent.

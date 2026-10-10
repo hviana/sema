@@ -294,6 +294,16 @@ export class Meter {
   /** Path searches that spent the allowance without reaching the instance's
    *  answer, and so read no derivation (traverse.ts, `pathSteps`). */
   pathReadsSaturated = 0;
+  /** Continuations a derivation's step did not name because they hold no
+   *  entity that is what every instance's was there (traverse.ts,
+   *  `byCoInstance`, `factFrames`). */
+  conditionWithheld = 0;
+  /** Forms read as instances of a question about two things, their things
+   *  parted around a shared run (traverse.ts, `convergenceOf`). */
+  convergenceReads = 0;
+  /** Answers refused because the question's instances agree on a convergence
+   *  its own things meet nowhere (pipeline.ts). */
+  convergenceRefusals = 0;
   /** Co-instances read off the reach of the question's rarest frame window,
    *  beside the climb's own points (traverse.ts, `relationFrames`). */
   coInstanceSiblings = 0;

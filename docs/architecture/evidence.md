@@ -137,6 +137,41 @@ question's own entity. Step `i + 1` applies only at an entity the replay of
 steps `1..i` from that entity reaches. So the frame a product already said does
 not withhold a later step, and no step is taken out of order or taken again.
 
+**Every way to an entity, once per depth.** Two relations can reach one entity
+at one depth (`Y child` and `Y heir`, both to `C`). The search stands on the
+entity once and keeps every way it reached it there, so an instance carries both
+derivations. Kept by node alone, the first way deposited was the only one read:
+two instances deposited in different orders spelled different derivations and
+agreed on none. An entity reached at a shallower depth is not stood on again, so
+the paths kept are the shortest ones, and each entity is still expanded once.
+
+**What the derivation says of the entities it stands on.** A path says how it
+leaves each entity, not what the entity is. `Which child of Y is a medic?`
+answered `The occupation of C is surgeon.` is `· child → · occupation` from `Y`,
+and `Y` has other children. What picks `C` is a fact of `C` the question never
+spells: in every instance, the child is a surgeon. So the facts each entity on
+an instance's path holds are read with the entity cut out (`factFrames`:
+`The occupation of · is surgeon.`), the way a step is read off an establishing
+context. The derivation keeps the ones every instance's entity there holds. A
+fact one instance's entity lacks says nothing of the derivation, so this is an
+intersection, where the steps are alternatives an instance spells. It is taken
+over the instances that spell the derivation, so it holds where the derivation
+does: once two instances agree. Only once a second instance agrees on the steps
+is the first one's entity read for its facts. Each later instance is then asked
+only for the facts still shared, each by an exact lookup of the whole fact, the
+test the question's entity takes. Reading every instance's facts cost 1.5% more
+bytes on the inference fixture, where no condition forms. At the question, a
+step then names only a continuation holding an entity that holds every such
+fact, each an exact lookup of the whole fact (`satisfies`; `conditionWithheld`
+counts what a condition withheld). Conditioning the replay as well changed
+nothing measured: the step that names the entity already decides. The question's
+own entity is given, not selected, so it takes no condition.
+
+A narrower naming wins over witnessing by the same measure as a different one:
+the reading that explains more of the question names the step. Witnessing names
+both children (`child of`, 10 bytes), and the derivation (30 bytes) names the
+surgeon.
+
 **What a slot says, on both sides.** The slot between a frame holds an entity
 and may say more of it (`slotSteps`). The entity is the stored context with
 continuations covering the byte where the forms part (`slotEntity`), or, where a
@@ -347,6 +382,25 @@ answers scrambled so that no path joins filler and answer, one answer in each
 changed, from one wrong answer to another: the gain is the path, not the
 instances' answers.
 
+A second constructed world asks for an entity selected by a condition: among the
+children of `Y`, the one who is a medic (`The occupation of C is
+surgeon.`), the
+question never spelling the value the facts hold. With instances answered by the
+deciding fact, the derivation is read (`· child → · occupation`), but before the
+condition was read the step named every child and the deposit order picked one:
+1 and 4 of 6 such questions, reversing the order. With the condition, 6 of 6 in
+both orders; with the answers scrambled, nothing changes. In constructed
+families with the condition at the end, before the answer
+(`the spouse of the medic child`), two hops deep, and on another relation, 16 of
+16 against 7 of 16 in either order, and a grandchild question whose premise is
+absent is left unanswered (2 of 2, 0 before). The 2Wiki fixtures and the
+31.7M-node battery are unchanged in every answer and every counter beyond 0.5%.
+Two limits stay. Candidates reached by different relations (`father`, `mother`
+for `parent`) agree only per relation, so the condition selects only among one
+relation's. And where no candidate satisfies the condition, the step names
+nothing, but other mechanisms still answer: a `which child … is a medic` with no
+medic child is answered with a child.
+
 ## Pins
 
 - `test/154` — witnessing: a named continuation beats the most-poured one;
@@ -370,6 +424,10 @@ instances' answers.
   witnessed; the slot's entity is the longest any reading spells; the refusals
   read an instance's entity as the derivation does. Its scrambled-answer case is
   a control: no mutation of the reading short of inventing a path breaks it.
+- `test/158` — what a derivation says of its entities: the condition every
+  instance's entity agrees on selects the branch in either deposit order, traced
+  or not; on an entity before the answer; two relations to one entity at one
+  depth are both read; a fact one instance's entity lacks is no condition.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an

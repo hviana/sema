@@ -239,3 +239,132 @@ test("F1 — the two streams are found well inside the early-exit's budget", asy
       `(ranked=${td.anchors.length}, 2W=${2 * W})`,
   );
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Section G — facts deposited under their subject (`wiki2.ts`): a constraint
+// says what its anchor ESTABLISHES, and the seat is a thing
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// `Aldric Fenwick place of birth` → `The place of birth of Aldric Fenwick is
+// Ravenmoor.`: the anchor the climb elects binds the question by its own
+// bytes, and the city is only in its continuation.  Read off the anchors
+// alone, the meet of two such constraints was the relation they share
+// (` place of birth`), voiced as the answer.
+
+const PEOPLE = [
+  "Aldric Fenwick",
+  "Beatrix Holloway",
+  "Cedric Ashcombe",
+  "Delphine Marlowe",
+  "Edmund Thornbury",
+  "Felicity Crane",
+  "Godfrey Wetherby",
+  "Harriet Locksley",
+  "Ignatius Pemberton",
+  "Juliana Ravensworth",
+  "Konrad Mayhew",
+  "Lavinia Stroud",
+  "Mortimer Vance",
+  "Nerissa Blackwood",
+  "Oswin Kettering",
+  "Prudence Hale",
+];
+const CITIES = [
+  "Ravenmoor",
+  "Glenhollow",
+  "Marrowby",
+  "Thistlecombe",
+  "Eastwick Vale",
+  "Oakhurst Bay",
+];
+const COUNTRIES = ["Norway", "Hungary", "Chile", "Kenya", "Portugal", "Peru"];
+
+/** Pairs born in one city, the first of each dying in another, each with a
+ *  date of birth (so the corpus is more than births and a birth's frame is a
+ *  minority's); every city in a country. */
+function births() {
+  const items = [];
+  const dep = (s, r, o) => {
+    const f = `The ${r} of ${s} is ${o}.`;
+    items.push([`${s} ${r}`, f], [s, f]);
+  };
+  CITIES.forEach((c, i) => dep(c, "country", COUNTRIES[i]));
+  for (let i = 0; i < 8; i += 2) {
+    dep(PEOPLE[i], "place of birth", CITIES[i / 2]);
+    dep(PEOPLE[i + 1], "place of birth", CITIES[i / 2]);
+    dep(PEOPLE[i], "place of death", CITIES[(i / 2 + 3) % CITIES.length]);
+    dep(PEOPLE[i], "date of birth", `${1800 + i} AD`);
+    dep(PEOPLE[i + 1], "date of birth", `${1850 + i} AD`);
+  }
+  return items;
+}
+
+async function meets(items, q) {
+  const store = new SQliteStore({ path: ":memory:" });
+  const m = new Mind({ seed: 7, store });
+  await m.ingest(items);
+  await m.buildCanonIndex();
+  const steps = [];
+  const answer = await m.respondText(q, (s) => steps.push(s));
+  await store.close();
+  const met = steps.filter((s) => s.mechanism.at(-1) === "intersectEvidence")
+    .flatMap((s) => (s.outputs ?? []).map((o) => o.text));
+  return { answer, met };
+}
+
+test("G1 — the meet is read off what the constraints' anchors establish", async () => {
+  const { answer, met } = await meets(
+    births(),
+    `In which city were both ${PEOPLE[4]} and ${PEOPLE[5]} born?`,
+  );
+  assert.ok(
+    met.some((t) => t.includes("Marrowby")),
+    `the two births meet at Marrowby: ${JSON.stringify(met)}`,
+  );
+  assert.ok(answer.includes("Marrowby"), answer);
+});
+
+test("G2 — the relation two facts share is no seat", async () => {
+  // Both constraints establish a birth; their facts share `The place of
+  // birth of `, rarer than any city — and the question names things, so
+  // what it asks for is one.
+  const { met } = await meets(
+    births(),
+    `Who was born later, ${PEOPLE[0]} or ${PEOPLE[3]}?`,
+  );
+  assert.deepEqual(met, [], `a frame was met: ${JSON.stringify(met)}`);
+});
+
+test("G3 — a continuation is evidence only of what its anchor bound", async () => {
+  // Other instances of the question, one answered with the city Aldric died
+  // in: their anchors bind the question's frame, and their answers hold
+  // none of it — `The answer is …` nothing, `The place of birth of …` only a
+  // shard (`birt` of `birthplace`).  Aldric and Delphine were born apart;
+  // nothing meets.
+  const items = births();
+  for (
+    const answer of [
+      `The answer is ${CITIES[3]}.`,
+      `The place of birth of ${PEOPLE[9]} is ${CITIES[3]}.`,
+    ]
+  ) {
+    items.push(
+      [
+        `Which city is the birthplace of both ${PEOPLE[8]} and ${PEOPLE[9]}?`,
+        answer,
+      ],
+      [
+        `Which city is the birthplace of both ${PEOPLE[10]} and ${PEOPLE[11]}?`,
+        `The answer is ${CITIES[5]}.`,
+      ],
+    );
+  }
+  const { met } = await meets(
+    items,
+    `Which city is the birthplace of both ${PEOPLE[0]} and ${PEOPLE[3]}?`,
+  );
+  assert.ok(
+    !met.some((t) => t.includes(CITIES[3])),
+    `another instance's answer was met: ${JSON.stringify(met)}`,
+  );
+});
