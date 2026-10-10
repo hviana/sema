@@ -1,4 +1,4 @@
-// articulation.ts — re-voice an answer in the asker's wording (Section 5).
+// articulation.ts — re-voice an answer in the asker's wording.
 //
 //   articulate — substitute answer forms with the asker's synonyms,
 //                using concept (halo) resonance to match the voices.
@@ -102,7 +102,7 @@ export async function articulate(
     // splices the asker's wording INTO an answer where the same concept
     // appears; when the "concept" is the entire answer there is nothing left
     // of it, and "where is it kept now" comes back in place of "it hangs in
-    // madrid".  §5's contract is re-voicing, never replacement.
+    // madrid".  The contract is re-voicing, never replacement.
     if (s.start === 0 && s.end === answer.length) continue;
     substitutions.set(s.payload, voice.bytes);
   }

@@ -159,7 +159,7 @@ export function profileCapacity(D: number): number {
  *  The POOLED-vote significance floor, and the derivation lives here because
  *  its PREMISE is a property of the caller's weighting.
  *
- *  DERIVATION (docs/architecture/thresholds.md §2): a maximally-specific region
+ *  DERIVATION (docs/architecture/thresholds.md): a maximally-specific region
  *  contributes at most `ln N` to a pooled vote, so `ln(N) + 1/2` sits half a
  *  unit above ONE region's ceiling — it demands corroboration BEYOND a single
  *  region, which is what makes it a consensus bar rather than a resonance bar.

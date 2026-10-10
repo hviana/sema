@@ -41,15 +41,15 @@ it first (`meter.md`).
 `respond` takes fresh maps. `respondTurn` reuses the conversation's maps, which
 are content-keyed across turns.
 
-| Memo                                                    | Key                   | Lifetime                            |
-| ------------------------------------------------------- | --------------------- | ----------------------------------- |
-| `perceiveMemo`                                          | bytes + boundary set  | response or conversation            |
-| `recogniseMemo`, `climbMemo`                            | bytes                 | response or conversation            |
-| `canonMemo`                                             | bytes                 | response, when a `canon` is set     |
-| `_resolvedSubtrees`                                     | tree node (`WeakMap`) | response or conversation            |
-| `_edgeChoice` (the pick memo), `_edgeAsked`             | node / question       | response; cleared at the end        |
-| `sharedReachMemo`, structural probes (`traverse.ts`)    | node                  | cleared on write or at 100K entries |
-| derivation paths, entities a fact holds (`traverse.ts`) | instance / fact       | cleared on write or at 100K entries |
+| Memo                                                 | Key                   | Lifetime                            |
+| ---------------------------------------------------- | --------------------- | ----------------------------------- |
+| `perceiveMemo`                                       | bytes + boundary set  | response or conversation            |
+| `recogniseMemo`, `climbMemo`                         | bytes                 | response or conversation            |
+| `canonMemo`                                          | bytes                 | response, when a `canon` is set     |
+| `_resolvedSubtrees`                                  | tree node (`WeakMap`) | response or conversation            |
+| `_edgeChoice` (the pick memo), `_edgeAsked`          | node / question       | response; cleared at the end        |
+| `sharedReachMemo`, structural probes (`traverse.ts`) | node                  | cleared on write or at 100K entries |
+| derivations, slots, entities, facts (`traverse.ts`)  | form / entity         | cleared on write or at 100K entries |
 
 `foldTree` takes the `_resolvedSubtrees` fast path only when no visitor is
 passed. A walk that emits sites always descends in full, and the cache only
@@ -59,13 +59,12 @@ elides store probes.
 
 A traced response must emit every step and still give the same answer.
 
-- **Bypassed under trace:** the pick memo (`guidedNext`) and `sharedReachMemo`.
-  Both return fresh maps, and `chooseNext` recomputes the same pick from the
-  store and the question.
+- **Bypassed under trace:** the pick memo (`guidedNext`), `sharedReachMemo` and
+  the derivation memos. Each is fresh or absent, and `chooseNext` recomputes the
+  same pick from the store and the question.
 - **Always consulted:** `perceiveMemo`, `recogniseMemo` and `climbMemo`.
-  Bypassing `recogniseMemo` once re-ran recognition over a warm subtree cache
-  and emitted 5 sites instead of 31. That was a change in the answer, not just a
-  slowdown.
+  Bypassing `recogniseMemo` re-runs recognition over a warm subtree cache and
+  emits 5 sites instead of 31: a change in the answer, not just a slowdown.
 - **The pick memo is cleared when the climb publishes its points.** A pick made
   earlier read less evidence, and keeping it made traced and untraced responses
   disagree.

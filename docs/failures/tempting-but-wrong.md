@@ -172,10 +172,10 @@ shortcuts that pass review and fail the evidence.
   answer: "the instances say no entity is both".
 - **Refuted:** an empty meet is the absence of a proof. The shared grandfather
   can lie on a route the instances did not show (the mother's father, not the
-  father's), the meeting fact can lie past the read bound, a premise can be
-  missing, and a person can have two recorded fathers. The refusal silenced all
-  of these as if refuted. It turned 12 wrong answers per world into silence, but
-  never on evidence of incompatibility (`test/159` 159.4).
+  father's), the meeting fact can lie past the read bound, and a premise can be
+  missing. The refusal silenced all of these as if refuted. It turned 12 wrong
+  answers per world into silence, but never on evidence of incompatibility
+  (`test/159` 159.4).
 - **Instead:** conclude only what the evidence proves. A meet is an answer; no
   meet is no conclusion, and the market decides as it would without it. A
   refusal needs evidence that the answer is incompatible, which a bounded search

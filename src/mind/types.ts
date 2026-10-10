@@ -148,7 +148,7 @@ export interface Attention {
    *  own.  THIS USED TO PRESCRIBE THE WRONG OPERAND.  It read: "a consumer
    *  holding this point to consensusFloor(N) — a bar that prices ONE region's
    *  maximally-discriminative evidence — must read `peak`, not `vote`."  The
-   *  engine reads the POOLED vote, and thresholds.md §2 derives the floor for
+   *  engine reads the POOLED vote, and thresholds.md derives the floor for
    *  exactly that ("Pooled-vote significance floor": one maximally-specific
    *  region contributes at most ln N, and ln(N)+1/2 demands corroboration
    *  BEYOND one region).  MEASURED across 27 anchors on 6 queries: all 11

@@ -1502,7 +1502,7 @@ export function poolVotes(
   // THE BAR IS THE POOLED FLOOR, AND IT WAS ONCE CLAIMED OTHERWISE HERE.
   // This comment used to say that holding an anchor to consensusFloor(N)
   // "prices ONE region's evidence", so comparing a six-region sum against it
-  // was "a dimensional error".  THAT WAS FALSE.  `thresholds.md` §2 derives
+  // was "a dimensional error".  THAT WAS FALSE.  `thresholds.md` derives
   // `consensusFloor` as the POOLED-vote significance floor ("each region
   // contributes at most ln(N/c) <= ln(N); ln(N) + 1/2 demands ..."), and the
   // climb weights by IDF, so the sum and the floor are in ONE dimension —

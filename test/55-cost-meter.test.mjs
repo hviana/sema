@@ -677,7 +677,7 @@ test("16. the climb's own search is timed", async () => {
 
 test("17. the bar and the climb's vote are in one dimension", async () => {
   // `consensusFloor(N) = ln(N) + 1/2` is the POOLED-vote significance floor
-  // (thresholds.md §2: "each region contributes at most ln(N/c) <= ln(N)"), and
+  // (thresholds.md: "each region contributes at most ln(N/c) <= ln(N)"), and
   // attention.ts builds the vote on the same scale.  The comparison in recall and
   // in cast holds because the climb WEIGHTS BY IDF: `wf` is `direct ? df :
   // combined ? idf + df : idf`, and the engine only runs the last one (DFMode's
@@ -787,7 +787,7 @@ test("18. the remainder the pipeline decides on is visible", async () => {
 });
 
 test("19. the floor is read on the pooled vote, not on one region", async () => {
-  // thresholds.md §2 derives `consensusFloor` as the POOLED-vote floor (one
+  // thresholds.md derives `consensusFloor` as the POOLED-vote floor (one
   // maximally-specific region contributes at most ln N, and ln(N)+1/2 demands
   // corroboration BEYOND one region).  The engine reads it that way in three
   // places (`commitVotes`, `recall`, `cast`), and this pins the practice with

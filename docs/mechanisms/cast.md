@@ -48,8 +48,8 @@ Further competence checks:
 - **Redirection.** The question names a substitute by quoting it from its own
   opening bytes (`…were Lyon?` against `Lyon is a city in France`), and names it
   after what it displaces. A substitute that is a fragment answering other
-  questions is refused: `ong)?`, the tail of every `… (… Song)?` question, once
-  voiced a stranger's birthplace.
+  questions is refused: `ong)?`, the tail of every `… (… Song)?` question, would
+  voice a stranger's birthplace.
 - **Comparison.** The dominant is seated against one analog, reached through
   `seatOfNode` and corroborated by `analogyStrength` (halo company). Two guards
   apply:
@@ -57,8 +57,8 @@ Further competence checks:
     the dominant's runs and not scaffolding;
   - the dominant must not be a co-instance of the question (`evidence.md`).
 
-  Without them, a bare question was glued onto the answer, and once Shakira's
-  birthplace was set against `John Lennon`.
+  Without them, a bare question is glued onto the answer, and Shakira's
+  birthplace is set against `John Lennon`.
 
 ## Cost
 

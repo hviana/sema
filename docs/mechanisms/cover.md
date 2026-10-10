@@ -20,7 +20,7 @@ enforced by masking rather than by price (`cost-model.md`).
 - **A fragment needs to be asked.** A site that answers other questions
   (`answersOtherQuestions`: inside other forms, several continuations, a window
   of the question outside it) is dropped unless the question names one of its
-  continuations. Otherwise the cover accounted the fragment's bytes as explained
+  continuations. Otherwise the cover accounts the fragment's bytes as explained
   by a stranger's answer (`unaskedFragments`).
 - **Scaffolding accounts for nothing.** A span made only of hub windows
   (`scaffoldSpans`) is not accounted (`evidence.md`).

@@ -34,8 +34,7 @@
 Two more gate functions: `skillExemplar` maps an anchor to its context and
 answer, and `carriesFillers` is the substitution licence.
 
-Every threshold behind a gate is derived in `geometry.ts`. The match layer never
-invents a cutoff.
+Every threshold behind a gate is derived in `geometry.ts`.
 
 ## Frame reading — the matcher reports, the gate judges, the inventory elects nothing
 
@@ -66,5 +65,5 @@ consumer owns its own refusal:
 
 - `test/47` — the frame reading split into matcher, inventory and gate.
 - `test/50` — voicing through `carriesFillers` in CAST and `reference`.
-- `test/24`, `test/76` — the match and project family and its span-shape
-  readings.
+- `test/76-reference-binding`, `test/31` I1 — `frameSlots` reports every
+  pairing; the two readings of "contained" differ.

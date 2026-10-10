@@ -42,13 +42,12 @@ read rarer than any entity. Where the question names nothing learnt whole
 (`Which material is translucent and featherlight?`), the bytes are all the
 evidence spells.
 
-Read off the anchors alone, the meet of two subject-deposited facts was the
+Read off the anchors alone, the meet of two subject-deposited facts is the
 relation they share, voiced as the answer (`date of birth` for
-`Who was born later, X or Y?`). On the 2Wiki fixtures, reading what the anchors
-establish turned 9 such answers into the fact that decides them, with no answer
-lost; bytes read rose about 1% on the questions whose answer did not change. On
-a constructed world, a shared birthplace asked in words no stored context spells
-(`In which city were both X and Y born?`) is now named.
+`Who was born later, X or Y?`). Reading what the anchors establish answers 9
+such 2Wiki questions with the fact that decides them, and names a shared
+birthplace asked in words no stored context spells
+(`In which city were both X and Y born?`).
 
 ## Where instances show how the constraints meet
 
@@ -81,13 +80,11 @@ form's things are read in its own spelling, never under the equivalence.
 
 Measured on the constructed world: with instances answered `The answer is E.`,
 or with the fact that decides them, every same-phrasing two-thing question
-(mother∧spouse, shared birthplace, shared grandfather) is answered by the meet,
-the grandfather 0 → 3 of 3, in both deposit orders; scrambled answers and no
-instances change nothing. Asked in a phrasing no instance spells, a question has
-no reading: nothing in the corpus says the two phrasings ask the same. With
-instances in that phrasing too, it does (shared grandfather 0 → 3, shared
-birthplace +1). The 2Wiki fixtures and the 31.7M-node battery change no answer;
-branch lookups rise 0.3% on two fixtures.
+(mother∧spouse, shared birthplace, shared grandfather) is answered in both
+deposit orders, the shared grandfather (3 of 3) only by the meet: scrambled
+answers or no instances leave it unanswered. Asked in a phrasing no instance
+spells, it has no reading: nothing in the corpus says the two phrasings ask the
+same. With instances in that phrasing too, it does (3 of 3).
 
 The meet explains to the market what its evidence explains, and no more: the
 frame every agreeing instance shares with the question, the run that parts the
@@ -103,8 +100,9 @@ trap 14).
 
 ## Cost
 
-`3·STEP`: two conditions and the meet. That is also its floor, so the climb is
-never touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
+`3·STEP`: two conditions and the meet. A convergence pays a `STEP` per step of
+each derivation, plus the meet. `3·STEP` is the floor, so the climb is never
+touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
 
 ## Provenance
 

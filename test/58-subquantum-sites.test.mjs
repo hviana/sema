@@ -21,9 +21,9 @@
 // own comment already names this coincidence ('"hi" resolving out of
 // "W[hi]ch"'). After this rule only "Eiffel Tower" survives.
 //
-// NOT claimed here: that removing those sites fixes that query. It does not —
-// see bench/README.md. Cover still grounds a greeting there through a 2-byte
-// span that does NOT come from `sites`. This test pins the site rule only.
+// NOT claimed here: that removing those sites fixes that query. It does not:
+// cover still grounds a greeting there through a 2-byte span that does NOT
+// come from `sites`. This test pins the site rule only.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

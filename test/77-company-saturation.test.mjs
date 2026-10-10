@@ -61,7 +61,8 @@ const longText = (n, tail = "") =>
 
 // ── 1. deep type-level company still works ───────────────────────────────
 // The motivating case: the shared unit sits BELOW the top of the fold, so a
-// depth-1 profile would miss it entirely (test/76 T1 is the full fixture).
+// depth-1 profile would miss it entirely (test/76-type-level-company T1 is the
+// full fixture).
 test("T1: a unit shared below depth 1 still enters both profiles", async () => {
   const { store, mind } = mk();
   await mind.ingest([

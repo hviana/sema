@@ -26,9 +26,9 @@
 //   3. the report does NOT appear for an ordinary grounding, so it names a
 //      decision rather than decorating every response.
 //
-// The fixture is test/76's CARRIED frame: the continuation quotes its filler
-// (`Run gcc <X>`), which is the shape the reference mechanism binds and
-// declares complete.
+// The fixture is test/76-reference-binding's CARRIED frame: the continuation
+// quotes its filler (`Run gcc <X>`), which is the shape the reference mechanism
+// binds and declares complete.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -41,7 +41,7 @@ const CARRIED = [
   ["How do I compile parser.c?", "Run gcc parser.c"],
 ];
 
-/** The frame fixture — the same one test/76 pins the binding on. */
+/** The frame fixture — the same one test/76-reference-binding pins. */
 async function frame() {
   const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
   await m.ingest(CARRIED);

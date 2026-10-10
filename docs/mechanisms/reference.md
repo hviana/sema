@@ -47,7 +47,7 @@ common outcome and usually comes on the second instance. Two checks apply:
 - **A fact filed under a filler is not a carriage.** A continuation that does
   not vary passes co-variation vacuously, and coincidence lives there. If an
   instance's answer is a continuation of its own filler, it is something the
-  corpus knows _about_ that filler. Two people born in Wellington once gave an
+  corpus knows _about_ that filler. Two people born in Wellington can give an
   unknown `Zorblax` the same birthplace. `Run gcc hello.c` is filed under the
   question alone, so it still carries.
 

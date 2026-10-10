@@ -67,8 +67,8 @@ hashed, then verified:
 - `flatBranchMayExist` is a negative filter, so its `false` is exact.
 - `findFlatBranch` memoizes hits only, and a miss builds no key.
 - `flatSpans(bytes)` extends one FNV-1a hash per start position, so sweeping a
-  span's ends costs O(1) per probe instead of O(span). Recognition's interior
-  pass once hashed 251,660,406 bytes for a single response (`test/153.4`).
+  span's ends costs O(1) per probe instead of O(span). Otherwise, recognition's
+  interior pass hashes 251,660,406 bytes in one response (`test/153.4`).
 
 `bytes(id)` and `bytesPrefix(id, cap)` return buffers shared with the caches.
 Callers must never mutate them.

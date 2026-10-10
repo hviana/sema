@@ -12,12 +12,12 @@ npm test          # tsc, then node --test over test/**/*.test.mjs against dist/
 This gate guards every pinned contract, and two in particular:
 
 - **Honest silence.** An unrelated question grounds to nothing (`test/28`,
-  `test/50`, `test/56`, `test/67`, `test/76`, `test/84`).
+  `test/50`, `test/56`, `test/67`, `test/76-reference-binding`, `test/84`).
 - **Determinism.** The same seed, deposit order and question give a
   byte-identical answer (`test/20`).
 
-The closure law is pinned in `test/133`–`151`, and the docs themselves are read
-by `test/137`: an export that only the docs describe counts as documented.
+The docs themselves are read by `test/137`: an export that only the docs
+describe counts as documented.
 
 ## 2. Work accounting — the profiler
 

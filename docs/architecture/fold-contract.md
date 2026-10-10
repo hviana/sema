@@ -45,8 +45,8 @@ experimentally, and each change broke tests:
 
 The forced cut accounts for 32% of all cuts. Every mechanism downstream is
 fitted to this distribution, so any change here must be re-measured on the whole
-suite. A second copy of the hash loop, which `contentBoundaries` once carried,
-lets the write side and the read side drift without a type error.
+suite. A second copy of the hash loop lets the write side and the read side
+drift without a type error.
 
 ## One shape, two algebras
 
@@ -61,9 +61,8 @@ Inside an over-long row, grouping also reads each item's `itemKey`: eight raw
 gist coordinates. The identity fold computes only those coordinates, lazily,
 with the same float32 additions in the same order. `exactNode` is the identity
 fold, so resolving a span builds no `D`-dimensional gist. On the 31.7M-node
-store, one join query went from 185 s and 4.4 GB retained to 40 s and 81 MB,
-with the same answer. Written once, the two folds cannot disagree about the
-tree.
+store, one join query takes 40 s and retains 81 MB, against 185 s and 4.4 GB
+with gists built. Written once, the two folds cannot disagree about the tree.
 
 ## The read side names as the write side names
 
@@ -73,9 +72,8 @@ node"). Deposits intern flat nodes, so a later deposit's branch is often stored
 as an earlier deposit's window: `ver` + `!` is stored as the window `ver!`.
 `branchNaming` (`mind/primitives.ts`) applies the same order on the read side,
 in `exactNode` and `foldTree`, and an unnamed child does not settle the
-question. On the 31.7M-node store, 7 of 80 dialogue turns asked verbatim used to
-resolve to nothing, costing 26–41 s each on the composition path. They now
-resolve to their own context.
+question. Otherwise, on the 31.7M-node store, 7 of 80 dialogue turns asked
+verbatim resolve to nothing, costing 26–41 s each on the composition path.
 
 A name found only through the bytes is a flat entry, not a learnt structure. In
 that case `resolve` also asks the canonical class (`exactNaming`'s `byBytes`)
@@ -108,8 +106,8 @@ the prefix bytes, and a conversation advances only by appending.
 `stablePrefixFold` is a separate, public geometry capability. It takes cuts
 supplied by the caller and nests them to the left, so that each prefix root is
 an identical subtree inside the grown stream. No path inside the mind supplies
-such cuts, and confusing the two capabilities is how an imposed boundary set
-once reached inference.
+such cuts, and confusing the two capabilities lets an imposed boundary set reach
+inference.
 
 Both capabilities require `prev` to be a fold of a byte-identical prefix. Reuse
 is keyed on offsets, and offsets cannot witness that the bytes agree: a

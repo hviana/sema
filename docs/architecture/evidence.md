@@ -10,8 +10,8 @@
 **Why.** A question rarely repeats the corpus's wording or byte order, and a
 derivation stands on nodes the asker never wrote. Without a reading of what the
 question _names_, a chain follows the most-poured continuation and voices a
-stranger's fact. `Who is the director of The Jerk?` once walked on to Carl
-Reiner's citizenship.
+stranger's fact. `Who is the director of The Jerk?` walks on to Carl Reiner's
+citizenship.
 
 ## The operation — `witness` (`src/mind/evidence.ts`)
 
@@ -104,10 +104,10 @@ Instances that contradict one another are not read as such. Two instances of
 `elder grandmother` reading `· father → · mother` and two reading the pair
 `· mother → · mother` name different continuations at the question's entity,
 with evidence perception cannot tell apart, and both are named. Refusing that
-derivation, at the node and for the whole question, was measured and changed no
-answer. The walk still commits, through the most corroborated first hop and the
-`mother` the question's `grandmother` carries. Abstaining would need the
-mechanisms to share that the question's relation is unresolved.
+derivation, at the node or for the whole question, changes no answer. The walk
+still commits, through the most corroborated first hop and the `mother` the
+question's `grandmother` carries. Abstaining would need the mechanisms to share
+that the question's relation is unresolved.
 
 **A derivation, read off other instances.**
 `Who is the paternal
@@ -125,11 +125,9 @@ A one-step reading does not replace the path. A context that establishes the
 answer and holds the filler may be another way to ask the same question
 (`Who among the children of Y is the medic?` beside
 `Which child of Y is a medic?`). Its reading names nothing at a new question, so
-both readings are kept, and agreement and the question's evidence decide. With
-paraphrased instances in the constructed world, keeping only the one-step
-reading lost 5 conditioned selections; keeping both answered 9 more questions in
-either phrasing, including phrasings with no instance of their own before. On
-the 2Wiki fixtures, no answer changed, and bytes read rose 1% on one fixture.
+both readings are kept, and agreement and the question's evidence decide.
+Keeping only the one-step reading loses conditioned selections that paraphrased
+instances teach.
 
 The path is searched breadth first, so the shortest derivation the corpus holds
 is the one read, and its length comes from the corpus. Each entity expanded is
@@ -150,19 +148,18 @@ not withhold a later step, and no step is taken out of order or taken again.
 **Every way to an entity, once per depth.** Two relations can reach one entity
 at one depth (`Y child` and `Y heir`, both to `C`). The search stands on the
 entity once and keeps every way it reached it there, so an instance carries both
-derivations. Kept by node alone, the first way deposited was the only one read:
-two instances deposited in different orders spelled different derivations and
-agreed on none. An entity reached at a shallower depth is not stood on again, so
-the paths kept are the shortest ones, and each entity is still expanded once.
-Every further way into an entity is work, carried, spelled and later replayed,
-and it is charged to the same allowance as an expansion (`pathWays`). Chained
-fans multiply ways while entities only add up: with four relations between each
-pair of entities in a chain, or two in a chain of diamonds, the ways double with
-every link. Uncharged, a diamond chain 16 deep on a 20,000-context store took
-90M branch lookups and 7 minutes, and at 20 deep the process ran out of memory.
-Charged, the search saturates, metered (`pathReadsSaturated`), and reads
-nothing. The cost stays flat, and a derivation through more alternatives than
-its allowance is not read.
+derivations. Kept by node alone, only the first way deposited is read, and two
+instances deposited in different orders agree on none. An entity reached at a
+shallower depth is not stood on again, so the paths kept are the shortest ones,
+and each entity is still expanded once. Every further way into an entity is
+work, carried, spelled and later replayed, and it is charged to the same
+allowance as an expansion (`pathWays`). Chained fans multiply ways while
+entities only add up: with four relations between each pair of entities in a
+chain, or two in a chain of diamonds, the ways double with every link:
+uncharged, a diamond chain 16 deep costs 90M branch lookups, and 20 deep
+exhausts memory. Charged, the search saturates (`pathReadsSaturated`) and reads
+nothing, at a cost that does not grow with depth: a derivation through more
+alternatives than its allowance is not read.
 
 **What the derivation says of the entities it stands on.** A path says how it
 leaves each entity, not what the entity is. `Which child of Y is a medic?`
@@ -178,7 +175,7 @@ over the instances that spell the derivation, so it holds where the derivation
 does: once two instances agree. Only once a second instance agrees on the steps
 is the first one's entity read for its facts. Each later instance is then asked
 only for the facts still shared, each by an exact lookup of the whole fact, the
-test the question's entity takes. Reading every instance's facts cost 1.5% more
+test the question's entity takes. Reading every instance's facts costs 1.5% more
 bytes on the inference fixture, where no condition forms. At the question, a
 step then names only a continuation holding an entity that holds every such
 fact, each an exact lookup of the whole fact (`satisfies`; `conditionWithheld`
@@ -247,10 +244,9 @@ born?` is not about Z's birth.
 its entity than the frame it shares with the question is another question, not
 this one's frame around another filler: `Who is Y's paternal grandmother?`
 shares `Who is` and `?` (8 bytes) with `Who is the maternal grandfather of Z?`
-and says 23 more. Reading such slots cost 13–20% more lookups on the 2Wiki
-fixtures, and dropping them changed no answer. They still count as forms that
-share a frame when the question-entity fallback asks whether its hypothesis
-shows.
+and says 23 more. Reading such slots costs 13–20% more lookups on the 2Wiki
+fixtures and answers nothing more. They still count as forms that share a frame
+when the question-entity fallback asks whether its hypothesis shows.
 
 **The proposals are the climb's, and their siblings.** One region votes for one
 context, so the climb's points hold one instance of a frame that several
@@ -274,9 +270,8 @@ instances under the read bound. Its instances are reachable only through a
 conjunction of windows, and the question stays unanswered.
 
 The tier reads the `chainReach(W)` most corroborated of the consensus climb's
-ranked points (`asked.points`), and climbs nothing itself. A first version
-climbed on its own and cost 16% more climb visits for no naming at all. This has
-two consequences:
+ranked points (`asked.points`), and climbs nothing itself: a climb of its own
+costs 16% more climb visits and names nothing more. So:
 
 - the pick memo is cleared when the points arrive (`memoization.md`);
 - recall's argument binding asks for the climb first when its choice would
@@ -287,12 +282,12 @@ A question stored verbatim is its own instance and reads no frames.
 **A co-instance is never the answer.** Its own continuation speaks of its own
 filler. So:
 
-- recall's consensus anchor refuses it, where once
-  `Where was Nicki Minaj (Nicki Minaj Song) born?` answered another performer's
+- recall's consensus anchor refuses it, else
+  `Where was Nicki Minaj (Nicki Minaj Song) born?` answers another performer's
   question;
 - fusion does not fuse it as a further topic;
-- a CAST comparison does not take it as its dominant, where once Shakira's
-  birthplace was voiced against `John Lennon`.
+- a CAST comparison does not take it as its dominant, else Shakira's birthplace
+  is voiced against `John Lennon`.
 
 ## Arguments held under the response's equivalence
 
@@ -304,24 +299,22 @@ candidates, if the question canonically contains them at their own offsets
 relies on the canonical index the trainer builds (`buildCanonIndex`).
 
 A fragment that answers other questions is set aside before the binding looks
-for one maximal argument, so `director` no longer cancels `Man at Bath`. The
-same predicate refuses CAST's redirection substitute `ong)?`, the tail of every
+for one maximal argument, so `director` does not cancel `Man at Bath`. The same
+predicate refuses CAST's redirection substitute `ong)?`, the tail of every
 `… (… Song)?` question.
 
 A fragment with a single continuation is no safer when it was never learnt as a
 context. Suffix inheritance admits a reused piece once two deposits share it, so
 `ther` carries only the fact of the first `… mother` context deposited after
-that, and cover voiced `Otto the Great`'s mother for
+that, and cover would voice `Otto the Great`'s mother for
 `Anne of Kiev's
 grandmother`. A piece with no company of its own (no halo) holds
 only inherited continuations, so it answers other questions however few it
 holds. A form learnt as a context keeps its one continuation; the definition,
 bridge and ALU suites fail without that exception. On the 2Wiki fixtures the
-rule cost one answer (a title reached through the subword `sistance`,
-`Resistance` for `résistance`), removed a stranger's fact glued onto another,
-and cut search and lookups by 3–5%. The 116-query battery did not change: on the
-trained store such pieces carry many continuations, and the older rule already
-set them aside.
+rule costs one answer, a title reached through the subword `sistance`
+(`Resistance` for `résistance`). On the trained store such pieces carry many
+continuations and are set aside as fragments with several.
 
 ## Its consumers
 
@@ -341,8 +334,8 @@ scaffolding window (`scaffoldExtents`, the hub reading, `commonality.md`) are
 nobody's debt, so no step pays `Who is the` by restating `is`. A cover span made
 only of scaffolding is not accounted. The trained store's song `What` is one of
 thousands the bytes could name. Pricing is untouched: the ladder still charges
-every unexplained byte. Making scaffolding free in the market was measured and
-refused, because it changed dialogue answers (`How are you today?`).
+every unexplained byte: scaffolding made free in the market changes dialogue
+answers (`How are you today?`, `failures/tempting-but-wrong.md`, trap 8).
 
 ## Bounds
 
@@ -360,26 +353,22 @@ inference questions about other entities (`paternal grandmother`,
 `father-in-law`, …), each answered with its chain's last fact. No test entity
 has a question of its own.
 
-| Correct (strict), of the test rows       | Witnessing only | 0.9.5 | Now |
-| ---------------------------------------- | --------------- | ----- | --- |
-| compositional, fixture (133)             | 52              | 56    | 57  |
-| compositional, plus instances (133)      | 41              | 89    | 102 |
-| inference, plus inference instances (37) | —               | 6     | 23  |
+| Correct (strict), of the test rows       |     |
+| ---------------------------------------- | --- |
+| compositional, fixture (133)             | 57  |
+| compositional, plus instances (133)      | 103 |
+| inference, plus inference instances (37) | 23  |
 
-The first hop is right on 114 and 109 of 133. Most of the remaining first-hop
+The first hop is right on 113 and 107 of 133. Most of the remaining first-hop
 failures are aliases (`Clara Novello` for `Clara Anastasia Novello`), which no
 reading of bytes recovers. The answers gained with instances are relations no
 window spells: `born` → place of birth, `work at` → employer, `is from` →
 citizenship, `nationality` → citizenship, and the inference pairs.
 
-On the 31.7M-node store's 116-query battery, the derivation reading and the
-entity's frame changed no answer against 0.9.5. Bytes read rose 0.7%, canonical
-lookups 6%, and container reads 13% (about 19 point reads per question, for the
-frame windows' rarity). There the frame windows are scaffolding and the
-instances are absent, so the tier names nothing. The path reading and the slot
-reading changed no answer there either. Bytes read fell 2.4%, and canonical
-lookups rose 11%, almost all in one dialogue turn whose loose frames leave long
-slots to read.
+On the 31.7M-node store's 116-query battery, the frame windows are scaffolding
+and the instances are absent, so the tier names nothing and changes no answer.
+Its cost there is the frame windows' container reads, and the long slots of a
+dialogue turn's loose frames.
 
 A constructed world tests what 2Wiki cannot: derivations of 1 to 5 steps,
 paraphrased and reordered frames, frames composed with a stated relation or a
@@ -388,42 +377,44 @@ negative controls. It holds 2,276 people and 6,048 triples, deposited as
 `wiki2.ts` does, with 66 instances and 172 test questions about subjects with no
 question of their own.
 
-| Correct, of the test questions                 | Two-step reading | Now |
-| ---------------------------------------------- | ---------------- | --- |
-| depth 1–2, incl. paraphrase, cross-kind        | 40 of 60         | 60  |
-| depth 3–5, incl. cross-kind                    | 0 of 42          | 42  |
-| a frame composed with a stated relation        | 0 of 6           | 6   |
-| a frame composed with a description (no inst.) | 0 of 12          | 10  |
-| all 172                                        | 59               | 140 |
+| Correct, of the test questions               |     |
+| -------------------------------------------- | --- |
+| depth 1–2, incl. paraphrase, cross-kind (60) | 60  |
+| depth 3–5, incl. cross-kind (42)             | 42  |
+| a frame composed with a stated relation (6)  | 6   |
+| a frame composed with a description (12)     | 10  |
+| all 172                                      | 140 |
 
-Wrong first hops fell from 52 to 10. Two of the twelve compositions still fail.
-`cover` runs before the climb, so it reads the question without the instances,
-and the word the question spells (`mother` in `grandmother`) names the step; its
-result is decided before the climb shows anything better. Making again a result
-the climb outdates fixes both, but on this world it cost 46% more chart search
-for two answers of 172, and it is not done. With the instances removed, or their
-answers scrambled so that no path joins filler and answer, one answer in each
-changed, from one wrong answer to another: the gain is the path, not the
-instances' answers.
+Ten first hops are wrong, and two of the twelve compositions fail. `cover` runs
+before the climb, so it reads the question without the instances, and the word
+the question spells (`mother` in `grandmother`) names the step; its result is
+decided before the climb shows anything better. Making again a result the climb
+outdates fixes both, at 46% more chart search for two answers of 172, so it is
+not done. With the instances removed, 12 are correct; with their answers
+scrambled, so that no path joins filler and answer, 11: the gain is the path,
+not the instances' answers.
 
 A second constructed world asks for an entity selected by a condition: among the
-children of `Y`, the one who is a medic (`The occupation of C is
-surgeon.`), the
+children of `Y`, the one who is a medic (`The occupation of C is surgeon.`), the
 question never spelling the value the facts hold. With instances answered by the
-deciding fact, the derivation is read (`· child → · occupation`), but before the
-condition was read the step named every child and the deposit order picked one:
-1 and 4 of 6 such questions, reversing the order. With the condition, 6 of 6 in
-both orders; with the answers scrambled, nothing changes. In constructed
-families with the condition at the end, before the answer
+deciding fact, the condition selects the medic in every question phrased as the
+instances are, in both deposit orders; a paraphrase no instance spells is
+answered by deposit order (4 and 5 of 6 in all, 1 with the answers scrambled).
+In constructed families with the condition at the end, before the answer
 (`the spouse of the medic child`), two hops deep, and on another relation, 16 of
-16 against 7 of 16 in either order, and a grandchild question whose premise is
-absent is left unanswered (2 of 2, 0 before). The 2Wiki fixtures and the
-31.7M-node battery are unchanged in every answer and every counter beyond 0.5%.
-Two limits stay. Candidates reached by different relations (`father`, `mother`
-for `parent`) agree only per relation, so the condition selects only among one
-relation's. And where no candidate satisfies the condition, the step names
-nothing, but other mechanisms still answer: a `which child … is a medic` with no
-medic child is answered with a child.
+16 in either order (6 and 5 with the answers scrambled), and a grandchild
+question whose premise is absent is left unanswered (2 of 2). Limits:
+
+- candidates reached by different relations (`father`, `mother` for `parent`)
+  agree only per relation, so the condition selects only among one relation's;
+- where no candidate satisfies the condition, the step names nothing, but other
+  mechanisms still answer: a `which child … is a medic` with no medic child is
+  answered with a child;
+- a fact every instance's entity holds by accident is a condition too, and
+  instances alone cannot tell it from the deciding one;
+- a value the question spells is no condition when the instances spell different
+  ones: `Which child of Y is a sailor?` and `… a painter?` name the same child,
+  by deposit order.
 
 ## Pins
 
@@ -459,7 +450,8 @@ medic child is answered with a child.
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an
   instance.
-- `test/76` — a fact the corpus files under an instance's filler is no carriage.
+- `test/76-reference-binding` — a fact the corpus files under an instance's
+  filler is no carriage.
 - `test/29` C3 — a further hop inside a comparison's seat waits to be asked.
 - Measured only at fixture scale, with no pin: excluding fragments from
   establishing contexts (16 answers), refusing a fragment as CAST's redirection

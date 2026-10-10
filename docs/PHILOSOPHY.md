@@ -215,8 +215,8 @@ differently:
 - CAST aligns the attention points to the question and cuts that cohort into
   frame and filler. It then carries structure between them: substitution,
   redirection, comparison.
-- `confluence` intersects what independent anchors share, as long as it is not
-  scaffolding.
+- `confluence` intersects what independent anchors establish, or where two
+  things' derivations meet.
 - `extraction` reads out a located frame.
 - `reference` learns a frame from worked examples and voices its slot with the
   asker's own bytes.
@@ -246,7 +246,9 @@ attention's points may hold another instance of the question.
 `Where was the director of film Beat Girl born?`. Peter Jackson's fact is also
 established by `Peter Jackson place of birth`, which is how the corpus spells
 the relation. The node at hand, `Edmond T. Gréville`, is put into that frame,
-and the result is looked up by content.
+and the result is looked up by content. What generalizes is the derivation, the
+facts from filler to answer (`· father → · father`), replayed under what every
+instance's entity on it holds.
 
 This is anti-unification (Plotkin 1970): keep what two instances share, put a
 variable where they differ. It is admitted only under three conditions:
@@ -256,9 +258,10 @@ variable where they differ. It is admitted only under three conditions:
 - what the corpus files under one filler is not credited to the frame.
 
 The third condition comes from a real failure. Two people born in Wellington
-once gave an unknown `Zorblax` the same birthplace (`test/76`), Goodman's (1955)
-accidental generalization. The frame is never stored, and neither is any answer.
-A conclusion kept as a deposit would become evidence for itself.
+once gave an unknown `Zorblax` the same birthplace
+(`test/76-reference-binding`), Goodman's (1955) accidental generalization. The
+frame is never stored, and neither is any answer. A conclusion kept as a deposit
+would become evidence for itself.
 
 **Every answer replays.** The derivation is a hyperpath in an AND/OR hypergraph
 whose axioms are stored nodes (`src/derive/`). Its trace replays byte for byte,
@@ -300,9 +303,6 @@ Each of these follows from a gap visible on the path, and none is a plan.
 - **Imagination as hypothesis.** Binding stored parts proposes wholes never
   seen, and today it only joins regions. Proposals made this way, then checked
   by content, are abduction with a guaranteed verifier.
-- **Derivations as instances.** Anti-unify derivations, not texts, and `father`
-  twice reads as `grandfather` wherever an instance shows it. Derived material
-  must never count as a new context.
 - **Richer company.** The halo has two seats, _what it led to_ and _what led to
   it_. What other relations of use would a seat capture, and what would they let
   attention see?

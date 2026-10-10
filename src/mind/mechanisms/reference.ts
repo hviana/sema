@@ -349,9 +349,10 @@ export const referenceMechanism: PipelineMechanism = {
     // nothing the corpus can be held to.  A reference query's discriminative
     // content is the SLOT — exactly the part the corpus cannot attest — so the
     // predicate reports "all scaffolding" for the purest references there are.
-    // Measured on the byte-modality fixture (test/76): the frame's windows sit
-    // in all three instances and the referents' in none, so the gate fired and
-    // the mechanism abstained on an answer it had already derived correctly.
+    // Measured on test/76-reference-binding's byte-modality fixture: the
+    // frame's windows sit in all three instances and the referents' in none,
+    // so the gate fired and the mechanism abstained on an answer it had already
+    // derived correctly.
     //
     // What holds this honest is not window rarity but the licence: instances
     // agreeing on one slot signature, each leading somewhere, and unanimous

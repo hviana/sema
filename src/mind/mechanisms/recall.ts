@@ -367,7 +367,7 @@ export async function recallByResonance(
     // THIS USED TO CLAIM A DIMENSIONAL ERROR, AND THAT CLAIM WAS FALSE.
     // It read: "comparing a POOLED SUM against a floor that prices ONE region's
     // evidence is a dimensional error."  `consensusFloor` is not priced for one
-    // region: thresholds.md §2 derives it as the POOLED-vote significance floor —
+    // region: thresholds.md derives it as the POOLED-vote significance floor —
     // "each region contributes at most ln(N/c) <= ln(N); ln(N)+1/2 demands ..." —
     // and attention.ts says the same where it builds the vote ("the scale
     // consensusFloor is derived for").  The comparison is in ONE dimension, and

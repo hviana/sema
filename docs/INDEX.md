@@ -58,7 +58,7 @@ consumers).
 | ------------------- | ----------------------------------------------------------------------------- |
 | `cover`             | composing the question from its recognised sites, by graph search             |
 | `cast`              | carrying structure between woven forms: substitution, redirection, comparison |
-| `confluence`        | intersecting what independent conditions reach                                |
+| `confluence`        | intersecting conditions or two things' derivations                            |
 | `extraction`        | reading a span between frames located in the question                         |
 | `reference`         | voicing a learnt frame's slot with the asker's own bytes                      |
 | `recall`            | the nearest stored form, or honest silence                                    |
@@ -67,8 +67,8 @@ consumers).
 
 ## Elsewhere
 
-- `docs/failures/tempting-but-wrong.md` — shortcuts that passed review and
-  failed the evidence.
+- `docs/failures/tempting-but-wrong.md` — shortcuts that pass review and fail
+  the evidence.
 - `docs/harness/gates.md` — the four executable gates.
 - `src/derive/`, `src/alu/`, `src/rabitq-ivf/` — firewalled sublibraries, each
   with its own README and tests.

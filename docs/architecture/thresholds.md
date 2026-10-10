@@ -60,8 +60,8 @@ pooled climb votes, where each region contributes at most `ln(N/c) ≤ ln N`, so
 `ln N + ½` asks for corroboration beyond one maximally specific region.
 `chooseNext`'s support count is different: it is bounded by retellings of one
 fact and does not grow with `N`. Gating that count by `consensusFloor` must
-eventually fail, and it did: at N≈325K, a 2-against-1-1-1 corroboration was
-refused, and the answer fell back to a noisy concept hop.
+eventually fail: at N≈325K it refuses a 2-against-1-1-1 corroboration, and the
+answer falls back to a noisy concept hop.
 
 ## Pins
 
