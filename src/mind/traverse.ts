@@ -1286,6 +1286,25 @@ export function coInstanceFiller(
     : { ...frame, span: found.span, filler: found.id };
 }
 
+/** Whether `raw` is ANOTHER INSTANCE of the question — the reading the
+ *  refusals take: its frame around a filler of its own, unless the form
+ *  witnesses all the question's slot holds.  Such a form says what the
+ *  question says, and more (`Hey, buddy. What's up? …` for `hey, what's
+ *  up? …`): no other filler stands where the question's does. */
+export function otherInstance(
+  ctx: MindContext,
+  raw: Uint8Array,
+): ReturnType<typeof coInstanceFiller> {
+  const asked = ctx._edgeAsked;
+  if (asked === null) return null;
+  const co = coInstanceFiller(ctx, raw, [asked.index], asked.bytes);
+  if (co === null) return null;
+  const W = ctx.space.maxGroup;
+  const slot = asked.bytes.subarray(co.open, asked.bytes.length - co.close);
+  const form = windowIndex(offsetCanon(ctx, raw), W);
+  return witness(slot, [form], W).complete ? null : co;
+}
+
 /** The FRAME half of {@link coInstanceFiller}: the opening and close `raw`
  *  shares with the question, every window of them held by the material and at
  *  least one of them discriminating — or null.  It reads no store but the hub
@@ -1672,7 +1691,7 @@ function byCoInstance(
     cond?: Map<string, Step>,
   ): void => {
     const bytes = fr.spans.reduce((a, [s, e]) => a + e - s, 0);
-    for (const n of ctx.store.nextFirst(t, allowance)) {
+    for (const n of capped(ctx, t, allowance)) {
       if (!nx.includes(n)) continue;
       // A step the derivation says more of names only a fact holding an
       // entity that is what every instance's was.
@@ -2484,6 +2503,17 @@ function searchWays(
   return [];
 }
 
+/** The continuations of a context a derivation looks up, the oldest
+ *  `allowance` of them; reaching the allowance is metered, since any beyond it
+ *  go unseen. */
+function capped(ctx: MindContext, t: number, allowance: number): number[] {
+  const out = ctx.store.nextFirst(t, allowance);
+  if (out.length >= allowance && ctx.meter) {
+    ctx.meter.derivationReadsSaturated++;
+  }
+  return out;
+}
+
 /** The entities a derivation's replay from `x` stands on: entry i holds those
  *  reached after steps 1..i+1 (the last step is never replayed — it is the one
  *  the walk takes).  Each step is an exact lookup of the frame around the
@@ -2503,7 +2533,7 @@ function replayOf(
     for (const [e, bytes] of front) {
       const t = resolve(ctx, concatBytes([step.prefix, bytes, step.suffix]));
       if (t === null) continue;
-      for (const g of ctx.store.nextFirst(t, allowance)) {
+      for (const g of capped(ctx, t, allowance)) {
         const { fact, held } = entitiesIn(ctx, g);
         for (const h of held) {
           // The derivation stands only where it would have named: on an
@@ -2638,7 +2668,7 @@ function replayFacts(
     for (const [e, bytes] of front) {
       const t = resolve(ctx, concatBytes([step.prefix, bytes, step.suffix]));
       if (t === null) continue;
-      for (const g of ctx.store.nextFirst(t, allowance)) {
+      for (const g of capped(ctx, t, allowance)) {
         if (i === steps.length - 1) {
           out.push({ fact: g, stand: bytes });
           continue;
@@ -2742,6 +2772,16 @@ function readConvergence(
     return store.get(k)!;
   };
   const things = new Map<string, ConvergenceReading["x"] | null>();
+  // The question's two things, parted where an instance's frame and run say.
+  const askedAt = (key: string): ConvergenceReading["x"] | null => {
+    if (!things.has(key)) {
+      const [o, cl, qa, len] = key.split(":").map(Number);
+      const q1 = entity(null, Q, o, o + qa);
+      const q2 = entity(null, Q, o + qa + len, Q.length - cl);
+      things.set(key, q1 && q2 && q1.id !== q2.id ? [q1, q2] : null);
+    }
+    return things.get(key)!;
+  };
   const spelled = new Map<string, Convergence>();
   const candidates: Array<{
     q: number;
@@ -2749,32 +2789,37 @@ function readConvergence(
     e1: { span: [number, number]; id: number };
     e2: { span: [number, number]; id: number };
     key: string;
+    /** The question's partings at the slots' other shared runs. */
+    alts: string[];
     f: Uint8Array;
   }> = [];
   let x: ConvergenceReading["x"] | null = null;
   // The forms are the ones `relationFrames` read as instances of this
   // question: their bytes are on the question's book.
   const book = instanceBook(whole);
-  for (const q of proposals) {
+  const consider = (q: number): void => {
     // A form on the book was read as deposited; any other is probed here and
     // read onto the book, as `relationFrames` reads it.
     let r = book.forms.get(q);
     if (r === undefined) {
-      if (!deposited(q)) continue;
+      if (!deposited(q)) return;
       if (ctx.meter) ctx.meter.coInstanceReads++;
       r = { raw: read(ctx, q, formCap + 1) };
       book.forms.set(q, r);
     }
     const raw = r.raw;
-    if (raw.length > formCap) continue;
+    if (raw.length > formCap) return;
     const co = coInstanceFrame(ctx, raw, [whole.index], Q);
-    if (co === null) continue;
+    if (co === null) return;
     const form = offsetCanon(ctx, raw);
     const fs = form.subarray(co.open, form.length - co.close);
     const qs = Q.subarray(co.open, Q.length - co.close);
-    const mid = sharedRun(fs, qs, W);
-    if (mid === null) continue;
-    const [fa, qa, len] = mid;
+    // The slot parts where the two forms share a run: the longest — and,
+    // where the question holds no two things there (names sharing letters:
+    // `… Thornbury` against `… Thornbury and …`), the next it parts at.
+    const runs = sharedRuns(fs, qs, W);
+    if (runs.length === 0) return;
+    const [fa, qa, len] = runs[0];
     // What the instance shows comes first: its things, and the derivation
     // each takes to its answer.  Only an instance that shows a convergence
     // makes the question's own things worth reading.
@@ -2785,14 +2830,17 @@ function readConvergence(
       ? { id: r.filler.id, span: r.filler.span }
       : undefined;
     const e1 = known ?? entity(q, raw, co.open, co.open + fa);
-    if (e1 === null) continue;
+    if (e1 === null) return;
     const e2 = entity(q, raw, co.open + fa + len, raw.length - co.close);
-    if (e2 === null || e1.id === e2.id) continue;
-    const key = `${co.open}:${co.close}:${qa}:${len}`;
+    if (e2 === null || e1.id === e2.id) return;
+    const at = (b: number, n: number) => `${co.open}:${co.close}:${b}:${n}`;
+    const key = at(qa, len);
+    const alts = runs.slice(1).map(([, b, n]) => at(b, n));
     for (const f of ctx.store.nextFirst(q, W)) {
-      candidates.push({ q, raw, e1, e2, key, f: read(ctx, f) });
+      candidates.push({ q, raw, e1, e2, key, alts, f: read(ctx, f) });
     }
-  }
+  };
+  for (const q of proposals) consider(q);
   // WHAT AN INSTANCE ANSWERS is what its continuation holds beyond the frame
   // every instance's continuation shares (`The answer is ` … `.`) — the filler
   // of the answers, read as a co-instance's is: frame shared, filler differs.
@@ -2850,13 +2898,12 @@ function readConvergence(
       memo?.converges.set(ik, shown);
     }
     if (shown.length === 0) continue;
-    if (!things.has(c.key)) {
-      const [o, cl, qa, len] = c.key.split(":").map(Number);
-      const q1 = entity(null, Q, o, o + qa);
-      const q2 = entity(null, Q, o + qa + len, Q.length - cl);
-      things.set(c.key, q1 && q2 && q1.id !== q2.id ? [q1, q2] : null);
+    let asked = askedAt(c.key);
+    for (const k of c.alts) {
+      if (asked !== null) break;
+      asked = askedAt(k);
+      if (asked !== null) c.key = k;
     }
-    const asked = things.get(c.key)!;
     if (asked === null) continue;
     if (c.e1.id === asked[0].id && c.e2.id === asked[1].id) continue;
     // Forms part the slot where their names happen to share letters
@@ -3025,15 +3072,15 @@ function innerRunOfAll(
   return null;
 }
 
-/** The longest run two slots share strictly inside both — where a slot holding
- *  two things parts — as `[at in a, at in b, length]`, at least one window
- *  long; null when none. */
-function sharedRun(
+/** The runs two slots share strictly inside both — where a slot holding two
+ *  things may part — as `[at in a, at in b, length]`, each at least one window
+ *  long and as long as it can be there, longest first (earliest on a tie). */
+function sharedRuns(
   a: Uint8Array,
   b: Uint8Array,
   W: number,
-): [number, number, number] | null {
-  let best: [number, number, number] | null = null;
+): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = [];
   let prev = new Uint16Array(b.length + 1);
   for (let i = 1; i <= a.length; i++) {
     const cur = new Uint16Array(b.length + 1);
@@ -3041,14 +3088,16 @@ function sharedRun(
       if (a[i - 1] !== b[j - 1]) continue;
       const n = cur[j] = prev[j - 1] + 1;
       const ai = i - n, bj = j - n;
+      // The longest strictly-inside run ending here; it is the whole run when
+      // the next bytes differ, or would reach the end of a slot.
       if (
         n >= W && ai > 0 && bj > 0 && i < a.length && j < b.length &&
-        (best === null || n > best[2])
-      ) best = [ai, bj, n];
+        (i + 1 === a.length || j + 1 === b.length || a[i] !== b[j])
+      ) out.push([ai, bj, n]);
     }
     prev = cur;
   }
-  return best;
+  return out.sort((x, y) => y[2] - x[2] || x[0] - y[0] || x[1] - y[1]);
 }
 
 /** Where a question's two things meet by a convergence its instances agree

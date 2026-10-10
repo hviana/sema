@@ -27,7 +27,7 @@
 //   159.3 instances whose names share letters at the parting still agree;
 //   159.4 an empty meet refutes nothing: a shared grandfather by another
 //         route, or a meeting fact past the read bound, does not silence the
-//         response;
+//         response, and the read the bound cut is metered;
 //   159.5 instances answered with a fact holding two things teach the part of
 //         it both sides reach, in either deposit order;
 //   159.6 a frame word is not a thing: each side's thing is LEARNT WHOLE (on
@@ -39,7 +39,11 @@
 //         of two shared grandparents, the surgeon every instance answered,
 //         whichever side it stood on, in either deposit order;
 //   159.9 …a fact they all hold by accident too — the limit of reading
-//         instances, which concludes nothing.
+//         instances, which concludes nothing;
+//   159.10 a slot parts at the longest run both forms part into two things
+//         at, not where their names share letters;
+//   159.11 a co-instance's answer is never carried over to the question, not
+//         even by the substitution bridge.
 // Control: with the instances' answers scrambled, nothing meets.
 
 import { test } from "node:test";
@@ -182,7 +186,7 @@ test("159.4 an empty meet refutes nothing", async () => {
   // A meet the replay does not find is no proof that the two things share no
   // answer: the shared grandfather may be reached by a route the instances
   // did not show, or the fact that meets may lie past the read bound.
-  // Neither silences the response.
+  // Neither silences the response, and a read the bound cut is metered.
   const routed = world(undefined, undefined, (items, c, nm) => {
     // x's MOTHER's father is y's FATHER's father.
     const mx = nm(), fy = nm(), g = nm();
@@ -209,12 +213,17 @@ test("159.4 an empty meet refutes nothing", async () => {
       far,
     ]]
   ) {
-    const { a, steps } = await respond(w.items, ask(w.c));
+    const { a, steps, counters } = await respond(w.items, ask(w.c));
     assert.ok(
       !steps.some((s) => s.mechanism.at(-1) === "convergenceRefutes"),
       `${label}: an empty meet was taken as a refutation`,
     );
     assert.notEqual(a.trim(), "", `${label}: the response was silenced`);
+    assert.equal(
+      (counters.derivationReadsSaturated ?? 0) > 0,
+      w === far,
+      `${label}: derivationReadsSaturated ${counters.derivationReadsSaturated}`,
+    );
   }
 });
 
@@ -367,4 +376,107 @@ test("159.9 a fact every instance's meeting entity holds by accident is required
   const { met, steps } = await respond(w.items, w.q);
   assert.ok(!met, "an entity lacking the accidental fact was met");
   assert.ok(!steps.some((s) => /refut/i.test(s.mechanism.at(-1))));
+});
+
+test("159.10 a slot parts where both forms hold two things, not where names share letters", async () => {
+  // `Konrad Marlowe and Edmund Thornbury` and the question's `Godfrey
+  // Thornbury and Aldric Wetherby` share ` Thornbu`, longer than ` and `:
+  // parted there, the question holds no two things and the instance would
+  // read nothing — and with two instances a side, its pair would go unmet.
+  for (const sides of [[1, 1, 2, 2], [1, 2, 1, 2]]) {
+    const w = grandparents(sides);
+    for (const reverse of [false, true]) {
+      const { a, met } = await respond(w.items, w.q, reverse);
+      assert.ok(
+        met && a.includes(w.surgeon) && !a.includes(w.lawyer),
+        `${sides.join("")}${reverse ? " reversed" : ""}: ${a}`,
+      );
+    }
+  }
+});
+
+/** Names drawn as a family's: a shared surname, first names a few bytes
+ *  apart (`Cedric Fenwick`, `Aldric Fenwick`). */
+function familyNames() {
+  const first = [
+    "Aldric",
+    "Beatrix",
+    "Cedric",
+    "Delphine",
+    "Edmund",
+    "Felicity",
+    "Godfrey",
+    "Harriet",
+    "Ignatius",
+    "Juliana",
+    "Konrad",
+    "Lavinia",
+    "Mortimer",
+    "Nerissa",
+    "Oswin",
+    "Prudence",
+    "Quentin",
+  ];
+  const last = [
+    "Fenwick",
+    "Holloway",
+    "Ashcombe",
+    "Marlowe",
+    "Thornbury",
+    "Wetherby",
+    "Locksley",
+    "Pemberton",
+    "Ravensworth",
+    "Kettering",
+    "Blackwood",
+  ];
+  let k = 0;
+  return () => {
+    const n = `${first[k % first.length]} ${
+      last[Math.floor(k / first.length) % last.length]
+    }`;
+    k += 7;
+    return n;
+  };
+}
+
+test("159.11 a co-instance's answer is never carried over to the question", async () => {
+  // The meeting fact lies past the read bound, so nothing meets; another
+  // instance — `… of Aldric Fenwick and Harriet Fenwick?` — differs from the
+  // question by two names of one family, and substituting them would voice
+  // that instance's grandfather as the question's.
+  const nm = familyNames();
+  const items = [];
+  const shared = (x, y) => `Who is the shared grandfather of ${x} and ${y}?`;
+  const instances = [];
+  for (let i = 0; i < 3; i++) {
+    const x = nm(),
+      y = nm(),
+      fx = nm(),
+      my = nm(),
+      g = nm(),
+      mx = nm(),
+      fy = nm();
+    deposit(items, x, "father", fx);
+    deposit(items, x, "mother", mx);
+    deposit(items, y, "mother", my);
+    deposit(items, y, "father", fy);
+    deposit(items, fx, "father", g);
+    deposit(items, my, "father", g);
+    deposit(items, mx, "father", nm());
+    deposit(items, fy, "father", nm());
+    items.push([shared(x, y), `The answer is ${g}.`]);
+    instances.push(g);
+  }
+  const x = nm(), y = nm(), fx = nm(), my = nm(), g = nm();
+  deposit(items, x, "father", fx);
+  deposit(items, y, "mother", my);
+  for (let i = 0; i < 60; i++) deposit(items, fx, "father", nm());
+  deposit(items, fx, "father", g);
+  deposit(items, my, "father", g);
+  const { a } = await respond(items, shared(x, y));
+  assert.ok(
+    !instances.some((o) => a.includes(o)),
+    `a co-instance's answer: ${a}`,
+  );
 });

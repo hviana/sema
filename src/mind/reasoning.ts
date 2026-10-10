@@ -9,11 +9,11 @@ import type { Attention, MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
 import { countClusters } from "./attention.js";
 import {
-  coInstanceFiller,
   guidedFirst,
   hubBound,
   namedContinuations,
   offsetCanon,
+  otherInstance,
 } from "./traverse.js";
 import { unspoken, type WindowIndex, windowIndex } from "./evidence.js";
 import { containsSpan, follow, haloSiblings, project } from "./match.js";
@@ -838,16 +838,15 @@ export function fusionLayer(
       // the root resonates.
       // ANOTHER INSTANCE IS NOT ANOTHER TOPIC.  A root the question witnesses
       // in every byte but one contiguous span is the question's own frame
-      // around a different filler (evidence.ts, `coInstanceFiller`): the climb
+      // around a different filler (traverse.ts, `otherInstance`): the climb
       // committed `Where was Peter Jackson born?` as a second point of
       // `Where was the director of film Beat Girl born?` on the frame windows
       // alone, and fusing it voiced Peter Jackson's birthplace beside the
       // answer.  Such a root says what the question's relation IS (traverse.ts,
       // `byCoInstance`), never what it asks about.
-      const asked = ctx._edgeAsked;
-      if (asked !== null) {
+      {
         const form = read(ctx, root.anchor, 2 * query.length);
-        const co = coInstanceFiller(ctx, form, [asked.index], asked.bytes);
+        const co = otherInstance(ctx, form);
         if (co !== null) {
           ctx.trace?.step(
             "coInstanceRoot",

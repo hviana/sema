@@ -20,11 +20,11 @@ import {
   answersOtherQuestions,
   askedEvidence,
   canonHeldPoints,
-  coInstanceFiller,
   corpusN,
   guidedFirst,
   hubBound,
   namedContinuations,
+  otherInstance,
 } from "../traverse.js";
 import {
   follow,
@@ -482,15 +482,12 @@ export async function recallByResonance(
       );
       // …and the same refusal read from the anchor's side: an anchor the query
       // witnesses in every byte but one filler of its own is ANOTHER INSTANCE
-      // of the question (traverse.ts, `coInstanceFiller`).  The query-side
+      // of the question (traverse.ts, `otherInstance`).  The query-side
       // reading above needs the shared frame to dominate the QUERY, which a
       // long slot defeats: `Where was the performer of song God (John Lennon
       // Song) born?` elected `Where was Nicki Minaj (Nicki Minaj Song) born?`
       // and answered Nicki Minaj's birthplace.
-      const asked = ctx._edgeAsked;
-      const co = asked === null
-        ? null
-        : coInstanceFiller(ctx, anchorBytes, [asked.index], asked.bytes);
+      const co = otherInstance(ctx, anchorBytes);
       if (co !== null) {
         ctx.trace?.step(
           "coInstanceAnchor",
@@ -614,8 +611,27 @@ export async function recallByResonance(
       const strictPrefix = g !== null &&
         cBytes.length > query.length &&
         indexOf(cBytes, query, 0) === 0;
+      // A CO-INSTANCE IS NEVER THE ANSWER (evidence.md): a trained context
+      // that is the question's frame around a different filler speaks of its
+      // own, and substituting the question's into it asserts the two are one
+      // — `… of Aldric Fenwick and Harriet Fenwick?` voiced its own
+      // grandfather for `… of Cedric Fenwick and Juliana Fenwick?`.  Both
+      // slots hold a filler: where the question's holds no thing (`Hey,
+      // buddy. What's up?` for `hey, what's up?`), the context only says more.
+      const coInstance = g !== null && bridged.subs.length > 0 &&
+        otherInstance(ctx, cBytes) !== null;
+      if (coInstance) {
+        ctx.trace?.step(
+          "coInstanceAnchor",
+          [rItem(query, "query"), rNode(ctx, bridged.id, "bridged")],
+          [],
+          "refused — the bridged context is another instance of the " +
+            "question's frame, and its continuation speaks of its own filler",
+        );
+      }
       if (
         g !== null && g.length > 0 && !restates(g) && !manufactured &&
+        !coInstance &&
         !(bridged.subs.length === 0 && strictPrefix) &&
         !(g.length < query.length && indexOf(query, g, 0) >= 0)
       ) {

@@ -53,22 +53,22 @@ birthplace asked in words no stored context spells
 
 A question about two things (`Who is the shared grandfather of A and B?`) is
 read off its instances the way a one-thing question is (`evidence.md`), with the
-slot parted where the two forms share a run (`and`), each side holding a thing
-learnt whole (`convergenceOf`). An instance answered `The answer is G.` shows a
-CONVERGENCE: each of its things reaches a fact holding the answer, by a
-derivation of its own (`· father → · father` from A, `· mother → · father` from
-B, the shortest path the corpus holds). The answer is what the instance's
-continuation holds beyond the frame every instance's continuation shares
-(`The answer is` and `.`), exactly; a shared part shorter than one window is not
-frame. An answer that is itself a fact
-(`The father of Konrad Fenwick is Ignatius Fenwick.`) holds more than one thing:
-the run every other instance's answer holds inside it (`is`) parts it into
-pieces, as a shared run parts the slot. Where both things reach the whole
-answer, it is the instance's; else each piece both reach is a reading, and
-agreement between instances decides. The bytes around the entity stood on and
-the answer are that last fact's ANSWER FRAME (`The father of`, the entity, the
-answer). Two instances that spell the same pair of derivations and frames agree,
-keyed by the question's things, whichever parting read them.
+slot parted at the longest run the two forms share (`and`) where each side holds
+a thing learnt whole (`convergenceOf`), not where names share letters. An
+instance answered `The answer is G.` shows a CONVERGENCE: each of its things
+reaches a fact holding the answer, by a derivation of its own
+(`· father → · father` from A, `· mother → · father` from B, the shortest path
+the corpus holds). The answer is what the instance's continuation holds beyond
+the frame every instance's continuation shares (`The answer is` and `.`),
+exactly; a shared part shorter than one window is not frame. An answer that is
+itself a fact (`The father of Konrad Fenwick is Ignatius Fenwick.`) holds more
+than one thing: the run every other instance's answer holds inside it (`is`)
+parts it into pieces, as a shared run parts the slot. Where both things reach
+the whole answer, it is the instance's; else each piece both reach is a reading,
+and agreement between instances decides. The bytes around the entity stood on
+and the answer are that last fact's ANSWER FRAME (`The father of`, the entity,
+the answer). Two instances that spell the same pair of derivations and frames
+agree, keyed by the question's things, whichever parting read them.
 
 At the question, each derivation is replayed from its own thing, the answer is
 read off each last fact by its frame, and the two are compared byte for byte
@@ -76,15 +76,13 @@ read off each last fact by its frame, and the two are compared byte for byte
 two grandfathers that share a first name do not meet. The entity met at holds
 what every instance's meeting entity holds, as a path's entities do
 (`evidence.md`), whichever route each instance took. The instances' things and
-derivations do not depend on the question and are read once per session; the
-question's own things only once an instance shows a convergence, in its own
-spelling.
+derivations do not depend on the question and are read once per session, each
+form's in its own spelling.
 
 On the constructed world, every same-phrasing two-thing question (mother∧spouse,
-shared birthplace, shared grandfather) is answered in both deposit orders, the
+shared birthplace, shared grandfather) is answered in either deposit order, the
 grandfather (3 of 3) only by the meet; scrambled or absent instances leave it
-unanswered. A phrasing no instance spells has no reading: nothing says the two
-phrasings ask the same.
+unanswered. A phrasing no instance spells has no reading.
 
 The meet explains to the market what its evidence explains, and no more: the
 frame every agreeing instance shares with the question, the run that parts the
@@ -117,8 +115,9 @@ touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
   continuation is evidence only of what its anchor bound.
 - `test/159` — a question about two things: a two-step convergence meets at the
   shared grandfather in either deposit order; the answer is met whole; instances
-  parting the slot differently still agree; an empty meet refutes nothing;
-  instances answered with a fact teach the part both sides reach; a frame word
-  is not a thing; the meet explains the frame, the parting and the two things,
-  and no more; the meet holds what every instance's meeting entity holds, even
-  by accident; scrambled answers meet nothing.
+  parting the slot differently still agree, names sharing letters part none; an
+  empty meet refutes nothing, a read past the bound metered; instances answered
+  with a fact teach the part both sides reach; a frame word is not a thing; the
+  meet explains the frame, the parting and the two things only; the meet holds
+  what every instance's meeting entity holds, even by accident; scrambled
+  answers meet nothing.

@@ -280,11 +280,12 @@ costs 16% more climb visits and names nothing more. So:
 A question stored verbatim is its own instance and reads no frames.
 
 **A co-instance is never the answer.** Its own continuation speaks of its own
-filler. So:
+filler. A form witnessing all the question's slot says the question and more
+(`Hey, buddy. What's up?` for `hey, what's up?`): none (`otherInstance`). So:
 
 - recall's consensus anchor refuses it, else
   `Where was Nicki Minaj (Nicki Minaj Song) born?` answers another performer's
-  question;
+  question; so does the substitution bridge;
 - fusion does not fuse it as a further topic;
 - a CAST comparison does not take it as its dominant, else Shakira's birthplace
   is voiced against `John Lennon`.
@@ -342,7 +343,8 @@ answers (`How are you today?`, `failures/tempting-but-wrong.md`, trap 8).
 The exact tier reads at most `√N` establishing contexts per decision, floored at
 `chainReach(W)`, asking the cheapest first. It abstains (`askedReadsSaturated`)
 when the read hits the cap, or when the question holds no window the node lacks.
-Picks are memoized per node and per question.
+A derivation's lookups read the oldest continuations up to the allowance
+(`derivationReadsSaturated`).
 
 ## Measured
 
@@ -363,19 +365,16 @@ The first hop is right on 113 and 107 of 133. Most of the remaining first-hop
 failures are aliases (`Clara Novello` for `Clara Anastasia Novello`), which no
 reading of bytes recovers. The answers gained with instances are relations no
 window spells: `born` → place of birth, `work at` → employer, `is from` →
-citizenship, `nationality` → citizenship, and the inference pairs.
+citizenship, and the inference pairs.
 
-On the 31.7M-node store's 116-query battery, the frame windows are scaffolding
-and the instances are absent, so the tier names nothing and changes no answer.
-Its cost there is the frame windows' container reads, and the long slots of a
-dialogue turn's loose frames.
+On the 31.7M-node store's battery the frame windows are scaffolding and no
+instance exists, so the tier names nothing; it costs the frame windows'
+container reads and the long slots of loose dialogue frames.
 
-A constructed world tests what 2Wiki cannot: derivations of 1 to 5 steps,
-paraphrased and reordered frames, frames composed with a stated relation or a
-description another family of instances teaches, branching, ambiguous names, and
-negative controls. It holds 2,276 people and 6,048 triples, deposited as
-`wiki2.ts` does, with 66 instances and 172 test questions about subjects with no
-question of their own.
+A constructed world tests what 2Wiki cannot (derivations of 1 to 5 steps,
+paraphrase, composition, branching, ambiguous names, negative controls). It
+holds 2,276 people and 6,048 triples, deposited as `wiki2.ts` does, with 66
+instances and 172 test questions about subjects with no question of their own.
 
 | Correct, of the test questions               |     |
 | -------------------------------------------- | --- |
@@ -385,14 +384,13 @@ question of their own.
 | a frame composed with a description (12)     | 10  |
 | all 172                                      | 140 |
 
-Ten first hops are wrong, and two of the twelve compositions fail. `cover` runs
-before the climb, so it reads the question without the instances, and the word
-the question spells (`mother` in `grandmother`) names the step; its result is
-decided before the climb shows anything better. Remaking a result the climb
-outdates fixes both, at 46% more chart search for two answers of 172, so it is
-not done. With the instances removed, 12 are correct; with their answers
-scrambled, so that no path joins filler and answer, 11: the gain is the path,
-not the instances' answers.
+Ten first hops are wrong, and two of the twelve compositions fail: `cover` runs
+before the climb, so the word the question spells (`mother` in `grandmother`)
+names the step before the instances can. Remaking a result the climb outdates
+fixes both at 46% more chart search for two answers of 172; it is not done. With
+the instances removed, 12 are correct; with their answers scrambled, so that no
+path joins filler and answer, 11: the gain is the path, not the instances'
+answers.
 
 A second constructed world asks for an entity selected by a condition: among the
 children of `Y`, the one who is a medic (`The occupation of C is surgeon.`), the
@@ -426,7 +424,8 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
 - `test/155` — the relation read off another instance: it needs two agreeing
   instances; it refuses a partly shared frame, a said frame and a description in
   the slot; it is never voiced as the answer; traced and untraced responses
-  agree; neither fusion nor a comparison takes a co-instance.
+  agree; neither fusion nor a comparison takes a co-instance; a form saying the
+  question and more is none.
 - `test/157` — a derivation of any length: three and four steps (across kinds);
   each frame by its own sequence, in order; the reading that explains more of
   the question names the step; the start is what the slot names, and a remainder

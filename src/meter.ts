@@ -298,6 +298,10 @@ export class Meter {
    *  each further way into one entity charged to the search's allowance
    *  (traverse.ts, `searchWays`). */
   pathWays = 0;
+  /** A derivation's exact lookups whose continuations came back at the
+   *  allowance: the oldest were read, any beyond them unseen
+   *  (bounded-reads.md) — a step's naming or its replay (traverse.ts). */
+  derivationReadsSaturated = 0;
   /** Continuations a derivation's step did not name because they hold no
    *  entity that is what every instance's was there (traverse.ts,
    *  `byCoInstance`, `factFrames`). */

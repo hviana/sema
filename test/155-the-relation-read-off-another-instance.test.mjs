@@ -37,7 +37,10 @@
 //   155.7 a record whose slot holds a description, not a thing the corpus
 //         knows, is the same question about the frame's own subject;
 //   155.8 fusion does not fuse a co-instance as a further topic;
-//   155.9 a comparison's dominant that is a co-instance is not compared.
+//   155.9 a comparison's dominant that is a co-instance is not compared;
+//   155.10 a form that only says more than the question — where the question
+//         holds no thing of its own — is no other instance of it, and its
+//         continuation answers.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -373,4 +376,31 @@ test("155.9 a comparison's dominant that is a co-instance is not compared", asyn
     assert.ok(!answer.includes(o), `${s}'s birthplace voiced: "${answer}"`);
   }
   await mind.store.close();
+});
+
+test("155.10 a form that only says more than the question is no other instance", async () => {
+  // `Hey, buddy. What's up?` around `buddy` against `hey, what's up?`: the
+  // question holds nothing where the form holds `buddy`, so the form is not
+  // the question's frame around another filler.
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store });
+  await mind.ingest([
+    [
+      "Hey, buddy. What's up?\nNot much, just enjoying the day.",
+      "Yeah, it's a beautiful day out. Perfect for a walk.",
+    ],
+    [
+      "Hey, Sam. What's up?\nNot much, just reading a book.",
+      "Nice, which book are you reading?",
+    ],
+    ["buddy", "a close friend"],
+    ["Sam", "a name"],
+    ["What's the weather like?", "It is sunny today."],
+  ]);
+  await mind.buildCanonIndex();
+  const a = await mind.respondText(
+    "hey, what's up?\nnot much, just enjoying the day",
+  );
+  await store.close();
+  assert.ok(a.includes("beautiful day"), a);
 });

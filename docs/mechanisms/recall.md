@@ -13,15 +13,15 @@ hit's bytes instead of trusting its estimate.
 
 ## Tiers
 
-| Tier | Name                                   | Gate                                                                                                                                                                                                                                         | Action                                                                                      |
-| ---- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 0    | exact identity                         | the question resolves                                                                                                                                                                                                                        | reverse-recall to its best-resonating predecessor, at `STEP`                                |
-| 0b   | argument binding                       | one maximal recognised constituent of at least `2W` that is an edge source, with no substantial form outside it. Fragments that answer other questions are set aside first. When the pick would otherwise be blind, the climb is asked first | `follow` its continuation, guided by the whole question                                     |
-| 1    | clean resonance                        | per hit, `score ≥ identityBar(D, W, len)`                                                                                                                                                                                                    | `project` the hit. A hit that restates the question goes only through reverse-recall        |
-| —    | an argument held under the equivalence | no argument recognised, and a canonical index present                                                                                                                                                                                        | the climb's points that the question canonically contains bind as arguments (`evidence.md`) |
-| 2    | scaffolding-dominated                  | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding                                                                                     | `project` the anchor at `CONCEPT`                                                           |
-| 3    | last resort                            | the share of the question the grounding explains, `max(0, cos − sig)·√(lenG/lenQ) ≥ reachThreshold(W)`                                                                                                                                       | `project` the best grounded hit, at `STEP`                                                  |
-| 3b   | substitution bridge                    | only after every gist tier failed (below)                                                                                                                                                                                                    | align and substitute                                                                        |
+| Tier | Name                                   | Gate                                                                                                                                                                                               | Action                                                                                      |
+| ---- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 0    | exact identity                         | the question resolves                                                                                                                                                                              | reverse-recall to its best-resonating predecessor, at `STEP`                                |
+| 0b   | argument binding                       | one maximal recognised constituent of at least `2W` that is an edge source, nothing substantial outside it; fragments answering other questions set aside first; a blind pick asks the climb first | `follow` its continuation, guided by the whole question                                     |
+| 1    | clean resonance                        | per hit, `score ≥ identityBar(D, W, len)`                                                                                                                                                          | `project` the hit. A hit that restates the question goes only through reverse-recall        |
+| —    | an argument held under the equivalence | no argument recognised, and a canonical index present                                                                                                                                              | the climb's points that the question canonically contains bind as arguments (`evidence.md`) |
+| 2    | scaffolding-dominated                  | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding                                           | `project` the anchor at `CONCEPT`                                                           |
+| 3    | last resort                            | the share of the question the grounding explains, `max(0, cos − sig)·√(lenG/lenQ) ≥ reachThreshold(W)`                                                                                             | `project` the best grounded hit, at `STEP`                                                  |
+| 3b   | substitution bridge                    | only after every gist tier failed (below)                                                                                                                                                          | align and substitute                                                                        |
 
 **Tier 2 refuses three things.** Each would voice the anchor's own occupant as
 the asker's:
@@ -57,7 +57,8 @@ becomes a corroborated substitution only when all of these hold:
 Coverage must dominate the question, and no dismissed gap may hide known content
 (`dismissedKnownContent`). Each substitution costs `CONCEPT`, and the
 substituted spans are accounted. A question made only of scaffolding abstains,
-because one substituted word cannot carry it. A zero-substitution identity
+because one substituted word cannot carry it. A context that is another instance
+of the question is refused, as tier 2's anchor is. A zero-substitution identity
 bridge is `complete`.
 
 ## Cost
@@ -68,8 +69,8 @@ substitution or scaffolding step. The floor is `STEP`.
 ## Pins
 
 - `test/03` — exact identity and reverse-recall.
-- `test/16`, `test/56` — corroborated substitutions, and the bridge's admission
-  by identity.
+- `test/16`, `test/56` — corroborated substitutions, the bridge's admission by
+  identity; `test/159` 159.11 — no co-instance is bridged.
 - `test/73` — a question made only of scaffolding stays silent.
-- `test/154.6`, `test/154.8` — a stranger fragment is not bound; an argument
-  held only under the equivalence binds.
+- `test/154.6`, `test/154.8` — no stranger fragment is bound; an argument held
+  only under the equivalence binds.

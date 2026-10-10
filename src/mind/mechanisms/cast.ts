@@ -17,12 +17,12 @@ import { read } from "../primitives.js";
 import {
   answersOtherQuestions,
   argmaxBy,
-  coInstanceFiller,
   corpusN,
   edgeAncestors,
   hubBound,
   hubWindows,
   offsetCanon,
+  otherInstance,
   sharedReachMemo,
 } from "../traverse.js";
 import {
@@ -1261,18 +1261,13 @@ export async function counterfactualTransfer(
   const cmpDismisses = !bestHalo &&
     dismissedKnownContent(ctx, query, cmpAccounted);
   // …and the dominant must be something the question is ABOUT.  A co-instance
-  // of the question (traverse.ts, `coInstanceFiller`) is its frame around
+  // of the question (traverse.ts, `otherInstance`) is its frame around
   // another filler, and its seat is that filler's own answer: `Where was the
   // performer of song God (Lennon Song) born?` compared `Where was Shakira
   // (Shakira Song) born?` with `John Lennon` and voiced Shakira's birthplace.
-  const asked = ctx._edgeAsked;
-  const dominantOtherInstance = asked !== null &&
-    coInstanceFiller(
-        ctx,
-        read(ctx, dominant.anchor, 2 * query.length + 1),
-        [asked.index],
-        asked.bytes,
-      ) !== null;
+  const dominantOtherInstance =
+    otherInstance(ctx, read(ctx, dominant.anchor, 2 * query.length + 1)) !==
+      null;
   if (
     bestAnalog !== null &&
     (bestHalo || analogNamed || rootTrusted) &&
