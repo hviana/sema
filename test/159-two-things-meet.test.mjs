@@ -26,11 +26,12 @@
 //         meet;
 //   159.3 instances whose names share letters at the parting still agree;
 //   159.4 where the derivations meet nowhere, no answer is admissible: the
-//         response is silent (pipeline.ts, `convergenceRefutes`).
-// Measured, not pinned (small stores hold no inherited frame words): each
-// thing is LEARNT WHOLE; without it the 2Wiki fixtures read one-thing
-// instances parted on `t's ` (` child`) and pay about 0.5% more branch
-// lookups, for no answer.
+//         response is silent (pipeline.ts, `convergenceRefutes`);
+//   159.5 instances answered with a fact holding two things teach the part of
+//         it both sides reach, in either deposit order;
+//   159.6 a frame word is not a thing: each side's thing is LEARNT WHOLE (on
+//         the 2Wiki fixtures, without it, one-thing instances parted on `t's `
+//         were read for about 0.5% more branch lookups and no answer).
 // Control: with the instances' answers scrambled, nothing meets.
 
 import { test } from "node:test";
@@ -180,6 +181,54 @@ test("159.4 where the derivations meet nowhere, no answer is admissible", async 
     "the refusal is in the rationale",
   );
   assert.equal(a.trim(), "", `an answer the instances refute: ${a}`);
+});
+
+test("159.5 instances answered with a fact: the answer is the part both sides reach", async () => {
+  // `The father of B's mother is G.` holds the mother and G: no fact reached
+  // from A holds all of it, and the answer is what a fact from each side
+  // spells — ` is G.`.
+  const nm = names();
+  const fresh = [];
+  const inst = [0, 1, 2].map(() => cousins(fresh, nm));
+  inst.forEach((i) => fresh.push([ask(i), fact(i.my, "father", i.g)]));
+  const q = cousins(fresh, nm);
+  for (const reverse of [false, true]) {
+    const { a, met } = await respond(fresh, ask(q), reverse);
+    assert.ok(met && a.includes(q.g) && !a.includes(q.my), a);
+  }
+});
+
+test("159.6 a frame word is not a thing: one thing is not read as two", async () => {
+  // `Who is Edmund West's child-in-law?` parts against `Who is Godfrey
+  // Hart's father-in-law?` on `t's `: ` child`, the tail of every `… child`
+  // context, holds continuations by inheritance and no company of its own,
+  // and the slot holds one thing.
+  const nm = names();
+  const items = [];
+  for (let i = 0; i < 30; i++) {
+    const p = nm(), c = nm();
+    deposit(items, p, "child", c);
+    deposit(items, c, "spouse", nm());
+  }
+  for (
+    const [x, r, o] of [
+      ["Edmund West", "child", "Ottoline Vane"],
+      ["Ottoline Vane", "spouse", "Peregrine Mott"],
+      ["Juliana West", "child", "Rowena Ellery"],
+      ["Rowena Ellery", "spouse", "Silas Whitcombe"],
+      ["Godfrey Hart", "spouse", "Tabitha Morland"],
+      ["Tabitha Morland", "father", "Ulric Penhallow"],
+    ]
+  ) deposit(items, x, r, o);
+  items.push(
+    ["Who is Edmund West's child-in-law?", "The answer is Peregrine Mott."],
+    ["Who is Juliana West's child-in-law?", "The answer is Silas Whitcombe."],
+  );
+  const { counters } = await respond(
+    items,
+    "Who is Godfrey Hart's father-in-law?",
+  );
+  assert.equal(counters.convergenceReads ?? 0, 0);
 });
 
 test("159.C control: scrambled answers meet nothing", async () => {

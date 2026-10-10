@@ -60,12 +60,16 @@ CONVERGENCE: each of its things reaches a fact holding the answer, by a
 derivation of its own (`· father → · father` from A, `· mother → · father` from
 B, the shortest path the corpus holds). The answer is what the instance's
 continuation holds beyond the frame every instance's continuation shares
-(`The
-answer is` … `.`), exactly; a shared part shorter than one window is not
-frame. The bytes around the entity stood on and the answer are that last fact's
-ANSWER FRAME (`The father of` · `is` ·). Two instances that spell the same pair
-of derivations and frames agree, keyed by the question's things, whichever
-parting read them.
+(`The answer is` and `.`), exactly; a shared part shorter than one window is not
+frame. An answer that is itself a fact
+(`The father of Konrad Fenwick is Ignatius Fenwick.`) holds more than one thing:
+the run every other instance's answer holds inside it (`is`) parts it into
+pieces, as a shared run parts the slot. Where both things reach the whole
+answer, it is the instance's; else each piece both reach is a reading, and
+agreement between instances decides. The bytes around the entity stood on and
+the answer are that last fact's ANSWER FRAME (`The father of`, the entity, the
+answer). Two instances that spell the same pair of derivations and frames agree,
+keyed by the question's things, whichever parting read them.
 
 At the question, each derivation is replayed from its own thing, the answer is
 read off each last fact by its frame, and the two are compared byte for byte
@@ -76,11 +80,14 @@ question's own things are read only once an instance shows a convergence. A
 form's things are read in its own spelling, never under the equivalence.
 
 Measured on the constructed world: with instances answered `The answer is E.`,
-every same-phrasing two-thing question (mother∧spouse, shared birthplace, shared
-grandfather) is answered by the meet, the grandfather 0 → 3 of 3, in both
-deposit orders; scrambled answers, instances answered with a fact, and no
-instances change nothing. The 2Wiki fixtures and the 31.7M-node battery change
-no answer; branch lookups rise 0.3% on two fixtures.
+or with the fact that decides them, every same-phrasing two-thing question
+(mother∧spouse, shared birthplace, shared grandfather) is answered by the meet,
+the grandfather 0 → 3 of 3, in both deposit orders; scrambled answers and no
+instances change nothing. Asked in a phrasing no instance spells, a question has
+no reading: nothing in the corpus says the two phrasings ask the same. With
+instances in that phrasing too, it does (shared grandfather 0 → 3, shared
+birthplace +1). The 2Wiki fixtures and the 31.7M-node battery change no answer;
+branch lookups rise 0.3% on two fixtures.
 
 Where the two derivations meet nowhere, the instances say no entity is both, and
 the decider admits no answer (`mechanism-market.md`, what the instances refute
@@ -104,4 +111,6 @@ never touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
   continuation is evidence only of what its anchor bound.
 - `test/159` — a question about two things: a two-step convergence meets at the
   shared grandfather in either deposit order; the answer is met whole; instances
-  parting the slot differently still agree; scrambled answers meet nothing.
+  parting the slot differently still agree; where nothing meets, the response is
+  silent; instances answered with a fact teach the part both sides reach; a
+  frame word is not a thing; scrambled answers meet nothing.

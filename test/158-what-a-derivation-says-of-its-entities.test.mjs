@@ -26,7 +26,9 @@
 //   158.2 …on an entity before the answer: the spouse of the medic child;
 //   158.3 two relations that reach one entity at one depth are both read:
 //         instances deposited in different orders still agree;
-//   158.4 a fact one instance's entity lacks is no condition (rationale).
+//   158.4 a fact one instance's entity lacks is no condition (rationale);
+//   158.5 a paraphrase of an instance — another context establishing its
+//         answer and holding its filler — does not hide its derivation.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -200,4 +202,19 @@ test("158.4 a fact one instance's entity lacks is no condition", async () => {
   const [none] = await ask(split.items, [split.q], true);
   assert.ok(condition(ok.steps), "three surgeons agree on the condition");
   assert.ok(!condition(none.steps), "a weaver among them leaves none");
+});
+
+test("158.5 a paraphrase of an instance does not hide its derivation", async () => {
+  // Each instance is also asked another way and answered with the same
+  // fact: `Who among the children of Y is the medic?` establishes the
+  // answer and holds Y, a one-step reading that names nothing at the
+  // question.  The derivation is read beside it.
+  const w = medics(true);
+  const asked = w.items.filter(([q]) => q.startsWith("Which child of "));
+  for (const [q, a] of asked) {
+    const y = q.slice("Which child of ".length, -" is a medic?".length);
+    w.items.push([`Who among the children of ${y} is the medic?`, a]);
+  }
+  const [{ a }] = await ask(w.items, [w.q]);
+  assert.ok(a.includes(w.medic) && !a.includes(w.other), a);
 });

@@ -121,6 +121,16 @@ the answer holds that entity (`Y2 mother`). Each step is its context with the
 entity cut out, so the relation is the sequence `· father`, `· father`,
 `· mother`, counted only where two instances spell it alike.
 
+A one-step reading does not replace the path. A context that establishes the
+answer and holds the filler may be another way to ask the same question
+(`Who among the children of Y is the medic?` beside
+`Which child of Y is a medic?`). Its reading names nothing at a new question, so
+both readings are kept, and agreement and the question's evidence decide. With
+paraphrased instances in the constructed world, keeping only the one-step
+reading lost 5 conditioned selections; keeping both answered 9 more questions in
+either phrasing, including phrasings with no instance of their own before. On
+the 2Wiki fixtures, no answer changed, and bytes read rose 1% on one fixture.
+
 The path is searched breadth first, so the shortest derivation the corpus holds
 is the one read, and its length comes from the corpus. Each entity expanded is
 one read of its facts out of the exact tier's allowance. A hub is not expanded,
@@ -427,7 +437,8 @@ medic child is answered with a child.
 - `test/158` — what a derivation says of its entities: the condition every
   instance's entity agrees on selects the branch in either deposit order, traced
   or not; on an entity before the answer; two relations to one entity at one
-  depth are both read; a fact one instance's entity lacks is no condition.
+  depth are both read; a fact one instance's entity lacks is no condition; a
+  paraphrase of an instance does not hide its derivation.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an

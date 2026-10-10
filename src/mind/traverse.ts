@@ -2092,8 +2092,12 @@ function instanceBook(whole: object): InstanceBook {
 /** The relations an instance `q` carries from its filler `z`.  Its
  *  continuation is established by other contexts too (`Peter Jackson place of
  *  birth`); one that holds the filler spells the relation the corpus's way.
- *  Where none does, the continuation is not a fact about the filler but the end
- *  of a DERIVATION from it, read as two hops meeting at an entity (below). */
+ *  The continuation may also be the end of a DERIVATION from the filler, read
+ *  as a path of facts (below).  Both are read: a context holding the filler may
+ *  be another way to ask the same question (`Who among the children of Y is
+ *  the medic?` beside `Which child of Y is a medic?`), a one-step reading that
+ *  names nothing at a new question, and it must not hide the derivation —
+ *  agreement and the question's evidence decide among them. */
 function instanceSteps(
   ctx: MindContext,
   q: number,
@@ -2119,7 +2123,6 @@ function instanceSteps(
       out.push([{ prefix, suffix }, undefined]);
     }
   }
-  if (out.length > 0) return out;
   for (const f of ctx.store.nextFirst(q, W)) {
     for (
       const [one, ...rest] of pathSteps(
@@ -2734,7 +2737,23 @@ function readConvergence(
     if (pre + suf >= c.f.length) continue;
     const answer = c.f.subarray(pre, c.f.length - suf);
     if (answer.length < W) continue;
-    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${latin1(answer)}`;
+    // An answer that is itself a fact (`Konrad Fenwick is Ignatius Fenwick.`)
+    // holds more than one thing: the run every other instance's answer holds
+    // inside it too (` is `) parts it into pieces, as a shared run parts a
+    // slot.
+    const fillers = candidates.filter((o) => o.q !== c.q).map((o) =>
+      o.f.subarray(pre, o.f.length - suf)
+    );
+    let pieces: Uint8Array[] = [];
+    const sep = innerRunOfAll(answer, fillers, W);
+    if (sep !== null) {
+      pieces = [answer.subarray(0, sep[0]), answer.subarray(sep[1])].filter((
+        p,
+      ) => p.length >= W);
+    }
+    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${
+      [answer, ...pieces].map(latin1).join("\u0000")
+    }`;
     let shown = memo?.converges.get(ik);
     if (shown === undefined) {
       if (ctx.meter) ctx.meter.convergenceReads++;
@@ -2743,7 +2762,7 @@ function readConvergence(
         c.raw,
         c.e1,
         c.e2,
-        answer,
+        [answer, ...pieces],
         allowance,
         formCap,
         deposited,
@@ -2803,41 +2822,71 @@ function readConvergence(
 type Arrival = { steps: Step[]; frame: AnswerFrame };
 
 /** What one instance shows of a convergence: for each pair of derivations by
- *  which its two things reach a fact holding its `answer` exactly, the steps
- *  and that fact's answer frame on each side. */
+ *  which its two things reach a fact holding its answer exactly, the steps and
+ *  that fact's answer frame on each side.  The answer is the instance's whole
+ *  filler (`G.` of `The answer is G.`) where both things reach it; else each
+ *  of its pieces both reach (`Ignatius Fenwick.` of `Konrad Fenwick is
+ *  Ignatius Fenwick.`) is a reading, and the agreement between instances
+ *  decides among them. */
 function instanceConvergence(
   ctx: MindContext,
   raw: Uint8Array,
   e1: { span: [number, number]; id: number },
   e2: { span: [number, number]; id: number },
-  answer: Uint8Array,
+  answers: Uint8Array[],
   allowance: number,
   formCap: number,
   deposited: (c: number) => boolean,
 ): Array<[Arrival, Arrival]> {
-  const at = (g: number): number => indexOf(read(ctx, g), answer, 0);
-  const ends = (e: { id: number; span: [number, number] }): Arrival[] =>
-    pathToFact(
-      ctx,
-      e.id,
-      raw.subarray(e.span[0], e.span[1]),
-      (g) => at(g) >= 0,
-      allowance,
-      formCap,
-      deposited,
-    ).flatMap((p) => {
-      const s0 = at(p.fact);
-      const fr = answerFrameOf(read(ctx, p.fact), p.stand, [
-        s0,
-        s0 + answer.length,
-      ]);
-      return fr === null ? [] : [{ steps: p.steps, frame: fr }];
-    });
-  const p1 = ends(e1);
-  if (p1.length === 0) return [];
-  const out: Array<[Arrival, Arrival]> = [];
-  for (const b of ends(e2)) for (const a of p1) out.push([a, b]);
-  return out;
+  const found: Array<[Arrival, Arrival]> = [];
+  for (const [i, answer] of answers.entries()) {
+    const at = (g: number): number => indexOf(read(ctx, g), answer, 0);
+    const ends = (e: { id: number; span: [number, number] }): Arrival[] =>
+      pathToFact(
+        ctx,
+        e.id,
+        raw.subarray(e.span[0], e.span[1]),
+        (g) => at(g) >= 0,
+        allowance,
+        formCap,
+        deposited,
+      ).flatMap((p) => {
+        const s0 = at(p.fact);
+        const fr = answerFrameOf(read(ctx, p.fact), p.stand, [
+          s0,
+          s0 + answer.length,
+        ]);
+        return fr === null ? [] : [{ steps: p.steps, frame: fr }];
+      });
+    const p1 = ends(e1);
+    if (p1.length === 0) continue;
+    for (const b of ends(e2)) for (const a of p1) found.push([a, b]);
+    if (i === 0 && found.length > 0) return found;
+  }
+  return found;
+}
+
+/** The longest run of `a`, strictly inside it, that every one of `others`
+ *  holds strictly inside too — at least one window long — as a span of `a`;
+ *  null when there is none or no other. */
+function innerRunOfAll(
+  a: Uint8Array,
+  others: Uint8Array[],
+  W: number,
+): [number, number] | null {
+  if (others.length === 0) return null;
+  for (let len = a.length - 2; len >= W; len--) {
+    for (let s0 = 1; s0 + len < a.length; s0++) {
+      const run = a.subarray(s0, s0 + len);
+      if (
+        others.every((o) => {
+          const at = indexOf(o, run, 1);
+          return at > 0 && at + len < o.length;
+        })
+      ) return [s0, s0 + len];
+    }
+  }
+  return null;
 }
 
 /** The longest run two slots share strictly inside both — where a slot holding
