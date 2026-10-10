@@ -22,7 +22,7 @@ import {
 // file's line order never decides load order.  The note described an intention
 // the runtime does not honour; the imports move and the claim goes.
 import { decodeText } from "./rationale.js";
-import { concatBytes, indexOf, latin1 } from "../bytes.js";
+import { bytesEqual, concatBytes, indexOf, latin1 } from "../bytes.js";
 import { type WindowIndex, windowIndex, witness } from "./evidence.js";
 import type { RationaleItem } from "./rationale.js";
 
@@ -125,6 +125,7 @@ function getStructCache(ctx: MindContext): StructCache | null {
  *  are kept for the session like the climb's reach, and dropped on a write. */
 interface DerivationCache {
   paths: Map<string, Step[][]>;
+  described: Map<string, Step[] | null>;
   entities: Map<number, Array<{ span: [number, number]; id: number }>>;
 }
 const derivationCaches = new WeakMap<object, DerivationCache>();
@@ -134,13 +135,14 @@ function derivationCache(ctx: MindContext): DerivationCache | null {
   if (c === undefined) {
     derivationCaches.set(
       ctx._structMemoKey,
-      c = { paths: new Map(), entities: new Map() },
+      c = { paths: new Map(), entities: new Map(), described: new Map() },
     );
   } else if (
     c.paths.size >= STRUCT_MEMO_MAX || c.entities.size >= STRUCT_MEMO_MAX
   ) {
     c.paths.clear();
     c.entities.clear();
+    c.described.clear();
   }
   return c;
 }
@@ -1334,56 +1336,208 @@ function slotEntity(
   return span === null || id === null ? null : { span, id };
 }
 
-/** Where a derivation read off other instances STARTS in the question: the
- *  thing its slot names.  An entity that fills the slot, up to less than one
- *  window, is that thing, and so is one whose remainder names nothing of it.
- *  A slot that says a window or more beyond its entity, and names one of its
- *  facts with it, DESCRIBES something through it — `Eleanor of Aquitaine's father` in `Who is
- *  the paternal grandmother of Eleanor of Aquitaine's father?` — and the
- *  derivation starts at what the description names: the one continuation of
- *  the entity the slot's own material names (the exact tier's reading), and
- *  the one entity that fact holds besides it.  Anything less determined is no
- *  start: replaying the derivation from the entity alone answers a question
- *  about someone else. */
-function startOf(
+/** The entity at a slot's CLOSE: {@link slotEntity} read from the other
+ *  boundary — the longest stored context with continuations that covers the
+ *  last byte of the slot.  A description reads before its entity (`the
+ *  paternal grandmother of Z`), so the entity is what differs at the close.
+ *  It may run up to `chainReach(W)` bytes past the slot (names that end
+ *  alike) and begin up to one window before it. */
+function closingEntity(
   ctx: MindContext,
-  question: Uint8Array,
+  raw: Uint8Array,
   open: number,
   end: number,
-): { bytes: Uint8Array; id: number } | null {
+): { span: [number, number]; id: number } | null {
   const W = ctx.space.maxGroup;
-  const x = slotEntity(ctx, question, open, end);
+  const ids = leafIdPrefix(ctx, raw);
+  const cache = getStructCache(ctx);
+  const first = Math.max(0, open - W + 1);
+  let span: [number, number] | null = null;
+  let id: number | null = null;
+  const scan = (exact: boolean): void => {
+    const last = Math.min(ids.length, end + chainReach(W));
+    for (let en = end; en <= last; en++) {
+      for (let st = first; en - st >= W && st < end; st++) {
+        if (span !== null && en - st <= span[1] - span[0]) break;
+        if (st + raw.length - en < W) continue;
+        if (exact && ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+        const n = exact
+          ? resolve(ctx, raw.subarray(st, en))
+          : canonResolve(ctx, raw.subarray(st, en));
+        if (n === null || !cachedHasNext(ctx, n, cache)) continue;
+        [span, id] = [[st, en], n];
+        break;
+      }
+    }
+  };
+  scan(true);
+  if (span === null && ctx.canon !== null) scan(false);
+  return span === null || id === null ? null : { span, id };
+}
+
+/** What a slot SAYS of its entity: the entity (the longest stored context
+ *  with continuations covering the parting byte, `slotEntity`) and the steps
+ *  the rest of the slot applies to it.  An entity that fills the slot, up to
+ *  less than one window, takes none.  A remainder other forms hold around
+ *  another entity is a DESCRIPTION, read off them (`describedSteps`: `Y's
+ *  dad`, `the paternal grandmother of Z`).  Else a remainder that names one
+ *  fact of the entity, witnessed by the slot's own material, is that step
+ *  (`Eleanor of Aquitaine's father`); one that names several is
+ *  `undetermined`; one that names none (`(1259–1321)` after `Blanche of
+ *  Portugal`) only QUALIFIES an entity the slot opens with, and takes no step.
+ *  An entity found only at the slot's close (`closingEntity`) leaves the
+ *  forms parting on the remainder, which must then be read, or the slot is
+ *  `undetermined`.  null: the slot holds no entity to read. */
+/** What `slotSteps` reads of a slot: its entity and the steps the rest of the
+ *  slot applies to it, or an entity whose remainder determines nothing. */
+type SlotReading =
+  | { x: { span: [number, number]; id: number }; steps: Step[] }
+  | { x: { span: [number, number]; id: number }; undetermined: true };
+
+function slotSteps(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  open: number,
+  end: number,
+  instance?: { frame: number },
+): SlotReading | null {
+  const W = ctx.space.maxGroup;
+  const opening = slotEntity(ctx, bytes, open, end);
+  const x = opening ?? closingEntity(ctx, bytes, open, end);
   if (x === null) return null;
   const said = Math.max(
     0,
     Math.min(end, x.span[1]) - Math.max(open, x.span[0]),
   );
-  if (end - open - said < W) {
-    return { bytes: question.subarray(x.span[0], x.span[1]), id: x.id };
+  if (end - open - said < W) return { x, steps: [] };
+  // AN INSTANCE SHARES MORE THAN IT DIFFERS.  A form whose slot says more
+  // beyond its entity than the frame it shares with the question (`Who is Y's
+  // paternal grandmother?` against `Who is the maternal grandfather of Z?`:
+  // `Who is `·`?`, 8 bytes, against 23) is another question, not this one's
+  // frame around another filler.
+  if (instance !== undefined && end - open - said > instance.frame) {
+    return null;
   }
-  // The description is read by witnessing alone — the relation the slot
-  // spells — never by other instances of it.
-  const slot = question.subarray(open, end);
+  // The forms that hold the whole remainder read all of it; witnessing reads
+  // a word of it (`father` in `Y's grandma on the father's side`) and is asked
+  // only where no form does.
+  const described = describedSteps(ctx, bytes, x, open, end);
+  if (described !== null) return { x, steps: described };
+  const slot = bytes.subarray(open, end);
   const nx = ctx.store.nextFirst(x.id, hubBound(ctx));
   const seen = witnessedEntry(ctx, x.id, nx, {
     bytes: slot,
     index: windowIndex(offsetCanon(ctx, slot), W),
   });
   const named = seen?.entry.named ?? null;
-  // A remainder that names nothing (`(1259–1321)` after `Blanche of
-  // Portugal`) only QUALIFIES the entity, which is then the start; one that
-  // names several things determines none.
+  // A remainder nothing reads QUALIFIES an entity the forms part on; where
+  // they part on the remainder itself — the entity only at the slot's close —
+  // they differ by more than a filler, and the slot determines nothing.
   if (named === null) {
-    return { bytes: question.subarray(x.span[0], x.span[1]), id: x.id };
+    return opening === null ? { x, undetermined: true } : { x, steps: [] };
   }
-  if (named.length !== 1) return null;
-  const { fact, held: all } = entitiesIn(ctx, named[0]);
-  const held = all.filter((e) => e.id !== x.id);
-  if (held.length !== 1) return null;
-  return {
-    bytes: fact.subarray(held[0].span[0], held[0].span[1]),
-    id: held[0].id,
-  };
+  if (named.length !== 1) return { x, undetermined: true };
+  // The step is the named fact's establishing context with the entity cut.
+  const xb = read(ctx, x.id);
+  for (const c of ctx.store.prevFirst(named[0], hubBound(ctx))) {
+    if (c === x.id) continue;
+    const cb = read(ctx, c, bytes.length + xb.length + 1);
+    const at = indexOf(cb, xb, 0);
+    if (at < 0) continue;
+    return {
+      x,
+      steps: [{
+        prefix: cb.subarray(0, at),
+        suffix: cb.subarray(at + xb.length),
+      }],
+    };
+  }
+  return { x, undetermined: true };
+}
+
+/** Whether `steps` begins with `head`, step for step, byte for byte. */
+function startsWith(steps: Step[], head: Step[]): boolean {
+  return head.length <= steps.length &&
+    head.every((h, i) =>
+      bytesEqual(h.prefix, steps[i].prefix) &&
+      bytesEqual(h.suffix, steps[i].suffix)
+    );
+}
+
+/** What a DESCRIPTION in a slot names — the sequence of steps it applies to
+ *  its entity — read off the forms that hold the same description around
+ *  another entity.  `Y's dad` is held by `Who is Z's dad?` (whose derivation
+ *  from `Z` is `· father`) and by `Where was Z's dad born?` (`· father →
+ *  · place of birth`): a description is applied first, nearest its entity, so
+ *  what it names is the BEGINNING those derivations share.  The shortest
+ *  sequence two forms spell alike is the reading, if every other sequence two
+ *  forms spell begins with it; otherwise, or with none, nothing is read.  The
+ *  forms come from the description's rarest window (`siblingInstances`).
+ *  Kept for the session by the description's bytes. */
+function describedSteps(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  x: { span: [number, number]; id: number },
+  open: number,
+  end: number,
+): Step[] | null {
+  const W = ctx.space.maxGroup;
+  const s0 = Math.max(open, Math.min(x.span[0], end));
+  const e0 = Math.min(end, Math.max(x.span[1], open));
+  const before = offsetCanon(ctx, bytes.subarray(open, s0));
+  const after = offsetCanon(ctx, bytes.subarray(e0, end));
+  if (before.length + after.length < W) return null;
+  const memo = derivationCache(ctx);
+  const key = "d" + latin1(before) + "\u0000" + latin1(after);
+  if (memo?.described.has(key)) return memo.described.get(key)!;
+  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const cache = getStructCache(ctx);
+  const deposited = (c: number): boolean =>
+    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
+  const spans: Array<[number, number]> = [];
+  if (before.length > 0) spans.push([open, s0]);
+  if (after.length > 0) spans.push([e0, end]);
+  const bySeq = new Map<string, { steps: Step[]; forms: Set<number> }>();
+  for (const f of siblingInstances(ctx, bytes, spans, allowance)) {
+    if (!deposited(f) || !cachedHasNext(ctx, f, cache)) continue;
+    const fb = offsetCanon(ctx, read(ctx, f));
+    for (const z of entitiesIn(ctx, f).held) {
+      if (z.id === x.id) continue;
+      const [zs, ze] = z.span;
+      if (zs < before.length || ze + after.length > fb.length) continue;
+      if (!bytesEqual(fb.subarray(zs - before.length, zs), before)) continue;
+      if (!bytesEqual(fb.subarray(ze, ze + after.length), after)) continue;
+      for (
+        const [one, rest] of instanceSteps(
+          ctx,
+          f,
+          z.id,
+          fb.length * 2,
+          allowance,
+          deposited,
+        )
+      ) {
+        const steps = [one, ...(rest ?? [])];
+        const k = steps.map((st) =>
+          latin1(st.prefix) + "\u0000" + latin1(st.suffix)
+        ).join("\u0001");
+        let at = bySeq.get(k);
+        if (at === undefined) bySeq.set(k, at = { steps, forms: new Set() });
+        at.forms.add(f);
+      }
+    }
+  }
+  const agreed = [...bySeq.entries()].filter(([, v]) => v.forms.size >= 2);
+  let out: Step[] | null = null;
+  if (agreed.length > 0) {
+    agreed.sort((a, b) => a[1].steps.length - b[1].steps.length);
+    const [k0, v0] = agreed[0];
+    if (agreed.every(([k]) => k === k0 || k.startsWith(k0 + "\u0001"))) {
+      out = v0.steps;
+    }
+  }
+  memo?.described.set(key, out);
+  return out;
 }
 
 /** THE RELATION, READ OFF ANOTHER INSTANCE — the exact tier's second reading,
@@ -1438,16 +1592,19 @@ function byCoInstance(
     );
   if (frames.length === 0 && chains.length === 0) return none;
   const node = read(ctx, id, formCap);
-  const support = new Map<number, Set<number>>();
+  // What names each continuation: the question material of the strongest
+  // frame naming it.
+  const strength = new Map<number, number>();
   const spans = new Map<number, Array<[number, number]>>();
   const via = new Map<number, { q: number; t: number; chain: boolean }>();
+  const named: Array<{ n: number; bytes: number; by: number[] }> = [];
   const credit = (fr: RelationFrame, t: number, chain: boolean): void => {
+    const bytes = fr.spans.reduce((a, [s, e]) => a + e - s, 0);
     for (const n of ctx.store.nextFirst(t, allowance)) {
       if (!nx.includes(n)) continue;
-      let by = support.get(n);
-      if (by === undefined) support.set(n, by = new Set());
-      for (const q of fr.by) by.add(q);
-      if (!spans.has(n)) {
+      named.push({ n, bytes, by: fr.by });
+      if (bytes > (strength.get(n) ?? -1)) {
+        strength.set(n, bytes);
         spans.set(n, fr.spans);
         via.set(n, { q: fr.by[0], t, chain });
       }
@@ -1458,6 +1615,7 @@ function byCoInstance(
     return t === null || t === id ? null : t;
   };
   for (const fr of frames) {
+    if (fr.not === id) continue;
     const t = at(fr.prefix, fr.suffix);
     if (t !== null) credit(fr, t, false);
   }
@@ -1478,16 +1636,17 @@ function byCoInstance(
     const t = at(all[i].prefix, all[i].suffix);
     if (t !== null) credit(fr, t, true);
   }
-  let best: number[] = [];
-  let most = 0;
-  for (const n of nx) {
-    const k = support.get(n)?.size ?? 0;
-    if (k === 0) continue;
-    if (k > most) {
-      best = [n];
-      most = k;
-    } else if (k === most) best.push(n);
-  }
+  // ONE MEASURE.  The frames naming a continuation rank by the question
+  // material they share — the measure witnessing is ranked by — so `· father`,
+  // which a partial frame of 8 bytes spells, does not tie with the 36-byte
+  // derivation that spells `· mother` at the same node.  Frames within one
+  // window of the strongest are evidence perception cannot tell apart (W, its
+  // smallest distinction), and name together.
+  const W = ctx.space.maxGroup;
+  const top = Math.max(-1, ...named.map((x) => x.bytes));
+  const tier = named.filter((x) => top - x.bytes < W);
+  const best = nx.filter((n) => tier.some((x) => x.n === n));
+  const most = new Set(tier.flatMap((x) => x.by)).size;
   if (best.length === 0) return none;
   const first = via.get(best[0]);
   if (ctx.meter) {
@@ -1534,6 +1693,9 @@ interface RelationFrame {
   /** The steps after the first, in order (a derivation of any length). */
   then?: Step[];
   filler?: Uint8Array;
+  /** An entity a one-step relation does not apply at: the question slot's,
+   *  when what the slot says of it determines nothing. */
+  not?: number;
   /** Per position, the entities the replay from `filler` reaches. */
   replay?: Array<Set<number>>;
 }
@@ -1587,11 +1749,15 @@ function relationFrames(
   const book = instanceBook(whole!);
   // The question's own entity between a frame — read by the rule that reads
   // an instance's, once per frame.
-  const entityAt = (co: { open: number; close: number }) => {
+  // What the question's own slot says between a frame — read by the rule an
+  // instance's is, once per frame.
+  const slotAt = (
+    co: { open: number; close: number },
+  ): SlotReading | null => {
     const at = `${co.open}:${co.close}`;
     let x = book.entity.get(at);
     if (x === undefined) {
-      x = startOf(ctx, asked.bytes, co.open, asked.bytes.length - co.close);
+      x = slotSteps(ctx, asked.bytes, co.open, asked.bytes.length - co.close);
       book.entity.set(at, x);
     }
     return x;
@@ -1603,30 +1769,47 @@ function relationFrames(
     step: Step,
     then?: Step[],
   ): void => {
-    let key = latin1(step.prefix) + "\u0000" + latin1(step.suffix);
-    for (const t of then ?? []) {
-      key += "\u0001" + latin1(t.prefix) + "\u0000" + latin1(t.suffix);
+    // THE QUESTION'S DERIVATION is what its slot says of its entity, then what
+    // the frame says: `Where was the paternal grandmother of Z born?` is
+    // `· father → · mother` (the description, read off the forms that hold it)
+    // then `· place of birth` (the frame, read off its instances), followed in
+    // order from Z.  A frame whose slot says nothing is a relation any node may
+    // take; anything longer starts at the slot's entity.
+    // A slot whose remainder determines nothing leaves a one-step relation
+    // to any node but its own entity (`Where was the maternal great-grandmother
+    // of Z born?` is not about Z's birth); one with no entity to read leaves it
+    // to any node.
+    const read_ = slotAt(co);
+    const not = read_ !== null && "undetermined" in read_
+      ? read_.x.id
+      : undefined;
+    const said = read_ === null || "undetermined" in read_ ? null : read_;
+    if (said === null && then !== undefined) return;
+    const all = [...(said?.steps ?? []), step, ...(then ?? [])];
+    let key = "";
+    for (const t of all) {
+      key += latin1(t.prefix) + "\u0000" + latin1(t.suffix) + "\u0001";
     }
+    if (not !== undefined) key += `|not:${not}`;
     const known = spelled.get(key);
     if (known !== undefined) {
       if (!known.by.includes(q)) known.by.push(q);
       return;
     }
-    const fr: RelationFrame = { by: [q], ...step, spans: co.spans };
-    if (then !== undefined) {
-      // The question's own entity, read between the same frame by the same
-      // rule — the derivation is followed from it.
-      const x = entityAt(co);
-      if (x === null) return;
-      fr.then = then;
-      fr.filler = x.bytes;
+    const fr: RelationFrame = { by: [q], ...all[0], spans: co.spans };
+    if (not !== undefined) fr.not = not;
+    if (all.length > 1) {
+      fr.then = all.slice(1);
+      fr.filler = asked.bytes.subarray(said!.x.span[0], said!.x.span[1]);
     }
     spelled.set(key, fr);
   };
   const seen = new Set<number>();
   let frame: Array<[number, number]> | null = null;
   let frameSize = 0;
-  // Whether `q` is a co-instance of the question (its filler read).
+  // Whether `q` shares a frame with the question — what the question-entity
+  // fallback asks of its siblings — whether or not its slot then reads as an
+  // instance's.
   const consider = (q: number): boolean => {
     if (seen.has(q)) return false;
     seen.add(q);
@@ -1640,10 +1823,17 @@ function relationFrames(
     if (r.raw.length > formCap) return false;
     const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
     if (co === null) return false;
+    // What the instance's slot SAYS of its entity, by the question's rule:
+    // `Where was Y's dad born?` applies `· father` to Y before the frame does.
     if (r.filler === undefined) {
-      r.filler = slotEntity(ctx, r.raw, co.open, r.raw.length - co.close);
+      const said = slotSteps(ctx, r.raw, co.open, r.raw.length - co.close, {
+        frame: co.open + co.close,
+      });
+      r.filler = said === null || "undetermined" in said
+        ? null
+        : { id: said.x.id, said: said.steps };
     }
-    if (r.filler === null) return false;
+    if (r.filler === null) return true;
     // The most specific frame shown — the longest — leads to the siblings.
     const size = co.open + co.close;
     if (frame === null || size > frameSize) {
@@ -1657,7 +1847,17 @@ function relationFrames(
       allowance,
       deposited,
     );
-    for (const [one, two] of r.steps) spell(q, co, one, two);
+    // The FRAME's relation is what follows what the slot already said: an
+    // instance whose derivation does not begin with its slot's steps reads
+    // nothing, and one whose slot says it all asks for the entity it names.
+    const said = r.filler.said;
+    for (const [one, two] of r.steps) {
+      const all = [one, ...(two ?? [])];
+      if (!startsWith(all, said)) continue;
+      const own = all.slice(said.length);
+      if (own.length === 0) continue;
+      spell(q, co, own[0], own.length > 1 ? own.slice(1) : undefined);
+    }
     return true;
   };
   // Most corroborated first (the climb's own ranking), at most
@@ -1746,7 +1946,7 @@ type Step = { prefix: Uint8Array; suffix: Uint8Array };
  *  one-hop step, or a first step with the second it leads to. */
 interface InstanceReading {
   raw: Uint8Array;
-  filler?: { span: [number, number]; id: number } | null;
+  filler?: { id: number; said: Step[] } | null;
   steps?: Array<[Step, Step[] | undefined]>;
 }
 
@@ -1756,7 +1956,7 @@ interface InstanceBook {
   forms: Map<number, InstanceReading>;
   siblings?: number[];
   held?: number[];
-  entity: Map<string, { bytes: Uint8Array; id: number } | null>;
+  entity: Map<string, SlotReading | null>;
 }
 const bookMemo = new WeakMap<object, InstanceBook>();
 function instanceBook(whole: object): InstanceBook {

@@ -2,20 +2,25 @@
 // instances is a PATH of whatever length the corpus shows, replayed in order
 // from what the question's slot names.
 //
-// THE READING (traverse.ts, `pathSteps`, `replayOf`, `startOf`; evidence.md).
-// An instance `Who is the paternal great-grandmother of Z?` answered `The
-// mother of Y2 is W.` is reached from `Z` through facts that each hold the
-// entity the next one stands on: `Z father` → `The father of Z is Y1.`, `Y1
-// father` → `The father of Y1 is Y2.`, `Y2 mother` → the answer.  The path is
-// searched breadth first under the exact tier's read allowance, so its length
-// comes from the corpus; the relation is the sequence of frames, kept only where
-// two instances spell it alike, and replayed from the question's own entity, a
-// step at a time, each only where the replay of the steps before it stands.
+// THE READING (traverse.ts, `pathSteps`, `replayOf`, `slotSteps`,
+// `describedSteps`; evidence.md).  An instance `Who is the paternal
+// great-grandmother of Z?` answered `The mother of Y2 is W.` is reached from
+// `Z` through facts that each hold the entity the next one stands on: `Z
+// father` → `The father of Z is Y1.`, `Y1 father` → `The father of Y1 is
+// Y2.`, `Y2 mother` → the answer.  The path is searched breadth first under
+// the exact tier's read allowance, so its length comes from the corpus; the
+// relation is the sequence of frames, kept only where two instances spell it
+// alike, and replayed from the question's own entity, a step at a time, each
+// only where the replay of the steps before it stands.  What a slot says of
+// its entity — a description other forms hold, or one fact it witnesses — is
+// applied first: stripped from an instance's derivation, prefixed to the
+// question's.
 //
-// MEASURED on a constructed genealogical world (2,098 people, 60 instances, 152
-// questions): 52 → 115 correct; depth 3–5 from 0 to 41 of 42; wrong first hops
-// 42 → 10.  With the instances' answers scrambled, so that no path joins
-// filler and answer, the reading transfers nothing.
+// MEASURED on a constructed genealogical world (version 3: 2,276 people, 66
+// instances, 172 questions): 59 → 137 correct; depth 3–5 from 0 to 42 of 42; a
+// frame composed with a description no instance asks, 0 → 7 of 12; wrong
+// first hops 52 → 12.  With the instances' answers scrambled, so that no path
+// joins filler and answer, the reading transfers nothing.
 //
 // Pinned:
 //   157.1 three steps: a paternal great-grandmother is read off three instances;
@@ -33,6 +38,15 @@
 //         shorter entity inside it;
 //   157.8 traced and untraced responses agree (a pick made before the climb is
 //         provisional);
+//   157.10 the frame that shares more of the question names the step: three
+//         instances of `Who is Y's dad?` (9 bytes of the question) do not
+//         outvote the grandparent derivation (36 bytes) at the father;
+//   157.11 a description in an instance's slot is read off the forms that hold
+//         it: `Where was Y's dad born?` spells what `Where was Y born?` does;
+//   157.12 a description in the question composes with the frame read off
+//         another family of instances;
+//   157.13 a description nothing reads determines no start: the frame is not
+//         applied to the slot's own entity.
 // Control (no mutation of the reading short of inventing a path breaks it):
 //   157.9 an instance answered with a fact its filler does not reach carries no
 //         derivation: scrambled answers transfer nothing.
@@ -380,4 +394,105 @@ test("157.9 scrambled answers carry no derivation", async () => {
     [tpl.replace("{X}", z)],
   );
   assert.doesNotMatch(a, new RegExp(w.up(z, GGM)), `answered "${a}"`);
+});
+
+test("157.10 the frame that shares more of the question names the step", async () => {
+  // `Who is Y's dad?` shares only `Who is ` and `?` with a grandparent
+  // question, yet each of its instances spells `· father` — at the father as
+  // much as anywhere, with as many instances as the whole frame's derivation
+  // has for its own second step.
+  const w = world();
+  const fams = [
+    ["Who is the paternal grandmother of {X}?", ["father", "mother"]],
+    ["Who is the paternal grandfather of {X}?", ["father", "father"]],
+    ["Who is the maternal grandfather of {X}?", ["mother", "father"]],
+    ["Who is the maternal grandmother of {X}?", ["mother", "mother"]],
+  ];
+  const inst = [
+    ...fams.flatMap(([tpl, path]) => instances(w, tpl, path, 2, 2)),
+    ...instances(w, "Who is {X}'s dad?", ["father"], 1),
+  ];
+  const z = w.subject(2).name;
+  const answers = await ask(
+    [...deposits(w.triples), ...inst],
+    fams.map(([tpl]) => tpl.replace("{X}", z)),
+  );
+  fams.forEach(([, path], i) => {
+    const gold = w.up(z, path);
+    assert.match(
+      answers[i],
+      new RegExp(`is ${gold}\\.`),
+      `answered "${answers[i]}"`,
+    );
+  });
+});
+
+test("157.11 a description in an instance's slot is read off the forms that hold it", async () => {
+  // `Where was Y's dad born?` applies `· father` to Y before its frame does:
+  // the forms holding `'s dad` (`Who is Z's dad?`) read it, so the frame
+  // `Where was · born?` keeps only `· place of birth` — X's own birthplace.
+  const w = world();
+  const inst = [
+    ...instances(w, "Where was {X} born?", ["born"], 0),
+    // More `dad` instances than plain ones: unread, `Y's dad` would take the
+    // walk to the father.
+    ...instances(w, "Where was {X}'s dad born?", ["father", "born"], 1, 4),
+    ...instances(w, "Who is {X}'s dad?", ["father"], 1),
+  ];
+  const z = w.subject(1).name;
+  const [a] = await ask(
+    [...deposits(w.triples), ...inst],
+    [`Where was ${z} born?`],
+  );
+  assert.match(
+    a,
+    new RegExp(`of ${z} is ${w.up(z, ["born"])}\\.`),
+    `answered "${a}"`,
+  );
+  // …and nothing of the father's: the `dad` instances do not move the frame.
+  assert.doesNotMatch(a, new RegExp(w.up(z, ["father"])), `answered "${a}"`);
+});
+
+test("157.12 a description in the question composes with the frame", async () => {
+  // No instance asks where a grandmother was born: the frame `Where was ·
+  // born?` is read off one family, the description `the paternal
+  // grandmother of ·` off another, and the question is the one, then the
+  // other, from Z.
+  const w = world();
+  const inst = [
+    ...instances(w, "Where was {X} born?", ["born"], 0),
+    ...instances(w, "Who is the paternal grandmother of {X}?", [
+      "father",
+      "mother",
+    ], 2),
+  ];
+  const z = w.subject(2).name;
+  const [a] = await ask(
+    [...deposits(w.triples), ...inst],
+    [`Where was the paternal grandmother of ${z} born?`],
+  );
+  const g = w.up(z, ["father", "mother"]);
+  assert.match(
+    a,
+    new RegExp(`of ${g} is ${w.up(z, ["father", "mother", "born"])}\\.`),
+    `answered "${a}"`,
+  );
+});
+
+test("157.13 a description nothing reads determines no start", async () => {
+  // No form holds `the maternal great-grandmother of ·`: the entity found at
+  // the slot's close leaves the forms parting on what nobody read, and the
+  // frame is not applied to Z itself.
+  const w = world();
+  const inst = instances(w, "Where was {X} born?", ["born"], 0);
+  const z = w.subject(3).name;
+  const [a] = await ask(
+    [...deposits(w.triples), ...inst],
+    [`Where was the maternal great-grandmother of ${z} born?`],
+  );
+  assert.doesNotMatch(
+    a,
+    new RegExp(`place of birth of ${z} is`),
+    `answered "${a}"`,
+  );
 });
