@@ -976,7 +976,7 @@ test("applyBytes is SCALAR-only: it does not read list structure from bytes", ()
   const u = new Alu();
   // applyBytes decodes operands through the codec, which is scalar-only — a
   // bracket literal becomes an opaque symbol, so arithmetic over it declines.
-  // Reading list STRUCTURE from bytes is recogniseValue's job (§17), not the
+  // Reading list STRUCTURE from bytes is recogniseValue's job, not the
   // codec's; applyBytes stays the pure scalar-operand path the search uses.
   assert.equal(u.applyBytes("add", [enc("[1,2,3]"), enc("[4,5,6]")]), null);
   // scalar arithmetic through the byte facade is unaffected

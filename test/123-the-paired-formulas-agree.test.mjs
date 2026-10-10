@@ -1,11 +1,11 @@
 // 123 — the derived formulas the house writes PER SIDE have to agree.
 //
-// The structural review (finding 9) found four derived quantities duplicated
-// by design: `hubBound`, `atomIsHub`/`atomReach`, `leadsSomewhere` and the
-// interior's phrase scale.  `graph-search.ts` is *host-based* on purpose (it
-// does not know `MindContext`), so the formula repeats — and the house
-// recorded that it HAS DRIFTED once ("they had already drifted on the
-// `Math.max(2, …)` floor", attention.ts).
+// Three derived quantities are written per side by design: `atomIsHub`/
+// `atomReach`, `leadsSomewhere` and the interior's phrase scale.
+// `graph-search.ts` is *host-based* on purpose (it does not know
+// `MindContext`), so the formula repeats — and a repeated formula drifts (the
+// hub bound once did, on its `Math.max(2, …)` floor).  The hub bound has one
+// home instead, `geometry.ts`'s `boundFor`, which both sides import.
 //
 // A pair test cannot call both homes (one is private), but it CAN read the
 // code — as `test/88-dependency-footprint` reads imports.  Each pair is
@@ -32,28 +32,19 @@ function extract(file, pattern, what) {
 }
 
 test("123. the duplicated derived formulas agree, home by home", () => {
-  // ── (1) hubBound = ⌈√max(2, N)⌉, in traverse.ts and in graph-search.ts ──
-  // The PAIR is the floor and the root — NOT how each home obtains N: one takes
-  // it as a parameter (`boundFor(contextCount)`), the other reads it from the
-  // store.  Comparing the argument would compare the two call shapes instead of
-  // the formula, which is what the drift the house recorded was about.
+  // ── (1) hubBound = ⌈√max(2, N)⌉ has ONE home: geometry.ts's `boundFor`.
+  // Neither side that reads it spells it again.
   const SHAPE = /Math\.ceil\(Math\.sqrt\(Math\.max\(2,\s*[^)]*\)\)\)/;
-  const shapeOf = (file, what) => {
-    const m = SRC(file).match(SHAPE);
-    assert.ok(
-      m !== null,
-      `could not find ${what} in ${file} (pattern: ${SHAPE})`,
-    );
-    return m[0].replace(/\s+/g, "").replace(
-      /Math\.max\(2,\s*[^)]*\)/,
-      "max(2,N)",
-    );
-  };
-  assert.equal(
-    shapeOf("mind/traverse.js", "boundFor's hub-bound shape"),
-    shapeOf("mind/graph-search.js", "GraphSearch.hubBound's shape"),
-    "the hub-bound formula has drifted between traverse.ts and graph-search.ts",
+  assert.ok(
+    SHAPE.test(SRC("geometry.js")),
+    `could not find the hub-bound formula in geometry.js (pattern: ${SHAPE})`,
   );
+  for (const file of ["mind/traverse.js", "mind/graph-search.js"]) {
+    assert.ok(
+      !SHAPE.test(SRC(file)),
+      `${file} spells the hub bound again instead of importing \`boundFor\``,
+    );
+  }
 
   // ── (2) atomReach = max(1, ⌈N·W/256⌉), in traverse.ts and in graph-search.ts ──
   // Each home names N and W differently (a parameter and `ctx.space.maxGroup`

@@ -85,7 +85,7 @@ corpus-determined, not interchangeable (`determinism.md`).
 | Graph traversal, corpus scale        | `src/mind/traverse.ts`                                                                             |
 | Witnessed evidence (`witness`)       | `src/mind/evidence.ts`                                                                             |
 | Closure law and engine (`closeOver`) | `src/mind/derivation.ts`                                                                           |
-| Post-grounding walk and fusion       | `src/mind/reasoning.ts`                                                                            |
+| Post-grounding walk, fusion, voicing | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                                                |
 | Canonical windows                    | `src/mind/canonical.ts`                                                                            |
 | Consensus climb + attention          | `src/mind/attention.ts`                                                                            |
 | Substitution bridge (recall tier)    | `src/mind/bridge.ts`                                                                               |

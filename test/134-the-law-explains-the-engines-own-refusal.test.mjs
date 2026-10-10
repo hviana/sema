@@ -31,7 +31,7 @@ const { Mind, SQliteStore } = await import("../dist/src/index.js");
 
 const enc = (s) => new TextEncoder().encode(s);
 
-/** The chain of test/110 and of the report's §16 example 3. */
+/** The chain of test/110. */
 const LINKS = [
   ["What is the capital of France", "The capital of France is Paris"],
   ["Paris", "Paris is famous for the Eiffel Tower"],

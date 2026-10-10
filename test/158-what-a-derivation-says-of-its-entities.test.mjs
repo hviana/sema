@@ -32,7 +32,10 @@
 //   158.6 the derivation goes on only from an entity its replay, conditions
 //         included, stands on;
 //   158.7 the ways a search carries are charged to its allowance: chained
-//         fans saturate it, metered, instead of multiplying.
+//         fans saturate it, metered, instead of multiplying;
+//   158.8 an instance reached by two ways (a diamond) supports a fact either
+//         way's entity holds: the condition is the same in both deposit
+//         orders, and neither way's fact is required.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -295,3 +298,59 @@ test("158.7 the ways a search carries are charged to its allowance", async () =>
     `ways carried within the allowance per search: ${c.pathWays}`,
   );
 });
+
+test("158.8 an instance reached by two ways supports a fact either way holds", async () => {
+  // Each instance's grandchild G is the child of two of Y's children, A (a
+  // surgeon) and B (a lawyer): both ways are the derivation, and neither
+  // child's occupation is required of it.  Read off the way deposited first,
+  // every instance would require `surgeon` — or `lawyer`, reversed.
+  const nm = names();
+  const items = [];
+  const places = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const ask = (y) => `Where was the heir grandchild of ${y} born?`;
+  for (const place of places.slice(0, 3)) {
+    const y = nm(), a = nm(), b = nm(), g = nm();
+    deposit(items, y, "child", a);
+    deposit(items, y, "child", b);
+    deposit(items, a, "occupation", "surgeon");
+    deposit(items, b, "occupation", "lawyer");
+    deposit(items, a, "child", g);
+    deposit(items, b, "child", g);
+    deposit(items, g, "place of birth", place);
+    items.push([ask(y), fact(g, "place of birth", place)]);
+  }
+  const x = nm(), s = nm(), l = nm(), gs = nm(), gl = nm();
+  deposit(items, x, "child", s);
+  deposit(items, x, "child", l);
+  deposit(items, s, "occupation", "surgeon");
+  deposit(items, l, "occupation", "lawyer");
+  deposit(items, s, "child", gs);
+  deposit(items, l, "child", gl);
+  deposit(items, gs, "place of birth", places[3]);
+  deposit(items, gl, "place of birth", places[4]);
+  const condition = (steps) => {
+    const n = steps.filter((s) => s.mechanism.at(-1) === "relationFrames")
+      .map((s) => s.note).find((n) => n.includes("[1: "));
+    if (n === undefined) return [];
+    const at = n.indexOf("[1: ") + 4;
+    return n.slice(at, n.indexOf("]", at)).split(", ").sort();
+  };
+  for (const reverse of [false, true]) {
+    const [{ steps }] = await ask_(reverse ? [...items].reverse() : items, [
+      ask(x),
+    ]);
+    assert.deepEqual(condition(steps), [
+      "The occupation of · is lawyer.",
+      "The occupation of · is surgeon.",
+    ], reverse ? "reversed" : "forward");
+    assert.ok(
+      !steps.some((s) =>
+        s.mechanism.at(-1) === "askedByCoInstance" &&
+        s.outputs.some((o) => o.text.includes("place of birth"))
+      ),
+      `${reverse ? "reversed" : "forward"}: one line named as required`,
+    );
+  }
+});
+
+const ask_ = (items, questions) => ask(items, questions, true);

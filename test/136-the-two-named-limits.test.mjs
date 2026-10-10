@@ -143,7 +143,7 @@ test("136.2 the extension is not priced — and it pays for itself", async () =>
 });
 
 test("136.3 the gate's total and the law's per-span reading agree — measured, not argued", async () => {
-  // GAP 1 of the §22 register.  The two readings WOULD diverge if a gap below one
+  // The two readings WOULD diverge if a gap below one
   // quantum could survive into the accounting — a total >= W while every gap < W —
   // and the register kept that as an unmeasured limit.  It is measured here and it
   // does not happen: on every construction below the response either reports NO

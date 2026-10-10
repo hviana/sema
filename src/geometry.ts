@@ -180,6 +180,14 @@ export function consensusFloor(N: number): number {
   return Math.log(N) + 1 / 2;
 }
 
+/** The hub bound `⌈√n⌉` for a count of learnt contexts, floored at 2 — the
+ *  one cap on every per-query read (bounded-reads.md).  `traverse.ts` reads
+ *  it over the corpus (`hubBound`); a module holding a bare store reads it
+ *  over `edgeSourceCount()` (`GraphSearch`). */
+export function boundFor(contextCount: number): number {
+  return Math.ceil(Math.sqrt(Math.max(2, contextCount)));
+}
+
 // ---- types ----
 
 export interface Folded {

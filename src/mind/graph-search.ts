@@ -23,6 +23,7 @@ import {
   type Rule,
 } from "../derive/src/index.js";
 import type { Store } from "../store.js";
+import { boundFor } from "../geometry.js";
 import { bytesEqual, concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { GraphSearchHost } from "./types.js";
 
@@ -506,16 +507,10 @@ export class GraphSearch {
     private readonly host: GraphSearchHost,
   ) {}
 
-  /** The hub bound √N (bounded-reads.md) — the ONE fan-out cap, stated here
-   *  rather than imported from `traverse.ts` because this module is
-   *  deliberately host-based (it holds a bare Store, never a MindContext).
-   *  That is the same write/read-side duplication convention canonical.ts's
-   *  header documents: if the formula changes it must change in BOTH places.
-   *  It is stated ONCE per side, though — the expression used to be spelled
-   *  out at three call sites here, one of them inside a per-item rules
-   *  generator, and they had already drifted on the `Math.max(2, …)` floor. */
+  /** The hub bound √N (bounded-reads.md) — the ONE fan-out cap, read over the
+   *  store this module holds (it never holds a MindContext). */
   private hubBound(): number {
-    return Math.ceil(Math.sqrt(Math.max(2, this.store.edgeSourceCount())));
+    return boundFor(this.store.edgeSourceCount());
   }
 
   /** Explore the Sema graph for the lightest cover of the query and return its

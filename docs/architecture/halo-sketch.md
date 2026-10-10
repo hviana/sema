@@ -25,9 +25,9 @@ is why the halo is a statistic rather than a record.
 
 A partner's own signature (`companySignature`, a random unit vector seeded by
 its node id) records a token: "occurred near node #4711992". Whole deposits
-almost never recur (whole-span dedup on the trained store is 0.98×), so the
-halos of genuine synonyms came out quasi-orthogonal. The best distributional
-sibling of `Eiffel Tower` scored 0.146 against a bar of 0.516.
+almost never recur (whole-span dedup on the trained store is 0.98×), so by
+tokens alone genuine synonyms are quasi-orthogonal: the best distributional
+sibling of `Eiffel Tower` scores 0.146 against a bar of 0.516.
 
 So `companyProfile` superposes the partner's own signature with the signatures
 of its **bottom-k constituent sketch**: the `k = profileCapacity(D) = ⌊√D⌋`
@@ -86,13 +86,9 @@ remain valid.
 | concept hops in `cover`: an edge-less form borrows a halo sibling's continuation, at `CONCEPT` | `conceptThreshold` |
 | CAST's analogy strength                                                                        | `significanceBar`  |
 | `chooseNext`: halo mass breaks ties after `prevCount`                                          | ordering only      |
+| articulation: an answer form is voiced in the asker's halo synonym, never the whole answer     | `conceptThreshold` |
 
-The bars are derived in `geometry.ts` (`thresholds.md`):
-
-- `estimatorNoise = 1/√D`;
-- `significanceBar = 3/√D`;
-- `conceptThreshold = 0.5 + 0.5/√D`, the structural midpoint plus half a noise
-  unit.
+The bars are derived in `geometry.ts` (`thresholds.md`).
 
 `haloMass` and `hasHalo` are point probes. `halo(id)` is the bounded vector
 read, and `resonateHalo` is the capped ANN query.

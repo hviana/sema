@@ -558,7 +558,7 @@ test("15. the live record tells the two refusal gates apart", async () => {
   // show WHICH gate refused.
   //
   // This pins the one gate that refused, from the live commit record
-  // (`recordAnchor`, spec §8: decisions recorded as the gates apply them, never
+  // (`recordAnchor`: decisions recorded as the gates apply them, never
   // reconstructed).  It asserts a PROPERTY, not an anchor id: at least one
   // anchor must be rejected with the floor failing and the break PASSING —
   // otherwise the fixture never reached the divergence it is here to pin.

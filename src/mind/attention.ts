@@ -70,7 +70,7 @@ import { rItem, rNode, traceDerivation } from "./trace.js";
 // payload on the SAME "climbConsensus" step, the machinery that produced
 // that text: every structural saturation stop, candidate breadth versus
 // evidence that actually contributed, and the decisions that removed or
-// accepted evidence (§ objective of the instrumentation spec).
+// accepted evidence.
 //
 // The mutable collection buffers (the `TraceDraft` below) are allocated ONLY
 // when `ctx.trace` is set — every call site that would otherwise push onto
@@ -100,7 +100,7 @@ export type RegionOutcome =
   | "contrastive-margin-rejection";
 
 /** The best DIFFERENT-conclusion rival the contrastive-margin gate found
- *  while scanning an ordinary (approximate) region's ANN hits — spec §1.
+ *  while scanning an ordinary (approximate) region's ANN hits.
  *  Its roots/saturation/contextsReached are already available through
  *  `reaches` (serialiseReaches) for `node`; not duplicated here. */
 export interface ConsensusContrastiveRivalTrace {
@@ -212,7 +212,7 @@ export interface JunctionVoteTrace {
   tier?: ClimbConsensusJunctionTier;
 
   /** Zero-based index into `crossRegion.probes` — the probe this vote was
-   *  produced from (spec §8). */
+   *  produced from. */
   probe: number;
   confidence: number;
   /** "Evidence bytes" — the container-coverage byte count (the existing
@@ -223,14 +223,14 @@ export interface JunctionVoteTrace {
 }
 
 /** Whether one DAG/synonym tier attempt was even made for a probe, and how
- *  many candidate containers it returned — spec §2/§3. */
+ *  many candidate containers it returned. */
 export interface CrossRegionTierAttemptTrace {
   attempted: boolean;
   candidatesReturned: number;
 }
 
 /** Aggregate outcome of the container-selection loop for a DAG/synonym tier
- *  that returned at least one container — spec §4.  Only aggregate counts
+ *  that returned at least one container.  Only aggregate counts
  *  and the final outcome are recorded, never every candidate. */
 export interface CrossRegionStructuralTrace {
   tier: "exact" | "single-synonym" | "double-synonym";
@@ -247,7 +247,7 @@ export interface CrossRegionStructuralTrace {
 }
 
 /** One retained structural-resonance variant that actually issued its own
- *  ANN query — spec §5. */
+ *  ANN query. */
 export interface StructuralResonanceVariantTrace {
   kind: StructuralVariant["kind"];
   semanticConfidence: number;
@@ -257,7 +257,7 @@ export interface StructuralResonanceVariantTrace {
 }
 
 /** One merged structural-resonance proposal actually examined via
- *  edgeAncestors — spec §5.  Retains node/variant/scores, but NOT
+ *  edgeAncestors.  Retains node/variant/scores, but NOT
  *  roots/saturation/contextsReached/idf (already in `reaches`). */
 export interface StructuralResonanceCandidateTrace {
   node: number;
@@ -295,7 +295,7 @@ export interface StructuralResonanceTrace {
   >;
 }
 
-/** One cross-region pair the ladder actually probed — spec §2.  Exactly one
+/** One cross-region pair the ladder actually probed.  Exactly one
  *  of these is pushed per pair that incremented `probes`. */
 export interface CrossRegionProbeTrace {
   leftRegionIndex: number;
@@ -433,7 +433,7 @@ function newTraceDraft(perceivedCount: number): TraceDraft {
 }
 
 /** Serialise the shared `reachMemo` into the plain, authoritative saturation
- *  profile (spec §5) — every distinct node any tier's `edgeAncestors` call
+ *  profile — every distinct node any tier's `edgeAncestors` call
  *  climbed from during this response, in insertion (first-consulted) order. */
 function serialiseReaches(
   reachMemo: ReadonlyMap<number, AncestorReach>,
@@ -503,7 +503,7 @@ export async function climbAttentionAll(
     const hit = byRead.get(modeKey);
     if (hit !== undefined) {
       if (ctx.meter) ctx.meter.climbHits++;
-      // Cache-hit exit (spec §9): the abbreviated payload shape — only what
+      // Cache-hit exit: the abbreviated payload shape — only what
       // is actually stored in the cached AttentionRead is reported.  No
       // candidate, reach, saturation, pooling or anchor detail is fabricated
       // (that per-region detail was never retained by the memo).
@@ -593,7 +593,7 @@ export async function computeAttention(
     });
   }
 
-  // The trace draft (spec §9): allocated ONLY when a trace was requested —
+  // The trace draft: allocated ONLY when a trace was requested —
   // every downstream consumer gates its own writes on `td?` / `if (td)`, so
   // an untraced climb pays zero allocation for this instrumentation.
   const td: TraceDraft | undefined = ctx.trace
@@ -648,7 +648,7 @@ export async function computeAttention(
     ]
     : rvs.votes;
   // Mark, on the per-region trace, the source region of every superseded
-  // ordinary vote (spec §4's final rule) — an explicit pass over the exact
+  // ordinary vote — an explicit pass over the exact
   // set crossRegionVotes' explaining-away logic removed, never inferred
   // from `absorbed`.
   if (td && cross.superseded.size > 0) {
@@ -941,7 +941,7 @@ export async function voteRegions(
     const known = cov >= 1 && !subWindow;
     // Trace-only bookkeeping for this region — allocated only under `td`
     // (i.e. only when ctx.trace is set); see ConsensusRegionTrace/
-    // RegionOutcome (spec §4).  `examinedIds` tracks distinct ANN hits
+    // RegionOutcome.  `examinedIds` tracks distinct ANN hits
     // whose edgeAncestors reach was actually CONSULTED here (not merely
     // returned by resonate) — the fallback/margin loops below add to it.
     const examinedIds = td ? new Set<number>() : undefined;
@@ -1793,7 +1793,7 @@ export function commitVotes(
     const absorbed = placed.some((p) => overlaps(point, p));
     // Commit decisions are recorded LIVE, inside this loop, in the exact
     // shape the gates below apply them — never reconstructed afterward from
-    // the final `roots` (spec §8's explicit requirement).
+    // the final `roots`.
     let status: "root" | "overlap" | "rejected";
     let dominant = false;
     let passesNaturalBreak: boolean | undefined;
@@ -2282,7 +2282,7 @@ interface StructuralVariantSpec {
 }
 
 /** Same deterministic ordering the old implementation applied to already-
- *  materialized variants (§8): semantic confidence desc, then kind
+ *  materialized variants: semantic confidence desc, then kind
  *  (left-synonym, right-synonym, double-synonym), then sibling ids asc. */
 function compareStructuralVariantSpecs(
   a: StructuralVariantSpec,
@@ -2393,7 +2393,7 @@ function loadBoundedSiblingGist(
   return gist;
 }
 
-/** Build, bound and order every mandatory structural variant (§7-8): the
+/** Build, bound and order every mandatory structural variant: the
  *  exact/exact composition is always kept; up to `ctx.cfg.haloQueryK`
  *  synonym variants (single- and double-synonym combined, one shared
  *  budget) are appended, ordered by confidence, then kind, then sibling id.
@@ -2484,7 +2484,7 @@ export function buildStructuralVariants(
 
 /** Deterministic best-of tie-break for two proposals ranked for the SAME
  *  candidate id — effectiveScore, then annScore, then semanticConfidence,
- *  then variant kind, then sibling ids (§10). */
+ *  then variant kind, then sibling ids. */
 function betterProposal(
   a: StructuralResonanceProposal,
   b: StructuralResonanceProposal,
@@ -2539,7 +2539,7 @@ export async function structuralResonance(
   reachMemo: Map<number, AncestorReach>,
   /** Each side's OWN individual climb roots (from voteRegions), when it cast
    *  one — the self-evidence backstop structural-resonance needs and the
-   *  exact tier gets for free from literal byte containment (§11's whole
+   *  exact tier gets for free from literal byte containment (the tier's whole
    *  premise: recover a JOINT context neither side votes for alone).  A
    *  candidate whose reach is exactly one side's own conclusion is not new
    *  evidence of a joint whole; it is that side's resonance rediscovering
@@ -2610,7 +2610,7 @@ export async function structuralResonance(
     b.effectiveScore - a.effectiveScore || a.id - b.id
   );
 
-  // One shared shape for every `examined` entry (spec §5): only `outcome`
+  // One shared shape for every `examined` entry: only `outcome`
   // varies across the six exit points below, so build it once instead of
   // repeating the six-field literal at each site.
   const recordExamined = (
@@ -2897,7 +2897,7 @@ async function crossRegionVotes(
       if (td?.crossRegionSummary) {
         td.crossRegionSummary.probesAttempted = probes;
       }
-      // Trace-only per-probe bookkeeping (spec §2-§7) — built incrementally
+      // Trace-only per-probe bookkeeping — built incrementally
       // as the ladder runs, pushed exactly once at whichever exit fires
       // below.  `pushProbe` is called at every continue/success exit for
       // THIS pair so the invariant `probes.length === probesAttempted`
@@ -2930,7 +2930,7 @@ async function crossRegionVotes(
       const maxInterior = (left.length + right.length) * ctx.space.maxGroup;
       const cap = left.length + right.length + maxInterior;
 
-      // The graded ladder (spec §1): exact DAG junction, then single-synonym,
+      // The graded ladder: exact DAG junction, then single-synonym,
       // then double-synonym, then — only when every DAG tier found nothing —
       // structural-resonance.  `sides` (the two halo sibling lists) is loaded
       // ONCE and reused by junctionSynonyms AND structural-resonance, so no
@@ -3113,7 +3113,7 @@ async function crossRegionVotes(
         // A resonance proposal is NOT a Junction — there is no container to
         // read bytes from, so the self-evidence/contradiction/N-ary
         // machinery below (byte-verified against a real container) does not
-        // apply; per spec §13, no N-ary extra-region coverage for resonance
+        // apply; no N-ary extra-region coverage for resonance
         // proposals.
         best = { id: structuralPick.proposal.id, interior: new Uint8Array(0) };
         bestExtras = [];
@@ -3122,7 +3122,7 @@ async function crossRegionVotes(
         idf = structuralPick.idf;
         confidence = structuralPick.proposal.effectiveScore;
       } else {
-        // Aggregate structural-tier trace (spec §4) — one per DAG tier that
+        // Aggregate structural-tier trace — one per DAG tier that
         // returned at least one container (exact, single-synonym or
         // double-synonym); only aggregate counts and the final outcome are
         // recorded, never every candidate.
@@ -3230,7 +3230,7 @@ async function crossRegionVotes(
         }
         reach = r;
         idf = df;
-        // Confidence used by voting (spec §13): exact junction = 1;
+        // Confidence used by voting: exact junction = 1;
         // single/double-synonym = the sibling(s)' score(s), carried on the
         // SynonymJunction the ladder selected.
         confidence = "confidence" in best ? best.confidence : 1;
@@ -3266,7 +3266,7 @@ async function crossRegionVotes(
       // `reply-greet` ▸ `red` resonated to `red square` and consumed `red`,
       // after which `red` ▸ `circle` was never probed and the exact junction
       // `red circle` — a stored whole, sitting right there — went unfound.
-      // This is spec §15's asymmetry (only exact DAG evidence may explain
+      // This is exact-vs-approximate.md's asymmetry (only exact DAG evidence may explain
       // ordinary votes away) applied to the other way a tier can silence
       // evidence.  Both votes now stand and pooling decides between them,
       // which is what the mechanism market is for.
@@ -3286,7 +3286,7 @@ async function crossRegionVotes(
       // for, not evidence lost — `absorbed` (RegionVote's breadth-accounting
       // field) must credit the junction with all of it, not just the ONE
       // pooled axiom it collapses to.
-      // Only EXACT DAG evidence may explain away ordinary votes (spec §15).
+      // Only EXACT DAG evidence may explain away ordinary votes (exact-vs-approximate.md).
       // Single-synonym, double-synonym, and structural-resonance may ADD
       // supporting evidence but never remove it: their evidence is itself
       // approximate (a sibling substitution, or an ANN guess), so treating
@@ -3294,8 +3294,7 @@ async function crossRegionVotes(
       // let an approximation override a genuine, independently-voted region.
       let explainedAway = 0;
       // Exact set of ORIGINAL region indices this junction explained away —
-      // recorded live as `superseded.add` fires (spec §3's explicit rule:
-      // never inferred from `absorbed` afterward).
+      // recorded live as `superseded.add` fires (never inferred from `absorbed` afterward).
       const explainedAwayIndices: number[] = [];
       if (tier === "exact") {
         const containerBytes = cachedRead(ctx, cache, best.id, cap);
@@ -3336,7 +3335,7 @@ async function crossRegionVotes(
       // log record reachable only through a split form still grounds, because
       // it grounds as evidence for an anchor, not as a topic of its own).
       // Safe against the explaining-away accounting because that is EXACT
-      // tier only (spec §15) and an all-corroborating junction has no exact
+      // tier only (exact-vs-approximate.md) and an all-corroborating junction has no exact
       // ordinary vote to absorb.
       const jointCorroborating = [cand[a], cand[b], ...bestExtras]
         .every((ri) => regions[ri].corroborating === true);
@@ -3435,7 +3434,7 @@ async function crossRegionVotes(
  *  the structured {@link ClimbConsensusData} payload on the SAME step's
  *  `data` field.  Every exit of {@link computeAttention} funnels through
  *  here, so instrumentation and the existing rationale text can never drift
- *  apart — see the instrumentation spec's §9 "every exit path". */
+ *  apart. */
 export function traceAttention(
   ctx: MindContext,
   regions: ReadonlyArray<{ start: number; end: number }>,

@@ -34,7 +34,12 @@
 //         the 2Wiki fixtures, without it, one-thing instances parted on `t's `
 //         were read for about 0.5% more branch lookups and no answer);
 //   159.7 the meet explains the frame the instances share, the parting and
-//         the two things, and no more.
+//         the two things, and no more;
+//   159.8 the entity met at holds what every instance's meeting entity holds:
+//         of two shared grandparents, the surgeon every instance answered,
+//         whichever side it stood on, in either deposit order;
+//   159.9 …a fact they all hold by accident too — the limit of reading
+//         instances, which concludes nothing.
 // Control: with the instances' answers scrambled, nothing meets.
 
 import { test } from "node:test";
@@ -289,4 +294,77 @@ test("159.C control: scrambled answers meet nothing", async () => {
   const { items, c } = world((_, i, inst) => inst[(i + 1) % 3].g);
   const { met } = await respond(items, ask(c));
   assert.ok(!met, "a scrambled answer was met");
+});
+
+/** Cousins x and y whose `father` and `mother` share BOTH their father g1 and
+ *  their mother g2: two shared grandparents.  Instances ask which of them is a
+ *  medic, answered with the surgeon, who stands on side 1 or 2 (`sides`), three
+ *  instances a side, so the climb's points hold two of each; the question's
+ *  surgeon is g1.  `accident` gives every instance's surgeon one more fact the
+ *  question's lacks: the same one ("all"), or one of its own ("own"). */
+function grandparents(sides, accident = null) {
+  const people = [];
+  for (const l of LAST) for (const f of FIRST) people.push(`${f} ${l}`);
+  let k = 0;
+  const nm = () => people[(k += 7) % people.length];
+  const items = [];
+  const q = (c) => `Which grandparent of both ${c.x} and ${c.y} is a medic?`;
+  const family = () => {
+    const c = { x: nm(), y: nm(), f: nm(), m: nm(), g1: nm(), g2: nm() };
+    deposit(items, c.x, "father", c.f);
+    deposit(items, c.y, "mother", c.m);
+    for (const p of [c.f, c.m]) {
+      deposit(items, p, "father", c.g1);
+      deposit(items, p, "mother", c.g2);
+    }
+    return c;
+  };
+  for (const [i, side] of sides.entries()) {
+    const c = family();
+    const [medic, other] = side === 1 ? [c.g1, c.g2] : [c.g2, c.g1];
+    deposit(items, medic, "occupation", "surgeon");
+    deposit(items, other, "occupation", "lawyer");
+    if (accident !== null) {
+      const NATION = ["Velorian", "Ostrian", "Quellish", "Marrovan"];
+      deposit(
+        items,
+        medic,
+        "nationality",
+        NATION[accident === "all" ? 0 : i % 4],
+      );
+    }
+    items.push([q(c), `The answer is ${medic}.`]);
+  }
+  const c = family();
+  deposit(items, c.g1, "occupation", "surgeon");
+  deposit(items, c.g2, "occupation", "lawyer");
+  return { items, q: q(c), surgeon: c.g1, lawyer: c.g2 };
+}
+
+test("159.8 the meet holds what every instance's meeting entity is", async () => {
+  // No route fits every instance — the surgeon alternates sides — but every
+  // instance's meeting entity is a surgeon: each side's pair of derivations
+  // meets at both shared grandparents, and only the surgeon is what the
+  // instances met at.  Each instance's surgeon also has a nationality of its
+  // own: no instance's alone is a condition.
+  for (const sides of [[1, 2, 1, 2, 1, 2], [1, 1, 1, 2, 2, 2]]) {
+    const w = grandparents(sides, "own");
+    for (const reverse of [false, true]) {
+      const { a, met } = await respond(w.items, w.q, reverse);
+      assert.ok(
+        met && a.includes(w.surgeon) && !a.includes(w.lawyer),
+        `${sides.join("")}${reverse ? " reversed" : ""}: ${a}`,
+      );
+    }
+  }
+});
+
+test("159.9 a fact every instance's meeting entity holds by accident is required too", async () => {
+  // The limit of reading instances (evidence.md): three surgeons who are all
+  // Velorian cannot tell `surgeon` from `Velorian`, so the question's surgeon,
+  // who is not, is not met — and nothing is concluded from that.
+  const w = grandparents([1, 2, 1, 2, 1, 2], "all");
+  const { met, steps } = await respond(w.items, w.q);
+  assert.ok(!met, "an entity lacking the accidental fact was met");
+  assert.ok(!steps.some((s) => /refut/i.test(s.mechanism.at(-1))));
 });

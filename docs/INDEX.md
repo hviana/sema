@@ -9,7 +9,7 @@ Sema is one system, stated four ways:
 | `AGENTS.md`          | the prescription: what to do, and where                                                   |
 | `test/`              | the proof: pins that fail when a law is broken                                            |
 
-`docs/INVARIANTS.md` routes every law to its code and its pins.
+`docs/INVARIANTS.md` routes every law to its code and pins.
 
 ## What to read for each task
 
@@ -71,4 +71,4 @@ consumers).
   the evidence.
 - `docs/harness/gates.md` — the four executable gates.
 - `src/derive/`, `src/alu/`, `src/rabitq-ivf/` — firewalled sublibraries, each
-  with its own README and tests.
+  with its README and tests.

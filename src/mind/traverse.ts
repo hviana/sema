@@ -7,7 +7,7 @@
 // project) live in match.ts — the elementary match-and-project operation.
 
 import { cosine, Vec } from "../vec.js";
-import { dominates } from "../geometry.js";
+import { boundFor, dominates } from "../geometry.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { canonResolve, gistOf, read, resolve } from "./primitives.js";
 import {
@@ -47,13 +47,33 @@ interface StructCache {
   hasParents: Map<number, boolean>;
 }
 //
-// Budgeted on the same terms as the reach memo below (caches.md): these three
-// maps are cleared on every write, but a long read-only session over a large
-// store converges on one entry per node per map with nothing to bound it. Past
-// the cap all three are dropped together and re-derived, costing cold
-// structural probes and never a wrong answer.
+// Budgeted (caches.md): these three maps are cleared on every write, but a
+// long read-only session over a large store converges on one entry per node
+// per map with nothing to bound it.  Every entry is one number or boolean, so
+// a count of entries is their byte budget: past it all three are dropped
+// together and re-derived, costing cold structural probes and never a wrong
+// answer.
 const STRUCT_MEMO_MAX = 100_000;
 const structCaches = new WeakMap<object, StructCache>();
+
+/** A session memo whose entries vary in size, budgeted in BYTES and dropped
+ *  WHOLE at its budget (caches.md): each entry is charged its estimated size
+ *  once, when set, so a hit costs nothing a plain Map's does not. */
+class MemoMap<K, V> extends Map<K, V> {
+  constructor(
+    readonly spent: { bytes: number },
+    private readonly sizeOf: (v: V) => number,
+  ) {
+    super();
+  }
+  override set(k: K, v: V): this {
+    if (!super.has(k)) this.spent.bytes += this.sizeOf(v);
+    return super.set(k, v);
+  }
+}
+
+/** A step, or any small record of byte views, as a memo charges it. */
+const RECORD_BYTES = 64;
 
 // ── The shared ancestor-reach memo ──────────────────────────────────────
 //
@@ -70,11 +90,12 @@ const structCaches = new WeakMap<object, StructCache>();
 // battery repeatedly reaches the same corpus scaffolding even when its
 // surface questions differ.
 //
-// Budgeted, not unbounded (caches.md): past the cap the whole map is dropped
-// and
-// re-derived, costing a cold climb and never a wrong answer.
-const REACH_MEMO_MAX = 100_000;
-const reachCaches = new WeakMap<object, Map<number, AncestorReach>>();
+// Budgeted, not unbounded (caches.md): an entry holds up to √N roots, so the
+// memo is budgeted in bytes; past it the whole map is dropped and re-derived,
+// costing a cold climb and never a wrong answer.  The 31.7M-node battery peaks
+// near 9 MB.
+const REACH_MEMO_BYTES = 32_000_000;
+const reachCaches = new WeakMap<object, MemoMap<number, AncestorReach>>();
 
 /** The reach memo this ask should use — see the note above.
  *
@@ -91,8 +112,13 @@ export function sharedReachMemo(
 ): Map<number, AncestorReach> {
   if (ctx.trace !== null || ctx.climbMemo === null) return new Map();
   let m = reachCaches.get(ctx._structMemoKey);
-  if (m === undefined) reachCaches.set(ctx._structMemoKey, m = new Map());
-  else if (m.size >= REACH_MEMO_MAX) m.clear();
+  if (m === undefined) {
+    m = new MemoMap({ bytes: 0 }, (r) => RECORD_BYTES + 8 * r.roots.length);
+    reachCaches.set(ctx._structMemoKey, m);
+  } else if (m.spent.bytes >= REACH_MEMO_BYTES) {
+    m.clear();
+    m.spent.bytes = 0;
+  }
   return m;
 }
 
@@ -122,40 +148,44 @@ function getStructCache(ctx: MindContext): StructCache | null {
 
 /** A derivation read off an instance, and the entities a fact holds, depend
  *  on the instance, the fact and the store — never on the question — so they
- *  are kept for the session like the climb's reach, and dropped on a write. */
+ *  are kept for the session like the climb's reach, and dropped on a write or,
+ *  all six together, at one byte budget. */
 interface DerivationCache {
-  paths: Map<string, Step[][]>;
-  slots: Map<string, { span: [number, number]; id: number } | null>;
-  converges: Map<string, Array<[Arrival, Arrival]>>;
-  facts: Map<number, Map<string, Step>>;
-  described: Map<string, Step[] | null>;
-  entities: Map<number, Array<{ span: [number, number]; id: number }>>;
+  spent: { bytes: number };
+  paths: MemoMap<string, Step[][]>;
+  slots: MemoMap<string, { span: [number, number]; id: number } | null>;
+  converges: MemoMap<string, Array<[Arrival, Arrival]>>;
+  facts: MemoMap<number, Map<string, Step>>;
+  described: MemoMap<string, Step[] | null>;
+  entities: MemoMap<number, Array<{ span: [number, number]; id: number }>>;
 }
+const DERIVATION_MEMO_BYTES = 16_000_000;
 const derivationCaches = new WeakMap<object, DerivationCache>();
 function derivationCache(ctx: MindContext): DerivationCache | null {
   if (ctx.trace !== null || ctx.climbMemo === null) return null;
   let c = derivationCaches.get(ctx._structMemoKey);
-  if (c === undefined) {
+  if (c === undefined || c.spent.bytes >= DERIVATION_MEMO_BYTES) {
+    const spent = { bytes: 0 };
+    const steps = (n: number) => RECORD_BYTES * (n + 1);
     derivationCaches.set(
       ctx._structMemoKey,
       c = {
-        paths: new Map(),
-        entities: new Map(),
-        described: new Map(),
-        facts: new Map(),
-        slots: new Map(),
-        converges: new Map(),
+        spent,
+        paths: new MemoMap(
+          spent,
+          (ws) => ws.reduce((a, w) => a + steps(w.length), RECORD_BYTES),
+        ),
+        entities: new MemoMap(spent, (xs) => steps(xs.length)),
+        described: new MemoMap(spent, (xs) => steps(xs?.length ?? 0)),
+        facts: new MemoMap(spent, (m) => steps(m.size)),
+        slots: new MemoMap(spent, () => RECORD_BYTES),
+        converges: new MemoMap(spent, (ps) =>
+          ps.reduce(
+            (a, [x, y]) => a + steps(x.steps.length) + steps(y.steps.length),
+            RECORD_BYTES,
+          )),
       },
     );
-  } else if (
-    c.paths.size >= STRUCT_MEMO_MAX || c.entities.size >= STRUCT_MEMO_MAX
-  ) {
-    c.paths.clear();
-    c.entities.clear();
-    c.described.clear();
-    c.facts.clear();
-    c.slots.clear();
-    c.converges.clear();
   }
   return c;
 }
@@ -584,16 +614,6 @@ export function corpusN(ctx: MindContext): number {
  *  convention. */
 export function hubBound(ctx: MindContext): number {
   return boundFor(corpusN(ctx));
-}
-
-/** √N for an EXPLICIT context count — the ctx-free reading of {@link
- *  hubBound}, for the callers inside this module that are handed a count
- *  rather than a context ({@link edgeAncestors}, {@link atomIsHub}).  The
- *  floor at 2 matches {@link corpusN}'s, so both readings agree for every
- *  input: the two used to be spelled out inline, once WITH the floor and
- *  once without, in the same function. */
-function boundFor(contextCount: number): number {
-  return Math.ceil(Math.sqrt(Math.max(2, contextCount)));
 }
 
 /** Cap a candidate list at the hub bound √N (insertion order) — the ONE
@@ -1768,8 +1788,11 @@ interface RelationFrame {
    *  there holds, spelled with the entity cut out — what the derivation says
    *  of the entities it stands on, not only how it leaves them. */
   cond?: Array<Map<string, Step>>;
-  /** The first instance's entities, read for `cond` once another agrees. */
-  first?: Array<Step["to"]>;
+  /** The first instance's entities, per way, read for `cond` once another
+   *  agrees. */
+  first?: Array<Array<Step["to"]>>;
+  /** `cond` before the instance read last, which its further ways add to. */
+  base?: Array<Map<string, Step>>;
 }
 
 /** Whether other instances of the question carry a relation — a frame two
@@ -1875,27 +1898,44 @@ function relationFrames(
     // entity will take.
     const at = said?.steps.length ?? 0;
     const to = all.slice(0, -1).map((_, i) => i < at ? undefined : tos[i - at]);
+    // An instance that reached a position by SEVERAL ways (two children of Y
+    // that share the answer) supports a fact there when ONE of its entities
+    // holds it: the facts are joined over an instance's ways and met across
+    // instances, so no way the corpus deposited first becomes a requirement.
+    const kept = (m: Map<string, Step>, e: Step["to"]) =>
+      m.size === 0 || e === undefined
+        ? new Map<string, Step>()
+        : new Map([...m].filter(([, c]) => holds(ctx, e.bytes, c)));
     const known = spelled.get(key);
     if (known !== undefined) {
+      if (known.by.at(-1) === q) {
+        // Another way of the instance read last.
+        if (known.cond === undefined) known.first!.push(to);
+        else {
+          known.cond = known.cond.map((m, i) =>
+            new Map([...m, ...kept(known.base![i], to[i])])
+          );
+        }
+        return;
+      }
       if (known.by.includes(q)) return;
       known.by.push(q);
-      known.cond = (known.cond ?? known.first!.map((e) =>
-        e === undefined ? new Map<string, Step>() : factFrames(ctx, e)
-      )).map((m, i) => {
-        const e = to[i];
-        return m.size === 0 || e === undefined
-          ? new Map<string, Step>()
-          : new Map([...m].filter(([, c]) =>
-            holds(ctx, e.bytes, c)
-          ));
-      });
+      known.base = known.cond ??
+        known.first![0].map((_, i) =>
+          new Map(
+            known.first!.flatMap((way) =>
+              way[i] === undefined ? [] : [...factFrames(ctx, way[i]!)]
+            ),
+          )
+        );
+      known.cond = known.base.map((m, i) => kept(m, to[i]));
       return;
     }
     const fr: RelationFrame = {
       by: [q],
       ...all[0],
       spans: co.spans,
-      first: to,
+      first: [to],
     };
     if (not !== undefined) fr.not = not;
     if (all.length > 1) {
@@ -2193,6 +2233,14 @@ function entitiesIn(
  *  bytes: ` is Thistlecombe.` holds `Thistlecombe`; `The date of birth of `
  *  holds nothing. */
 export function holdsAThing(ctx: MindContext, bytes: Uint8Array): boolean {
+  return thingIn(ctx, bytes) !== null;
+}
+
+/** The first thing learnt whole `bytes` hold, longest from where it opens. */
+function thingIn(
+  ctx: MindContext,
+  bytes: Uint8Array,
+): { id: number; bytes: Uint8Array } | null {
   const W = ctx.space.maxGroup;
   const ids = leafIdPrefix(ctx, bytes);
   const cache = getStructCache(ctx);
@@ -2203,10 +2251,10 @@ export function holdsAThing(ctx: MindContext, bytes: Uint8Array): boolean {
       if (
         n !== null && cachedHasNext(ctx, n, cache) &&
         ctx.store.haloMass(n) > 0
-      ) return true;
+      ) return { id: n, bytes: bytes.subarray(st, en) };
     }
   }
-  return false;
+  return null;
 }
 
 /** The facts an entity holds, each spelled with the entity cut out (`The
@@ -2620,6 +2668,11 @@ export interface Convergence {
   explains: Array<[number, number]>;
   /** Per instance, as read, before they are intersected. */
   shared?: Uint8Array[];
+  /** Per instance, the answers its pairs of derivations met at. */
+  met?: Map<number, Uint8Array[]>;
+  /** The facts EVERY instance's meeting entity holds (one of them, where an
+   *  instance met at several), spelled with the entity cut out. */
+  cond?: Map<string, Step>;
 }
 
 /** The two things a question names around its frame — and the convergences
@@ -2832,11 +2885,13 @@ function readConvergence(
           answers: [a.frame, b.frame],
           explains: [],
           shared: [mask],
+          met: new Map([[c.q, [a.name]]]),
         });
       } else if (!known.by.includes(c.q)) {
         known.by.push(c.q);
         known.shared!.push(mask);
-      }
+        known.met!.set(c.q, [a.name]);
+      } else known.met!.get(c.q)!.push(a.name);
       x ??= asked;
     }
   }
@@ -2847,6 +2902,21 @@ function readConvergence(
       for (let i = 0; i < all.length; i++) all[i] &= m[i];
     }
     for (const t of x ?? []) all.fill(1, t.span[0], t.span[1]);
+    // WHAT THE DERIVATIONS SAY OF THE ENTITY THEY MEET AT, read as a path's
+    // entities are: what every instance's meeting entity holds.
+    let cond: Map<string, Step> | undefined;
+    for (const names of c.met!.values()) {
+      const facts = new Map<string, Step>();
+      for (const n of names) {
+        const t = thingIn(ctx, n);
+        if (t !== null) { for (const f of factFrames(ctx, t)) facts.set(...f); }
+      }
+      cond = cond === undefined
+        ? facts
+        : new Map([...cond].filter(([key]) => facts.has(key)));
+    }
+    if (cond !== undefined && cond.size > 0) c.cond = cond;
+    delete c.met;
     c.explains = [];
     for (let i = 0; i < all.length;) {
       if (!all[i]) {
@@ -2871,14 +2941,21 @@ function readConvergence(
       ),
       [],
       [...spelled.values()].map((c) =>
-        `${show(c.steps[0])} ⋈ ${show(c.steps[1])} (${c.by.length})`
+        `${show(c.steps[0])} ⋈ ${show(c.steps[1])} (${c.by.length})` +
+        (c.cond === undefined
+          ? ""
+          : ` [${
+            [...c.cond.values()].map((t) =>
+              `${decodeText(t.prefix)}·${decodeText(t.suffix)}`
+            ).join(", ")
+          }]`)
       ).join("; ") + ` — ${frames.length} spelled alike by two or more`,
     );
   }
   return frames.length === 0 || x === null ? null : { x, frames };
 }
 
-type Arrival = { steps: Step[]; frame: AnswerFrame };
+type Arrival = { steps: Step[]; frame: AnswerFrame; name: Uint8Array };
 
 /** What one instance shows of a convergence: for each pair of derivations by
  *  which its two things reach a fact holding its answer exactly, the steps and
@@ -2915,7 +2992,7 @@ function instanceConvergence(
           s0,
           s0 + answer.length,
         ]);
-        return fr === null ? [] : [{ steps: p.steps, frame: fr }];
+        return fr === null ? [] : [{ steps: p.steps, frame: fr, name: answer }];
       });
     const p1 = ends(e1);
     if (p1.length === 0) continue;
@@ -2977,8 +3054,9 @@ function sharedRun(
 /** Where a question's two things meet by a convergence its instances agree
  *  on: each derivation replayed from the question's own thing, the answer each
  *  last fact spells in its side's answer frame (`answerIn`), and the two
- *  compared byte for byte — the exact tier decides.  Each meet with the two
- *  facts, its evidence. */
+ *  compared byte for byte — the exact tier decides — and the entity met at
+ *  holding what every instance's did (`cond`).  Each meet with the two facts,
+ *  its evidence. */
 export function convergenceMeets(
   ctx: MindContext,
   reading: ConvergenceReading,
@@ -3007,6 +3085,13 @@ export function convergenceMeets(
     for (const one of side(0)) {
       for (const other of two) {
         if (bytesEqual(one.name, other.name)) {
+          if (c.cond !== undefined) {
+            const t = thingIn(ctx, one.name);
+            if (t === null || !satisfies(ctx, t.bytes, c.cond)) {
+              if (ctx.meter) ctx.meter.conditionWithheld++;
+              continue;
+            }
+          }
           out.push({
             name: one.name,
             facts: [one.fact, other.fact],

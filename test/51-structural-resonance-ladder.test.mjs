@@ -3,8 +3,6 @@
 // specified this session.  See junction.ts (junctionSynonyms,
 // loadJunctionSynonymSides) and attention.ts (crossRegionVotes,
 // structuralResonance) plus geometry.ts (composeStructuralGist).
-//
-// Covers the 22 items of the implementing spec's §19.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -207,7 +205,7 @@ test("5. loadJunctionSynonymSides is reusable — a failed junction does not emp
   );
   // ...must not have mutated or emptied the SAME sides object passed in —
   // a failed junction search means only "no container was proven", not
-  // "the siblings are no longer useful" (spec §3).
+  // "the siblings are no longer useful".
   assert.ok(
     sides.leftSiblings.some((s) => dec(m.store.bytes(s.id)) === "crimson"),
     "sides' sibling lists must remain populated after a failed junction search",

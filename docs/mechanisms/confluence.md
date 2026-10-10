@@ -73,18 +73,18 @@ keyed by the question's things, whichever parting read them.
 At the question, each derivation is replayed from its own thing, the answer is
 read off each last fact by its frame, and the two are compared byte for byte
 (`convergenceMeets`). A meet is the join's answer, the two facts its evidence;
-two grandfathers that share a first name do not meet. The instances' things and
+two grandfathers that share a first name do not meet. The entity met at holds
+what every instance's meeting entity holds, as a path's entities do
+(`evidence.md`), whichever route each instance took. The instances' things and
 derivations do not depend on the question and are read once per session; the
-question's own things are read only once an instance shows a convergence. A
-form's things are read in its own spelling, never under the equivalence.
+question's own things only once an instance shows a convergence, in its own
+spelling.
 
-Measured on the constructed world: with instances answered `The answer is E.`,
-or with the fact that decides them, every same-phrasing two-thing question
-(mother∧spouse, shared birthplace, shared grandfather) is answered in both
-deposit orders, the shared grandfather (3 of 3) only by the meet: scrambled
-answers or no instances leave it unanswered. Asked in a phrasing no instance
-spells, it has no reading: nothing in the corpus says the two phrasings ask the
-same. With instances in that phrasing too, it does (3 of 3).
+On the constructed world, every same-phrasing two-thing question (mother∧spouse,
+shared birthplace, shared grandfather) is answered in both deposit orders, the
+grandfather (3 of 3) only by the meet; scrambled or absent instances leave it
+unanswered. A phrasing no instance spells has no reading: nothing says the two
+phrasings ask the same.
 
 The meet explains to the market what its evidence explains, and no more: the
 frame every agreeing instance shares with the question, the run that parts the
@@ -120,4 +120,5 @@ touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
   parting the slot differently still agree; an empty meet refutes nothing;
   instances answered with a fact teach the part both sides reach; a frame word
   is not a thing; the meet explains the frame, the parting and the two things,
-  and no more; scrambled answers meet nothing.
+  and no more; the meet holds what every instance's meeting entity holds, even
+  by accident; scrambled answers meet nothing.

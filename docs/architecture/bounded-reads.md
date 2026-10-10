@@ -16,7 +16,7 @@ cap is the walk's own saturation (`saturation.md`).
 corpusN(ctx)     = max(2, store.edgeSourceCount())   // distinct learnt contexts
 hubBound(ctx)    = ⌈√corpusN⌉                        // the store cap
 hubCap(ctx, ids) = ids.slice(0, hubBound(ctx))       // the list-side reading
-boundFor(n)      = ⌈√max(2, n)⌉                      // the ctx-free reading
+boundFor(n)      = ⌈√max(2, n)⌉                      // geometry.ts, any n
 ```
 
 Import these, and never re-derive them inline: no `edgeSourceCount()` or

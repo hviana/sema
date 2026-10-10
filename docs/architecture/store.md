@@ -91,9 +91,9 @@ capability. Without it, `resolve` has no equivalence fallback.
 
 ## Caches and maintenance
 
-Every in-memory cache is a byte-budgeted `BoundedMap` (`caches.md`). ANN read
-caches are keyed by content (`vecKey`), dropped on any index mutation, and
-cleared at `RESONATE_CACHE_MAX`.
+Every in-memory cache is a budgeted `BoundedMap` (`caches.md`). ANN read caches
+are keyed by content (`vecKey`), dropped on any index mutation, and cleared at
+`RESONATE_CACHE_MAX`.
 
 Maintenance is incremental:
 

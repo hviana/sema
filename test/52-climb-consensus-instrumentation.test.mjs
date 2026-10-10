@@ -1,5 +1,5 @@
 // 52-climb-consensus-instrumentation.test.mjs — structured instrumentation
-// for the climbConsensus / inspectRationale step (spec §10).
+// for the climbConsensus / inspectRationale step.
 //
 // Purely additive: every assertion here checks the STRUCTURE of the `data`
 // payload a traced "climbConsensus" RationaleStep now carries, alongside the
@@ -268,7 +268,7 @@ test("6. inspectRationale never changes the answer or the traced result.roots/ra
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 7. a repeated query produces the abbreviated cache-hit payload (§9).
+// 7. a repeated query produces the abbreviated cache-hit payload.
 // ═══════════════════════════════════════════════════════════════════════════
 
 test("7. a repeated query within one response emits the abbreviated cache trace", async () => {

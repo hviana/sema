@@ -8,10 +8,10 @@
 // completions and only along the produced form's own parts — and with per-query
 // work that stays the answer's (test/89 pins the cost).
 //
-// WHY THESE AND NOT test/15's §9–§12: those exercise chains whose parts all live
-// INSIDE the query's own span ("a e", "x y", "p q r"); they pass even with
-// `recompleteNode` disabled outright.  §6 reaches a produced composite, but only
-// one recomposition deep.  The cases here fail on the pre-change tree:
+// WHY THESE AND NOT test/15's sibling recompositions: those exercise chains whose
+// parts all live INSIDE the query's own span ("a e", "x y", "p q r"); they pass
+// even with `recompleteNode` disabled outright.  Its fixpoint test reaches a
+// produced composite, but only one recomposition deep.  The cases here fail on the pre-change tree:
 //   1. the chain stops at the intermediate composite ("m n", not "z"), and
 //   2. the nested derivation never reaches the rationale.
 //

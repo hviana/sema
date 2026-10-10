@@ -41,15 +41,14 @@ it first (`meter.md`).
 `respond` takes fresh maps. `respondTurn` reuses the conversation's maps, which
 are content-keyed across turns.
 
-| Memo                                                 | Key                   | Lifetime                            |
-| ---------------------------------------------------- | --------------------- | ----------------------------------- |
-| `perceiveMemo`                                       | bytes + boundary set  | response or conversation            |
-| `recogniseMemo`, `climbMemo`                         | bytes                 | response or conversation            |
-| `canonMemo`                                          | bytes                 | response, when a `canon` is set     |
-| `_resolvedSubtrees`                                  | tree node (`WeakMap`) | response or conversation            |
-| `_edgeChoice` (the pick memo), `_edgeAsked`          | node / question       | response; cleared at the end        |
-| `sharedReachMemo`, structural probes (`traverse.ts`) | node                  | cleared on write or at 100K entries |
-| derivations, slots, entities, facts (`traverse.ts`)  | form / entity         | cleared on write or at 100K entries |
+| Memo                                                   | Key                   | Lifetime                                       |
+| ------------------------------------------------------ | --------------------- | ---------------------------------------------- |
+| `perceiveMemo`                                         | bytes + boundary set  | response or conversation                       |
+| `recogniseMemo`, `climbMemo`                           | bytes                 | response or conversation                       |
+| `canonMemo`                                            | bytes                 | response, when a `canon` is set                |
+| `_resolvedSubtrees`                                    | tree node (`WeakMap`) | response or conversation                       |
+| `_edgeChoice` (the pick memo), `_edgeAsked`            | node / question       | response; cleared at the end                   |
+| `sharedReachMemo`, probes, derivations (`traverse.ts`) | node / form           | on write, or whole at its budget (`caches.md`) |
 
 `foldTree` takes the `_resolvedSubtrees` fast path only when no visitor is
 passed. A walk that emits sites always descends in full, and the cache only

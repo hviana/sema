@@ -168,21 +168,21 @@ and `Y` has other children. What picks `C` is a fact of `C` the question never
 spells: in every instance, the child is a surgeon. So the facts each entity on
 an instance's path holds are read with the entity cut out (`factFrames`:
 `The occupation of · is surgeon.`), the way a step is read off an establishing
-context. The derivation keeps the ones every instance's entity there holds. A
-fact one instance's entity lacks says nothing of the derivation, so this is an
-intersection, where the steps are alternatives an instance spells. It is taken
-over the instances that spell the derivation, so it holds where the derivation
-does: once two instances agree. Only once a second instance agrees on the steps
-is the first one's entity read for its facts. Each later instance is then asked
-only for the facts still shared, each by an exact lookup of the whole fact, the
-test the question's entity takes. Reading every instance's facts costs 1.5% more
-bytes on the inference fixture, where no condition forms. At the question, a
-step then names only a continuation holding an entity that holds every such
-fact, each an exact lookup of the whole fact (`satisfies`; `conditionWithheld`
-counts what a condition withheld). The replay that places the walk on a later
-step is conditioned the same way (`replayOf`). Otherwise an entity the step
-rejects, reached by other means (recall voicing the first child), is stood on
-anyway: the derivation's next step names its fact
+context. The derivation keeps the ones every instance's entity there holds; an
+instance reaching it by several ways (two children of `Y` sharing the answer)
+holds a fact when one of its entities does, so no way deposited first becomes a
+requirement. A fact one instance lacks says nothing of the derivation: this is
+the certain test over the instances. It is taken over the instances that spell
+the derivation, so it holds where the derivation does: once two instances agree.
+Only once a second instance agrees on the steps is the first one's entity read
+for its facts. Each later instance is then asked only for the facts still
+shared, each by an exact lookup of the whole fact, the test the question's
+entity takes. At the question, a step then names only a continuation holding an
+entity that holds every such fact, each an exact lookup of the whole fact
+(`satisfies`; `conditionWithheld` counts what a condition withheld). The replay
+that places the walk on a later step is conditioned the same way (`replayOf`).
+Otherwise an entity the step rejects, reached by other means (recall voicing the
+first child), is stood on anyway: the derivation's next step names its fact
 (`The occupation of C is
 painter.`) and credits the question's frame to a branch
 the condition refused. The question's own entity is given, not selected, so it
@@ -388,7 +388,7 @@ question of their own.
 Ten first hops are wrong, and two of the twelve compositions fail. `cover` runs
 before the climb, so it reads the question without the instances, and the word
 the question spells (`mother` in `grandmother`) names the step; its result is
-decided before the climb shows anything better. Making again a result the climb
+decided before the climb shows anything better. Remaking a result the climb
 outdates fixes both, at 46% more chart search for two answers of 172, so it is
 not done. With the instances removed, 12 are correct; with their answers
 scrambled, so that no path joins filler and answer, 11: the gain is the path,
@@ -410,8 +410,8 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
 - where no candidate satisfies the condition, the step names nothing, but other
   mechanisms still answer: a `which child … is a medic` with no medic child is
   answered with a child;
-- a fact every instance's entity holds by accident is a condition too, and
-  instances alone cannot tell it from the deciding one;
+- a fact every instance's entity holds by accident is a condition too, on a path
+  or at a meet: instances alone cannot tell it from the deciding one;
 - a value the question spells is no condition when the instances spell different
   ones: `Which child of Y is a sailor?` and `… a painter?` name the same child,
   by deposit order.
@@ -442,10 +442,11 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
 - `test/158` — what a derivation says of its entities: the condition every
   instance's entity agrees on selects the branch in either deposit order, traced
   or not; on an entity before the answer; two relations to one entity at one
-  depth are both read; a fact one instance's entity lacks is no condition; a
-  paraphrase of an instance does not hide its derivation; the derivation goes on
-  only from an entity its conditioned replay stands on; the ways a search
-  carries are charged to its allowance.
+  depth are both read; a fact one instance's entity lacks is no condition, nor
+  one only some of an instance's ways hold; a paraphrase of an instance does not
+  hide its derivation; the derivation goes on only from an entity its
+  conditioned replay stands on; the ways a search carries are charged to its
+  allowance.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an
@@ -458,7 +459,5 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
   substitute (4 answers), the siblings of a co-instance (3 inference and 6
   compositional answers), the second step held whole (1 inference answer, where
   a piece of the entity took a step again), and the frame shown by the
-  question's own entity (3 inference and 3 compositional answers). The last
-  resisted a constructed fixture: on small stores the climb keeps the instances
-  among its points. Reducing the fixture showed that no eighth of it could be
-  removed without changing the outcome.
+  question's own entity (3 inference and 3 compositional answers; on small
+  stores the climb keeps the instances among its points).
