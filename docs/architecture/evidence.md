@@ -154,6 +154,15 @@ derivations. Kept by node alone, the first way deposited was the only one read:
 two instances deposited in different orders spelled different derivations and
 agreed on none. An entity reached at a shallower depth is not stood on again, so
 the paths kept are the shortest ones, and each entity is still expanded once.
+Every further way into an entity is work, carried, spelled and later replayed,
+and it is charged to the same allowance as an expansion (`pathWays`). Chained
+fans multiply ways while entities only add up: with four relations between each
+pair of entities in a chain, or two in a chain of diamonds, the ways double with
+every link. Uncharged, a diamond chain 16 deep on a 20,000-context store took
+90M branch lookups and 7 minutes, and at 20 deep the process ran out of memory.
+Charged, the search saturates, metered (`pathReadsSaturated`), and reads
+nothing. The cost stays flat, and a derivation through more alternatives than
+its allowance is not read.
 
 **What the derivation says of the entities it stands on.** A path says how it
 leaves each entity, not what the entity is. `Which child of Y is a medic?`
@@ -173,9 +182,14 @@ test the question's entity takes. Reading every instance's facts cost 1.5% more
 bytes on the inference fixture, where no condition forms. At the question, a
 step then names only a continuation holding an entity that holds every such
 fact, each an exact lookup of the whole fact (`satisfies`; `conditionWithheld`
-counts what a condition withheld). Conditioning the replay as well changed
-nothing measured: the step that names the entity already decides. The question's
-own entity is given, not selected, so it takes no condition.
+counts what a condition withheld). The replay that places the walk on a later
+step is conditioned the same way (`replayOf`). Otherwise an entity the step
+rejects, reached by other means (recall voicing the first child), is stood on
+anyway: the derivation's next step names its fact
+(`The occupation of C is
+painter.`) and credits the question's frame to a branch
+the condition refused. The question's own entity is given, not selected, so it
+takes no condition.
 
 A narrower naming wins over witnessing by the same measure as a different one:
 the reading that explains more of the question names the step. Witnessing names
@@ -438,7 +452,9 @@ medic child is answered with a child.
   instance's entity agrees on selects the branch in either deposit order, traced
   or not; on an entity before the answer; two relations to one entity at one
   depth are both read; a fact one instance's entity lacks is no condition; a
-  paraphrase of an instance does not hide its derivation.
+  paraphrase of an instance does not hide its derivation; the derivation goes on
+  only from an entity its conditioned replay stands on; the ways a search
+  carries are charged to its allowance.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an

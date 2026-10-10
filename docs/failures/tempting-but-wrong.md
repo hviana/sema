@@ -1,6 +1,6 @@
-# Tempting but Wrong — 13 Traps
+# Tempting but Wrong — 14 Traps
 
-Thirteen shortcuts that look plausible and break an invariant. Each states what
+Fourteen shortcuts that look plausible and break an invariant. Each states what
 not to do, why it fails, and what to do instead. **Some things are universal:
 discovering bugs:**
 
@@ -164,3 +164,19 @@ shortcuts that pass review and fail the evidence.
   consequences. Where the repository stands against that ideal is stated in
   `closure.md`, and nowhere else. A change must state which consequence it is,
   and show that it follows from the law.
+
+### 14. Taking a search that found nothing as a refutation
+
+- **Tempting:** when a question's instances agree on how its two things meet,
+  and the derivations replayed from its own things meet nowhere, refuse every
+  answer: "the instances say no entity is both".
+- **Refuted:** an empty meet is the absence of a proof. The shared grandfather
+  can lie on a route the instances did not show (the mother's father, not the
+  father's), the meeting fact can lie past the read bound, a premise can be
+  missing, and a person can have two recorded fathers. The refusal silenced all
+  of these as if refuted. It turned 12 wrong answers per world into silence, but
+  never on evidence of incompatibility (`test/159` 159.4).
+- **Instead:** conclude only what the evidence proves. A meet is an answer; no
+  meet is no conclusion, and the market decides as it would without it. A
+  refusal needs evidence that the answer is incompatible, which a bounded search
+  over stored facts cannot give.

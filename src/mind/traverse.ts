@@ -1695,7 +1695,7 @@ function byCoInstance(
     const all: Step[] = [fr, ...fr.then!];
     let i = x === id ? 0 : -1;
     if (i < 0) {
-      fr.replay ??= replayOf(ctx, x, all, formCap, allowance);
+      fr.replay ??= replayOf(ctx, x, all, formCap, allowance, fr.cond);
       i = fr.replay.findIndex((reached) => reached.has(id)) + 1;
       if (i === 0) continue;
     }
@@ -2413,7 +2413,20 @@ function searchWays(
           }
           const to = { id: e.id, bytes: at.bytes };
           for (const step of steps) {
-            for (const way of s.ways) at.ways.push([...way, { ...step, to }]);
+            for (const way of s.ways) {
+              // EVERY WAY IS WORK.  The first way into an entity is the
+              // expansion already charged; each further one is carried,
+              // spelled and later replayed, and is charged to the same
+              // allowance — chained fans multiply ways while entities only
+              // add up, and a search that would carry more than its allowance
+              // reads nothing, metered, rather than materialising them.
+              if (at.ways.length > 0 && budget-- <= 0) {
+                if (ctx.meter) ctx.meter.pathReadsSaturated++;
+                return [];
+              }
+              if (ctx.meter) ctx.meter.pathWays++;
+              at.ways.push([...way, { ...step, to }]);
+            }
           }
         }
       }
@@ -2433,10 +2446,11 @@ function replayOf(
   steps: Step[],
   formCap: number,
   allowance: number,
+  cond: Array<Map<string, Step>> = [],
 ): Array<Set<number>> {
   const out: Array<Set<number>> = [];
   let front = new Map<number, Uint8Array>([[x, read(ctx, x, formCap)]]);
-  for (const step of steps.slice(0, -1)) {
+  for (const [i, step] of steps.slice(0, -1).entries()) {
     const next = new Map<number, Uint8Array>();
     for (const [e, bytes] of front) {
       const t = resolve(ctx, concatBytes([step.prefix, bytes, step.suffix]));
@@ -2444,7 +2458,14 @@ function replayOf(
       for (const g of ctx.store.nextFirst(t, allowance)) {
         const { fact, held } = entitiesIn(ctx, g);
         for (const h of held) {
-          if (h.id !== e) next.set(h.id, fact.subarray(h.span[0], h.span[1]));
+          // The derivation stands only where it would have named: on an
+          // entity holding every fact its instances' entity there held.
+          const hb = fact.subarray(h.span[0], h.span[1]);
+          if (
+            h.id !== e && (cond[i] === undefined || satisfies(ctx, hb, cond[i]))
+          ) {
+            next.set(h.id, hb);
+          }
         }
       }
     }
@@ -2593,6 +2614,12 @@ export interface Convergence {
   by: number[];
   steps: [Step[], Step[]];
   answers: [AnswerFrame, AnswerFrame];
+  /** The question's bytes the convergence explains: what EVERY instance that
+   *  spells it shares with the question — the frame and the run that parts
+   *  the two things — and the question's two things.  Nothing else. */
+  explains: Array<[number, number]>;
+  /** Per instance, as read, before they are intersected. */
+  shared?: Uint8Array[];
 }
 
 /** The two things a question names around its frame — and the convergences
@@ -2789,18 +2816,50 @@ function readConvergence(
           steps.map((t) => latin1(t.prefix) + "\u0000" + latin1(t.suffix))
             .join("\u0001") + "\u0003" + frameKey(frame)
         ).join("\u0002");
+      const [o, cl, qa, len] = c.key.split(":").map(Number);
+      const mask = new Uint8Array(Q.length);
+      for (
+        const [s0, e0] of [[0, o], [Q.length - cl, Q.length], [
+          o + qa,
+          o + qa + len,
+        ]]
+      ) mask.fill(1, s0, e0);
       const known = spelled.get(k);
       if (known === undefined) {
         spelled.set(k, {
           by: [c.q],
           steps: [a.steps, b.steps],
           answers: [a.frame, b.frame],
+          explains: [],
+          shared: [mask],
         });
-      } else if (!known.by.includes(c.q)) known.by.push(c.q);
+      } else if (!known.by.includes(c.q)) {
+        known.by.push(c.q);
+        known.shared!.push(mask);
+      }
       x ??= asked;
     }
   }
   const frames = [...spelled.values()].filter((c) => c.by.length >= 2);
+  for (const c of frames) {
+    const all = new Uint8Array(Q.length).fill(1);
+    for (const m of c.shared!) {
+      for (let i = 0; i < all.length; i++) all[i] &= m[i];
+    }
+    for (const t of x ?? []) all.fill(1, t.span[0], t.span[1]);
+    c.explains = [];
+    for (let i = 0; i < all.length;) {
+      if (!all[i]) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j < all.length && all[j]) j++;
+      c.explains.push([i, j]);
+      i = j;
+    }
+    delete c.shared;
+  }
   if (ctx.trace && spelled.size > 0) {
     const show = (steps: Step[]): string =>
       steps.map((t) => `${decodeText(t.prefix)}·${decodeText(t.suffix)}`)
@@ -2923,14 +2982,20 @@ function sharedRun(
 export function convergenceMeets(
   ctx: MindContext,
   reading: ConvergenceReading,
-): Array<{ name: Uint8Array; facts: [number, number]; by: number }> {
+): Array<
+  {
+    name: Uint8Array;
+    facts: [number, number];
+    by: number;
+    explains: Array<[number, number]>;
+  }
+> {
   const W = ctx.space.maxGroup;
   const whole = ctx._edgeAsked;
   if (whole === null) return [];
   const formCap = 2 * whole.bytes.length;
   const allowance = Math.max(hubBound(ctx), chainReach(W));
-  const out: Array<{ name: Uint8Array; facts: [number, number]; by: number }> =
-    [];
+  const out: ReturnType<typeof convergenceMeets> = [];
   for (const c of reading.frames) {
     const side = (k: 0 | 1) =>
       replayFacts(ctx, reading.x[k].id, c.steps[k], formCap, allowance)
@@ -2946,6 +3011,7 @@ export function convergenceMeets(
             name: one.name,
             facts: [one.fact, other.fact],
             by: c.by.length,
+            explains: c.explains,
           });
         }
       }

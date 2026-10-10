@@ -28,7 +28,11 @@
 //         instances deposited in different orders still agree;
 //   158.4 a fact one instance's entity lacks is no condition (rationale);
 //   158.5 a paraphrase of an instance — another context establishing its
-//         answer and holding its filler — does not hide its derivation.
+//         answer and holding its filler — does not hide its derivation;
+//   158.6 the derivation goes on only from an entity its replay, conditions
+//         included, stands on;
+//   158.7 the ways a search carries are charged to its allowance: chained
+//         fans saturate it, metered, instead of multiplying.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -217,4 +221,77 @@ test("158.5 a paraphrase of an instance does not hide its derivation", async () 
   }
   const [{ a }] = await ask(w.items, [w.q]);
   assert.ok(a.includes(w.medic) && !a.includes(w.other), a);
+});
+
+test("158.6 the derivation goes on only from an entity it would have stood on", async () => {
+  // Neither child of X is a surgeon: whatever reaches a child, the derivation
+  // does not take its next step there, as if it had selected it.
+  const nm = names();
+  const items = [];
+  for (let i = 0; i < 3; i++) {
+    const y = nm(), c = nm(), d = nm();
+    deposit(items, y, "child", d);
+    deposit(items, y, "child", c);
+    deposit(items, c, "occupation", "surgeon");
+    deposit(items, d, "occupation", "lawyer");
+    items.push([
+      `Which child of ${y} is a medic?`,
+      fact(c, "occupation", "surgeon"),
+    ]);
+  }
+  const x = nm(), a = nm(), b = nm();
+  deposit(items, x, "child", a);
+  deposit(items, x, "child", b);
+  deposit(items, a, "occupation", "painter");
+  deposit(items, b, "occupation", "weaver");
+  const [{ steps }] = await ask(
+    items,
+    [`Which child of ${x} is a medic?`],
+    true,
+  );
+  const named = steps.filter((s) => s.mechanism.at(-1) === "askedByCoInstance")
+    .flatMap((s) => (s.outputs ?? []).map((o) => o.text));
+  assert.ok(
+    !named.some((t) => t.includes("painter") || t.includes("weaver")),
+    `the derivation stepped on from a child it rejects: ${named}`,
+  );
+});
+
+test("158.7 the ways a search carries are charged to its allowance", async () => {
+  // Chained fans: four relations lead from each entity to the next, so the
+  // ways to the far end multiply (4·4·4) while the entities only add up.
+  // Carrying them is work: past the allowance the search reads nothing and
+  // says so, instead of materialising every way.
+  const nm = names();
+  const items = [];
+  const R = ["elder", "mentor", "patron", "tutor"];
+  const chain = () => {
+    const x = nm();
+    let at = x;
+    for (let d = 0; d < 3; d++) {
+      const c = nm();
+      for (const r of R) deposit(items, at, r, c);
+      at = c;
+    }
+    const end = nm();
+    deposit(items, at, "rival", end);
+    return { x, at, end };
+  };
+  const inst = [chain(), chain(), chain()];
+  for (const c of inst) {
+    items.push([`Who is the far rival of ${c.x}?`, fact(c.at, "rival", c.end)]);
+  }
+  const q = chain();
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(items);
+  await mind.buildCanonIndex();
+  await mind.respondText(`Who is the far rival of ${q.x}?`);
+  const c = mind.lastCost.counters;
+  await store.close();
+  assert.ok((c.pathReadsSaturated ?? 0) > 0, "the search saturated");
+  assert.ok(
+    (c.pathWays ?? 0) <= 3 * 16,
+    `ways carried within the allowance per search: ${c.pathWays}`,
+  );
 });

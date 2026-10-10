@@ -114,7 +114,7 @@ export async function confluenceJoin(
       return {
         bytes,
         used: new Set(m.facts),
-        accounted: [[0, query.length]],
+        accounted: m.explains,
         moves: STEP * (steps[0].length + steps[1].length + 1),
       };
     }

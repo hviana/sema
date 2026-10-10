@@ -25,13 +25,16 @@
 //   159.2 the answer is met whole: two grandfathers sharing a first name do not
 //         meet;
 //   159.3 instances whose names share letters at the parting still agree;
-//   159.4 where the derivations meet nowhere, no answer is admissible: the
-//         response is silent (pipeline.ts, `convergenceRefutes`);
+//   159.4 an empty meet refutes nothing: a shared grandfather by another
+//         route, or a meeting fact past the read bound, does not silence the
+//         response;
 //   159.5 instances answered with a fact holding two things teach the part of
 //         it both sides reach, in either deposit order;
 //   159.6 a frame word is not a thing: each side's thing is LEARNT WHOLE (on
 //         the 2Wiki fixtures, without it, one-thing instances parted on `t's `
-//         were read for about 0.5% more branch lookups and no answer).
+//         were read for about 0.5% more branch lookups and no answer);
+//   159.7 the meet explains the frame the instances share, the parting and
+//         the two things, and no more.
 // Control: with the instances' answers scrambled, nothing meets.
 
 import { test } from "node:test";
@@ -116,14 +119,15 @@ async function respond(items, q, reverse = false) {
 
 /** Three instances answered with their grandfather, and the question's own
  *  cousins. */
-function world(answer = (c) => c.g, apart) {
+function world(answer = (c) => c.g, apart, mutate, apartAll = false) {
   const nm = names();
   const items = [];
   const inst = [0, 1, 2].map(() => cousins(items, nm));
   inst.forEach((c, i) =>
     items.push([ask(c), `The answer is ${answer(c, i, inst)}.`])
   );
-  const c = cousins(items, nm, apart);
+  const c = cousins(items, nm, apartAll ? () => nm() : apart);
+  mutate?.(items, c, nm);
   return { items, c };
 }
 
@@ -169,18 +173,44 @@ test("159.3 instances whose names share letters at the parting still agree", asy
   assert.ok(met && a.includes(c.g), a);
 });
 
-test("159.4 where the derivations meet nowhere, no answer is admissible", async () => {
-  // The question's cousins have two different grandfathers: the instances'
-  // derivations reach both, the answers differ, and listing one fact of each
-  // side would claim what the instances refute.
-  const { items, c } = world(undefined, () => "Wendell Ormsby");
-  const { a, met, steps } = await respond(items, ask(c));
-  assert.ok(!met, "nothing meets");
-  assert.ok(
-    steps.some((s) => s.mechanism.at(-1) === "convergenceRefutes"),
-    "the refusal is in the rationale",
-  );
-  assert.equal(a.trim(), "", `an answer the instances refute: ${a}`);
+test("159.4 an empty meet refutes nothing", async () => {
+  // A meet the replay does not find is no proof that the two things share no
+  // answer: the shared grandfather may be reached by a route the instances
+  // did not show, or the fact that meets may lie past the read bound.
+  // Neither silences the response.
+  const routed = world(undefined, undefined, (items, c, nm) => {
+    // x's MOTHER's father is y's FATHER's father.
+    const mx = nm(), fy = nm(), g = nm();
+    deposit(items, c.x, "mother", mx);
+    deposit(items, c.y, "father", fy);
+    deposit(items, mx, "father", g);
+    deposit(items, fy, "father", g);
+  }, true);
+  const far = world(undefined, undefined, (items, c) => {
+    // Twenty-eight other fathers of y's mother are read before c.g.
+    const K = ["Ravenmoor", "Glenhollow", "Marrowby", "Thistlecombe"];
+    items.splice(
+      items.findIndex(([ctx]) => ctx === `${c.my} father`),
+      2,
+    );
+    for (let i = 0; i < 60; i++) {
+      deposit(items, c.my, "father", `${K[i % 4]} Person${i}`);
+    }
+    deposit(items, c.my, "father", c.g);
+  });
+  for (
+    const [label, w] of [["another route", routed], [
+      "past the read bound",
+      far,
+    ]]
+  ) {
+    const { a, steps } = await respond(w.items, ask(w.c));
+    assert.ok(
+      !steps.some((s) => s.mechanism.at(-1) === "convergenceRefutes"),
+      `${label}: an empty meet was taken as a refutation`,
+    );
+    assert.notEqual(a.trim(), "", `${label}: the response was silenced`);
+  }
 });
 
 test("159.5 instances answered with a fact: the answer is the part both sides reach", async () => {
@@ -229,6 +259,30 @@ test("159.6 a frame word is not a thing: one thing is not read as two", async ()
     "Who is Godfrey Hart's father-in-law?",
   );
   assert.equal(counters.convergenceReads ?? 0, 0);
+});
+
+test("159.7 the meet explains the frame and the two things, nothing more", async () => {
+  // A condition the instances never asked (`, the one who is a surgeon`) is
+  // not explained by the meet: the join leaves exactly those bytes for the
+  // market to price.
+  const { items, c } = world();
+  const tail = ", the one who is a surgeon";
+  const q = `Who is the shared grandfather of ${c.x} and ${c.y}${tail}?`;
+  const { steps } = await respond(items, q);
+  const decision = steps.find((s) => s.mechanism.at(-1) === "decideGrounding");
+  const join = decision?.data?.candidates?.find((x) => x.provenance === "join");
+  assert.ok(join, "the meet is a candidate");
+  assert.equal(join.unexplainedBytes, tail.length);
+  const plain = await respond(items, ask(c));
+  const decided = plain.steps.find((s) =>
+    s.mechanism.at(-1) === "decideGrounding"
+  )
+    ?.data?.candidates?.find((x) => x.provenance === "join");
+  assert.equal(
+    decided?.unexplainedBytes,
+    0,
+    "the instances' own question is explained",
+  );
 });
 
 test("159.C control: scrambled answers meet nothing", async () => {

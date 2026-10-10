@@ -89,9 +89,17 @@ instances in that phrasing too, it does (shared grandfather 0 → 3, shared
 birthplace +1). The 2Wiki fixtures and the 31.7M-node battery change no answer;
 branch lookups rise 0.3% on two fixtures.
 
-Where the two derivations meet nowhere, the instances say no entity is both, and
-the decider admits no answer (`mechanism-market.md`, what the instances refute
-is no answer).
+The meet explains to the market what its evidence explains, and no more: the
+frame every agreeing instance shares with the question, the run that parts the
+two things, and the two things. A condition the instances never asked
+(`…, the one who is a surgeon?`) is left unexplained and is priced like any
+unexplained byte.
+
+Where the two derivations meet nowhere, nothing is concluded. The meet may lie
+on a route the instances did not show, or past the read bound, or a premise may
+be missing. An empty meet is the absence of a proof, not a refutation, and other
+mechanisms answer as they would without it (`failures/tempting-but-wrong.md`,
+trap 14).
 
 ## Cost
 
@@ -111,6 +119,7 @@ never touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
   continuation is evidence only of what its anchor bound.
 - `test/159` — a question about two things: a two-step convergence meets at the
   shared grandfather in either deposit order; the answer is met whole; instances
-  parting the slot differently still agree; where nothing meets, the response is
-  silent; instances answered with a fact teach the part both sides reach; a
-  frame word is not a thing; scrambled answers meet nothing.
+  parting the slot differently still agree; an empty meet refutes nothing;
+  instances answered with a fact teach the part both sides reach; a frame word
+  is not a thing; the meet explains the frame, the parting and the two things,
+  and no more; scrambled answers meet nothing.
