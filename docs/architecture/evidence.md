@@ -141,7 +141,14 @@ not withhold a later step, and no step is taken out of order or taken again.
 and may say more of it (`slotSteps`). The entity is the stored context with
 continuations covering the byte where the forms part (`slotEntity`), or, where a
 description comes first (`the paternal grandmother of Z`), the one covering the
-slot's last byte (`closingEntity`). The rest of the slot is read in order:
+slot's last byte (`closingEntity`). It is the longest any reading spells: the
+question, read under the canon (`… of eric i of denmark born?`), holds short
+exact runs (`mark`) inside a name only the canonical class spells, so there the
+canonical class is asked for longer spans holding the exact one; a form in its
+own spelling holds its names exactly. The readings that refuse a co-instance
+(`coInstanceFiller`: never voiced, never compared) find the entity the same way,
+or CAST compares the question with an instance whose slot opens with a
+description. The rest of the slot is read in order:
 
 - **Less than one window** says nothing.
 - **A description other forms hold** around another entity is read off them
@@ -327,10 +334,15 @@ question of their own.
 | depth 1–2, incl. paraphrase, cross-kind        | 40 of 60         | 60  |
 | depth 3–5, incl. cross-kind                    | 0 of 42          | 42  |
 | a frame composed with a stated relation        | 0 of 6           | 6   |
-| a frame composed with a description (no inst.) | 0 of 12          | 7   |
-| all 172                                        | 59               | 137 |
+| a frame composed with a description (no inst.) | 0 of 12          | 10  |
+| all 172                                        | 59               | 140 |
 
-Wrong first hops fell from 52 to 12. With the instances removed, or their
+Wrong first hops fell from 52 to 10. Two of the twelve compositions still fail.
+`cover` runs before the climb, so it reads the question without the instances,
+and the word the question spells (`mother` in `grandmother`) names the step; its
+result is decided before the climb shows anything better. Making again a result
+the climb outdates fixes both, but on this world it cost 46% more chart search
+for two answers of 172, and it is not done. With the instances removed, or their
 answers scrambled so that no path joins filler and answer, one answer in each
 changed, from one wrong answer to another: the gain is the path, not the
 instances' answers.
@@ -353,9 +365,11 @@ instances' answers.
   untraced responses agree; the frame that shares more of the question names the
   step, however many instances a partial one has; a description in an instance's
   slot is read off the forms that hold it; a description in the question
-  composes with the frame; a description nothing reads determines no start. Its
-  scrambled-answer case is a control: no mutation of the reading short of
-  inventing a path breaks it.
+  composes with the frame; a description nothing reads determines no start; a
+  description is read off the forms that hold all of it before a word of it is
+  witnessed; the slot's entity is the longest any reading spells; the refusals
+  read an instance's entity as the derivation does. Its scrambled-answer case is
+  a control: no mutation of the reading short of inventing a path breaks it.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an

@@ -17,9 +17,9 @@
 // question's.
 //
 // MEASURED on a constructed genealogical world (version 3: 2,276 people, 66
-// instances, 172 questions): 59 → 137 correct; depth 3–5 from 0 to 42 of 42; a
-// frame composed with a description no instance asks, 0 → 7 of 12; wrong
-// first hops 52 → 12.  With the instances' answers scrambled, so that no path
+// instances, 172 questions): 59 → 140 correct; depth 3–5 from 0 to 42 of 42; a
+// frame composed with a description no instance asks, 0 → 10 of 12; wrong
+// first hops 52 → 10.  With the instances' answers scrambled, so that no path
 // joins filler and answer, the reading transfers nothing.
 //
 // Pinned:
@@ -46,7 +46,13 @@
 //   157.12 a description in the question composes with the frame read off
 //         another family of instances;
 //   157.13 a description nothing reads determines no start: the frame is not
-//         applied to the slot's own entity.
+//         applied to the slot's own entity;
+//   157.14 a description is read off the forms that hold all of it before a
+//         word of it (`father` in `grandma on the father's side`) is witnessed;
+//   157.15 the slot's entity is the longest any reading spells: a stored
+//         `mark` does not stand for `Eric of Denmark` read under the canon;
+//   157.16 the refusals read an instance's entity where the derivation does —
+//         at the slot's close when a description comes first.
 // Control (no mutation of the reading short of inventing a path breaks it):
 //   157.9 an instance answered with a fact its filler does not reach carries no
 //         derivation: scrambled answers transfer nothing.
@@ -55,6 +61,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
+import { coInstanceFiller } from "../dist/src/mind/traverse.js";
+import { resolve } from "../dist/src/mind/primitives.js";
+import { windowIndex } from "../dist/src/mind/evidence.js";
+
+const enc = (s) => new TextEncoder().encode(s);
 
 /** Deposit triples as the trainer does (wiki2.ts). */
 function deposits(triples) {
@@ -495,4 +506,102 @@ test("157.13 a description nothing reads determines no start", async () => {
     new RegExp(`place of birth of ${z} is`),
     `answered "${a}"`,
   );
+});
+
+test("157.14 a description is read off the forms that hold all of it before a word of it is witnessed", async () => {
+  // `Z's grandma on the father's side` spells `father`, which witnesses `Z
+  // father`; the forms that hold the whole description read `· father →
+  // · mother`.  Read by the word, the question would ask where Z's father was
+  // born.
+  const w = world();
+  const inst = [
+    ...instances(w, "Where was {X} born?", ["born"], 0),
+    ...instances(w, "Who is {X}'s grandma on the father's side?", [
+      "father",
+      "mother",
+    ], 2),
+  ];
+  const z = w.subject(2).name;
+  const [a] = await ask(
+    [...deposits(w.triples), ...inst],
+    [`Where was ${z}'s grandma on the father's side born?`],
+  );
+  const g = w.up(z, ["father", "mother"]);
+  assert.match(
+    a,
+    new RegExp(`of ${g} is ${w.up(z, ["father", "mother", "born"])}\\.`),
+    `answered "${a}"`,
+  );
+});
+
+test("157.15 the slot's entity is the longest any reading spells", async () => {
+  // The question is read under the canon (`… of eric of denmark born?`), and a
+  // stored `mark` runs exactly inside `denmark`: the entity the canonical
+  // class spells, `Eric of Denmark`, is the longer one.
+  const w = world();
+  const z = "Eric of Denmark";
+  w.subject(0, z);
+  const p = w.people.get(z);
+  p.father = w.subject(1).name;
+  p.mother = w.subject(1).name;
+  w.triples.push([z, "father", p.father], [z, "mother", p.mother]);
+  const inst = [
+    ...instances(w, "In which country was {X} born?", ["born", "country"], 0),
+    ...instances(w, "Who is the maternal grandfather of {X}?", [
+      "mother",
+      "father",
+    ], 2),
+  ];
+  const [a] = await ask(
+    [
+      ...deposits([...w.triples, ...w.places()]),
+      ...inst,
+      ["mark", "A mark is a sign."],
+    ],
+    [`In which country was the maternal grandfather of ${z} born?`],
+  );
+  const g = w.up(z, ["mother", "father"]);
+  assert.match(
+    a,
+    new RegExp(
+      `of ${w.up(z, ["mother", "father", "born"])} is ${
+        w.up(z, ["mother", "father", "born", "country"])
+      }\\.`,
+    ),
+    `answered "${a}" (grandfather ${g})`,
+  );
+});
+
+test("157.16 an instance whose slot opens with a description is read as one by every consumer", async () => {
+  // `In which country was the paternal grandmother of Y born?` is another
+  // instance of `In which country was · born?`, its entity at the slot's
+  // close.  The reading the refusals consult (`coInstanceFiller`: a co-instance
+  // is never voiced, never compared) finds the entity where the derivation's
+  // own reading does.  Measured: CAST compared a question with such an
+  // instance, and gluing its fact onto the answer.
+  const w = world();
+  const y = w.subject(2).name;
+  const form = `In which country was the paternal grandmother of ${y} born?`;
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store });
+  await mind.ingest([
+    ...deposits(w.triples),
+    [form, `The country of Marrowby is Chile.`],
+  ]);
+  await mind.buildCanonIndex();
+  const canon = (b) => (mind.canon ? mind.canon(b) : b);
+  const question = canon(
+    enc(
+      "In which country was the maternal grandfather of Ottoline Varnsworth born?",
+    ),
+  );
+  const co = coInstanceFiller(
+    mind,
+    enc(form),
+    [windowIndex(question, 4)],
+    question,
+  );
+  assert.notEqual(co, null, "a co-instance of the question");
+  assert.equal(co.filler, resolve(mind, enc(y)), "its entity, at the close");
+  await store.close();
 });

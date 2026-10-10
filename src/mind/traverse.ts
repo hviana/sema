@@ -1239,7 +1239,10 @@ export function coInstanceFiller(
 } | null {
   const frame = coInstanceFrame(ctx, raw, indexes, question);
   if (frame === null) return null;
-  const found = slotEntity(ctx, raw, frame.open, raw.length - frame.close);
+  // The entity the slot opens with, or — a description first — ends with: the
+  // reading the derivation's own instances take (`slotSteps`).
+  const found = slotEntity(ctx, raw, frame.open, raw.length - frame.close) ??
+    closingEntity(ctx, raw, frame.open, raw.length - frame.close);
   return found === null
     ? null
     : { ...frame, span: found.span, filler: found.id };
@@ -1285,6 +1288,11 @@ function coInstanceFrame(
   return { open: a, close: b, spans };
 }
 
+/** Whether `bytes` are already in the response canonicalizer's form. */
+function readUnderCanon(ctx: MindContext, bytes: Uint8Array): boolean {
+  return ctx.canon !== null && bytesEqual(ctx.canon(bytes), bytes);
+}
+
 /** The ENTITY a slot holds: the longest stored context with continuations of
  *  its own (a thing the corpus knows) that covers the byte where the two forms
  *  part.  The slot of `raw` lies between its opening `[0, open)` and its close
@@ -1303,7 +1311,8 @@ function coInstanceFrame(
  *  exact run some deposit spelled whole is looked up first; a filler the record
  *  spells only under the response's equivalence (`3Rd Baron` for the stored
  *  `3rd Baron`) has no flat run of its own, and the canonical class is asked
- *  only where the exact reading found nothing. */
+ *  where the exact reading found nothing — or, for bytes already under the
+ *  canon, for anything longer than it found. */
 function slotEntity(
   ctx: MindContext,
   raw: Uint8Array,
@@ -1322,6 +1331,8 @@ function slotEntity(
         if (span !== null && en - st <= span[1] - span[0]) break;
         if (st + raw.length - en < W) continue;
         if (exact && ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+        // A longer reading of the same entity holds the exact one.
+        if (!exact && span !== null && (st > span[0] || en < span[1])) continue;
         const n = exact
           ? resolve(ctx, raw.subarray(st, en))
           : canonResolve(ctx, raw.subarray(st, en));
@@ -1332,7 +1343,14 @@ function slotEntity(
     }
   };
   scan(true);
-  if (span === null && ctx.canon !== null) scan(false);
+  // The LONGEST, across both readings, where the bytes are read under the
+  // canon already: the question's `eric i of denmark` holds short exact runs
+  // (`mark`) inside the entity only its canonical class spells, and the
+  // canonical pass is asked for longer spans that hold the exact one.  A form
+  // in its own spelling holds its names exactly.
+  if (ctx.canon !== null && (span === null || readUnderCanon(ctx, raw))) {
+    scan(false);
+  }
   return span === null || id === null ? null : { span, id };
 }
 
@@ -1361,6 +1379,8 @@ function closingEntity(
         if (span !== null && en - st <= span[1] - span[0]) break;
         if (st + raw.length - en < W) continue;
         if (exact && ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+        // A longer reading of the same entity holds the exact one.
+        if (!exact && span !== null && (st > span[0] || en < span[1])) continue;
         const n = exact
           ? resolve(ctx, raw.subarray(st, en))
           : canonResolve(ctx, raw.subarray(st, en));
@@ -1371,7 +1391,10 @@ function closingEntity(
     }
   };
   scan(true);
-  if (span === null && ctx.canon !== null) scan(false);
+  // The longest across both readings, as `slotEntity`.
+  if (ctx.canon !== null && (span === null || readUnderCanon(ctx, raw))) {
+    scan(false);
+  }
   return span === null || id === null ? null : { span, id };
 }
 
