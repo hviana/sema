@@ -41,7 +41,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Mind } from "../dist/src/index.js";
+import { CachedIngest, Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { existsSync, rmSync, statSync } from "node:fs";
 import { normalize, randomUnit, rng } from "../dist/src/vec.js";
@@ -945,4 +945,58 @@ test("concepts: conflicting episodes resolve to one side, deterministically", as
     `one learnt side, got "${first}"`,
   );
   assert.equal(await train(), first, "same seed → same deterministic choice");
+});
+
+// The ingest cache is an optimisation of the deposit, never a second law: a
+// store trained through it holds exactly what mind.ingest() teaches — every
+// edge (suffix inheritance included) and every halo, vector and mass.  The
+// episodes repeat continuations (memo hits), grow a context by appending,
+// and make a suffix a known form, so each part of the pair law is exercised.
+test("a store trained through the ingest cache is the store mind.ingest trains", async () => {
+  const episodes = [
+    ["Clara Novello mother", "The mother of Clara Novello is Mary Sabilla."],
+    ["Clara Novello", "The mother of Clara Novello is Mary Sabilla."],
+    ["Peter Hale mother", "The mother of Peter Hale is Ann Hale."],
+    ["Peter Hale", "The mother of Peter Hale is Ann Hale."],
+    ["Who is the mother of Ann Hale?", "Nobody recorded."],
+    ["Who is the mother of Ann Hale?\nthe user asks again", "Nobody recorded."],
+  ];
+  const direct = new Mind({ D, seed: 7 });
+  await direct.ingest(episodes);
+  const cached = new Mind({ D, seed: 7 });
+  const ci = new CachedIngest(cached);
+  for (const [c, k] of episodes) await ci.ingest(c, k);
+  const a = direct.store, b = cached.store;
+  assert.equal(b.nodeCount(), a.nodeCount(), "the same nodes");
+  for (let id = 0; id < a.nodeCount(); id++) {
+    assert.deepEqual(b.next(id), a.next(id), `edges of node ${id}`);
+    assert.equal(b.haloMass(id), a.haloMass(id), `halo mass of node ${id}`);
+    const ha = a.halo(id), hb = b.halo(id);
+    assert.deepEqual(hb && [...hb], ha && [...ha], `halo of node ${id}`);
+  }
+});
+
+// The two wholes of an episode keep each other's company, and nothing below
+// them does: a part's company inside its context is the context's, so poured
+// into the parts it measured collocation over use (halo-sketch.md) — and a
+// halo marks a thing learnt whole, which `entitiesIn` reads.
+test("an episode's halos are kept by its two wholes, not by their parts", async () => {
+  const m = new Mind({ D, seed: 7 });
+  const enc = new TextEncoder();
+  const ctx = "Where was the painter Aldric Fenwick born?";
+  const cont = "The place of birth of Aldric Fenwick is Coldmere.";
+  await m.ingest(ctx, cont);
+  const root = m.resolve(enc.encode(ctx)), answer = m.resolve(enc.encode(cont));
+  assert.equal(m.store.haloMass(root), 1, "the context keeps one episode");
+  assert.equal(m.store.haloMass(answer), 1, "the continuation keeps one");
+  let parts = 0;
+  for (let i = 0; i < ctx.length; i++) {
+    for (let j = i + 4; j < ctx.length - (i === 0 ? 1 : 0); j++) {
+      const id = m.resolve(enc.encode(ctx.slice(i, j)));
+      if (id === null || id === root) continue;
+      parts++;
+      assert.equal(m.store.haloMass(id), 0, `part "${ctx.slice(i, j)}"`);
+    }
+  }
+  assert.ok(parts > 0, "the context has stored parts");
 });

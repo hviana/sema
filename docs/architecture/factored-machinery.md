@@ -7,7 +7,7 @@
 Each row is a contract that broke at least once when it existed twice:
 
 - `contentBoundaries` carried its own hash loop;
-- the ingest cache re-implemented deposit;
+- the ingest cache re-implemented deposit, then the pair law;
 - recall spelled its own fragment test.
 
 ## Single-definition contracts

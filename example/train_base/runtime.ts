@@ -788,6 +788,12 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
       }
       try {
         await unwatched(async () => {
+          // Suffix inheritance closed once per run, not per checkpoint: a
+          // pass reads every edge (learning.ts `closeSuffixes`).
+          const closed = await mind.closeSuffixes();
+          if (closed > 0) {
+            progress.log(`  suffix closure: added ${closed} inherited edges`);
+          }
           await maintain();
           await checkpoint();
         });

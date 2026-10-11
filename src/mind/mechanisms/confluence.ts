@@ -46,9 +46,9 @@ import {
   convergenceOf,
   corpusN,
   heldEntity,
-  holdsAThing,
   hubBound,
   reachOf,
+  thingIn,
 } from "../traverse.js";
 import { dominates } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
@@ -360,8 +360,14 @@ export async function confluenceJoin(
           // however rare its windows read.  Where it names none (`Which
           // material is translucent and featherlight?`), the bytes are all the
           // evidence spells.
-          const piece = aBytes.subarray(s, e);
-          if (asksAThing() && !holdsAThing(ctx, piece)) continue;
+          // The meet is THE THING it holds, not the window run around it: the
+          // run takes whatever bytes of the facts the question did not write
+          // (`On? is George Gershwin`, the tail of a title the question
+          // spelled `On??`), and a walk goes on from the thing alone.
+          const raw = aBytes.subarray(s, e);
+          const thing = asksAThing() ? thingIn(ctx, raw) : null;
+          if (asksAThing() && thing === null) continue;
+          const piece = thing?.bytes ?? raw;
           let reach = Infinity;
           for (let off = s; off + W <= e; off++) {
             const wid = wa.get(off);

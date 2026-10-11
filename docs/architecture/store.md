@@ -14,9 +14,9 @@
 | flat branch | as a branch                                     | raw bytes, with an empty `kids` marker (`flatKidsBytes`) |
 
 An id is an arbitrary mark; content decides which mark a thing gets. A subtree
-shared by a thousand deposits is one node with a thousand parents, so storage
-grows with distinct content, not with volume, and every span the fold produced
-can be addressed.
+shared by a thousand deposits is one node with a thousand parents: storage grows
+with distinct content, not volume, and every span the fold produced is
+addressable.
 
 ## Interning — dedup, then same bytes, then near, then mint
 
@@ -36,15 +36,15 @@ can be addressed.
    an id.
 4. **Mint** a new id.
 
-A refuted alternative: probing the flushed ANN index for near targets. It was
-the dominant training cost, and it was wrong. The 1-bit code ranked a
-byte-distinct branch as nearest and collapsed two different subtrees onto one id
-(`test/02`).
+Refuted: probing the flushed ANN index for near targets. It was the dominant
+training cost, and wrong. The 1-bit code ranked a byte-distinct branch as
+nearest and collapsed two different subtrees onto one id (`test/02`).
 
 ## Relations on the nodes
 
 - **Continuation edges.** An edge is a unique `(src, dst)` pair, so
-  `prevCount(dst)` counts distinct establishing contexts, never repetitions.
+  `prevCount(dst)` counts distinct contexts, never repetitions; `link` says if
+  it is new.
 - **Containment.** `addContainer(child, parent)` buffers per child, and the
   flush appends packed pages (`_dbAppendContain`) without rewriting the list.
   `containersSlice` pages through it.

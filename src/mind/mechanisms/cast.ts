@@ -555,7 +555,13 @@ export async function counterfactualTransfer(
       points.flatMap((s) => {
         if (s === p) return [];
         const f = fillerRun(s, r.qs);
-        return f !== null && f.cs < quantum && usable(f.qs, f.qe)
+        // …and the subject is a structure OF THIS QUESTION: a fragment whose
+        // continuations the question names none of answers other questions
+        // (traverse.ts, `answersOtherQuestions`), the bar redirection holds
+        // its substitute to below.  `director`, inheriting every `… director`
+        // fact, filled the seat of `Premium (film)` with itself.
+        return f !== null && f.cs < quantum && usable(f.qs, f.qe) &&
+            !answersOtherQuestions(ctx, s.anchor, query.length, f.qe - f.qs)
           ? [{ point: s, run: f }]
           : [];
       }),
@@ -666,8 +672,16 @@ export async function counterfactualTransfer(
   // a named substitute at all.  Scanning the point's runs for the naming one
   // is the same reading, taken from the runs rather than from their order, and
   // "latest named" then means latest by the run actually relied on.
+  // A run NAMES only by what is not scaffolding: `The ` of `Year Of The
+  // Horse` opens `The Secret director` too, and named nothing (the evidence
+  // `analogOwnsEvidence` asks of an analog, commonality.md).
+  const hubQ = hubWindows(ctx, query);
+  const names = (r: GradedRun): boolean => {
+    for (let o = r.qs; o + quantum <= r.qe; o++) if (!hubQ[o]) return true;
+    return false;
+  };
   const named = points.flatMap((p) => {
-    const r = p.runs.find((r) => r.cs === 0 && usable(r.qs, r.qe));
+    const r = p.runs.find((r) => r.cs === 0 && usable(r.qs, r.qe) && names(r));
     return r !== undefined ? [{ point: p, run: r }] : [];
   });
   // …and it must be named AFTER what it displaces.  Redirection replaces the

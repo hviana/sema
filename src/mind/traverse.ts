@@ -930,7 +930,7 @@ export function answersOtherQuestions(
   if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
   if (!(ctx.store.hasParents(id) || ctx.store.hasContainers(id))) return false;
   const nx = ctx.store.nextFirst(id, 2).length;
-  if (nx === 0 || (nx < 2 && ctx.store.haloMass(id) > 0)) return false;
+  if (nx === 0 || (nx < 2 && ctx.store.learntWhole(id))) return false;
   return namedContinuations(ctx, id, asked) === null;
 }
 
@@ -2232,7 +2232,7 @@ function entitiesIn(
       // inheritance but no company of its own (answersOtherQuestions).
       if (
         n === null || !cachedHasNext(ctx, n, cache) ||
-        !(ctx.store.haloMass(n) > 0)
+        !ctx.store.learntWhole(n)
       ) continue;
       found.push({ span: [st, en], id: n });
       break;
@@ -2247,16 +2247,11 @@ function entitiesIn(
   return { fact, held: out };
 }
 
-/** Whether `bytes` holds a thing the corpus learnt WHOLE — the test
- *  {@link entitiesIn} applies to each span of a fact, asked only of these
- *  bytes: ` is Thistlecombe.` holds `Thistlecombe`; `The date of birth of `
- *  holds nothing. */
-export function holdsAThing(ctx: MindContext, bytes: Uint8Array): boolean {
-  return thingIn(ctx, bytes) !== null;
-}
-
-/** The first thing learnt whole `bytes` hold, longest from where it opens. */
-function thingIn(
+/** The first thing learnt WHOLE `bytes` hold, longest from where it opens —
+ *  the test {@link entitiesIn} applies to each span of a fact, asked only of
+ *  these bytes: ` is Thistlecombe.` holds `Thistlecombe`; `The date of birth
+ *  of ` holds nothing. */
+export function thingIn(
   ctx: MindContext,
   bytes: Uint8Array,
 ): { id: number; bytes: Uint8Array } | null {
@@ -2269,7 +2264,7 @@ function thingIn(
       const n = resolve(ctx, bytes.subarray(st, en));
       if (
         n !== null && cachedHasNext(ctx, n, cache) &&
-        ctx.store.haloMass(n) > 0
+        ctx.store.learntWhole(n)
       ) return { id: n, bytes: bytes.subarray(st, en) };
     }
   }
@@ -2767,7 +2762,7 @@ function readConvergence(
     const store = q === null ? held : memo?.slots ?? held;
     if (!store.has(k)) {
       const e = slotEntity(ctx, raw, s0, e0, q !== null);
-      store.set(k, e !== null && ctx.store.haloMass(e.id) > 0 ? e : null);
+      store.set(k, e !== null && ctx.store.learntWhole(e.id) ? e : null);
     }
     return store.get(k)!;
   };
@@ -2826,7 +2821,7 @@ function readConvergence(
     // The thing the slot opens with is the one the one-thing reading found
     // there, when it read this form for this question.
     const known = r.filler != null && r.filler.span[1] < co.open + fa + W &&
-        ctx.store.haloMass(r.filler.id) > 0
+        ctx.store.learntWhole(r.filler.id)
       ? { id: r.filler.id, span: r.filler.span }
       : undefined;
     const e1 = known ?? entity(q, raw, co.open, co.open + fa);
@@ -3213,7 +3208,7 @@ export function heldEntity(
       if (form.length === raw.length) at = indexOf(question, form, 0);
     }
     if (at < 0 || !cachedHasNext(ctx, id, cache)) continue;
-    if (learnt && !(ctx.store.haloMass(id) > 0)) continue;
+    if (learnt && !ctx.store.learntWhole(id)) continue;
     best = [at, at + raw.length];
   }
   return best;

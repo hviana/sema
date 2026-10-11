@@ -368,3 +368,38 @@ test("G3 — a continuation is evidence only of what its anchor bound", async ()
     `another instance's answer was met: ${JSON.stringify(met)}`,
   );
 });
+
+// The meet is the THING it holds.  Two evidence streams of `… composer of song
+// How Long Has This Been Going On??` meet in the composer fact, and the window
+// run they share outside the question starts in the title's own tail
+// (`On? is George Gershwin`, the question spelling `On??`).  Voiced as a run,
+// the walk had nothing to stand on; voiced as the thing, it goes on to where
+// the thing died.  (Minimised from the 2Wiki fixture.)
+test("a meet voices the thing it holds, so the walk goes on from it", async () => {
+  const m = new Mind({ seed: 7 });
+  await m.ingest([
+    [
+      "How Long Has This Been Going On?",
+      "The composer of How Long Has This Been Going On? is George Gershwin.",
+    ],
+    [
+      "George Gershwin place of death",
+      "The place of death of George Gershwin is Hollywood.",
+    ],
+    ["George Gershwin", "The place of death of George Gershwin is Hollywood."],
+    [
+      "William S. Burroughs Jr.",
+      "The father of William S. Burroughs Jr. is William Seward Burroughs II.",
+    ],
+    [
+      "William Seward Burroughs II educated at",
+      "The educated at of William Seward Burroughs II is Harvard.",
+    ],
+  ]);
+  assert.equal(
+    await m.respondText(
+      "Where was the place of death of the composer of song How Long Has This Been Going On??",
+    ),
+    "The place of death of George Gershwin is Hollywood.",
+  );
+});

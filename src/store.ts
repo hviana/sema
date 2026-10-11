@@ -365,6 +365,10 @@ export interface Store {
    *  bound + 1 means MORE than bound) while the read stays bounded by the
    *  bound, never by the fan-in. */
   parentsFirst(id: NodeId, limit: number): NodeId[];
+  /** Whether `id` has MORE than `n` structural parents — the hub question
+   *  `parentsFirst(id, n + 1).length > n` asks, answered without reading the
+   *  parents out. */
+  parentsExceed(id: NodeId, n: number): boolean;
   /** Whether `id` has ANY structural parent — one LIMITed point probe. */
   hasParents(id: NodeId): boolean;
   /** The TRANSPARENT CHAIN from `id` upward: `run[0] === id`, and while the
@@ -468,8 +472,11 @@ export interface Store {
   ): Promise<number>;
 
   // ── continuation edges (associations) ──────────────────────────────────
-  /** Learn that `to` follows `from`. Idempotent. */
-  link(from: NodeId, to: NodeId): Promise<void>;
+  /** Learn that `to` follows `from`. Idempotent: true when the edge is new. */
+  link(from: NodeId, to: NodeId): Promise<boolean>;
+  /** Every context with a continuation, in the order its first edge was
+   *  learnt — a maintenance read (`closeSuffixes`), not a query read. */
+  edgeSources(): NodeId[];
   /** What follows `id` (in insertion order). */
   next(id: NodeId): NodeId[];
   /** Whether ANY edge leaves `id` — the EXISTENCE probe for the forward
@@ -528,6 +535,10 @@ export interface Store {
    *  repetition, but repetition outranks insertion-order accident.  0 when
    *  the node has no halo row. */
   haloMass(id: NodeId): number;
+  /** Whether `id` was an episode's context or continuation — a thing learnt
+   *  WHOLE, which keeps company of its own; a piece of other forms keeps none
+   *  (halo-sketch.md).  The one reading of that fact. */
+  learntWhole(id: NodeId): boolean;
 
   // ── canonical-form index (optional capability) ─────────────────────────
   // A small hash index from CANONICAL content keys to node ids, enabling
@@ -815,6 +826,10 @@ export abstract class AbstractStore implements Store {
   /** LIMITed variant of the parent read — same statement, `LIMIT ?`.  Must
    *  NOT be implemented by materialising and slicing. */
   protected abstract _dbGetParentsFirst(id: NodeId, limit: number): NodeId[];
+  /** Whether `id` has more than `n` parents; the default reads them out. */
+  protected _dbParentsExceed(id: NodeId, n: number): boolean {
+    return this._dbGetParentsFirst(id, n + 1).length > n;
+  }
 
   // -- Containment --
   protected abstract _dbGetContainParents(child: NodeId): NodeId[];
@@ -839,7 +854,8 @@ export abstract class AbstractStore implements Store {
   ): void;
 
   // -- Continuation edges --
-  protected abstract _dbInsertEdge(src: NodeId, dst: NodeId): void;
+  protected abstract _dbInsertEdge(src: NodeId, dst: NodeId): boolean;
+  protected abstract _dbEdgeSources(): NodeId[];
   protected abstract _dbGetNextEdges(id: NodeId): NodeId[];
   protected abstract _dbGetPrevEdges(id: NodeId): NodeId[];
   /** LIMITed variants of the two edge reads — same ORDER BY, `LIMIT ?`.
@@ -1538,6 +1554,11 @@ export abstract class AbstractStore implements Store {
   parentsFirst(id: NodeId, limit: number): NodeId[] {
     if (this.meter) this.meter.parentReads++;
     return this._dbGetParentsFirst(id, limit);
+  }
+
+  parentsExceed(id: NodeId, n: number): boolean {
+    if (this.meter) this.meter.parentProbes++;
+    return this._dbParentsExceed(id, n);
   }
 
   hasParents(id: NodeId): boolean {
@@ -2314,7 +2335,7 @@ export abstract class AbstractStore implements Store {
 
   // ── Continuation edges ─────────────────────────────────────────────────
 
-  async link(from: NodeId, to: NodeId): Promise<void> {
+  async link(from: NodeId, to: NodeId): Promise<boolean> {
     await this._ensureReady();
     // Both endpoints become learnt EXPERIENCES whose whole subtree is REACH-
     // indexed, because the seat is symmetric — a query may name only a PORTION of
@@ -2336,7 +2357,11 @@ export abstract class AbstractStore implements Store {
     // An edge breaks the transparency of both endpoints — drop cached chains
     // (same reasoning as the kid-row invalidation in put).
     this._chainMemo.clear();
-    this._dbInsertEdge(from, to);
+    return this._dbInsertEdge(from, to);
+  }
+
+  edgeSources(): NodeId[] {
+    return this._dbEdgeSources();
   }
 
   next(id: NodeId): NodeId[] {
@@ -2389,6 +2414,10 @@ export abstract class AbstractStore implements Store {
     if (this.meter) this.meter.haloProbes++;
     const r = this._dbGetHalo(id);
     return r ? r.mass : 0;
+  }
+
+  learntWhole(id: NodeId): boolean {
+    return this.haloMass(id) > 0;
   }
 
   halo(id: NodeId): Vec | null {

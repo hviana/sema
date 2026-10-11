@@ -53,10 +53,10 @@ whatever the fold did around it. Teaching the same thing twice creates no
 structure.
 
 **Linked by succession.** The context's root gets an edge to the continuation's
-root. Each suffix of the context that is already a known form inherits that edge
-too, and inside a bare experience the parts are chained in order. An edge is a
-unique pair, so how many contexts lead to a continuation counts distinct
-contexts, not repetitions.
+root. Each suffix of the context that is a known form inherits that edge too (or
+later, at `closeSuffixes`), and inside a bare experience the parts are chained
+in order. An edge is a unique pair, so how many contexts lead to a continuation
+counts distinct contexts, not repetitions.
 
 **What this structure can answer, exactly:**
 
@@ -94,10 +94,10 @@ exists at birth: it is computed from the bytes alone. It puts `colour` near
 
 **The halo: nearness of use.** Each time a fact is deposited, two pours happen:
 
-- every newly seen part of the context receives the continuation's signature, in
-  the seat for _what it led to_;
-- the continuation receives each part's signature, in the seat for _what led to
-  it_.
+- the context receives the continuation's signature, in the seat for _what it
+  led to_;
+- the continuation receives the context's signature, in the seat for _what led
+  to it_.
 
 A signature is keyed on a node's identity, never on its gist. Read as whole
 partners, company would almost never recur, since whole deposits rarely repeat.

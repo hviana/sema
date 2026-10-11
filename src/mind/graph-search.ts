@@ -1963,7 +1963,7 @@ export class GraphSearch {
     // to be halo-bearing — a real fused form (a learnt fact context like "4+3")
     // carries a halo and still passes.
     if (
-      node !== undefined && (l.rec || r.rec) && !this.store.hasHalo(node)
+      node !== undefined && (l.rec || r.rec) && !this.store.learntWhole(node)
     ) {
       node = undefined;
     }

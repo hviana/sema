@@ -63,3 +63,43 @@ test("very long single-token inputs roundtrip correctly", async () => {
     assert.ok([...out].every((b) => b === 122));
   }
 });
+
+// Suffix inheritance is a rule over what is known, and what is known grows: a
+// form that becomes known after a context ending with it was deposited missed
+// that context's continuation.  The closure is the rule's one fixed point —
+// the same edges whatever the order of teaching — and closing twice adds
+// nothing.
+test("suffix inheritance closes to the same edges whatever the order of teaching", async () => {
+  const story = ["Tell me about Peter Hale", "Peter Hale was a painter."];
+  const own = ["Peter Hale", "The father of Peter Hale is Tom Hale."];
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  const edgesOf = (m) => {
+    const out = [];
+    for (const s of m.store.edgeSources()) {
+      for (const d of m.store.next(s)) {
+        out.push(
+          `${dec.decode(m.store.bytes(s))} → ${dec.decode(m.store.bytes(d))}`,
+        );
+      }
+    }
+    return out.sort();
+  };
+  const late = new Mind({ seed: 7 });
+  await late.ingest([story, own]);
+  const early = new Mind({ seed: 7 });
+  await early.ingest([own, story]);
+  const inherits = (m) =>
+    m.store.next(m.resolve(enc.encode("Peter Hale")))
+      .map((d) => dec.decode(m.store.bytes(d)))
+      .includes(story[1]);
+  assert.ok(inherits(early), "known first: the suffix inherits at deposit");
+  assert.ok(!inherits(late), "known later: the deposit could not");
+  assert.ok(
+    (await late.closeSuffixes()) > 0,
+    "the closure adds what was missed",
+  );
+  await early.closeSuffixes();
+  assert.ok(inherits(late));
+  assert.deepEqual(edgesOf(late), edgesOf(early));
+  assert.equal(await late.closeSuffixes(), 0, "a closed store stays closed");
+});

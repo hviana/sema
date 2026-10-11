@@ -15,8 +15,8 @@
 // (the pair as a whole is almost always unique); the input-level key catches them
 // all, and a context that recurs as a continuation (or vice versa) hits too.
 //
-// On a cache hit only the cheap relational writes are replayed — the edge and the
-// two halo pours for a pair, or the part-chain links for a single — while the
+// On a cache hit the learning itself still runs — a pair through the Mind's own
+// `ingestPair`, a single through its own deposit — while the
 // perceive + internTree work (the dominant cost, and on a large store the dominant
 // VECTOR-INDEX cost too) is skipped entirely.  The interned node ids are stable
 // across eviction: a re-perceive of evicted content reproduces the same ids by
@@ -25,11 +25,11 @@
 // DEPOSITION IS THE MIND'S OWN: every miss goes through the same
 // {@link deposit} the direct Mind.ingest path uses — perception, interning,
 // sub-span/window indexing, durable CONTAINMENT edges, whole-stream flat
-// branch, changed-node tracking against the Mind's `_prevSeen` — so a store
-// trained through this cache is structurally IDENTICAL to one trained by
-// calling mind.ingest() directly (this class used to re-implement the deposit
-// and drifted: no indexSubSpans/addContainer, wrong part-link stride).  Only
-// the memo layer lives here.  Behaviour is identical to mind.ingest() (links
+// branch, changed-node tracking against the Mind's `_prevSeen` — and every pair
+// through the Mind's own `ingestPair`, so a store trained through this cache is
+// IDENTICAL to one trained by calling mind.ingest() directly (this class used
+// to re-implement the deposit, then the pair law, and drifted both times).
+// Only the memo layer lives here.  Behaviour is identical to mind.ingest() (links
 // and halos are reinforced on every call), just faster when content repeats.
 
 import { Mind } from "./mind/index.js";
@@ -37,8 +37,9 @@ import {
   deposit,
   dispatchIngest,
   ingestOne as depositOne,
+  ingestPair as learnPair,
 } from "./mind/learning.js";
-import { bindSeat, companySignature, type Sema } from "./sema.js";
+import type { Sema } from "./sema.js";
 import type { Input } from "./mind/index.js";
 import { BoundedMap } from "./store.js";
 import type { Vec } from "./vec.js";
@@ -178,32 +179,13 @@ export class CachedIngest {
   // ── pair ingest ───────────────────────────────────────────────────────
 
   private async ingestPair(ctx: Input, cont: Input): Promise<void> {
-    // The CONTEXT side is TRACKED (it continues the Mind's deposit chain and
-    // is the growing, unique-per-turn side — a cache miss anyway), via the
-    // same {@link deposit} the direct path uses; the continuation resolves
-    // through the memo.
-    const c = await deposit(this.mind, ctx, true);
-    const b = await this.resolveInput(cont);
-
-    // EDGE on the FULL context (disambiguates a shared pivot). HALO only on the
-    // CHANGED NODES — the coherent new subtrees this turn adds — so a recurring
-    // shared prefix never collects halo mass. (See Mind.ingestPair.)
-    await this.mind.store.link(c.rootId, b.rootId);
-    // Halos pour company SIGNATURES (identity), not gists (content) — see
-    // companySignature in sema.ts.
-    const contSeat = bindSeat(
-      this.mind.space,
-      companySignature(this.mind.space, b.rootId),
-      1,
+    // The Mind's own pair law; only the continuation's deposit is memoised.
+    await learnPair(
+      this.mind,
+      ctx,
+      cont,
+      async (input) => (await this.resolveInput(input)).rootId,
     );
-    for (const part of c.changed) {
-      const partId = c.ids.get(part)!;
-      await this.mind.store.pourHalo(partId, contSeat);
-      await this.mind.store.pourHalo(
-        b.rootId,
-        bindSeat(this.mind.space, companySignature(this.mind.space, partId), 0),
-      );
-    }
   }
 
   // ── one-side ingest ───────────────────────────────────────────────────

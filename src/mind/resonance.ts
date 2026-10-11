@@ -453,7 +453,7 @@ export async function pivotInto(
     // yes).  A piece is refused; a learnt whole that is also reused is not.
     if (
       (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) &&
-      !(ctx.store.haloMass(id) > 0)
+      !ctx.store.learntWhole(id)
     ) continue;
     // A candidate whose bytes are LONGER than the answer cannot be a substring
     // of it — `indexOf` would return −1 regardless. Prune by length BEFORE

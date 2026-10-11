@@ -6,7 +6,6 @@
 import { addInto, normalize, Vec, zeros } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
-import { changedNodes } from "./types.js";
 import { inputBytes, perceiveDeposit, resolve } from "./primitives.js";
 import { canonicalWindows, leafIdPrefix } from "./canonical.js";
 import { rItem, rNode } from "./trace.js";
@@ -25,7 +24,7 @@ import { fold as foldVecs } from "../sema.js";
  *  therefore skips the WHOLE shared subtree, making the intern walk
  *  O(new nodes) per deposit instead of O(context).  Only the hit node
  *  itself enters `ids`; descendants stay reachable via the memo (see
- *  idOf in indexSubSpans and the changedNodes prune). */
+ *  idOf in indexSubSpans). */
 export async function internTreeIds(
   ctx: MindContext,
   node: Sema,
@@ -112,14 +111,14 @@ export async function indexSubSpans(
 }
 
 /** Perceive, intern, and index a single input.  Returns the perceived tree,
- *  root id, id map, and the changed (new) subtrees for halo reinforcement. */
+ *  root id and id map. */
 export async function deposit(
   ctx: MindContext,
   input: Input,
   track: boolean,
   conversational = false,
 ): Promise<
-  { tree: Sema; rootId: number; ids: Map<Sema, number>; changed: Sema[] }
+  { tree: Sema; rootId: number; ids: Map<Sema, number> }
 > {
   const bytes = inputBytes(ctx, input);
   // Deposit-shaped perception (perceiveDeposit): the plain content fold, the
@@ -145,11 +144,8 @@ export async function deposit(
     await ctx.store.putBranch(leafIds, tree.v);
   }
 
-  const changed = (track && ctx._prevSeen)
-    ? changedNodes(tree, ids, ctx._prevSeen)
-    : [tree];
   if (track) ctx._prevSeen = indexed ? new Set(ids.values()) : null;
-  return { tree, rootId, ids, changed };
+  return { tree, rootId, ids };
 }
 
 /** Ingest a single input (a bare experience, no continuation). */
@@ -187,27 +183,60 @@ async function propagateSuffixes(
   ctx: MindContext,
   src: number,
   dst: number,
-): Promise<void> {
+): Promise<number> {
   const W = ctx.space.maxGroup;
   const bytes = ctx.store.bytes(src);
   const n = bytes.length;
-  if (n < 2 * W) return;
+  let added = 0;
+  if (n < 2 * W) return added;
   // Existence prefilter — the write side of the canonical contract: every
   // deposit interns its WHOLE byte stream as a flat branch of per-byte leaf
   // ids (deposit(), canonical.ts).  A suffix is a stored form exactly when
   // that flat twin exists, so one content-hash probe per offset decides;
   // only a hit pays for resolve()'s deposit-shaped perception.  This keeps
   // the scan free of river folds — O(1) probes over cheap byte hashes
-  // instead of O(suffix) vector folds per offset.
-  const leafIds = leafIdPrefix(ctx, bytes);
+  // instead of O(suffix) vector folds per offset.  The probe is addressed by
+  // the bytes, so the store's negative filter refuses most offsets before any
+  // id list is built.
+  const flat = ctx.store.findFlatBranch?.bind(ctx.store);
+  const leafIds = flat ? null : leafIdPrefix(ctx, bytes);
   for (let i = 1; i <= n - W; i++) {
-    if (ctx.store.findBranch(leafIds.slice(i)) === null) continue;
+    const twin = flat
+      ? flat(bytes.subarray(i))
+      : ctx.store.findBranch(leafIds!.slice(i));
+    if (twin === null) continue;
     const id = resolve(ctx, bytes.subarray(i));
     if (id === null || id === src) continue;
-    const known = ctx.store.parentsFirst(id, 2).length >= 2 ||
-      (ctx.store.haloMass(id) > 0 && ctx.store.hasNext(id));
+    const known = ctx.store.parentsExceed(id, 1) ||
+      (ctx.store.learntWhole(id) && ctx.store.hasNext(id));
     if (!known) continue;
-    await ctx.store.link(id, dst);
+    if (await ctx.store.link(id, dst)) added++;
+  }
+  return added;
+}
+
+/** The CLOSURE of suffix inheritance.  A deposit links the suffixes known
+ *  when it is made, so a form that becomes known later misses the
+ *  continuations of every context deposited before it: the edges depend on
+ *  the order of teaching (on real training episodes, about 31% of the closed
+ *  suffix edges).  Every gate only grows — parents, wholes, edges — so the
+ *  rule has one least fixed point whatever the order: every edge passes its
+ *  continuation to its source's known suffixes, pass after pass, until a pass
+ *  adds nothing.  Completing it at the moment a form becomes known found a
+ *  quarter of the missing edges, at a third more ingestion: the forms that
+ *  matter end many contexts, so their window's reach saturates.  Returns the
+ *  edges added. */
+export async function closeSuffixes(ctx: MindContext): Promise<number> {
+  let added = 0;
+  for (;;) {
+    let fresh = 0;
+    for (const src of ctx.store.edgeSources()) {
+      for (const dst of ctx.store.next(src)) {
+        fresh += await propagateSuffixes(ctx, src, dst);
+      }
+    }
+    added += fresh;
+    if (fresh === 0) return added;
   }
 }
 
@@ -428,7 +457,7 @@ function companyProfile(ctx: MindContext, id: number): Vec {
       dominating++;
       continue;
     }
-    if (ctx.store.parentsFirst(n, bound + 1).length > bound) {
+    if (ctx.store.parentsExceed(n, bound)) {
       hubDropped++;
       continue;
     }
@@ -475,15 +504,19 @@ function companyProfile(ctx: MindContext, id: number): Vec {
 
 /** Ingest a pair (context, continuation) — learn an edge and pour halos.
  *  Returns the deposited root ids (context, continuation) — a pure
- *  read-out; callers that ignore it behave exactly as before. */
+ *  read-out; callers that ignore it behave exactly as before.  `rootOf`
+ *  deposits the continuation (untracked: it must not break the tracked
+ *  deposit chain); the ingest cache passes its memo of the same deposit, so
+ *  the one pair law serves both paths. */
 export async function ingestPair(
   ctx: MindContext,
   ctxInput: Input,
   cont: Input,
+  rootOf: (input: Input) => Promise<number> = async (input) =>
+    (await deposit(ctx, input, false)).rootId,
 ): Promise<{ ctxId: number; contId: number }> {
   const c = await deposit(ctx, ctxInput, true, true);
-  const cont_ = await deposit(ctx, cont, false);
-  const ctxId = c.rootId, contId = cont_.rootId;
+  const ctxId = c.rootId, contId = await rootOf(cont);
 
   // NO CONTINUATION STAMP.  A longer ctxInput reusing this one's folded
   // segments needs no proof that it is "really" the next turn: the deposit
@@ -498,16 +531,17 @@ export async function ingestPair(
   // companySignature in sema.ts — as a TYPE-level profile: the partner's own
   // signature superposed with its discriminating constituents' (see
   // companyProfile), so company is shared by what partners are MADE OF and
-  // not only by partner identity.
-  const contSeat = bindSeat(ctx.space, companyProfile(ctx, contId), 1);
-  for (const part of c.changed) {
-    const partId = c.ids.get(part)!;
-    await ctx.store.pourHalo(partId, contSeat);
-    await ctx.store.pourHalo(
-      contId,
-      bindSeat(ctx.space, companyProfile(ctx, partId), 0),
-    );
-  }
+  // not only by partner identity.  The two WHOLES keep each other's company:
+  // the context what it led to, the continuation what led to it.  A part's
+  // company inside its context is the context's (halo-sketch.md).
+  await ctx.store.pourHalo(
+    ctxId,
+    bindSeat(ctx.space, companyProfile(ctx, contId), 1),
+  );
+  await ctx.store.pourHalo(
+    contId,
+    bindSeat(ctx.space, companyProfile(ctx, ctxId), 0),
+  );
   return { ctxId, contId };
 }
 

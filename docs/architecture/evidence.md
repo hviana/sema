@@ -285,24 +285,24 @@ filler. A form witnessing all the question's slot says the question and more
 
 - recall's consensus anchor refuses it, else
   `Where was Nicki Minaj (Nicki Minaj Song) born?` answers another performer's
-  question; so does the substitution bridge;
-- fusion does not fuse it as a further topic;
+  question, as does the substitution bridge;
+- fusion does not fuse it as another topic;
 - a CAST comparison does not take it as its dominant, else Shakira's birthplace
-  is voiced against `John Lennon`.
+  is set against `John Lennon`.
 
 ## Arguments held under the response's equivalence
 
 2Wiki title-cases its questions (`Man At Bath` for the stored `Man at Bath`),
-and such a title lines up with none of the fold's cuts. When recall's argument
-binding finds no recognised argument, the stored forms the climb reaches become
-candidates, if the question canonically contains them at their own offsets
-(`canonHeldPoints`). The climb proposes, and exact containment decides. This
-relies on the canonical index the trainer builds (`buildCanonIndex`).
+and such a title meets none of the fold's cuts. When recall's argument binding
+finds no recognised argument, the stored forms the climb reaches are candidates
+if the question holds them canonically at their offsets (`canonHeldPoints`). The
+climb proposes, exact containment decides. This relies on the canonical index
+the trainer builds (`buildCanonIndex`).
 
 A fragment that answers other questions is set aside before the binding looks
 for one maximal argument, so `director` does not cancel `Man at Bath`. The same
-predicate refuses CAST's redirection substitute `ong)?`, the tail of every
-`… (… Song)?` question.
+predicate refuses CAST's substitution subject and redirection substitute
+(`ong)?`, the tail of every `… (… Song)?` question).
 
 A fragment with a single continuation is no safer when it was never learnt as a
 context. Suffix inheritance admits a reused piece once two deposits share it, so

@@ -12,14 +12,16 @@ The gist puts `colour` near `colours`. Only the halo can put `colour` near
 
 Each deposited fact `(context → continuation)` makes two pours (`ingestPair`):
 
-- every part of the context newly seen by this deposit receives the
-  continuation's profile, bound to seat 1, _what it led to_;
-- the continuation receives each such part's profile, bound to seat 0, _what led
-  to it_.
+- the context receives the continuation's profile, bound to seat 1, _what it led
+  to_;
+- the continuation receives the context's profile, bound to seat 0, _what led to
+  it_.
 
 Pours add. Each profile is normalized, so one episode pours one unit of mass
-(`haloMass` counts episodes). Addition forgets order and keeps proportion, which
-is why the halo is a statistic rather than a record.
+(`haloMass` counts episodes). Addition forgets order and keeps proportion: a
+statistic, not a record. Parts keep company through the profile's sketch. Poured
+into parts, company measured collocation (parts of one context at 0.74) over use
+(0.19), and a halo marks a thing learnt whole (`learntWhole`).
 
 ## Company by type, not by token — the profile
 
@@ -46,19 +48,17 @@ minimal units of its subtree with the smallest identity-keyed priority.
   would correlate, and the concept bar's null model would collapse. Byte atoms
   are skipped for the same reason. So is a unit that dominates the partner,
   because that unit is the partner itself.
-- **The sketch is composable and durable.** Bottom-k of a union is bottom-k of
-  the children's sketches. Sketches are stored (`sketchGet`/`sketchPut`), so a
-  partner met again costs `O(k)`.
+- **Composable and durable.** Bottom-k of a union is bottom-k of the children's;
+  stored sketches (`sketchGet`/`sketchPut`) make a partner met again `O(k)`.
 
-Every term is a seeded function of a node identity, never of a gist, so
-resemblance of spelling cannot leak into resemblance of use. Two partners
-sharing `j` of `k` discriminating constituents meet at `j/(1+k)`. A profile is
-fixed given the corpus seen so far. As `N` grows, a term can move only from
-contributing to excluded-as-hub.
+Every term is a seeded function of a node identity, never of a gist, so spelling
+cannot leak into use. Two partners sharing `j` of `k` sketched constituents meet
+at `j/(1+k)`. As `N` grows, a term can move only from contributing to
+excluded-as-hub.
 
 `k = √D` is a correctness limit, not a budget. Beyond it, one more term
-contributes less than `1/√D`, below the estimator's noise, and dilutes every
-accepted term.
+contributes less than `1/√D`, the estimator's noise, and dilutes every accepted
+term.
 
 ## Storage — exact in session, quantized at rest
 

@@ -706,6 +706,18 @@ export class SQliteStore extends AbstractStore implements Store {
       .map((r) => r.parent);
   }
 
+  private _selParentBeyond: any = null;
+  /** The (n+1)-th parent row's existence: SQLite steps past `n` index entries
+   *  without handing them to JS. */
+  protected override _dbParentsExceed(id: NodeId, n: number): boolean {
+    if (!this._selParentBeyond) {
+      this._selParentBeyond = this.sqlite!.prepare(
+        "SELECT 1 FROM kid WHERE child = ? LIMIT 1 OFFSET ?",
+      );
+    }
+    return this._selParentBeyond.get(id, n) !== undefined;
+  }
+
   private _selChain: any = null;
 
   /** {@link Store.chainRun}'s walk as ONE recursive CTE: the whole
@@ -936,13 +948,19 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // -- Continuation edges --
 
-  protected _dbInsertEdge(src: NodeId, dst: NodeId): void {
+  protected _dbInsertEdge(src: NodeId, dst: NodeId): boolean {
     if (!this._insertEdge) {
       this._insertEdge = this.sqlite!.prepare(
         "INSERT OR IGNORE INTO edge (src, dst) VALUES (?, ?)",
       );
     }
-    this._insertEdge.run(src, dst);
+    return Number(this._insertEdge.run(src, dst).changes) > 0;
+  }
+
+  protected _dbEdgeSources(): NodeId[] {
+    return (this.sqlite!.prepare(
+      "SELECT src FROM edge GROUP BY src ORDER BY MIN(seq)",
+    ).all() as Array<{ src: number }>).map((r) => r.src);
   }
 
   protected _dbGetNextEdges(id: NodeId): NodeId[] {

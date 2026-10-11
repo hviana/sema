@@ -585,3 +585,178 @@ test("D2 — site-aware climb is seed-independent", async () => {
     }`,
   );
 });
+
+// The SUBJECT of a substitution is a structure of this question.  Once suffix
+// inheritance is closed, `director` leads to every `… director` fact, so the
+// fragment is a point of the weave — but the question names none of its
+// continuations, so it answers other questions, and filling `Premium (film)`'s
+// seat with it glued `directorfilm)` onto a stranger's fact.  (Minimised from
+// the 2Wiki fixture; the honest answer is silence.)
+test("a fragment answering other questions is no substitution subject", async () => {
+  const m = new Mind({ seed: 7 });
+  await m.ingest([
+    ["Swedenhielms", "The director of Swedenhielms is Gustaf Molander."],
+    [
+      "The Slayer (film) director",
+      "The director of The Slayer (film) is J. S. Cardone.",
+    ],
+    [
+      "The Slayer (film)",
+      "The director of The Slayer (film) is J. S. Cardone.",
+    ],
+    ["Moscow Heat director", "The director of Moscow Heat is Jeff Celentano."],
+    [
+      "Zhu Chen country of citizenship",
+      "The country of citizenship of Zhu Chen is China.",
+    ],
+    ["Zhu Chen", "The country of citizenship of Zhu Chen is China."],
+    ["Gammat Jammat director", "The director of Gammat Jammat is Sachin."],
+    ["Gammat Jammat", "The director of Gammat Jammat is Sachin."],
+    ["Anees Bazmee", "The country of citizenship of Anees Bazmee is Indian."],
+    [
+      "The King is the Best Mayor director",
+      "The director of The King is the Best Mayor is Rafael Gil.",
+    ],
+    [
+      "Premium (film) publication date",
+      "The publication date of Premium (film) is 2006.",
+    ],
+    ["Premium (film)", "The publication date of Premium (film) is 2006."],
+    [
+      "Week-End with Father publication date",
+      "The publication date of Week-End with Father is 1951.",
+    ],
+    [
+      "Week-End with Father",
+      "The publication date of Week-End with Father is 1951.",
+    ],
+    ["Gevherhan Sultan father", "The father of Gevherhan Sultan is Selim II."],
+    [
+      "Which country Hans J. Salter is from?",
+      "The country of citizenship of Hans J. Salter is Austrian.",
+    ],
+    [
+      "Summer Is Over director",
+      "The director of Summer Is Over is Rolan Bykov.",
+    ],
+    [
+      "Where was Bruce Guthro (Bruce Guthro Song) born?",
+      "The place of birth of Bruce Guthro is Cape Breton Island.",
+    ],
+    [
+      "Alina Fernández father",
+      "The father of Alina Fernández is Fidel Castro.",
+    ],
+    ["Alina Fernández", "The father of Alina Fernández is Fidel Castro."],
+    [
+      "Sanjay Leela Bhansali",
+      "The educated at of Sanjay Leela Bhansali is Film and Television Institute of India.",
+    ],
+    [
+      "Where did Sanjay Leela Bhansali graduate from?",
+      "The educated at of Sanjay Leela Bhansali is Film and Television Institute of India.",
+    ],
+    [
+      "Dark Valley director",
+      "The director of Dark Valley is Carlos F. Borcosque.",
+    ],
+    ["René Gimpel", "The place of death of René Gimpel is Neuengamme."],
+    [
+      "Where did René Gimpel die?",
+      "The place of death of René Gimpel is Neuengamme.",
+    ],
+    [
+      "Belle Toujours director",
+      "The director of Belle Toujours is Manoel de Oliveira.",
+    ],
+    [
+      "What is the award that Eddie Garcia won?",
+      "The award received of Eddie Garcia is Asian Film Award for Best Actor.",
+    ],
+    [
+      "American Casino director",
+      "The director of American Casino is Leslie Cockburn.",
+    ],
+    ["American Casino", "The director of American Casino is Leslie Cockburn."],
+    [
+      "Leslie Cockburn award received",
+      "The award received of Leslie Cockburn is George Polk Award.",
+    ],
+    [
+      "Leslie Cockburn",
+      "The award received of Leslie Cockburn is George Polk Award.",
+    ],
+    [
+      "What is the award that Leslie Cockburn received?",
+      "The award received of Leslie Cockburn is George Polk Award.",
+    ],
+  ]);
+  await m.closeSuffixes();
+  assert.equal(
+    await m.respondText(
+      "Are both directors of films The Princess Bride (Film) and I Never Sang For My Father from the same country?",
+    ),
+    "",
+  );
+});
+
+// A run NAMES a substitute only by what is not scaffolding.  `The ` of `Year Of
+// The Horse` opens `The Secret director` too: redirection took that as the
+// question naming `The Secret`, and voiced its director over the film the
+// question does name.  (Minimised from the 2Wiki fixture.)
+test("scaffolding names no redirection substitute", async () => {
+  const m = new Mind({ seed: 7 });
+  await m.ingest([
+    ["Winter Meeting", "The director of Winter Meeting is Bretaigne Windust."],
+    [
+      "Year of the Horse director",
+      "The director of Year of the Horse is Jim Jarmusch.",
+    ],
+    ["The Secret director", "The director of The Secret is Robert Enrico."],
+    ["Wee Wee Hours", "The performer of Wee Wee Hours is Chuck Berry."],
+    [
+      "O. P. Nayyar award received",
+      "The award received of O. P. Nayyar is Filmfare Award.",
+    ],
+    ["The Golden Calf", "The director of The Golden Calf is Millard Webb."],
+    [
+      "Who is the spouse of Millard Webb (1930 Film)?",
+      "The spouse of Millard Webb is Mary Eaton.",
+    ],
+    ["The Ride", "The director of The Ride is Jan Svěrák."],
+    ["The January Man", "The director of The January Man is Pat O'Connor."],
+    ["Amarajeevi", "The composer of Amarajeevi is Vijaya Bhaskar."],
+    ["Antikarisma", "The has part of Antikarisma is Shahin Najafi."],
+    [
+      "What is the place of birth of Shahin Najafi?",
+      "The place of birth of Shahin Najafi is Bandar-e Anzali, Gilan, Iran.",
+    ],
+    [
+      "The Messenger director",
+      "The director of The Messenger is Oren Moverman.",
+    ],
+    ["The Escapist", "The director of The Escapist is Gillies MacKinnon."],
+    [
+      "Where did Gillies MacKinnon (2002 Film) study?",
+      "The educated at of Gillies MacKinnon is National Film and Television School.",
+    ],
+    [
+      "Who is the mother of Ben Stiller?",
+      "The mother of Ben Stiller is Meara Stiller.",
+    ],
+    [
+      "What nationality is Huo Jun?",
+      "The country of citizenship of Huo Jun is Eastern Han Dynasty.",
+    ],
+    [
+      "Ezriel Auerbach",
+      "The father of Ezriel Auerbach is Shlomo Zalman Auerbach.",
+    ],
+  ]);
+  await m.closeSuffixes();
+  const answer = await m.respondText(
+    "Do director of film Winter Meeting and director of film Year Of The Horse have the same nationality?",
+  );
+  assert.ok(!answer.includes("Robert Enrico"), answer);
+  assert.ok(answer.includes("Jim Jarmusch"), answer);
+});

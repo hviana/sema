@@ -35,10 +35,10 @@ A meet on a single window, or a span shorter than `2W`, is refused.
 
 **The seat is a thing.** Where the question names a thing of its own, learnt
 whole (`heldEntity` with `entitiesIn`'s law: continuations and company of its
-own, read under the equivalence), what it asks for is a thing too. A meet that
-holds no such thing (`holdsAThing`) is no answer. What two facts of one relation
-share is that relation's frame (`The date of birth of`), and its windows can
-read rarer than any entity. Where the question names nothing learnt whole
+own, read under the equivalence), what it asks for is a thing too: a meet voices
+the thing it holds (`thingIn`), and holding none is no answer. What two facts of
+one relation share is its frame (`The date of birth of`), whose windows can read
+rarer than an entity. Where the question names nothing learnt whole
 (`Which material is translucent and featherlight?`), the bytes are all the
 evidence spells.
 
