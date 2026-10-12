@@ -19,6 +19,7 @@ import {
   argmaxBy,
   corpusN,
   edgeAncestors,
+  heldElsewhere,
   hubBound,
   hubWindows,
   offsetCanon,
@@ -692,7 +693,7 @@ export async function counterfactualTransfer(
   // "latest named" then means latest by the run actually relied on.
   // A run NAMES only by what is not scaffolding: `The ` of `Year Of The
   // Horse` opens `The Secret director` too, and named nothing (the evidence
-  // `analogOwnsEvidence` asks of an analog, commonality.md).
+  // TWO THINGS NAMED asks of a comparison, commonality.md).
   const hubQ = hubWindows(ctx, query);
   const names = (r: GradedRun): boolean => {
     for (let o = r.qs; o + quantum <= r.qe; o++) if (!hubQ[o]) return true;
@@ -1134,40 +1135,82 @@ export async function counterfactualTransfer(
   const cmpGaps = unexplainedSpans(query.length, cmpAccounted);
   const cmpMaxGap = cmpGaps.reduce((n, [s, e]) => Math.max(n, e - s), 0);
   // TWO THINGS NAMED.  A comparison voices two structures, so the question
-  // must evidence the second one with material of its own: a W-window of the
-  // question that the analog holds — on its aligned runs, or anywhere in its
-  // own form under the response's equivalence (the witness reading,
-  // evidence.md) — and that is neither inside the dominant's runs nor corpus
-  // scaffolding (`hubWindows`, the reading of "what the question owes").
-  // `father of Frederick II?` reached `Peter III of Aragon father` through
-  // ` father`, which the dominant `Frederick II father` already holds, and
-  // ` of `, which every fact holds — one structure named, and the comparison
-  // glued the analog's bare question onto the answer (`…is Peter III of
-  // Aragon.Peter III of Aragon father`).  `How is ice like steel?` names
-  // `Ice is cold` with `ice `, a window no byte-exact run aligns (the case
-  // differs) and the dominant `Steel is hard` lacks.
-  const analogOwnsEvidence = (): boolean => {
-    if (bestAnalog === null) return false;
+  // must name EACH with material of its own: W-windows of the question the
+  // structure holds — on its aligned runs, or anywhere in its own form under
+  // the response's equivalence (the witness reading, evidence.md) — neither
+  // inside the other's runs nor corpus scaffolding (`hubWindows`), and a run of
+  // them no other context holds (`heldElsewhere`).  Exact decides which
+  // structure is meant; the halo only ranks.  `father of Frederick II?`
+  // reached `Peter III of Aragon father` through ` father`, which the dominant
+  // `Frederick II father` already holds, and ` of `, which every fact holds —
+  // and the comparison glued the analog's bare question onto the answer.
+  // `When was the director of film Reykjavík-Rotterdam born?` named `David
+  // Eady (film director) date of birth` by `ctor` and `film `, which its
+  // `date of death` holds too; `In which town did Z come into the world?`
+  // named the dominant `Did W come into the world in X?` by what every `Did …
+  // come into the world in …?` holds.  `How is ice like steel?` names `Ice is
+  // cold` with `ice `, which no run aligns (the case differs) and no other
+  // context holds.
+  const namedMemo = new Map<string, boolean>();
+  const namesApart = (
+    point: number,
+    voiced: number,
+    runs: Array<[number, number]>,
+    other: Array<[number, number]>,
+  ): boolean => {
+    const key = `${point}:${voiced}`;
+    const hit = namedMemo.get(key);
+    if (hit !== undefined) return hit;
     const W = ctx.space.maxGroup;
     const hub = hubWindows(ctx, query);
-    const mine = runSpans(dominant);
+    const cap = query.length * W;
+    const forms = [point, voiced].map((id) =>
+      offsetCanon(ctx, read(ctx, id, cap))
+    );
     const owns = (o: number): boolean =>
-      !hub[o] && !mine.some(([ms, me]) => o >= ms && o + W <= me);
-    for (const [s, e] of runSpans(bestAnalog.point ?? bestAnalog.src)) {
-      for (let o = s; o + W <= e; o++) if (owns(o)) return true;
+      !hub[o] && !other.some(([ms, me]) => o >= ms && o + W <= me);
+    const own = new Set<number>();
+    for (const [s, e] of runs) {
+      for (let o = s; o + W <= e; o++) {
+        const w = offsetCanon(ctx, query.subarray(o, o + W));
+        if (owns(o) && forms.some((f) => indexOf(f, w, 0) >= 0)) own.add(o);
+      }
     }
     const asked = ctx._edgeAsked;
-    if (asked === null) return false;
-    const form = offsetCanon(
-      ctx,
-      read(ctx, bestAnalog.anchor, asked.bytes.length * W),
-    );
-    for (let o = 0; o + W <= form.length; o++) {
-      const at = asked.index.get(latin1(form.subarray(o, o + W)));
-      if (at !== undefined && owns(at)) return true;
+    if (asked !== null) {
+      const form = offsetCanon(ctx, read(ctx, voiced, asked.bytes.length * W));
+      for (let o = 0; o + W <= form.length; o++) {
+        const at = asked.index.get(latin1(form.subarray(o, o + W)));
+        if (at !== undefined && owns(at)) own.add(at);
+      }
     }
-    return false;
+    const spans: Array<[number, number]> = [];
+    for (const o of [...own].sort((a, b) => a - b)) {
+      const last = spans.at(-1);
+      if (last !== undefined && o <= last[1] - W + 1) {
+        last[1] = Math.max(last[1], o + W);
+      } else spans.push([o, o + W]);
+    }
+    const out = spans.some((sp) =>
+      !heldElsewhere(ctx, query, sp, point, voiced)
+    );
+    namedMemo.set(key, out);
+    return out;
   };
+  const analogNamedApart = (): boolean =>
+    bestAnalog !== null && namesApart(
+      (bestAnalog.point ?? bestAnalog.src).anchor,
+      bestAnalog.anchor,
+      runSpans(bestAnalog.point ?? bestAnalog.src),
+      runSpans(dominant),
+    );
+  const dominantNamedApart = (): boolean =>
+    bestAnalog !== null && namesApart(
+      dominant.anchor,
+      dominant.anchor,
+      runSpans(dominant),
+      runSpans(bestAnalog.point ?? bestAnalog.src),
+    );
   // An analog that is not itself a directly ALIGNED point (point !== null —
   // its own runs are query bytes, the query NAMED it) was only reached
   // through a continuation hop or the structural-hub fallback.  Voicing
@@ -1302,13 +1345,14 @@ export async function counterfactualTransfer(
   if (
     bestAnalog !== null &&
     (bestHalo || analogNamed || rootTrusted) &&
-    analogOwnsEvidence() &&
     !coInstanceAnalog &&
     !cmpDismisses &&
     queryScale(dominant.ctx.length) &&
     roots.length <= 1 &&
     !dominates(cmpMaxGap, query.length) &&
-    cmpMaxGap < dominant.ctx.length
+    cmpMaxGap < dominant.ctx.length &&
+    analogNamedApart() &&
+    dominantNamedApart()
   ) {
     ctx.trace?.step(
       "validateAnalogy",
@@ -1442,18 +1486,22 @@ export async function counterfactualTransfer(
         : coInstanceAnalog
         ? `an analog is another instance of the question's frame — its ` +
           `seat is another filler's answer, not what the question asks about`
-        : !analogOwnsEvidence()
-        ? `the question evidences the analog only with windows the dominant ` +
-          `already holds or the corpus' scaffolding — it names one structure, ` +
-          `not two, so there is nothing to compare`
         : cmpDismisses
         ? `a frame-tier analog under an untrusted root dismisses stored ` +
           `query content its alignment never accounted for — comparison ` +
           `refuses to ignore what the store knows`
-        : `comparison's own accounted evidence leaves a ${cmpMaxGap}-byte gap in ` +
+        : dominates(cmpMaxGap, query.length) ||
+            cmpMaxGap >= dominant.ctx.length
+        ? `comparison's own accounted evidence leaves a ${cmpMaxGap}-byte gap in ` +
           `a ${query.length}-byte query against a ${dominant.ctx.length}-byte ` +
           `dominant — too large to be mere framing — so it refuses rather ` +
-          `than paper over it with an analog the query never asked about`,
+          `than paper over it with an analog the query never asked about`
+        : !analogNamedApart()
+        ? `the question evidences the analog only with windows the dominant ` +
+          `holds, the corpus' scaffolding, or runs another context holds too ` +
+          `— it names one structure, not two, so there is nothing to compare`
+        : `the question evidences the dominant only with runs another context ` +
+          `holds too — it names a frame, not the structure compared from`,
     );
   }
   t?.done(

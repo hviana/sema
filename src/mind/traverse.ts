@@ -3491,6 +3491,93 @@ function oldestContexts(
   return out;
 }
 
+/** Whether a span of the question is HELD ELSEWHERE: by a context that is
+ *  neither `point` nor `voiced`, holds neither, and lies in neither.  No index
+ *  says who holds a span — a window's containment rows are the chunks it
+ *  OVERLAPS (`indexSubSpans`), so a climb from it proposes contexts that may
+ *  not hold it — so holders are proposed by climbing and decided by their
+ *  bytes, under the response's equivalence.  The climb starts from the
+ *  smallest node of `point`'s own tree that holds the span (every context
+ *  above it does too) and from the rarest window of each spelling — the
+ *  question's, its canonical form, `point`'s own — since the holders under
+ *  the equivalence are their union.  Breadth first, at most
+ *  `max(√N, W²)·W` nodes: a frontier left unread past them is commonness past
+ *  the hub, which singles nothing out (saturation.md). */
+export function heldElsewhere(
+  ctx: MindContext,
+  question: Uint8Array,
+  span: readonly [number, number],
+  point: number,
+  voiced: number,
+): boolean {
+  const W = ctx.space.maxGroup;
+  const budget = Math.max(hubBound(ctx), chainReach(W)) * W;
+  const cap = question.length * W;
+  const form = (id: number): Uint8Array => offsetCanon(ctx, read(ctx, id, cap));
+  const pB = form(point);
+  const vB = form(voiced);
+  const raw = question.subarray(span[0], span[1]);
+  const sp = offsetCanon(ctx, raw);
+  const seen = new Set<number>();
+  const frontier: number[] = [];
+  const push = (x: number): void => {
+    if (!seen.has(x)) {
+      seen.add(x);
+      frontier.push(x);
+    }
+  };
+  let x = point;
+  for (;;) {
+    const next = ctx.store.get(x)?.kids?.find((k) =>
+      indexOf(form(k), sp, 0) >= 0
+    );
+    if (next === undefined) break;
+    x = next;
+  }
+  if (indexOf(form(x), sp, 0) >= 0) {
+    seen.add(x);
+    for (const p of ctx.store.parentsFirst(x, budget)) push(p);
+  }
+  const at = indexOf(pB, sp, 0);
+  const pRaw = read(ctx, point, cap);
+  const own = at >= 0 && pRaw.length === pB.length
+    ? pRaw.subarray(at, at + sp.length)
+    : sp;
+  for (const bytes of [raw, sp, own]) {
+    let seed: number | null = null;
+    let few = budget;
+    for (let o = 0; o + W <= bytes.length; o++) {
+      const ids = leafIdRun(ctx, bytes, o, o + W);
+      const wid = ids === null ? null : ctx.store.findBranch(ids);
+      if (wid === null) continue;
+      const r = ctx.store.containersSlice(wid, 0, few).length +
+        ctx.store.parentsFirst(wid, budget).length;
+      if (r > 0 && (seed === null || r < few)) {
+        few = r;
+        seed = wid;
+      }
+    }
+    if (seed === null || seen.has(seed)) continue;
+    seen.add(seed);
+    for (const p of ctx.store.parentsFirst(seed, budget)) push(p);
+    for (const c of ctx.store.containersSlice(seed, 0, budget)) push(c);
+  }
+  const apart = (t: Uint8Array): boolean =>
+    indexOf(t, pB, 0) < 0 && indexOf(pB, t, 0) < 0 &&
+    indexOf(t, vB, 0) < 0 && indexOf(vB, t, 0) < 0;
+  for (let i = 0; i < frontier.length; i++) {
+    if (i >= budget) return true;
+    const y = frontier[i];
+    if (ctx.meter) ctx.meter.holderVisits++;
+    if (ctx.store.hasNext(y)) {
+      const t = form(y);
+      if (apart(t) && indexOf(t, sp, 0) >= 0) return true;
+    }
+    for (const p of ctx.store.parentsFirst(y, budget)) push(p);
+  }
+  return false;
+}
+
 /** The question's own entity: the longest of the climb's points the question
  *  holds whole, exactly or under the response's equivalence, that has
  *  continuations of its own — `[start, end)` in the question, or null.

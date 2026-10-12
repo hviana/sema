@@ -45,11 +45,11 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
   const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
   await m.ingest([
     ["What is the capital of France?", "The capital of France is Paris."],
-    // "some other prompt" stands in for whatever real aligned point's own
-    // continuation edge reaches the self-contained analog below — in the
-    // live trace this was reached through the query's own weave, not a
-    // direct textual match, hence AnalogCandidate.point === null.
-    ["some other prompt", "Japan capital is Tokyo."],
+    // The aligned point whose own continuation edge reaches the
+    // self-contained analog below, hence AnalogCandidate.point === null.  It
+    // holds the run it is aligned by: a run a point does not hold names
+    // nothing (cast.ts, TWO THINGS NAMED).
+    ["What is the capital of Spain?", "Japan capital is Tokyo."],
     // The coincidental further edge: the analog's OWN forward continuation,
     // unrelated to the comparison, mirroring "...capital of Japan?" being
     // followed by "...capital of the Moon?" in one training document.
@@ -60,7 +60,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
     "What is the capital of France? What is the capital of Spain?",
   );
   const franceId = resolve(m, enc("What is the capital of France?"));
-  const spainAnalogSrcId = resolve(m, enc("some other prompt"));
+  const spainAnalogSrcId = resolve(m, enc("What is the capital of Spain?"));
 
   const dominant = {
     anchor: franceId,
@@ -77,7 +77,7 @@ test("CAST comparison: a nextOf-descendant analog is seated by its own bytes, no
     anchor: spainAnalogSrcId,
     vote: 50,
     idfVote: 50, // the fixture builds an Attention: the field has to exist
-    ctx: enc("some other prompt"),
+    ctx: enc("What is the capital of Spain?"),
     runs: [{ qs: 32, qe: 62, cs: 0, weight: 1 }],
   };
 

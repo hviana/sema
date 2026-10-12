@@ -330,7 +330,7 @@ continuations and are set aside as fragments with several.
 | `preConsumed` (`pipeline.ts`)               | when a grounding declares no `used`: the forms inside its answer that the question already holds. The entity the answer added stays pivotable                                                                                                                                            |
 | the walk (`reasoning.ts`)                   | a named pivot moves; an unnamed one is offered only while the derivation still owes something, and the closure law decides it by carrying                                                                                                                                                |
 | `answersOtherQuestions` (`traverse.ts`)     | a fragment (a form inside others, with several continuations or one it only inherited, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                |
-| recall's anchor, fusion roots, CAST schemas | a co-instance is never voiced or fused; a comparison needs a window of its own evidencing the analog                                                                                                                                                                                     |
+| recall's anchor, fusion roots, CAST schemas | a co-instance is never voiced or fused; a comparison names each side by a run no other context holds                                                                                                                                                                                     |
 
 ## What the question owes
 

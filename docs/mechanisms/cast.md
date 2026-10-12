@@ -52,10 +52,9 @@ Further competence checks:
   other questions (`ong)?`, of every `… (… Song)?` question) is refused.
 - **Comparison.** The dominant is seated against one analog, reached through
   `seatOfNode` and corroborated by `analogyStrength` (halo company). The
-  question must evidence the analog with a window of its own, not inside the
-  dominant's runs and not scaffolding. Without this and the co-instance guard, a
-  bare question is glued onto the answer, and Shakira's birthplace set against
-  `John Lennon`.
+  question names each with a run it holds, outside the other's runs, not
+  scaffolding, held by no other context (`heldElsewhere`). Otherwise a
+  stranger's question or fact is glued to the answer.
 
 ## Cost
 
@@ -78,5 +77,5 @@ floor is `2·STEP`. Before first touching the climb or the weave, the floor asks
 - `test/43` — the direction of `seatOfNode`.
 - `test/47`, `test/50` — comparison coverage, the analog consensus floor and the
   shared guards.
-- `test/154.7`, `test/155.9`, `test/155.12` — a comparison needs two named
-  things; no schema transfers through a co-instance.
+- `test/154.7`, `test/154.11`, `test/155.9`, `test/155.12` — a comparison names
+  two things apart; no schema transfers through a co-instance.

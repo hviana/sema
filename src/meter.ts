@@ -319,6 +319,9 @@ export class Meter {
   /** Frames whose window was a hub, read as a sample of the oldest contexts
    *  holding their narrowest window (traverse.ts, `siblingInstances`). */
   siblingsSampled = 0;
+  /** Nodes read to tell whether another context holds a span of the question
+   *  (traverse.ts, `heldElsewhere`). */
+  holderVisits = 0;
   /** Cover sites dropped as FRAGMENTS whose several continuations the question
    *  names none of (mechanisms/cover.ts). */
   unaskedFragments = 0;

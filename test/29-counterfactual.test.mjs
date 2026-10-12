@@ -702,7 +702,9 @@ test("a fragment answering other questions is no substitution subject", async ()
 // A run NAMES a substitute only by what is not scaffolding.  `The ` of `The Fj
 // Holden` opens `The Hobbit: An Unexpected Journey director` too: redirection
 // took that as the question naming `The Hobbit`, and voiced Peter Jackson over
-// the director of the film the question does name.  (Minimised from the 2Wiki
+// the director of the film the question does name; nor may a comparison set
+// it beside `Michael Thornhill place of birth`, since ` director` names every
+// `… director` (cast.ts, TWO THINGS NAMED).  (Minimised from the 2Wiki
 // fixture.)
 test("scaffolding names no redirection substitute", async () => {
   const m = new Mind({ seed: 7 });
@@ -780,5 +782,6 @@ test("scaffolding names no redirection substitute", async () => {
     "What is the place of birth of the director of film The Fj Holden?",
   );
   assert.ok(!answer.includes("Peter Jackson"), answer);
-  assert.ok(answer.includes("Sydney, Australia"), answer);
+  assert.ok(!answer.includes("The Hobbit"), answer);
+  assert.ok(answer.includes("Michael Thornhill"), answer);
 });

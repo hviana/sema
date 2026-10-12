@@ -32,9 +32,11 @@ the container-as-hub saturation in `saturation.md`).
 
 **Places: where a window occurs.**
 
-- Measure: `containersSlice(id, 0, bound + 1).length`, the window's containers.
-- Cut: `0` anchors nothing, and `≥ 2` marks the window as reused. Above the hub
-  bound, the window is scaffolding.
+- Measure: `containersSlice(id, 0, bound + 1).length`, the chunks the window
+  overlaps: reuse, not holders. Who holds a span is decided by bytes
+  (`heldElsewhere`).
+- Cut: `0` anchors nothing, `≥ 2` marks reuse, and past the hub bound,
+  scaffolding.
 - Read by the bridge and by attention, which anchor on the rarest window first,
   and by the scaffolding readings (`scaffoldExtents`,
   `allWindowsAreScaffolding`).
@@ -44,10 +46,9 @@ the container-as-hub saturation in `saturation.md`).
 the question by restating `is`, and a cover span made only of scaffolding is not
 accounted (`evidence.md`).
 
-`hubWindows` floors that bound at `chainReach(W) = W²`. Inside one deposit's
-fold, a window is already contained by up to that many chunks and branches. On a
-store of a few facts, `√N` alone would call every window scaffolding, which
-measures fold structure, not commonness (`test/22`).
+`hubWindows` floors that bound at `chainReach(W) = W²`: one deposit's fold
+already gives a window up to that many chunks and branches, so on a store of a
+few facts `√N` alone would call every window scaffolding (`test/22`).
 
 Two limits bound every cut. Below lies chance: one pair, or a resemblance under
 `3/√D`, cannot be told from accident. Above lies ubiquity: what everyone holds

@@ -451,3 +451,52 @@ test("154.10 a paraphrase names the step: the use proposes, the bytes decide", a
   assert.ok(used.named > 0, "named by its use");
   assert.equal((await ask(false)).named, 0, "no word of it is used");
 });
+
+test("154.11 a comparison names each of its two things apart", async () => {
+  // `Did W come into the world in X?` is reached only by ` come into the
+  // world`, which every such question holds: it is a frame, not a thing the
+  // question names, and a comparison set W's birthplace beside Z's other fact.
+  let seed = 1;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  const C = "bcdfghjklmnprstvwz", V = "aeiouy";
+  const word = (n) => {
+    let w = "";
+    for (let i = 0; i < n; i++) {
+      w += i % 2
+        ? V[Math.floor(rnd() * V.length)]
+        : C[Math.floor(rnd() * C.length)];
+    }
+    return w[0].toUpperCase() + w.slice(1);
+  };
+  const names = Array.from(
+    { length: 9 },
+    () =>
+      `${word(4 + Math.floor(rnd() * 3))} ${word(5 + Math.floor(rnd() * 3))}`,
+  );
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const origin = (x, t) => `${x} — origin: ${t}.`;
+  const end = (x, t) => `${x} — end: ${t}.`;
+  const items = [];
+  for (let i = 1; i <= 8; i++) {
+    const x = names[i - 1], o = towns[i % 5], e = towns[(3 * i + 1) % 5];
+    items.push([x, origin(x, o)], [x, end(x, e)]);
+    items.push([`${x} origin`, origin(x, o)], [`${x} end`, end(x, e)]);
+    items.push([`Where was ${x} born?`, origin(x, o)]);
+    items.push([`Where was ${x} buried?`, end(x, e)]);
+    items.push([`Did ${x} pass away in ${e}?`, end(x, e)]);
+    items.push([`Did ${x} come into the world in ${o}?`, origin(x, o)]);
+  }
+  const z = names[8];
+  items.push([z, origin(z, "Fenmoor")], [z, end(z, "Gladwick")]);
+  items.push([`${z} origin`, origin(z, "Fenmoor")]);
+  items.push([`${z} end`, end(z, "Gladwick")]);
+  const m = new Mind({ seed: 7 });
+  await m.ingest(items);
+  const answer = await m.respondText(
+    `In which town did ${z} come into the world?`,
+  );
+  assert.equal(answer, origin(z, "Fenmoor"));
+});
