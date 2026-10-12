@@ -312,6 +312,9 @@ export class Meter {
   /** Co-instances read off the reach of the question's rarest frame window,
    *  beside the climb's own points (traverse.ts, `relationFrames`). */
   coInstanceSiblings = 0;
+  /** Frames whose window was a hub, read as a sample of the oldest contexts
+   *  holding their narrowest window (traverse.ts, `siblingInstances`). */
+  siblingsSampled = 0;
   /** Cover sites dropped as FRAGMENTS whose several continuations the question
    *  names none of (mechanisms/cover.ts). */
   unaskedFragments = 0;

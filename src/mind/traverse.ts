@@ -1969,7 +1969,7 @@ function relationFrames(
   // Whether `q` shares a frame with the question — what the question-entity
   // fallback asks of its siblings — whether or not its slot then reads as an
   // instance's.
-  const consider = (q: number): boolean => {
+  const consider = (q: number, sample = false): boolean => {
     if (seen.has(q)) return false;
     seen.add(q);
     if (!deposited(q)) return false;
@@ -1982,6 +1982,21 @@ function relationFrames(
     if (r.raw.length > formCap) return false;
     const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
     if (co === null) return false;
+    // A SAMPLE read past a hub holds instances in the strict sense only: the
+    // slot is an entity and nothing else (read as `coInstanceFiller` reads
+    // it, reaching past the frame where names share letters) — no description
+    // is read.
+    if (sample && r.filler === undefined) {
+      const e =
+        slotEntity(ctx, r.raw, co.open, r.raw.length - co.close, true) ??
+          closingEntity(ctx, r.raw, co.open, r.raw.length - co.close);
+      if (
+        e === null || e.span[0] > co.open || e.span[1] < r.raw.length - co.close
+      ) {
+        r.filler = null;
+        return true;
+      }
+    }
     // What the instance's slot SAYS of its entity, by the question's rule:
     // `Where was Y's dad born?` applies `· father` to Y before the frame does.
     if (r.filler === undefined) {
@@ -2032,19 +2047,34 @@ function relationFrames(
   for (const q of proposals) consider(q);
   // ONE REGION VOTES FOR ONE CONTEXT, so the climb's points hold one instance
   // of a frame that several instances share.  The siblings are what the
-  // frame's rarest window reaches — the climb's own memoised reach, a
-  // saturated window proposing nothing — read only once a co-instance has
-  // shown what the frame is, and once per question.
+  // frame's rarest window reaches — the climb's own memoised reach — read only
+  // once a co-instance has shown what the frame is, and once per question.
+  // A frame shared past the hub bound is read by a sample (`siblingInstances`):
+  // the instances that make a frame a frame are common by construction.
   if (frame !== null) {
     // The question's own frame decides them; a later material — fewer windows
     // held, a narrower frame — reads the question's.
     const siblings = book.siblings ??
-      siblingInstances(ctx, asked.bytes, frame, allowance);
+      siblingInstances(
+        ctx,
+        asked.bytes,
+        frame,
+        allowance,
+        ![...spelled.values()].some((fr) => fr.by.length >= 2),
+      );
     if (asked === whole) book.siblings = siblings;
+    // Read past a hub, the siblings are a sample: read until two instances
+    // agree, and refuted — as the question's own frame is below — when the
+    // first `chainReach(W)` show no instance at all.
+    const past = pastHub.has(siblings);
+    let shownPast = false, triedPast = 0;
     for (const q of siblings) {
+      if (past && [...spelled.values()].some((fr) => fr.by.length >= 2)) break;
+      if (past && !shownPast && triedPast >= chainReach(W)) break;
       if (seen.has(q)) continue;
       if (ctx.meter) ctx.meter.coInstanceSiblings++;
-      consider(q);
+      triedPast++;
+      if (consider(q, past)) shownPast = true;
     }
   }
   // THE QUESTION'S OWN ENTITY SHOWS ITS FRAME where no two co-instances
@@ -2063,16 +2093,21 @@ function relationFrames(
         asked.bytes,
         [[0, x[0]], [x[1], asked.bytes.length]],
         allowance,
+        true,
       );
     }
     let shown = false;
     let tried = 0;
+    const pastH = book.held !== undefined && pastHub.has(book.held);
     for (const q of book.held ?? []) {
       if (!shown && tried >= chainReach(W)) break;
+      if (pastH && [...spelled.values()].some((fr) => fr.by.length >= 2)) {
+        break;
+      }
       if (seen.has(q)) continue;
       tried++;
       if (ctx.meter) ctx.meter.coInstanceSiblings++;
-      if (consider(q)) shown = true;
+      if (consider(q, pastH)) shown = true;
     }
   }
   // ONE INSTANCE AGREES WITH NOTHING.  A relation is read off the corpus only
@@ -3158,6 +3193,7 @@ function siblingInstances(
   question: Uint8Array,
   frame: ReadonlyArray<[number, number]>,
   allowance: number,
+  enumerate = false,
 ): number[] {
   const W = ctx.space.maxGroup;
   const bound = hubBound(ctx);
@@ -3179,9 +3215,81 @@ function siblingInstances(
   }
   if (best === null) return [];
   const reach = edgeAncestors(ctx, best, corpusN(ctx), sharedReachMemo(ctx));
-  return reach.saturated ? [] : reach.roots.slice(0, allowance);
+  if (!reach.saturated) return reach.roots.slice(0, allowance);
+  if (!enumerate) return [];
+  // The ENUMERATOR's window is the frame's narrowest population, hub or not:
+  // a hub is a voter's notion, and `orn?` (every `… born?`) names the frame's
+  // instances better than the rarest non-hub window (`re w`, every `Where w…`).
+  let few = Infinity;
+  let narrowest = best;
+  for (const [s, e] of frame) {
+    for (let o = s; o + W <= e && o + W <= ids.length; o++) {
+      const wid = ctx.store.findBranch(ids.slice(o, o + W));
+      if (wid === null) continue;
+      const r = ctx.store.containersSlice(
+        wid,
+        0,
+        Number.isFinite(few) ? few : allowance * W,
+      ).length;
+      if (r > 0 && r < few) {
+        few = r;
+        narrowest = wid;
+      }
+    }
+  }
+  // Past a hub the siblings are a SAMPLE, of the exact tier's own floor —
+  // `chainReach(W)`, the size the question's own frame is refuted at below —
+  // so the read is constant in the corpus, not √N.
+  const out = oldestContexts(ctx, narrowest, chainReach(W));
+  if (ctx.meter) ctx.meter.siblingsSampled++;
+  pastHub.add(out);
+  return out;
 }
 const frameMemo = new WeakMap<object, RelationFrame[]>();
+/** Sibling lists read PAST a hub (`oldestContexts`) — what their readers
+ *  stop reading once two instances agree. */
+const pastHub = new WeakSet<number[]>();
+
+/** The oldest contexts that hold `id`: its parents and containers climbed by
+ *  LIMITed reads (bounded-reads.md), at most `allowance` of them, reading at
+ *  most `allowance · W` rows in all — the junction walk's net.  Depth first,
+ *  oldest first: each place is climbed to the contexts above it before the
+ *  next is read, so the rows go to reaching contexts, not to a wide frontier.
+ *  A voter abstains past a hub, because a hub's vote discriminates nothing;
+ *  an ENUMERATOR of candidates that are then checked exactly reads what the
+ *  bound allows. */
+function oldestContexts(
+  ctx: MindContext,
+  id: number,
+  allowance: number,
+): number[] {
+  const W = ctx.space.maxGroup;
+  const out: number[] = [];
+  const seen = new Set<number>([id]);
+  const stack = [id];
+  let rows = allowance * W;
+  while (stack.length > 0 && out.length < allowance && rows > 0) {
+    const x = stack.pop()!;
+    const parents = ctx.store.parentsFirst(x, Math.min(allowance, rows));
+    rows -= parents.length;
+    const containers = rows > 0
+      ? ctx.store.containersSlice(x, 0, Math.min(allowance, rows))
+      : [];
+    rows -= containers.length;
+    const ups = [...parents, ...containers];
+    if (ups.length === 0) {
+      if (x !== id && ctx.store.hasNext(x)) out.push(x);
+      continue;
+    }
+    for (let i = ups.length - 1; i >= 0; i--) {
+      if (!seen.has(ups[i])) {
+        seen.add(ups[i]);
+        stack.push(ups[i]);
+      }
+    }
+  }
+  return out;
+}
 
 /** The question's own entity: the longest of the climb's points the question
  *  holds whole, exactly or under the response's equivalence, that has

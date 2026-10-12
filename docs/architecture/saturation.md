@@ -5,11 +5,10 @@
 > derived proof that continuing cannot discriminate, and it is recorded in the
 > trace.
 
-**Why.** A walk with only a cap drifts to the cap: it spends the whole budget
-and stops at an arbitrary place. A walk with a saturation stops the moment the
-outcome is known, is exact below every stop, and says why it stopped. Deflate's
-match finder truncates long chains arbitrarily. Sema may cap, but it must still
-justify every stop.
+**Why.** A walk with only a cap drifts to the cap and stops at an arbitrary
+place. A walk with a saturation stops the moment the outcome is known, is exact
+below every stop, and says why it stopped. Sema may cap, but it must justify
+every stop.
 
 The trace records the first stop that decides as
 `SaturationStop { reason, node, observed, limit }`, together with `visited` and
@@ -36,12 +35,13 @@ exact below its threshold (`bound = √N`):
    traversable.
 
 Below every stop, the walk equals the unbounded climb, and its work is
-`O(bound)` contexts. Container seeds are streamed in `bound`-sized pages.
+`O(bound)` contexts, seeds streamed in `bound`-sized pages. A stop ends a VOTE;
+an enumerator whose members are checked exactly reads a sample past it (a
+frame's instances, `evidence.md`).
 
 **Refuted:** treating container fan-out as a hub. It confuses the _places_ a
 window occurs with the _contexts_ it reaches, and saturation is defined over
-contexts. On `test/49`, `fran` sits in 4 containers yet reaches 2 contexts, and
-the rule called it saturated.
+contexts. On `test/49`, `fran` sits in 4 containers yet reaches 2 contexts.
 
 ## `pivotInto` — the longest wins (`mind/resonance.ts`)
 

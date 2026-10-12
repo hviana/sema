@@ -40,7 +40,9 @@
 //   155.9 a comparison's dominant that is a co-instance is not compared;
 //   155.10 a form that only says more than the question — where the question
 //         holds no thing of its own — is no other instance of it, and its
-//         continuation answers.
+//         continuation answers;
+//   155.11 a frame shared past the hub bound is read by a sample of its
+//         instances.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -403,4 +405,86 @@ test("155.10 a form that only says more than the question is no other instance",
   );
   await store.close();
   assert.ok(a.includes("beautiful day"), a);
+});
+
+// THE INSTANCES THAT MAKE A FRAME A FRAME ARE COMMON BY CONSTRUCTION.  With 128
+// instances of `Where was · born?` among 1128 entities, the frame's windows
+// sit in more places than the hub bound (√N ≈ 50): read as a vote, the frame
+// discriminates nothing and its reach proposes no sibling, so a new entity's
+// question found no instance — and more experience made generalization
+// worse.  Read as what it is, an enumeration whose members are checked
+// exactly, the frame yields a sample of its oldest instances, and two that
+// agree carry the relation.
+test("155.11 a frame shared past the hub bound is read by a sample of its instances", async () => {
+  const SYL = [
+    "ba",
+    "ko",
+    "ri",
+    "ten",
+    "mar",
+    "lo",
+    "vi",
+    "sun",
+    "del",
+    "ga",
+    "pho",
+    "zu",
+    "nel",
+    "tra",
+    "qui",
+    "dor",
+    "ama",
+    "ves",
+    "lin",
+    "cor",
+  ];
+  let i = 1;
+  const name = () => {
+    const n = i++;
+    const [a, b, c] = [
+      SYL[n % 20],
+      SYL[Math.floor(n / 20) % 20],
+      SYL[Math.floor(n / 400) % 20],
+    ];
+    return `${a[0].toUpperCase()}${a.slice(1)}${b} ${c[0].toUpperCase()}${
+      c.slice(1)
+    }wick`;
+  };
+  const places = [
+    "Ashgrove",
+    "Brindle",
+    "Coldmere",
+    "Dunmarsh",
+    "Elmstead",
+    "Farrowby",
+  ];
+  const fact = (s, r, o) => `The ${r} of ${s} is ${o}.`;
+  const items = [];
+  const deposit = (s, r, o) =>
+    items.push([`${s} ${r}`, fact(s, r, o)], [s, fact(s, r, o)]);
+  const k = 128, F = 1000;
+  let ki = 0, fi = 0;
+  for (let j = 0; j < k + F; j++) {
+    if (ki < k && (fi >= F || ki * F <= fi * k)) {
+      const y = name(), p = places[ki % 6];
+      deposit(y, "place of birth", p);
+      items.push([`Where was ${y} born?`, fact(y, "place of birth", p)]);
+      ki++;
+    } else {
+      deposit(name(), "occupation", "mason");
+      fi++;
+    }
+  }
+  const targets = [];
+  for (let t = 0; t < 4; t++) {
+    const x = name(), p = `${places[t]} Vale`;
+    deposit(x, "place of birth", p);
+    deposit(x, "occupation", "weaver");
+    targets.push([x, p]);
+  }
+  const m = new Mind({ seed: 7 });
+  await m.ingest(items);
+  for (const [x, p] of targets) {
+    assert.match(await m.respondText(`Where was ${x} born?`), new RegExp(p));
+  }
 });
