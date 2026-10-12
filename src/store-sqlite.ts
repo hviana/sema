@@ -112,9 +112,9 @@ CREATE TABLE IF NOT EXISTS halo (
 CREATE TABLE IF NOT EXISTS whole (
   id INTEGER PRIMARY KEY
 );
--- CONTAINMENT: parent's byte content contains child's, for children that are
--- not among any parent's kids list (sub-span flat branches inside leaf-parent
--- chunks). Kept SEPARATE from kid so parents() — the structural climb — is
+-- CONTAINMENT: the chunks a sub-span flat branch OVERLAPS (inside one, or across
+-- a boundary), for children that are not among any parent's kids list.  The
+-- climb through them reads a window's neighbourhood.  Kept SEPARATE from kid so parents() — the structural climb — is
 -- untouched; containers() serves the climbing surface of orphan flat branches
 -- durably (a session-local map would be lost on restart or ingest-cache replay).
 -- LOG-STRUCTURED PACKED PAGES: a child's parents are int32-packed blobs split

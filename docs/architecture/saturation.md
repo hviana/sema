@@ -16,9 +16,9 @@ The trace records the first stop that decides as
 
 ## `edgeAncestors` — expand until decided (`mind/traverse.ts`)
 
-This is the model walk. It climbs parents and containers from a node to the
-learnt contexts it reaches, and stops at the first of five saturations. Each is
-exact below its threshold (`bound = √N`):
+The model walk climbs parents, and the chunks a window overlaps (its
+neighbourhood), to the contexts it reaches, and stops at the first of five
+saturations, each exact below its threshold (`bound = √N`):
 
 1. **Predecessor fan-in.** `prevCount(node) > bound`: one indexed count proves
    more than `bound` contexts.
@@ -40,19 +40,20 @@ an enumerator whose members are checked exactly reads a sample past it (a
 frame's instances, `evidence.md`).
 
 **Refuted:** treating container fan-out as a hub. It confuses the _places_ a
-window occurs with the _contexts_ it reaches, and saturation is defined over
-contexts. On `test/49`, `fran` sits in 4 containers yet reaches 2 contexts.
+window occurs with the _contexts_ it reaches (`test/49`: `fran`, 4 containers, 2
+contexts). So is counting holders only: it lost answers on every 2Wiki fixture,
+held-out too, as the neighbourhood silences frame windows; holders are read by
+bytes (`heldElsewhere`).
 
 ## `pivotInto` — the longest wins (`mind/resonance.ts`)
 
 Candidates rank by `contentLen(id, answerLen + 1)`, descending, first-inserted
-breaking ties. The score is length itself, so the first candidate that passes
-every filter wins, and no shorter candidate's bytes are ever read. A candidate
-must be a learnt whole: a span with parents or containers no deposit learnt
-whole is a piece of bigger forms (`s=70`). Structure alone over-reads: the
-content-defined cuts can reuse a name's subtree inside its own contexts
-(`William Henry Fellowes`: parents 2, halo 2), and refusing such a name stopped
-the walk one hop short (`test/157`).
+breaking ties, so the first candidate passing every filter wins and no shorter
+candidate's bytes are read. A candidate must be a learnt whole: a span with
+parents or containers no deposit learnt whole is a piece of bigger forms
+(`s=70`). Structure alone over-reads: the content-defined cuts can reuse a
+name's subtree inside its own contexts (`William Henry Fellowes`: parents 2,
+halo 2), and refusing such a name stopped the walk a hop short (`test/157`).
 
 ## Junction ascent — guards against a budget (`mind/junction.ts`)
 
@@ -70,10 +71,9 @@ Two tightenings were refuted:
 
 - **The lateral-cone limit from `edgeAncestors`** would discard half the
   successful junctions (lateral 1425 of 1426 at `bound` ≈ 570).
-- **Stopping when one side's cone is exhausted** is wrong. A junction can be
-  reachable from only one side when that side's seed is a fold sub-node of the
-  container. In `test/16`, `cold or hot` is reached from `cold` while the cone
-  of `hot` is empty. Exhausting one cone never proves that no junction remains.
+- **Stopping when one side's cone is exhausted.** A junction can be reachable
+  from one side only, when that seed is a fold sub-node of the container: in
+  `test/16`, `cold or hot` is reached from `cold` while `hot`'s cone is empty.
 
 ## Pins
 

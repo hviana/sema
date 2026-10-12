@@ -15,8 +15,8 @@ the container-as-hub saturation in `saturation.md`).
 
 **Corpus contexts: how widely a node is used.**
 
-- Measure: `reachOf(id, N)`, the learnt contexts its containment and edge climb
-  reaches, capped and memoized in `sharedReachMemo`.
+- Measure: `reachOf(id, N)`, the learnt contexts its climb reaches through its
+  neighbourhood (`saturation.md`), capped and memoized in `sharedReachMemo`.
 - Cut: `dominates(reach, N)`. A majority is scaffolding, and a minority
   discriminates. The climb reads the graded form of the same cut, weighing a
   region by `ln(N/c)`.
@@ -33,8 +33,7 @@ the container-as-hub saturation in `saturation.md`).
 **Places: where a window occurs.**
 
 - Measure: `containersSlice(id, 0, bound + 1).length`, the chunks the window
-  overlaps: reuse, not holders. Who holds a span is decided by bytes
-  (`heldElsewhere`).
+  overlaps: reuse, not holders (read by bytes, `heldElsewhere`).
 - Cut: `0` anchors nothing, `≥ 2` marks reuse, and past the hub bound,
   scaffolding.
 - Read by the bridge and by attention, which anchor on the rarest window first,

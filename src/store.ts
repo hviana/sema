@@ -387,14 +387,17 @@ export interface Store {
    *  terminal generically simply continues from it — semantics never depend
    *  on completeness. */
   chainRun(id: NodeId): readonly NodeId[];
-  /** Record a CONTAINMENT edge: `parent`'s byte content contains `child`'s,
-   *  even though `child` is not among `parent`'s kids (a sub-span flat branch
-   *  inside a leaf-parent chunk).  Kept apart from {@link parents} — the
+  /** Record a CONTAINMENT edge: `parent` is a chunk the flat window `child`
+   *  OVERLAPS in some deposit — inside it or across its boundary — though
+   *  `child` is not among its kids.  A climb through these rows reaches the
+   *  window's NEIGHBOURHOOD, every context holding such a chunk, not only the
+   *  contexts holding the window (saturation.md).  Kept apart from
+   *  {@link parents} — the
    *  structural climb is untouched; {@link containers} serves the climbing
    *  surface of orphan flat branches durably, where a session-local side
    *  table would be lost on restart or an ingest-cache replay.  Idempotent. */
   addContainer(child: NodeId, parent: NodeId): void;
-  /** The chunks recorded by {@link addContainer} as containing `child`. */
+  /** The chunks recorded by {@link addContainer} as overlapped by `child`. */
   containers(child: NodeId): NodeId[];
   /** Whether `child` has ANY containment parent — an EXISTS probe that never
    *  unpacks the (occurrence-proportional) packed parents blob. */

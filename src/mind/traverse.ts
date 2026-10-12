@@ -248,8 +248,10 @@ function cachedHasParents(
 
 /** Climb the structural DAG from a node to its edge-bearing ancestor contexts.
  *  Ascent stops at hub nodes (parents > √N) — their reach is non-discriminative.
- *  When the start node has no structural parents, climbs from containment parents
- *  (sub-span flat branches inheriting their chunks' context).
+ *  When the start node has no structural parents, climbs from the chunks it
+ *  overlaps (its containment rows), so a window's reach is its NEIGHBOURHOOD's:
+ *  a window beside a common chunk inherits that commonness, and the climb relies
+ *  on it (saturation.md).
  *
  *  `memo`, when given, caches whole climbs by start id for the duration of ONE
  *  query (the store is read-only while a query is in flight, so a climb is a
@@ -3450,7 +3452,9 @@ const frameMemo = new WeakMap<object, RelationFrame[]>();
  *  stop reading once two instances agree. */
 const pastHub = new WeakSet<number[]>();
 
-/** The oldest contexts that hold `id`: its parents and containers climbed by
+/** The oldest contexts `id` reaches — through the chunks it overlaps, so its
+ *  neighbourhood; a reader that needs holders checks their bytes
+ *  (`heldElsewhere`): its parents and containers climbed by
  *  LIMITed reads (bounded-reads.md), at most `allowance` of them, reading at
  *  most `allowance · W` rows in all — the junction walk's net.  Depth first,
  *  oldest first: each place is climbed to the contexts above it before the
@@ -3710,8 +3714,8 @@ export function allWindowsAreScaffolding(
   return sawOne;
 }
 
-/** Per offset of `bytes`: 1 when the W-window there is a stored form contained
- *  in more than √N places (corpus-global scaffolding; see the floor below),
+/** Per offset of `bytes`: 1 when the W-window there is a stored form in more
+ *  than √N places, the chunks it overlaps (scaffolding; see the floor below),
  *  else 0.  Memoised per
  *  byte array for the life of the store's read-only response. */
 export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
@@ -3768,7 +3772,7 @@ export function scaffoldSpans(
 }
 
 /** The EXTENTS of the query's SCAFFOLDING windows, merged: every byte some
- *  W-window reaches that is a stored form contained in more than √N places —
+ *  W-window reaches that is a stored form in more than √N places —
  *  corpus-global commonality (commonality.md), the same "hub" reading as
  *  {@link allWindowsAreScaffolding} and the bridge's `explainedSpan`.  A window
  *  the store never saw is NOT scaffolding.  The extent, not the core, is what

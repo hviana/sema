@@ -49,13 +49,13 @@ shortcuts that pass review and fail the evidence.
 ### 3. Reading one population's cut with another population's measure
 
 - **Tempting:** "common" is common, so corpus reach can decide CAST's frame,
-  weight can stand for distinct structures, and a window's containers can stand
-  for the contexts it reaches.
+  weight can stand for distinct structures, and a window's containers, or its
+  holders, for the contexts it reaches.
 - **Refuted:**
   - corpus reach for the cohort's frame failed the reorder probe (`test/17`);
   - counting weight instead of distinct structures gave 29/42 against 6/42;
-  - container fan-out read as a hub called `fran` saturated, though it sits in 4
-    containers and reaches only 2 contexts (`test/49`).
+  - container fan-out read as a hub called `fran` saturated (4 containers, 2
+    contexts, `test/49`); reach over holders lost answers, held-out rows too.
 - **Instead:** name the population; three measures, never substituted
   (`commonality.md`, `saturation.md`).
 
@@ -74,8 +74,7 @@ shortcuts that pass review and fail the evidence.
 - **Tempting:** stop when one side's upward cone is exhausted, or borrow
   `edgeAncestors`' lateral-cone limit.
 - **Refuted:** a junction can be reachable from one side only (`cold or hot`
-  from `cold`, while the cone of `hot` is empty), and the lateral limit
-  discarded half of the successful junctions.
+  from `cold`), and the lateral limit discarded half the successful junctions.
 - **Instead:** per-node hub guards, plus the shared `bound·W` net
   (`saturation.md`; `test/16`, `test/34`).
 
