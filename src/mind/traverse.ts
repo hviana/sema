@@ -1277,13 +1277,23 @@ export function coInstanceFiller(
 } | null {
   const frame = coInstanceFrame(ctx, raw, indexes, question);
   if (frame === null) return null;
-  // The entity the slot opens with, or — a description first — ends with: the
-  // reading the derivation's own instances take (`slotSteps`).
-  const found = slotEntity(ctx, raw, frame.open, raw.length - frame.close) ??
-    closingEntity(ctx, raw, frame.open, raw.length - frame.close);
+  const found = instanceEntity(ctx, raw, frame);
   return found === null
     ? null
     : { ...frame, span: found.span, filler: found.id };
+}
+
+/** The entity an instance's slot holds: the one it opens with, or — a
+ *  description first — ends with; the reading the derivation's own instances
+ *  take (`slotSteps`).  One reading for every instance reader. */
+function instanceEntity(
+  ctx: MindContext,
+  raw: Uint8Array,
+  frame: { open: number; close: number },
+): { span: [number, number]; id: number } | null {
+  const end = raw.length - frame.close;
+  return slotEntity(ctx, raw, frame.open, end) ??
+    closingEntity(ctx, raw, frame.open, end);
 }
 
 /** Whether `raw` is ANOTHER INSTANCE of the question — the reading the
@@ -1983,13 +1993,11 @@ function relationFrames(
     const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
     if (co === null) return false;
     // A SAMPLE read past a hub holds instances in the strict sense only: the
-    // slot is an entity and nothing else (read as `coInstanceFiller` reads
-    // it, reaching past the frame where names share letters) — no description
-    // is read.
+    // slot is an entity and nothing else (`instanceEntity`, so a stored
+    // question spelling `Amadeus Vii, Count Of Savoy` as the asker does is
+    // read as every other instance is) — no description is read.
     if (sample && r.filler === undefined) {
-      const e =
-        slotEntity(ctx, r.raw, co.open, r.raw.length - co.close, true) ??
-          closingEntity(ctx, r.raw, co.open, r.raw.length - co.close);
+      const e = instanceEntity(ctx, r.raw, co);
       if (
         e === null || e.span[0] > co.open || e.span[1] < r.raw.length - co.close
       ) {

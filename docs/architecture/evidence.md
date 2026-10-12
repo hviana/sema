@@ -266,8 +266,8 @@ once the first `chainReach(W)` siblings hold no co-instance. A frame whose
 windows sit in more than `√N` places is common because its instances are: a
 hub's vote discriminates nothing, but these readers enumerate. They sample the
 `chainReach(W)` oldest contexts of its narrowest window (depth first, at most
-`allowance·W` rows), stop when two agree, and keep a slot that is an entity
-only.
+`allowance·W` rows), stop when two agree, and keep a slot that is an entity only
+(`instanceEntity`).
 
 The tier reads the `chainReach(W)` most corroborated of the consensus climb's
 ranked points (`asked.points`), and climbs nothing itself: a climb of its own
@@ -287,8 +287,8 @@ filler. A form witnessing all the question's slot says the question and more
   `Where was Nicki Minaj (Nicki Minaj Song) born?` answers another performer's
   question, as does the substitution bridge;
 - fusion does not fuse it as another topic;
-- a CAST comparison does not take it as its dominant, else Shakira's birthplace
-  is set against `John Lennon`.
+- no CAST schema transfers through it, else Shakira's birthplace is set against
+  `John Lennon`.
 
 ## Arguments held under the response's equivalence
 
@@ -319,14 +319,14 @@ continuations and are set aside as fragments with several.
 
 ## Its consumers
 
-| Where                                          | What it decides                                                                                                                                                                                                                                                                            |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `chooseNext` (`traverse.ts`)                   | **The exact tier.** A continuation is named when one of its establishing contexts other than the node is witnessed by the question plus the node, and the question supplies a window the node lacks. Named picks rank first; then the co-instance reading; then the distributional ladder. |
-| `askedEvidence` (`traverse.ts`)                | the question spans that named a pick, which a projecting mechanism then accounts for                                                                                                                                                                                                       |
-| `preConsumed` (`pipeline.ts`)                  | when a grounding declares no `used`: the forms inside its answer that the question already holds. The entity the answer added stays pivotable                                                                                                                                              |
-| the walk (`reasoning.ts`)                      | a named pivot moves; an unnamed one is offered only while the derivation still owes something, and the closure law decides it by carrying                                                                                                                                                  |
-| `answersOtherQuestions` (`traverse.ts`)        | a fragment (a form inside others, with several continuations or one it only inherited, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                  |
-| recall's anchor, fusion roots, CAST comparison | a co-instance is never voiced or fused; a comparison needs a window of its own evidencing the analog                                                                                                                                                                                       |
+| Where                                       | What it decides                                                                                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chooseNext` (`traverse.ts`)                | **The exact tier.** A continuation is named when one of its establishing contexts other than the node is witnessed by the question plus the node, and the question supplies a window the node lacks. Named picks rank first; then the co-instance reading; then the distributional ladder. |
+| `askedEvidence` (`traverse.ts`)             | the question spans that named a pick, which a projecting mechanism then accounts for                                                                                                                                                                                                       |
+| `preConsumed` (`pipeline.ts`)               | when a grounding declares no `used`: the forms inside its answer that the question already holds. The entity the answer added stays pivotable                                                                                                                                              |
+| the walk (`reasoning.ts`)                   | a named pivot moves; an unnamed one is offered only while the derivation still owes something, and the closure law decides it by carrying                                                                                                                                                  |
+| `answersOtherQuestions` (`traverse.ts`)     | a fragment (a form inside others, with several continuations or one it only inherited, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                  |
+| recall's anchor, fusion roots, CAST schemas | a co-instance is never voiced or fused; a comparison needs a window of its own evidencing the analog                                                                                                                                                                                       |
 
 ## What the question owes
 

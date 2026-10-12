@@ -507,6 +507,23 @@ export async function counterfactualTransfer(
   );
   const lastRun = (p: Point) => p.runs[p.runs.length - 1];
   const qv = pre.guide;
+  // NO TRANSFER THROUGH ANOTHER INSTANCE OF THE QUESTION.  A co-instance
+  // (traverse.ts, `otherInstance`) is the question's frame around another
+  // filler: what it shares with the query is frame, and its seat is that
+  // filler's own answer.  It evidences the frame (evidence.md) and is voiced by
+  // no schema — not as the comparison's dominant or analog, not as the
+  // substitution's subject or displaced structure.  `Where was the father of
+  // Z born?` took `Where was Y born?` as subject and voiced its opening:
+  // `Where was fatherThe father of Z is X.`  One read per point, memoised.
+  const coInstances = new Map<number, boolean>();
+  const isCoInstance = (anchor: number): boolean => {
+    let v = coInstances.get(anchor);
+    if (v === undefined) {
+      v = otherInstance(ctx, read(ctx, anchor, 2 * query.length + 1)) !== null;
+      coInstances.set(anchor, v);
+    }
+    return v;
+  };
 
   // ── SUBSTITUTION ──────────────────────────────────────────────────
   const fillerOf = (s: Point, r: GradedRun = s.runs[0]): Uint8Array =>
@@ -561,7 +578,8 @@ export async function counterfactualTransfer(
         // its substitute to below.  `director`, inheriting every `… director`
         // fact, filled the seat of `Premium (film)` with itself.
         return f !== null && f.cs < quantum && usable(f.qs, f.qe) &&
-            !answersOtherQuestions(ctx, s.anchor, query.length, f.qe - f.qs)
+            !answersOtherQuestions(ctx, s.anchor, query.length, f.qe - f.qs) &&
+            !isCoInstance(s.anchor)
           ? [{ point: s, run: f }]
           : [];
       }),
@@ -582,7 +600,7 @@ export async function counterfactualTransfer(
       // ineligible deepest candidate suppressing it outright.  The SUBJECT is
       // deliberately not gated: `fillerOf` reads the QUERY's own bytes for it,
       // so it contributes what the asker already said, not learnt content.
-      if (!voiceable(p)) return null;
+      if (!voiceable(p) || isCoInstance(p.anchor)) return null;
       const before = beforeOf(p, r);
       if (before === undefined) return null;
       if (r.cs > fillerOf(before.point, before.run).length + quantum) {
@@ -1274,19 +1292,18 @@ export async function counterfactualTransfer(
   // supply were never the ones that test is about.
   const cmpDismisses = !bestHalo &&
     dismissedKnownContent(ctx, query, cmpAccounted);
-  // …and the dominant must be something the question is ABOUT.  A co-instance
-  // of the question (traverse.ts, `otherInstance`) is its frame around
-  // another filler, and its seat is that filler's own answer: `Where was the
-  // performer of song God (Lennon Song) born?` compared `Where was Shakira
-  // (Shakira Song) born?` with `John Lennon` and voiced Shakira's birthplace.
-  const dominantOtherInstance =
-    otherInstance(ctx, read(ctx, dominant.anchor, 2 * query.length + 1)) !==
-      null;
+  // …and both analogs must be something the question is ABOUT (`isCoInstance`):
+  // `Where was the performer of song God (Lennon Song) born?` compared `Where
+  // was Shakira (Shakira Song) born?` with `John Lennon` and voiced Shakira's
+  // birthplace; an analog `Where was Robert, 1st Earl of Gloucester … born?`
+  // was voiced whole beside the first hop of `Where was the father of …?`.
+  const coInstanceAnalog = isCoInstance(dominant.anchor) ||
+    (bestAnalog !== null && isCoInstance(bestAnalog.anchor));
   if (
     bestAnalog !== null &&
     (bestHalo || analogNamed || rootTrusted) &&
     analogOwnsEvidence() &&
-    !dominantOtherInstance &&
+    !coInstanceAnalog &&
     !cmpDismisses &&
     queryScale(dominant.ctx.length) &&
     roots.length <= 1 &&
@@ -1422,8 +1439,8 @@ export async function counterfactualTransfer(
         ? `the best analog carries no halo-tier company evidence, was never ` +
           `named by the query, and no committed root's consensus vote ` +
           `clears the floor, so comparison refuses to voice it`
-        : dominantOtherInstance
-        ? `the dominant is another instance of the question's frame — its ` +
+        : coInstanceAnalog
+        ? `an analog is another instance of the question's frame — its ` +
           `seat is another filler's answer, not what the question asks about`
         : !analogOwnsEvidence()
         ? `the question evidences the analog only with windows the dominant ` +

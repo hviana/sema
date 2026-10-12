@@ -488,3 +488,27 @@ test("155.11 a frame shared past the hub bound is read by a sample of its instan
     assert.match(await m.respondText(`Where was ${x} born?`), new RegExp(p));
   }
 });
+
+test("155.12 no CAST schema transfers through a co-instance of the question", async () => {
+  // Minimised from a two-hop world: substitution took `Where was Rilo Vesga
+  // born?` as its subject and voiced its opening before the first hop —
+  // `Where was fatherThe father of Trapho Quiko is Quipho Kodel.`
+  const m = new Mind({ seed: 7 });
+  await m.ingest([
+    ["Gaba Viten occupation", "The occupation of Gaba Viten is potter."],
+    ["Rilo Vesga", "The place of birth of Rilo Vesga is Brindle."],
+    [
+      "Where was Rilo Vesga born?",
+      "The place of birth of Rilo Vesga is Brindle.",
+    ],
+    ["Sunpho Nelcor", "The father of Sunpho Nelcor is Delpho Corvi."],
+    ["Gapho Vitra father", "The father of Gapho Vitra is Phopho Traba."],
+    ["Trapho Quiko father", "The father of Trapho Quiko is Quipho Kodel."],
+    ["Quipho Kodel", "The place of birth of Quipho Kodel is Gallowmere Vale."],
+  ]);
+  const answer = await m.respondText(
+    "Where was the father of Trapho Quiko born?",
+  );
+  assert.ok(!answer.includes("Where was"), `frame voiced: "${answer}"`);
+  assert.match(answer, /Gallowmere Vale/);
+});

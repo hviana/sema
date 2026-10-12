@@ -1,7 +1,7 @@
 # CAST — Carry Structure Between Woven Forms
 
-When independently learnt structures align to genuinely different spans of the
-question, CAST (counterfactual transfer) carries structure from one to another
+When independently learnt structures align to different spans of the question,
+CAST (counterfactual transfer) carries structure from one to another
 (`src/mind/mechanisms/cast.ts`). One weave serves three schemas. Each schema
 that fires yields its own candidate, and the market's single comparison picks.
 
@@ -24,20 +24,20 @@ usable(r) ⇔ ¬dominates(framedCount(qs, qe), runLen)
 
 - **More than a pair must agree.** A pair is ambiguous when insertions are
   possible, so with only two points no byte is frame.
-- **`depth` counts distinct structures, never weight.** Counting weight lets a
-  shared frame such as `describe it` survive as content, and makes substitution
-  fire on reordered single-fact questions (the measured split was 29/42 against
-  6/42).
-- **The cohort reading cannot be replaced by corpus reach.** A phrase common to
-  the aligned exemplars is frame here even when it is rare in the corpus
-  (`test/17`).
+- **`depth` counts distinct structures, never weight.** Weight lets a shared
+  frame (`describe it`) survive as content, and substitution fire on reordered
+  single-fact questions (29/42 against 6/42).
+- **Corpus reach cannot replace the cohort reading.** A phrase common to the
+  aligned exemplars is frame here even when rare in the corpus (`test/17`).
 
 Further competence checks:
 
 - the question is at least two quanta long;
 - there are at least two ranked anchors;
 - the weave touches a committed point of attention;
-- the weave is genuinely woven, not every run restating a recognised site.
+- the weave is genuinely woven, not every run restating a recognised site;
+- no schema transfers through a co-instance of the question (`evidence.md`):
+  what it shares is frame, its seat another filler's answer.
 
 ## Schemas
 
@@ -51,22 +51,19 @@ Further competence checks:
   `The`), after what it displaces. A substitute that is a fragment answering
   other questions (`ong)?`, of every `… (… Song)?` question) is refused.
 - **Comparison.** The dominant is seated against one analog, reached through
-  `seatOfNode` and corroborated by `analogyStrength` (halo company). Two guards
-  apply:
-  - the question must evidence the analog with a window of its own, not inside
-    the dominant's runs and not scaffolding;
-  - the dominant must not be a co-instance of the question (`evidence.md`).
-
-  Without them, a bare question is glued onto the answer, and Shakira's
-  birthplace set against `John Lennon`.
+  `seatOfNode` and corroborated by `analogyStrength` (halo company). The
+  question must evidence the analog with a window of its own, not inside the
+  dominant's runs and not scaffolding. Without this and the co-instance guard, a
+  bare question is glued onto the answer, and Shakira's birthplace set against
+  `John Lennon`.
 
 ## Cost
 
 Each transfer act costs `STEP + STEP`, plus `CONCEPT` for a halo-mediated
-analogy. `accounted` covers only the points that schema actually transferred
-between. The floor is `2·STEP`. Before first touching the climb or the weave,
-the floor asks `worthRunning(2·STEP)` and returns its uninvested bound if it
-would lose (`mechanism-market.md`).
+analogy. `accounted` covers only the points that schema transferred between. The
+floor is `2·STEP`. Before first touching the climb or the weave, the floor asks
+`worthRunning(2·STEP)` and returns its uninvested bound if it would lose
+(`mechanism-market.md`).
 
 ## Provenance
 
@@ -81,5 +78,5 @@ would lose (`mechanism-market.md`).
 - `test/43` — the direction of `seatOfNode`.
 - `test/47`, `test/50` — comparison coverage, the analog consensus floor and the
   shared guards.
-- `test/154.7`, `test/155.9` — a comparison needs two named things, and never
-  takes a co-instance as its dominant.
+- `test/154.7`, `test/155.9`, `test/155.12` — a comparison needs two named
+  things; no schema transfers through a co-instance.
