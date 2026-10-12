@@ -3225,12 +3225,12 @@ function siblingInstances(
   const reach = edgeAncestors(ctx, best, corpusN(ctx), sharedReachMemo(ctx));
   if (!reach.saturated) return reach.roots.slice(0, allowance);
   if (!enumerate) return [];
-  // The ENUMERATOR's window is the frame's narrowest population, hub or not:
-  // a hub is a voter's notion, and `orn?` (every `… born?`) names the frame's
+  // The ENUMERATOR's window is a side's narrowest population, hub or not: a
+  // hub is a voter's notion, and `orn?` (every `… born?`) names the frame's
   // instances better than the rarest non-hub window (`re w`, every `Where w…`).
-  let few = Infinity;
-  let narrowest = best;
-  for (const [s, e] of frame) {
+  const narrowestOf = (s: number, e: number): number | null => {
+    let few = Infinity;
+    let narrowest: number | null = null;
     for (let o = s; o + W <= e && o + W <= ids.length; o++) {
       const wid = ctx.store.findBranch(ids.slice(o, o + W));
       if (wid === null) continue;
@@ -3244,11 +3244,33 @@ function siblingInstances(
         narrowest = wid;
       }
     }
+    return narrowest;
+  };
+  // EVERY SIDE IS SAMPLED, read alternately.  An instance holds the frame's
+  // opening and its close, and either may be shared with another frame:
+  // `In which town did · pass away?` opens like `… come into the world?`, and
+  // the opening's oldest contexts were all the other frame's.  A window's
+  // containers measure the fold's reuse, not the contexts it reaches, so no
+  // side can be told narrower.  Past a hub each sample is the exact tier's
+  // own floor — `chainReach(W)`, the size the question's own frame is refuted
+  // at below — so the read is constant in the corpus, not √N.
+  const samples = frame
+    .map(([s, e]) => narrowestOf(s, e))
+    .filter((x): x is number => x !== null)
+    .map((x) => oldestContexts(ctx, x, chainReach(W)));
+  if (samples.length === 0) {
+    samples.push(oldestContexts(ctx, best, chainReach(W)));
   }
-  // Past a hub the siblings are a SAMPLE, of the exact tier's own floor —
-  // `chainReach(W)`, the size the question's own frame is refuted at below —
-  // so the read is constant in the corpus, not √N.
-  const out = oldestContexts(ctx, narrowest, chainReach(W));
+  const out: number[] = [];
+  const taken = new Set<number>();
+  for (let i = 0; samples.some((sm) => i < sm.length); i++) {
+    for (const sm of samples) {
+      if (i < sm.length && !taken.has(sm[i])) {
+        taken.add(sm[i]);
+        out.push(sm[i]);
+      }
+    }
+  }
   if (ctx.meter) ctx.meter.siblingsSampled++;
   pastHub.add(out);
   return out;

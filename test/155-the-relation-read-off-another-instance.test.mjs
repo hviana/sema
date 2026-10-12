@@ -512,3 +512,69 @@ test("155.12 no CAST schema transfers through a co-instance of the question", as
   assert.ok(!answer.includes("Where was"), `frame voiced: "${answer}"`);
   assert.match(answer, /Gallowmere Vale/);
 });
+
+test("155.13 a sample past the hub reads every side of the frame", async () => {
+  // Two phrasings open alike — `In which town did · come into the world?` and
+  // `… pass away?` — and the opening's oldest contexts are all the first's:
+  // sampled from one side, the close's instances were never read.
+  const SYL = [
+    "ba",
+    "ko",
+    "ri",
+    "ten",
+    "mar",
+    "lo",
+    "vi",
+    "sun",
+    "del",
+    "ga",
+    "pho",
+    "zu",
+    "nel",
+    "tra",
+    "qui",
+    "dor",
+    "ama",
+    "ves",
+    "lin",
+    "cor",
+  ];
+  const name = (n) => {
+    const [a, b, c, d] = [
+      SYL[n % 20],
+      SYL[(7 * n + 3) % 20],
+      SYL[(Math.floor(n / 20) + 11 * n) % 20],
+      SYL[(13 * n + 5) % 20],
+    ];
+    return `${a[0].toUpperCase()}${a.slice(1)}${b} ${c[0].toUpperCase()}${
+      c.slice(1)
+    }${d}`;
+  };
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const origin = (x, t) => `${x} — origin: ${t}.`;
+  const end = (x, t) => `${x} — end: ${t}.`;
+  const items = [];
+  let n = 1;
+  for (let i = 0; i < 40; i++) {
+    const x = name(n++), o = towns[i % 5], e = towns[(i * 3 + 2) % 5];
+    items.push([x, origin(x, o)], [x, end(x, e)]);
+    items.push([`${x} origin`, origin(x, o)], [`${x} end`, end(x, e)]);
+    items.push([`In which town did ${x} come into the world?`, origin(x, o)]);
+    items.push([`In which town did ${x} pass away?`, end(x, e)]);
+  }
+  const targets = [];
+  for (let i = 0; i < 4; i++) {
+    const x = name(n++), o = `${towns[i]} Vale`, e = `${towns[i + 1]} Vale`;
+    items.push([x, origin(x, o)], [x, end(x, e)]);
+    items.push([`${x} origin`, origin(x, o)], [`${x} end`, end(x, e)]);
+    targets.push([x, e]);
+  }
+  const m = new Mind({ seed: 7 });
+  await m.ingest(items);
+  for (const [x, e] of targets) {
+    assert.match(
+      await m.respondText(`In which town did ${x} pass away?`),
+      new RegExp(e),
+    );
+  }
+});

@@ -253,21 +253,20 @@ context, so the climb's points hold one instance of a frame that several
 instances share. Once a co-instance has shown the frame, the contexts its rarest
 non-hub window reaches (`siblingInstances`, the climb's own memoised reach) are
 read as further candidates. What a form says as an instance does not depend on
-the material it is read against, so its bytes, filler and relations are read
-once per question (`instanceBook`); each later material, such as the walk's
-after each product, pays only the frame check.
+the material, so its bytes, filler and relations are read once per question
+(`instanceBook`); each later material pays only the frame check.
 
 Where the points hold no two agreeing instances, the question's own entity shows
 the frame instead: the longest point the question holds whole, exactly or under
 the equivalence, with continuations of its own (`heldEntity`). What the question
 says around it is read as the frame, and its siblings are read the same way.
-That frame is a hypothesis, not one a co-instance has shown, so it is dropped
-once the first `chainReach(W)` siblings hold no co-instance. A frame whose
-windows sit in more than `√N` places is common because its instances are: a
-hub's vote discriminates nothing, but these readers enumerate. They sample the
-`chainReach(W)` oldest contexts of its narrowest window (depth first, at most
-`allowance·W` rows), stop when two agree, and keep a slot that is an entity only
-(`instanceEntity`).
+That frame is a hypothesis, dropped once the first `chainReach(W)` siblings hold
+no co-instance. A frame whose windows sit in more than `√N` places is common
+because its instances are: a hub's vote discriminates nothing, but these readers
+enumerate. They sample the `chainReach(W)` oldest contexts of each side's
+narrowest window, read alternately (depth first, at most `allowance·W` rows;
+another frame may share one side), stop when two agree, and keep a slot that is
+an entity only (`instanceEntity`).
 
 The tier reads the `chainReach(W)` most corroborated of the consensus climb's
 ranked points (`asked.points`), and climbs nothing itself: a climb of its own
