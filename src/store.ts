@@ -532,10 +532,13 @@ export interface Store {
    *  repetition, but repetition outranks insertion-order accident.  0 when
    *  the node has no halo row. */
   haloMass(id: NodeId): number;
-  /** Whether `id` was an episode's context or continuation — a thing learnt
-   *  WHOLE, which keeps company of its own; a piece of other forms keeps none
-   *  (halo-sketch.md).  The one reading of that fact. */
+  /** Whether a deposit learnt `id` WHOLE — a context, a continuation or a bare
+   *  experience — rather than as a piece of other forms.  Recorded at deposit
+   *  (`markWhole`), apart from the company the halo keeps.  The one reading of
+   *  that fact. */
   learntWhole(id: NodeId): boolean;
+  /** Record that a deposit learnt `id` whole.  Idempotent. */
+  markWhole(id: NodeId): Promise<void>;
 
   // ── canonical-form index (optional capability) ─────────────────────────
   // A small hash index from CANONICAL content keys to node ids, enabling
@@ -872,6 +875,8 @@ export abstract class AbstractStore implements Store {
   protected abstract _dbEdgeDistinctSrcCount(): number;
 
   // -- Halos (durable 2-bit quantized rows) --
+  protected abstract _dbMarkWhole(id: NodeId): void;
+  protected abstract _dbIsWhole(id: NodeId): boolean;
   protected abstract _dbGetHalo(
     id: NodeId,
   ): { vec: Uint8Array; mass: number } | null;
@@ -2409,7 +2414,14 @@ export abstract class AbstractStore implements Store {
   }
 
   learntWhole(id: NodeId): boolean {
-    return this.haloMass(id) > 0;
+    if (this.meter) this.meter.wholeProbes++;
+    return this._dbIsWhole(id);
+  }
+
+  async markWhole(id: NodeId): Promise<void> {
+    await this._ensureReady();
+    this._dbBeginTx();
+    this._dbMarkWhole(id);
   }
 
   halo(id: NodeId): Vec | null {

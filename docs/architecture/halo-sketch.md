@@ -21,7 +21,7 @@ Pours add. Each profile is normalized, so one episode pours one unit of mass
 (`haloMass` counts episodes). Addition forgets order and keeps proportion: a
 statistic, not a record. Parts keep company through the profile's sketch. Poured
 into parts, company measured collocation (parts of one context at 0.74) over use
-(0.19), and a halo marks a thing learnt whole (`learntWhole`).
+(0.19).
 
 ## Company by type, not by token — the profile
 
@@ -71,10 +71,8 @@ term.
 A halo re-enters the index when its mass is at most 4 or a power of two, so
 index writes are `O(log mass)`.
 
-Halo comparisons do not depend on the configured seed, because signatures are
-keyed on node ids. Gist comparisons do: a Mind built with a seed other than its
-store's makes every gist comparison meaningless, while its halo comparisons
-remain valid.
+Signatures are keyed on node ids, so halo comparisons survive a Mind built with
+another seed than its store's; gist comparisons do not (`determinism.md`).
 
 ## Where halos are read
 
@@ -86,6 +84,7 @@ remain valid.
 | concept hops in `cover`: an edge-less form borrows a halo sibling's continuation, at `CONCEPT` | `conceptThreshold` |
 | CAST's analogy strength                                                                        | `significanceBar`  |
 | `chooseNext`: halo mass breaks ties after `prevCount`                                          | ordering only      |
+| the question names a step by use: contexts' halos rank continuations (`evidence.md`)           | `significanceBar`  |
 | articulation: an answer form is voiced in the asker's halo synonym, never the whole answer     | `conceptThreshold` |
 
 The bars are derived in `geometry.ts` (`thresholds.md`).

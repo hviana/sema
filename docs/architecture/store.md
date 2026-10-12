@@ -15,8 +15,7 @@
 
 An id is an arbitrary mark; content decides which mark a thing gets. A subtree
 shared by a thousand deposits is one node with a thousand parents: storage grows
-with distinct content, not volume, and every span the fold produced is
-addressable.
+with distinct content, and every span the fold produced is addressable.
 
 ## Interning — dedup, then same bytes, then near, then mint
 
@@ -28,17 +27,16 @@ addressable.
    flat node over the same bytes. Its gist is re-captured, because the same
    bytes fold differently standing alone and embedded, and the index must hold
    the gist that a direct query will present (`fold-contract.md`).
-3. **Near dedup.** This applies to branches only, and only against whole
-   experiences still in the write buffer. The gist proposes a candidate, which
-   must reach the branch's own `identityBar`. The bytes then decide: the two
-   must be identical except for one span of at most `W` bytes
-   (`differsByOneWindow`). This is the only place two different contents share
-   an id.
+3. **Near dedup.** Branches only, against whole experiences still in the write
+   buffer. The gist proposes a candidate reaching the branch's `identityBar`.
+   The bytes then decide: the two must be identical except for one span of at
+   most `W` bytes (`differsByOneWindow`). This is the only place two different
+   contents share an id.
 4. **Mint** a new id.
 
-Refuted: probing the flushed ANN index for near targets. It was the dominant
-training cost, and wrong. The 1-bit code ranked a byte-distinct branch as
-nearest and collapsed two different subtrees onto one id (`test/02`).
+Refuted: probing the flushed ANN index for near targets, the dominant training
+cost, and wrong. The 1-bit code ranked a byte-distinct branch as nearest and
+collapsed two different subtrees onto one id (`test/02`).
 
 ## Relations on the nodes
 
@@ -47,10 +45,12 @@ nearest and collapsed two different subtrees onto one id (`test/02`).
 - **Containment.** `addContainer(child, parent)` buffers per child, and the
   flush appends packed pages (`_dbAppendContain`) without rewriting the list.
   `containersSlice` pages through it.
-- **Gist index** (content) and **halo index** (company). Both are RaBitQ-IVF ANN
-  over node ids. Gists wait in `_pendingGist` until `indexSubtree` promotes them
-  in batches. Halos accumulate exactly in session and persist 2-bit quantized
-  (`halo-sketch.md`).
+- **Gist index** (content) and **halo index** (company): RaBitQ-IVF ANN over
+  node ids. Gists wait in `_pendingGist` until `indexSubtree` promotes them in
+  batches; halos persist 2-bit quantized (`halo-sketch.md`).
+- **Wholes.** A deposit records what it learnt whole (`markWhole`): context,
+  continuation, bare experience; `learntWhole` probes it. An older store's halo
+  rows are read as its wholes, once, on open.
 - **Sketches.** `sketchGet`/`sketchPut` hold durable derived state: a miss costs
   time, never correctness.
 
@@ -90,9 +90,7 @@ capability. Without it, `resolve` has no equivalence fallback.
 
 ## Caches and maintenance
 
-Every in-memory cache is a budgeted `BoundedMap` (`caches.md`). ANN read caches
-are keyed by content (`vecKey`), dropped on any index mutation, and cleared at
-`RESONATE_CACHE_MAX`.
+Every in-memory cache is a budgeted `BoundedMap` (`caches.md`).
 
 Maintenance is incremental:
 

@@ -155,6 +155,7 @@ export async function ingestOne(
 ): Promise<Sema & { id: number }> {
   const { tree, rootId, ids } = await deposit(ctx, input, true);
   ctx.store.indexTarget(rootId);
+  await ctx.store.markWhole(rootId);
   const parts: number[] = tree.kids
     ? tree.kids.map((k) => ids.get(k)!)
     : [rootId];
@@ -498,6 +499,8 @@ export async function ingestPair(
   // stamp existed only to gate a boundary guess that no longer happens.
 
   await ctx.store.link(ctxId, contId);
+  await ctx.store.markWhole(ctxId);
+  await ctx.store.markWhole(contId);
   await propagateSuffixes(ctx, ctxId, contId);
 
   // Halos pour company SIGNATURES (identity), not gists (content) — see

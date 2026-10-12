@@ -107,6 +107,11 @@ CREATE TABLE IF NOT EXISTS halo (
   vec  BLOB NOT NULL,
   mass REAL NOT NULL DEFAULT 0
 );
+-- WHOLES: the roots a deposit learnt whole (a context, a continuation, a bare
+-- experience).  Recorded apart from the halo, which records company.
+CREATE TABLE IF NOT EXISTS whole (
+  id INTEGER PRIMARY KEY
+);
 -- CONTAINMENT: parent's byte content contains child's, for children that are
 -- not among any parent's kids list (sub-span flat branches inside leaf-parent
 -- chunks). Kept SEPARATE from kid so parents() — the structural climb — is
@@ -413,6 +418,18 @@ export class SQliteStore extends AbstractStore implements Store {
         const d = Number(row.val);
         if (Number.isInteger(d) && d > 0) this._D = d;
       }
+    }
+
+    // A store written before wholes were recorded kept company on its wholes
+    // alone, so its halo rows ARE its wholes: recorded once, then stamped.
+    if (
+      this.sqlite.prepare("SELECT 1 FROM meta WHERE key = 'whole.recorded'")
+        .get() === undefined
+    ) {
+      this.sqlite.exec(
+        "BEGIN; INSERT OR IGNORE INTO whole (id) SELECT id FROM halo WHERE mass > 0; " +
+          "INSERT INTO meta (key, val) VALUES ('whole.recorded', '1'); COMMIT;",
+      );
     }
 
     // Recover maxGroup from meta so indexSubtree uses the training-time value.
@@ -1045,6 +1062,23 @@ export class SQliteStore extends AbstractStore implements Store {
       | { vec: Uint8Array; mass: number }
       | undefined;
     return r ?? null;
+  }
+
+  private _insWhole: any = null;
+  private _selWhole: any = null;
+  protected override _dbMarkWhole(id: NodeId): void {
+    if (!this._insWhole) {
+      this._insWhole = this.sqlite!.prepare(
+        "INSERT OR IGNORE INTO whole (id) VALUES (?)",
+      );
+    }
+    this._insWhole.run(id);
+  }
+  protected override _dbIsWhole(id: NodeId): boolean {
+    if (!this._selWhole) {
+      this._selWhole = this.sqlite!.prepare("SELECT 1 FROM whole WHERE id = ?");
+    }
+    return this._selWhole.get(id) !== undefined;
   }
 
   protected _dbUpsertHalo(

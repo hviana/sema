@@ -45,11 +45,11 @@ contexts. On `test/49`, `fran` sits in 4 containers yet reaches 2 contexts.
 
 ## `pivotInto` — the longest wins (`mind/resonance.ts`)
 
-Candidates rank by `contentLen(id, answerLen + 1)`, descending, with
-first-inserted breaking ties. The score is length itself, so the first candidate
-that passes every filter wins, and no shorter candidate's bytes are ever read. A
-candidate must be a learnt whole: a span with parents or containers and no halo
-is a piece of bigger forms (`s=70`). Structure alone over-reads, because the
+Candidates rank by `contentLen(id, answerLen + 1)`, descending, first-inserted
+breaking ties. The score is length itself, so the first candidate that passes
+every filter wins, and no shorter candidate's bytes are ever read. A candidate
+must be a learnt whole: a span with parents or containers no deposit learnt
+whole is a piece of bigger forms (`s=70`). Structure alone over-reads: the
 content-defined cuts can reuse a name's subtree inside its own contexts
 (`William Henry Fellowes`: parents 2, halo 2), and refusing such a name stopped
 the walk one hop short (`test/157`).

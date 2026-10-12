@@ -121,6 +121,10 @@ export class Meter {
   haloReads = 0;
   /** `hasHalo` + `haloMass` — probes that never decode a vector. */
   haloProbes = 0;
+  /** `learntWhole` — the point probe of the whole record. */
+  wholeProbes = 0;
+  /** Steps the question named by a paraphrase (traverse.ts `byParaphrase`). */
+  paraphraseNamings = 0;
 
   // ── Store: approximate search (the ANN indexes) ─────────────────────────
   /** `resonate` calls that descended the content index. */

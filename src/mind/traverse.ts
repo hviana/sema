@@ -6,8 +6,8 @@
 // The PROJECTIONS built on these walks (follow, conceptHop, reverseContext,
 // project) live in match.ts — the elementary match-and-project operation.
 
-import { cosine, Vec } from "../vec.js";
-import { boundFor, dominates } from "../geometry.js";
+import { addInto, cosine, dot, Vec, zeros } from "../vec.js";
+import { boundFor, dominates, significanceBar } from "../geometry.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { canonResolve, gistOf, read, resolve } from "./primitives.js";
 import {
@@ -149,7 +149,7 @@ function getStructCache(ctx: MindContext): StructCache | null {
 /** A derivation read off an instance, and the entities a fact holds, depend
  *  on the instance, the fact and the store — never on the question — so they
  *  are kept for the session like the climb's reach, and dropped on a write or,
- *  all six together, at one byte budget. */
+ *  all together, at one byte budget.  So is the use of a stored span. */
 interface DerivationCache {
   spent: { bytes: number };
   paths: MemoMap<string, Step[][]>;
@@ -158,6 +158,7 @@ interface DerivationCache {
   facts: MemoMap<number, Map<string, Step>>;
   described: MemoMap<string, Step[] | null>;
   entities: MemoMap<number, Array<{ span: [number, number]; id: number }>>;
+  uses: MemoMap<string, Vec | null>;
 }
 const DERIVATION_MEMO_BYTES = 16_000_000;
 const derivationCaches = new WeakMap<object, DerivationCache>();
@@ -179,6 +180,7 @@ function derivationCache(ctx: MindContext): DerivationCache | null {
         described: new MemoMap(spent, (xs) => steps(xs?.length ?? 0)),
         facts: new MemoMap(spent, (m) => steps(m.size)),
         slots: new MemoMap(spent, () => RECORD_BYTES),
+        uses: new MemoMap(spent, (v) => RECORD_BYTES + 4 * (v?.length ?? 0)),
         converges: new MemoMap(spent, (ps) =>
           ps.reduce(
             (a, [x, y]) => a + steps(x.steps.length) + steps(y.steps.length),
@@ -1062,6 +1064,9 @@ function askedContinuationsImpl(
     if (most <= seen.bytes) return seen.entry;
   }
   const other = byCoInstance(ctx, id, nx, asked, formCap, allowance);
+  if (seen.entry.named === null && other.named === null) {
+    return byParaphrase(ctx, id, nx, asked, allowance);
+  }
   if (seen.entry.named === null) return other;
   // The reading that explains more of the question names the step, whether
   // it names another continuation or fewer of the same: a derivation that
@@ -1082,6 +1087,171 @@ function askedContinuationsImpl(
   return seen.entry;
 }
 const none = (): AskedEntry => ({ named: null, spans: new Map() });
+
+/** THE USE OF A SPAN: what the learnt CONTEXTS holding its windows led to —
+ *  their halos, poured at the seat of what a context leads to, bundled.
+ *  Continuations' halos keep the other seat and are left out, so the two
+ *  seats do not blur.  At most W windows, evenly spaced (`spanHalo`'s
+ *  reading), each read by its `chainReach(W)` oldest contexts
+ *  (`oldestContexts`), common or rare: a sample constant in the corpus.  Null
+ *  where nothing keeps company.  A stored span's use is kept for the session
+ *  (`DerivationCache`), a question's for the question. */
+const questionUses = new WeakMap<object, Map<string, Vec | null>>();
+function useOf(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  from: number,
+  to: number,
+  owner: { context: number } | { question: object },
+): Vec | null {
+  const memo = "context" in owner
+    ? derivationCache(ctx)?.uses
+    : questionUses.get(owner.question) ??
+      questionUses.set(owner.question, new Map()).get(owner.question);
+  const key = "context" in owner
+    ? `${owner.context}:${from}:${to}`
+    : `${from}:${to}`;
+  const hit = memo?.get(key);
+  if (hit !== undefined) return hit;
+  const W = ctx.space.maxGroup;
+  const windows = to - from - W + 1;
+  const samples = Math.min(W, Math.max(0, windows));
+  const out = zeros(ctx.store.D);
+  const seen = new Set<number>();
+  let found = false;
+  for (let i = 0; i < samples; i++) {
+    const o = from +
+      (samples === 1 ? 0 : Math.floor((i * (windows - 1)) / (samples - 1)));
+    const ids = leafIdRun(ctx, bytes, o, o + W);
+    const w = ids === null ? null : ctx.store.findBranch(ids);
+    if (w === null) continue;
+    for (const c of oldestContexts(ctx, w, chainReach(W))) {
+      if (seen.has(c) || !ctx.store.hasNext(c)) continue;
+      seen.add(c);
+      const h = ctx.store.halo(c);
+      if (h === null) continue;
+      addInto(out, h, 1 / Math.sqrt(dot(h, h)));
+      found = true;
+    }
+  }
+  const use = found ? out : null;
+  memo?.set(key, use);
+  return use;
+}
+
+/** THE QUESTION NAMES A STEP BY A PARAPHRASE — the exact tier's third
+ *  reading, asked only where neither witnessing nor another instance names a
+ *  continuation of `id`.  `In which town did Z pass away?` holds no window of
+ *  `Z end`, and no instance spells its frame; but `pass away` is USED as
+ *  ` end` is: the contexts holding each led to the same kind of fact.
+ *
+ *  The candidates are exact — `id`'s continuations, and the establishing
+ *  contexts that hold `id`, whose remainder is the relation — and so is the
+ *  answer; the use only RANKS them, below both exact readings:
+ *  - the whole question only: a walk's material holds runs the derivation
+ *    already stood on, and only the exact readings replay it;
+ *  - `id` the question's own thing (`heldEntity`, learnt whole, once the climb
+ *    has shown its points), so it stands as the filler of those contexts —
+ *    never a shorter name inside it, nor a fragment it inherited from;
+ *  - two continuations at least: one has nothing to be told apart from;
+ *  - the question's runs of unsaid windows, outside `id`, with no scaffolding;
+ *    the run that best tells the continuations apart is the evidence, and its
+ *    best is named only beyond chance and beyond the next by as much
+ *    (`significanceBar`). */
+function byParaphrase(
+  ctx: MindContext,
+  id: number,
+  nx: readonly number[],
+  asked: { bytes: Uint8Array; index: WindowIndex },
+  allowance: number,
+): AskedEntry {
+  const whole = ctx._edgeAsked;
+  if (whole === null || asked !== whole || nx.length < 2) return none();
+  // The node is the question's own thing — the longest the climb's points
+  // show it holding whole (`heldEntity`), never a shorter name inside it.
+  const held = heldEntity(ctx, whole.bytes, true);
+  if (held === null) return none();
+  const W = ctx.space.maxGroup;
+  const q = whole.bytes;
+  const node = offsetCanon(ctx, read(ctx, id, q.length * W));
+  const at = held[0];
+  if (
+    held[1] - at !== node.length ||
+    !bytesEqual(offsetCanon(ctx, q.subarray(at, held[1])), node)
+  ) return none();
+  const hub = hubWindows(ctx, q);
+  const runs: Array<[number, number]> = [];
+  let start = -1;
+  for (let o = 0; o + W <= q.length; o++) {
+    const evidence = !(o + W > at && o < held[1]) &&
+      !hub[o] &&
+      asked.index.has(latin1(offsetCanon(ctx, q.subarray(o, o + W))));
+    if (evidence && start < 0) start = o;
+    if (!evidence && start >= 0) {
+      runs.push([start, o + W - 1]);
+      start = -1;
+    }
+  }
+  if (start >= 0) runs.push([start, q.length]);
+  const uses = runs.flatMap((r) => {
+    const u = useOf(ctx, q, r[0], r[1], { question: whole });
+    return u === null ? [] : [{ r, u }];
+  });
+  if (uses.length === 0) return none();
+  // Per run, each continuation's best use over its establishing contexts.
+  let budget = allowance;
+  const perRun = uses.map(() => new Map<number, number>());
+  for (const n of nx) {
+    if (budget <= 0) break;
+    for (const c of ctx.store.prevFirst(n, Math.min(budget, allowance))) {
+      budget--;
+      if (c === id) continue;
+      const cb = offsetCanon(ctx, read(ctx, c, q.length * W));
+      const i = indexOf(cb, node, 0);
+      if (i < 0) continue;
+      for (const [a, b] of [[0, i], [i + node.length, cb.length]]) {
+        if (b - a < W) continue;
+        const ru = useOf(ctx, cb, a, b, { context: c });
+        if (ru === null) continue;
+        uses.forEach(({ u }, k) => {
+          const s = cosine(u, ru);
+          if (s > (perRun[k].get(n) ?? -Infinity)) perRun[k].set(n, s);
+        });
+      }
+    }
+  }
+  let best = -1, top = 0, next = 0, run = uses[0].r;
+  uses.forEach(({ r }, k) => {
+    const ranked = [...perRun[k].entries()].sort((x, y) => y[1] - x[1]);
+    if (ranked.length < 2) return;
+    if (best < 0 || ranked[0][1] - ranked[1][1] > top - next) {
+      [best, top, next, run] = [ranked[0][0], ranked[0][1], ranked[1][1], r];
+    }
+  });
+  const bar = significanceBar(ctx.store.D);
+  if (best < 0 || top < bar || top - next < bar) return none();
+  if (ctx.meter) ctx.meter.paraphraseNamings++;
+  if (ctx.trace) {
+    ctx.trace.step(
+      "askedByParaphrase",
+      [
+        rItemShort(ctx, id, "node"),
+        {
+          text: decodeText(q.subarray(run[0], run[1])),
+          role: "question run",
+          span: run,
+        },
+      ],
+      [rItemShort(ctx, best, "named")],
+      `${nx.length} continuations — no establishing context is witnessed and ` +
+        `no instance names one; the question's run is used as one's ` +
+        `establishing context is (${top.toFixed(3)} against ${
+          next.toFixed(3)
+        })`,
+    );
+  }
+  return { named: [best], spans: new Map([[best, [run]]]) };
+}
 
 /** The witnessing reading alone: the continuations of `id` one of whose
  *  establishing contexts the question (plus `id`'s bytes) holds whole, with

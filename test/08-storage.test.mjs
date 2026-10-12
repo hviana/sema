@@ -1000,3 +1000,62 @@ test("an episode's halos are kept by its two wholes, not by their parts", async 
   }
   assert.ok(parts > 0, "the context has stored parts");
 });
+
+test("a deposit records what it learnt whole, apart from the company the halo keeps", async () => {
+  const stem = tmpStem("whole");
+  const enc = new TextEncoder();
+  const ctx = "Where was the painter Aldric Fenwick born?";
+  const cont = "The place of birth of Aldric Fenwick is Coldmere.";
+  const bare = "Aldric Fenwick painted the harbour at dawn.";
+  try {
+    {
+      const store = new SQliteStore({ path: stem, D });
+      const m = new Mind({ D, seed: 7, store });
+      await m.ingest(ctx, cont);
+      await m.ingest(bare);
+      const id = (s) => m.resolve(enc.encode(s));
+      assert.ok(store.learntWhole(id(ctx)) && store.learntWhole(id(cont)));
+      assert.ok(
+        store.learntWhole(id(bare)),
+        "a bare experience is learnt whole",
+      );
+      assert.equal(
+        store.haloMass(id(bare)),
+        0,
+        "it keeps no episode's company",
+      );
+      let pieces = 0;
+      for (let i = 1; i + 4 < ctx.length; i++) {
+        const piece = id(ctx.slice(i));
+        if (piece === null) continue;
+        pieces++;
+        assert.ok(!store.learntWhole(piece), `a piece is not: ${ctx.slice(i)}`);
+      }
+      assert.ok(pieces > 0, "the context has stored pieces");
+      await store.close();
+    }
+    {
+      const store = new SQliteStore({ path: stem, D });
+      const m = new Mind({ D, seed: 7, store });
+      assert.ok(store.learntWhole(m.resolve(enc.encode(bare))), "it persists");
+      await store.close();
+    }
+    // A store written before wholes were recorded kept company on its wholes
+    // alone: on open, its halo rows are read as its wholes, once.
+    {
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(stem + ".sqlite");
+      db.exec(
+        "DROP TABLE whole; DELETE FROM meta WHERE key = 'whole.recorded';",
+      );
+      db.close();
+      const store = new SQliteStore({ path: stem, D });
+      const m = new Mind({ D, seed: 7, store });
+      assert.ok(store.learntWhole(m.resolve(enc.encode(ctx))));
+      assert.ok(!store.learntWhole(m.resolve(enc.encode(bare))));
+      await store.close();
+    }
+  } finally {
+    cleanup(stem);
+  }
+});

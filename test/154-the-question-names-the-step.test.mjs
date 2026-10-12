@@ -400,3 +400,54 @@ test("154.9 a fragment's one inherited continuation answers another question", a
   }
   await mind.store.close();
 });
+
+test("154.10 a paraphrase names the step: the use proposes, the bytes decide", async () => {
+  // `pass away` and ` end` share no window, and no instance spells
+  // `In which town did · pass away?`; but the contexts holding each led to
+  // the same kind of fact, so the question names `Z end` by its use.  Where no
+  // context holds a word of it, nothing does.
+  const SYL = ["ba", "ko", "ri", "ten", "mar", "lo", "vi", "sun", "del", "ga"];
+  const name = (n) =>
+    `${SYL[n % 10][0].toUpperCase()}${SYL[n % 10].slice(1)}${
+      SYL[(3 * n + 7) % 10]
+    } ${SYL[(7 * n + 1) % 10][0].toUpperCase()}${
+      SYL[(7 * n + 1) % 10].slice(1)
+    }${SYL[Math.floor(n / 10) % 10]}`;
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const origin = (x, t) => `${x} — origin: ${t}.`;
+  const end = (x, t) => `${x} — end: ${t}.`;
+  const ask = async (company) => {
+    const items = [];
+    for (let i = 1; i <= 40; i++) {
+      const x = name(i), o = towns[i % 5], e = towns[(3 * i + 1) % 5];
+      items.push([x, origin(x, o)], [x, end(x, e)]);
+      items.push([`${x} origin`, origin(x, o)], [`${x} end`, end(x, e)]);
+      items.push([`Where was ${x} born?`, origin(x, o)]);
+      if (company) {
+        items.push([`Where did ${x} die?`, end(x, e)]);
+        items.push([`Did ${x} pass away in ${e}?`, end(x, e)]);
+      } else items.push([`Where was ${x} buried?`, end(x, e)]);
+    }
+    const z = name(41);
+    items.push([z, origin(z, "Fenmoor")], [z, end(z, "Gladwick")]);
+    items.push([`${z} origin`, origin(z, "Fenmoor")]);
+    items.push([`${z} end`, end(z, "Gladwick")]);
+    const m = new Mind({ seed: 7 });
+    await m.ingest(items);
+    let named = 0;
+    const answer = await m.respondText(
+      `In which town did ${z} pass away?`,
+      (st) => {
+        if (
+          st.mechanism.at(-1) === "askedByParaphrase" &&
+          st.inputs[0].text === z
+        ) named++;
+      },
+    );
+    return { answer, named };
+  };
+  const used = await ask(true);
+  assert.match(used.answer, /end: Gladwick/);
+  assert.ok(used.named > 0, "named by its use");
+  assert.equal((await ask(false)).named, 0, "no word of it is used");
+});
