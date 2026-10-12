@@ -238,17 +238,18 @@ born?` is not about Z's birth.
 its entity than the frame it shares with the question is another question, not
 this one's frame around another filler: `Who is Y's paternal grandmother?`
 shares `Who is` and `?` (8 bytes) with `Who is the maternal grandfather of Z?`
-and says 23 more. Reading such slots costs 13–20% more lookups on the 2Wiki
-fixtures and answers nothing more. They still count as forms that share a frame
-when the question-entity fallback asks whether its hypothesis shows.
+and says 23 more. Reading such slots costs 13–20% more lookups on 2Wiki and
+answers nothing more. They still count as forms that share a frame when the
+question-entity fallback asks whether its hypothesis shows.
 
 **The proposals are the climb's, and their siblings.** One region votes for one
-context, so the climb's points hold one instance of a frame that several
-instances share. Once a co-instance has shown the frame, the contexts its rarest
-non-hub window reaches (`siblingInstances`, the climb's own memoised reach) are
-read as further candidates. What a form says as an instance does not depend on
-the material, so its bytes, filler and relations are read once per question
-(`instanceBook`); each later material pays only the frame check.
+context, so the climb's points hold one instance of a frame several share. Once
+a co-instance has shown the frame, the contexts its rarest non-hub window
+reaches on both surfaces (`siblingInstances`: the fold makes one window a chunk
+of one form and a run across another's) are read as further candidates. What a
+form says as an instance is independent of the material: its bytes, filler and
+relations are read once per question (`instanceBook`); each later material pays
+only the frame check.
 
 Where the points hold no two agreeing instances, the question's own entity shows
 the frame instead: the longest point the question holds whole, exactly or under
@@ -259,7 +260,7 @@ no co-instance. A frame whose windows sit in more than `√N` places is common
 because its instances are: a hub's vote discriminates nothing, but these readers
 enumerate. They sample the `chainReach(W)` oldest contexts of each side's
 narrowest window, alternately (depth first, at most `allowance·W` rows; a side
-may be another frame's), stop when two agree, and keep an entity-only slot
+may be another frame's), stop when two agree, and keep entity-only slots
 (`instanceEntity`).
 
 The tier reads the `chainReach(W)` most corroborated of the consensus climb's
@@ -283,6 +284,44 @@ filler. A form witnessing all the question's slot says the question and more
 - no CAST schema transfers through it, else Shakira's birthplace is set against
   `John Lennon`.
 
+## Why another instance makes a step available
+
+A deposit names its fact by content, so two contexts that reach the same fact
+bytes reach one node. `Where was Y born?` and `Y place of birth`, both leading
+to `The place of birth of Y is P.`, record what no deposit states: with the
+filler cut out, `Where was · born?` asks for `· place of birth`. Two fillers
+spelling it alike make it a relation; applying it to `x` is one more lookup by
+content. The instances' facts are about other things, so what makes the step
+available is the organization, never a fact about `x`.
+
+A step at `x` is named with no new fact about `x` exactly when:
+
+- **convergence:** an instance and an establishing context reach one fact node;
+- **identity:** frame and filler are the same bytes under the response's
+  equivalence;
+- **agreement:** two fillers spell the relation alike;
+- **target:** `A·x·B` is deposited.
+
+An oracle reading only the deposits predicted it over 4,064 controlled questions
+and 520 2Wiki ones (three held-out ranges): Sema named no step it denied. The
+decisive contrast fixes the information: an instance's fact respelled on one
+side (two nodes) names nothing, respelled on both (one node) names as before,
+about 45 answers per 300 rows. The description reader (`describedSteps`) obeys
+the same law. Limits:
+
+- **Identity, not meaning.** A paraphrased frame, an alias or a fact respelled
+  on one side leaves the step unavailable to every exact reading; only the use
+  (`byParaphrase`) crosses, approximately, below the hub.
+- **Strength is not represented.** Two misleading instances weigh as eight true
+  ones; only `x`'s own facts tell them apart, at the lookup of `A·x·B`. What is
+  named grows with experience; that one thing is named does not.
+- **Available is not found.** On held-out rows the readers miss a sixth to a
+  half of it: a differently spelled entity grounds nothing, a frame is not
+  reached, or the decision goes elsewhere.
+- **No instance, no step.** A step no instance shows and the question does not
+  witness (`husband` for `spouse`) stays unavailable however sufficient the
+  facts.
+
 ## A paraphrase — `byParaphrase`
 
 Where neither reading names a step, the question may name it by use: in
@@ -297,11 +336,11 @@ them, beyond chance and beyond the next by `significanceBar`.
 ## Arguments held under the response's equivalence
 
 2Wiki title-cases its questions (`Man At Bath` for the stored `Man at Bath`),
-and such a title meets none of the fold's cuts. When recall's argument binding
-finds no recognised argument, the stored forms the climb reaches are candidates
-if the question holds them canonically at their offsets (`canonHeldPoints`). The
-climb proposes, exact containment decides. This relies on the canonical index
-the trainer builds (`buildCanonIndex`).
+meeting none of the fold's cuts. When recall's argument binding finds no
+recognised argument, every point the climb reaches is a candidate if the
+question holds it canonically at its offsets (`canonHeldPoints`; a cased title
+ranks low). The climb proposes, exact containment decides, through the canonical
+index (`buildCanonIndex`).
 
 A fragment that answers other questions is set aside before the binding looks
 for one maximal argument, so `director` does not cancel `Man at Bath`. The same
@@ -422,12 +461,14 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
   question plus node names the second hop; an unnamed step is not taken; a
   fragment voices nothing it was not asked, even its one inherited continuation;
   a comparison needs two named things; an argument held only under the
-  equivalence binds; a paraphrase names the step by its use (154.10).
+  equivalence binds, from any point; a paraphrase names the step by its use
+  (154.10).
 - `test/155` — the relation read off another instance: it needs two agreeing
   instances; it refuses a partly shared frame, a said frame and a description in
   the slot; it is never voiced as the answer; traced and untraced responses
   agree; neither fusion nor a comparison takes a co-instance; a form saying the
-  question and more is none.
+  question and more is none; the relation is available only where an instance
+  and a context reach one node (155.14).
 - `test/157` — a derivation of any length: three and four steps (across kinds);
   each frame by its own sequence, in order; the reading that explains more of
   the question names the step; the start is what the slot names, and a remainder
@@ -437,9 +478,9 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
   a description in the question composes with the frame; a description nothing
   reads determines no start; a description is read off the forms that hold all
   of it before a word of it is witnessed; the slot's entity is the longest any
-  reading spells; the refusals read an instance's entity as the derivation does.
-  Its scrambled-answer case is a control: no mutation of the reading short of
-  inventing a path breaks it.
+  reading spells; the refusals read an instance's entity as the derivation does;
+  a description's forms are found on both surfaces. Its scrambled-answer case is
+  a control.
 - `test/158` — what a derivation says of its entities: the condition every
   instance's entity agrees on selects the branch in either deposit order, traced
   or not; on an entity before the answer; two relations to one entity at one
@@ -458,7 +499,7 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
 - Measured only at fixture scale, with no pin: excluding fragments from
   establishing contexts (16 answers), refusing a fragment as CAST's redirection
   substitute (4 answers), the siblings of a co-instance (3 inference and 6
-  compositional answers), the second step held whole (1 inference answer, where
-  a piece of the entity took a step again), and the frame shown by the
-  question's own entity (3 inference and 3 compositional answers; on small
-  stores the climb keeps the instances among its points).
+  compositional answers), the second step held whole (1 inference answer: a
+  piece of the entity stepped again), and the frame shown by the question's own
+  entity (3 inference and 3 compositional answers; on small stores the climb
+  keeps the instances among its points).

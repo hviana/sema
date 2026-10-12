@@ -253,6 +253,9 @@ function cachedHasParents(
  *  a window beside a common chunk inherits that commonness, and the climb relies
  *  on it (saturation.md).
  *
+ *  `both`: the seed climbs its parents AND the chunks it overlaps — for an
+ *  enumerator, whose candidates are checked exactly afterwards (below).
+ *
  *  `memo`, when given, caches whole climbs by start id for the duration of ONE
  *  query (the store is read-only while a query is in flight, so a climb is a
  *  pure function of the id).  The consensus pipeline climbs the SAME anchors
@@ -264,6 +267,7 @@ export function edgeAncestors(
   id: number,
   contextCount: number,
   memo?: Map<number, AncestorReach>,
+  both = false,
 ): AncestorReach {
   const hit = memo?.get(id);
   if (hit !== undefined) return hit;
@@ -443,8 +447,9 @@ export function edgeAncestors(
   };
 
   const stack: number[] = [];
-  const containment = !cachedHasParents(ctx, id, structCache);
-  if (!containment) {
+  const structural = cachedHasParents(ctx, id, structCache);
+  const containment = both || !structural;
+  if (structural) {
     stack.push(id);
     depths?.push(0);
   }
@@ -1390,8 +1395,9 @@ function witnessedEntry(
  *  `Man at Bath` inside `… of film Man At Bath work at?` is no site; the
  *  consensus climb reaches it through the windows the two spellings share, and
  *  containment under the canon (offset-preserving, so the span is the
- *  question's own) decides.  Approximate proposes, exact decides.  Read off
- *  the `chainReach(W)` most corroborated points; empty before the climb. */
+ *  question's own) decides.  Approximate proposes, exact decides.  Every point
+ *  is read: a title cased otherwise shares few windows with its stored form,
+ *  and ranks low (`House in the Sun`, 41st of 145).  Empty before the climb. */
 export function canonHeldPoints(
   ctx: MindContext,
   minLen: number,
@@ -1400,9 +1406,8 @@ export function canonHeldPoints(
   if (asked === null || asked.points === undefined || ctx.canon === null) {
     return [];
   }
-  const W = ctx.space.maxGroup;
   const out: Array<{ start: number; end: number; payload: number }> = [];
-  for (const id of asked.points.slice(0, chainReach(W))) {
+  for (const id of asked.points) {
     const raw = read(ctx, id, asked.bytes.length);
     if (raw.length < minLen || raw.length >= asked.bytes.length) continue;
     const form = ctx.canon(raw);
@@ -3365,9 +3370,12 @@ export function convergenceMeets(
 }
 
 /** Further instances of a frame a co-instance has shown: the contexts the
- *  question's RAREST frame window reaches, through the climb's own memoised
- *  reach.  A window every frame shares is held by every instance; the rarest
- *  one reaches the fewest contexts, and a saturated reach proposes nothing. */
+ *  question's RAREST frame window reaches.  A window every frame shares is held
+ *  by every instance; the rarest one reaches the fewest contexts, and a
+ *  saturated reach proposes nothing.  The fold interns one window as a chunk
+ *  of one form and as a run across chunks of another, so rows are counted, and
+ *  climbed, on BOTH surfaces: by containers alone, `'s dad` reached one of the
+ *  two forms that spell it (test/157). */
 function siblingInstances(
   ctx: MindContext,
   question: Uint8Array,
@@ -3386,7 +3394,8 @@ function siblingInstances(
       if (hub[o]) continue;
       const wid = ctx.store.findBranch(ids.slice(o, o + W));
       if (wid === null) continue;
-      const r = ctx.store.containersSlice(wid, 0, bound + 1).length;
+      const r = ctx.store.containersSlice(wid, 0, bound + 1).length +
+        ctx.store.parentsFirst(wid, bound + 1).length;
       if (r > 0 && r < rarity) {
         rarity = r;
         best = wid;
@@ -3394,7 +3403,7 @@ function siblingInstances(
     }
   }
   if (best === null) return [];
-  const reach = edgeAncestors(ctx, best, corpusN(ctx), sharedReachMemo(ctx));
+  const reach = edgeAncestors(ctx, best, corpusN(ctx), undefined, true);
   if (!reach.saturated) return reach.roots.slice(0, allowance);
   if (!enumerate) return [];
   // The ENUMERATOR's window is a side's narrowest population, hub or not: a

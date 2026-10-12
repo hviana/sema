@@ -31,8 +31,8 @@ the asker's:
 - a continuation that is a subspan of the question;
 - an anchor that is a co-instance of the question (`evidence.md`).
 
-Putting the asker's referent in that place is `reference`'s job, because it
-needs the corpus's own evidence of carriage.
+Putting the asker's referent there is `reference`'s job: it needs the corpus's
+evidence of carriage.
 
 ## Echo — the refusing tail
 
@@ -46,8 +46,8 @@ and read with the same chance-corrected fraction. The outcome is one of two:
 
 ## The substitution bridge — refusal path only (`src/mind/bridge.ts`)
 
-The bridge aligns a candidate around the rarest stored windows. A mismatch
-becomes a corroborated substitution only when all of these hold:
+The bridge aligns a candidate around the rarest stored windows. A mismatch is a
+corroborated substitution only when:
 
 - the question's span is attested in the corpus;
 - the geometry clears `conceptThreshold`, or the halo clears `significanceBar`;
@@ -72,5 +72,5 @@ substitution or scaffolding step. The floor is `STEP`.
 - `test/16`, `test/56` — corroborated substitutions, the bridge's admission by
   identity; `test/159` 159.11 — no co-instance is bridged.
 - `test/73` — a question made only of scaffolding stays silent.
-- `test/154.6`, `test/154.8` — no stranger fragment is bound; an argument held
-  only under the equivalence binds.
+- `test/154.6`, `test/154.8`, `test/154.12` — no stranger fragment is bound; an
+  argument held only under the equivalence binds, from any point.

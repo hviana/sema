@@ -43,6 +43,12 @@
 //         continuation answers;
 //   155.11 a frame shared past the hub bound is read by a sample of its
 //         instances.
+//   155.12 no CAST schema transfers through a co-instance of the question;
+//   155.13 a sample past the hub reads every side of the frame;
+//   155.14 what makes the relation available is convergence: an instance and an
+//         establishing context reaching ONE fact node.  The same information
+//         with the instance's fact respelled (two nodes) names nothing;
+//         respelled on both sides (one node) names as before (evidence.md).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -577,4 +583,56 @@ test("155.13 a sample past the hub reads every side of the frame", async () => {
       new RegExp(e),
     );
   }
+});
+
+test("155.14 the relation is available where an instance and a context reach one node", async () => {
+  // The instances' facts are about other people: what changes between the
+  // three stores is only whether `Where was Y born?` and `Y place of birth`
+  // lead to the same bytes.
+  const people = ["Rira Balaz", "Defo Kumyta"];
+  const places = ["Gelmford", "Hosumere"];
+  const others = Array.from(
+    { length: 20 },
+    (
+      _,
+      i,
+    ) => [`Lokem Tavu${String.fromCharCode(97 + i)}`, "occupation", "cooper"],
+  );
+  const x = "Pezo Zofub";
+  const target = deposits([[x, "place of birth", "Wadeford"], [
+    x,
+    "place of death",
+    "Lumere",
+  ], [x, "occupation", "weaver"]]);
+  const store = async (mode) => {
+    const items = [...deposits(others)];
+    people.forEach((y, i) => {
+      const fact = `The place of birth of ${y} is ${places[i]}.`;
+      const alt = `${y} was born in ${places[i]}.`;
+      items.push(...deposits([[y, "occupation", "mason"]]));
+      const triple = mode === "respell" ? alt : fact;
+      items.push([`${y} place of birth`, triple], [y, triple]);
+      items.push([`Where was ${y} born?`, mode === "full" ? fact : alt]);
+    });
+    const mind = new Mind({
+      seed: 7,
+      store: new SQliteStore({ path: ":memory:" }),
+    });
+    await mind.ingest([...items, ...target]);
+    const a = await mind.respondText(`Where was ${x} born?`);
+    await mind.store.close();
+    return a;
+  };
+  const named = `The place of birth of ${x} is Wadeford.`;
+  assert.equal(await store("full"), named, "one node: available");
+  assert.equal(
+    await store("respell"),
+    named,
+    "one node, another spelling: available",
+  );
+  assert.notEqual(
+    await store("split"),
+    named,
+    "two nodes, same information: not available",
+  );
 });

@@ -53,6 +53,9 @@
 //         `mark` does not stand for `Eric of Denmark` read under the canon;
 //   157.16 the refusals read an instance's entity where the derivation does —
 //         at the slot's close when a description comes first.
+//   157.17 a description's forms are found on both surfaces of its rarest
+//         window: the fold interns `'s d` as a chunk of one form and as a
+//         run across chunks of the other.
 // Control (no mutation of the reading short of inventing a path breaks it):
 //   157.9 an instance answered with a fact its filler does not reach carries no
 //         derivation: scrambled answers transfer nothing.
@@ -604,4 +607,55 @@ test("157.16 an instance whose slot opens with a description is read as one by e
   assert.notEqual(co, null, "a co-instance of the question");
   assert.equal(co.filler, resolve(mind, enc(y)), "its entity, at the close");
   await store.close();
+});
+
+test("157.17 a description's forms are found on both surfaces of its rarest window", async () => {
+  // `'s d` is a chunk of `Who is Rakel Sesec's dad?` and a run across the
+  // chunks of `Who is Feken Zomosa's dad?`.  Counted and climbed by
+  // containment alone, the rarest window reached one of the two forms, and one
+  // form agrees with nothing: the question stopped at Z's occupation.
+  const tri = (s, r, o) => deposits([[s, r, o]]);
+  const items = [];
+  for (
+    const [y, p] of [["Rucu Mucaw", "Alford"], ["Zozur Duwos", "Bemere"], [
+      "Noco Tifoh",
+      "Cuford",
+    ]]
+  ) {
+    items.push(
+      ...tri(y, "occupation", "mason"),
+      ...tri(y, "place of birth", p),
+      [`Where was ${y} born?`, `The place of birth of ${y} is ${p}.`],
+    );
+  }
+  for (
+    const [d, w, v] of [["Rakel Sesec", "Wiho Laxe", "Vemo Kito"], [
+      "Feken Zomosa",
+      "Wuta Rexo",
+      "Vola Mipe",
+    ]]
+  ) {
+    items.push(
+      ...tri(d, "occupation", "cooper"),
+      ...tri(d, "mother", v),
+      ...tri(w, "occupation", "tanner"),
+      ...tri(d, "father", w),
+      [`Who is ${d}'s dad?`, `The father of ${d} is ${w}.`],
+    );
+  }
+  const z = "Munyb Mowuhos";
+  items.push(
+    ...tri(z, "mother", "Mira Seto"),
+    ...tri(z, "father", "Hapo Dugel"),
+    ...tri(z, "occupation", "weaver"),
+    ...tri("Hapo Dugel", "place of birth", "Targetford"),
+    ...tri("Mira Seto", "place of birth", "Motherford"),
+    ...tri("Hapo Dugel", "occupation", "potter"),
+  );
+  const [a] = await ask(items, [`Where was ${z}'s dad born?`]);
+  assert.match(
+    a,
+    /place of birth of Hapo Dugel is Targetford\./,
+    `answered "${a}"`,
+  );
 });

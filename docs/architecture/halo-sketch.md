@@ -80,7 +80,7 @@ another seed than its store's; gist comparisons do not (`determinism.md`).
 | ---------------------------------------------------------------------------------------------- | ------------------ |
 | admission: a form _leads somewhere_ if `hasNext \|\| hasHalo` (`store.md`)                     | existence probe    |
 | `locate`'s second tier (halo role), `alignGraded`'s halo-matched sites                         | best halo mate     |
-| synonym tiers: junction bridge, `crossRegionVotes`, substitution bridge                        | `conceptThreshold` |
+| synonym tiers: junction bridge, `crossRegionVotes`, substitution bridge, the walk's said set   | `conceptThreshold` |
 | concept hops in `cover`: an edge-less form borrows a halo sibling's continuation, at `CONCEPT` | `conceptThreshold` |
 | CAST's analogy strength                                                                        | `significanceBar`  |
 | `chooseNext`: halo mass breaks ties after `prevCount`                                          | ordering only      |

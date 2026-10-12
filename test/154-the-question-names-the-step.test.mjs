@@ -47,6 +47,8 @@
 //         mother`), and the cover voiced it for `Anne of Kiev's grandmother`.
 //         (A form learnt as a context keeps its one continuation: the
 //         definition, bridge and ALU suites fail without that exception.)
+//   154.12 …and is found among ALL the climb's points: a title cased otherwise
+//         shares few windows with its stored form and ranks low.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -499,4 +501,105 @@ test("154.11 a comparison names each of its two things apart", async () => {
     `In which town did ${z} come into the world?`,
   );
   assert.equal(answer, origin(z, "Fenmoor"));
+});
+
+test("154.12 an argument held under the equivalence is read among all the climb's points", async () => {
+  // Real 2Wiki deposits, minimised by ddmin (2,775 → 29) on what reading
+  // every point changes: `House in the Sun` is the climb's 41st point of 145
+  // in the full store, past the 16 the binding used to read, and the question
+  // grounded nothing.
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  await mind.ingest([
+    [
+      "The House of Pulcini",
+      "The director of The House of Pulcini is Mario Camerini.",
+    ],
+    ["Cast Up by the Sea", "The director of Cast Up by the Sea is John Gavin."],
+    [
+      "Henry King (director) date of death",
+      "The date of death of Henry King (director) is June 29, 1982.",
+    ],
+    [
+      "House in the Sun director",
+      "The director of House in the Sun is Gaston Roudès.",
+    ],
+    ["House in the Sun", "The director of House in the Sun is Gaston Roudès."],
+    ["Gaston Roudès", "The place of birth of Gaston Roudès is Béziers."],
+    [
+      "Where was the place of death of Donna Summer (Donna Summer Song)?",
+      "The place of death of Donna Summer is Naples.",
+    ],
+    ["Jean Gimpel", "The father of Jean Gimpel is René Gimpel."],
+    [
+      "Where did René Gimpel die?",
+      "The place of death of René Gimpel is Neuengamme.",
+    ],
+    [
+      "Belle Toujours director",
+      "The director of Belle Toujours is Manoel de Oliveira.",
+    ],
+    ["Belle Toujours", "The director of Belle Toujours is Manoel de Oliveira."],
+    [
+      "Manoel de Oliveira place of birth",
+      "The place of birth of Manoel de Oliveira is Porto.",
+    ],
+    [
+      "Manoel de Oliveira",
+      "The place of birth of Manoel de Oliveira is Porto.",
+    ],
+    [
+      "Where was Manoel de Oliveira born?",
+      "The place of birth of Manoel de Oliveira is Porto.",
+    ],
+    [
+      "Harvest: 3,000 Years director",
+      "The director of Harvest: 3,000 Years is Haile Gerima.",
+    ],
+    [
+      "Where did Michael Howard study at?",
+      "The educated at of Michael Howard is Peterhouse.",
+    ],
+    [
+      "Where was the place of death of Jim O'Connolly?",
+      "The place of death of Jim O'Connolly is Hythe.",
+    ],
+    [
+      "Teamster Boss: The Jackie Presser Story director",
+      "The director of Teamster Boss: The Jackie Presser Story is Alastair Reid.",
+    ],
+    ["Sarah Burns father", "The father of Sarah Burns is Ken Burns."],
+    ["Fire-Eater director", "The director of Fire-Eater is Pirjo Honkasalo."],
+    ["Fire-Eater", "The director of Fire-Eater is Pirjo Honkasalo."],
+    [
+      "Pirjo Honkasalo spouse",
+      "The spouse of Pirjo Honkasalo is Pirkko Saisio.",
+    ],
+    ["Pirjo Honkasalo", "The spouse of Pirjo Honkasalo is Pirkko Saisio."],
+    [
+      "Who is the spouse of Pirjo Honkasalo?",
+      "The spouse of Pirjo Honkasalo is Pirkko Saisio.",
+    ],
+    ["Axiliad director", "The director of Axiliad is Witold Leszczyński."],
+    ["Axiliad", "The director of Axiliad is Witold Leszczyński."],
+    [
+      "Witold Leszczyński place of birth",
+      "The place of birth of Witold Leszczyński is Łódź.",
+    ],
+    ["Witold Leszczyński", "The place of birth of Witold Leszczyński is Łódź."],
+    [
+      "Where was Witold Leszczyński born?",
+      "The place of birth of Witold Leszczyński is Łódź.",
+    ],
+  ]);
+  await mind.buildCanonIndex();
+  assert.equal(
+    await mind.respondText(
+      "Where was the director of film House In The Sun born?",
+    ),
+    "The place of birth of Gaston Roudès is Béziers.",
+  );
+  await mind.store.close();
 });
