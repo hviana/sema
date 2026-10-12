@@ -1,4 +1,4 @@
-// reasoning.ts — multi-hop reasoning + multi-topic fusion (Section 4 of the mind).
+// reasoning.ts — multi-hop reasoning + multi-topic fusion.
 //
 //   reason       — extend an answer forward across facts (multi-hop)
 //   fuseAttention — fuse independent points of attention (multi-topic)

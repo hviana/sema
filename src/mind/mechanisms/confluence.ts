@@ -1,4 +1,4 @@
-// confluence.ts — Confluence Join (Section 4 of the mind).
+// confluence.ts — Confluence Join.
 //
 // THE CLASS THIS SOLVES: conjunctive queries — answers that are stored in NO
 // single fact and exist only as the INTERSECTION of independent evidence

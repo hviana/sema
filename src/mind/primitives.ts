@@ -1,4 +1,4 @@
-// primitives.ts — Address + Read primitives (Section 1 of the mind).
+// primitives.ts — Address + Read primitives.
 //
 //   Address  — bytes → node   (perceive, foldTree, resolve)
 //   Read     — node → bytes   (read)

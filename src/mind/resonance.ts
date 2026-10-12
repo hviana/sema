@@ -1,4 +1,4 @@
-// resonance.ts — Pattern A: Resonance Search (Section 3 of the mind).
+// resonance.ts — Pattern A: Resonance Search.
 //
 //   Address → Resonate → filter by Traverse/Read predicates → transform.
 //   Used by bridge, recallByResonance, pivotInto, meaningOf.

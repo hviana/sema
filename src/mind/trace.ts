@@ -1,4 +1,4 @@
-// trace.ts — trace instrumentation + persistence (Section 9 of the mind).
+// trace.ts — trace instrumentation + persistence.
 //
 //   rItem, rNode, rDeriv — build RationaleItems from bytes/nodes/derivations
 //   traceDerivation        — trace a full derivation proof tree

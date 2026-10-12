@@ -1,4 +1,4 @@
-// counterfactual.ts — Counterfactual Transfer / CAST (Section 4 of the mind).
+// cast.ts — Counterfactual Transfer / CAST.
 //
 // When a query weaves together byte-string evidence from multiple independently-
 // learnt structures (disjoint run alignments, literal or distributional), CAST

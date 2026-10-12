@@ -1,5 +1,4 @@
-// recognition.ts — Section 2 of the mind:
-// Address + Read over byte streams — decompose a query into its known forms.
+// recognition.ts — Address + Read over byte streams — decompose a query into its known forms.
 //
 //   recognise — structural + canonical decomposition into every stored form
 //               that leads somewhere (has a continuation edge or a halo).

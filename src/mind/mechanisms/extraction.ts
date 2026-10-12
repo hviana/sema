@@ -1,4 +1,4 @@
-// extraction.ts — Extraction (Skill) — Section 4 of the mind.
+// extraction.ts — Extraction (Skill).
 //
 // Given a query and its consensus-ranked anchors, find the first span-shaped
 // skill exemplar among the ranked anchors and read the analogous span of the

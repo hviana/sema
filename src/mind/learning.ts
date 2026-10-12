@@ -1,4 +1,4 @@
-// learning.ts — ingest and deposition (Section 7 of the mind).
+// learning.ts — ingest and deposition.
 //
 //   Learning is DEPOSITION: perceive a stream into a tree and intern every
 //   node.  A fact is an EDGE between node ids; recall traverses edges.

@@ -1,4 +1,4 @@
-// attention.ts — Consensus climb / attention pipeline (Section 4 of the mind).
+// attention.ts — Consensus climb / attention pipeline.
 //
 // Every region of the query's perceived tree casts a resonance vote for the
 // context (learnt fact) it best climbs to.  Votes are pooled through the very

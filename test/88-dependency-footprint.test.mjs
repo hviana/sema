@@ -1,8 +1,8 @@
 // 88 — the dependency footprint is a PRODUCT PROPERTY, so it is tested.
 //
-// AGENTS.md §7: "do not add runtime dependencies casually — the near-zero-
-// dependency footprint is a product feature." A feature stated only in prose
-// erodes; this suite pins it at the two places it can actually break.
+// AGENTS.md §7: "The library has no runtime dependencies." A feature stated
+// only in prose erodes; this suite pins it at the two places it can actually
+// break.
 //
 //   1. The BUILT LIBRARY imports nothing outside `node:`. Not the source — the
 //      built output, because that is what a consumer loads.

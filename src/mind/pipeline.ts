@@ -1,4 +1,4 @@
-// pipeline.ts — the think pipeline (Section 5 of the mind).
+// pipeline.ts — the think pipeline.
 //
 // think() is the whole file's job: one lightest-derivation choice among
 // UNIFORM mechanisms.  The pipeline sees mechanisms through the

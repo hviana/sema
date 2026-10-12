@@ -43,8 +43,7 @@ nearest and collapsed two different subtrees onto one id (`test/02`).
 ## Relations on the nodes
 
 - **Continuation edges.** An edge is a unique `(src, dst)` pair, so
-  `prevCount(dst)` counts distinct contexts, never repetitions; `link` says if
-  it is new.
+  `prevCount(dst)` counts distinct contexts, never repetitions.
 - **Containment.** `addContainer(child, parent)` buffers per child, and the
   flush appends packed pages (`_dbAppendContain`) without rewriting the list.
   `containersSlice` pages through it.

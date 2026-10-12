@@ -1,4 +1,4 @@
-// traverse.ts — Traverse primitives + disambiguation (Sections 1 & 6 of the mind).
+// traverse.ts — Traverse primitives + disambiguation.
 //
 //   Traverse — node → nodes   (edgeAncestors, nextOf, prevOf, contains,
 //                               guidedNext, chooseNext, chooseAmong, hubCap)
@@ -690,7 +690,7 @@ export function answers(
   return ctx.store.hasNext(b) && ctx.store.nextFirst(b, bound).includes(a);
 }
 
-// ── Edge disambiguation (Section 6) ──────────────────────────────────────
+// ── Edge disambiguation ──────────────────────────────────────
 
 /** The best-scoring item by cosine against `query`, among items scoring at
  *  or above `threshold` — the shared arg-max every Pattern-A "which of these

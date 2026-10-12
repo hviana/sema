@@ -94,10 +94,9 @@ shortcuts that pass review and fail the evidence.
 
 - **Tempting:** a recognised form with continuations is evidence wherever it
   appears.
-- **Refuted:** a fragment inherits the edges of every whole it sits in.
-  Witnessing `born?` named nine strangers' birthplaces, the fragment `director`
-  cancelled the argument `Man at Bath`, and `ong)?` voiced a stranger's
-  birthplace.
+- **Refuted:** a known fragment inherits the edges of wholes it ends. Witnessing
+  `born?` named nine strangers' birthplaces, the fragment `director` cancelled
+  the argument `Man at Bath`, and `ong)?` voiced a stranger's birthplace.
 - **Instead:** only deposited contexts establish anything, and a fragment that
   answers other questions leads somewhere only when the question names one of
   its continuations (`evidence.md`; `test/154`).

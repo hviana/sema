@@ -10,7 +10,7 @@ cost, and prunes the rest of the market through the ordinary floor check
 ## Matcher — recognition sites
 
 Sites are the spans of the question that name a stored form (`recognition.ts`).
-Any site that overlaps a computed span is masked: computation always wins,
+Any site overlapping a computed span is masked: computation always wins,
 enforced by masking rather than by price (`cost-model.md`).
 
 ## Gates
@@ -18,10 +18,10 @@ enforced by masking rather than by price (`cost-model.md`).
 - **The site must lead somewhere.** It has a continuation or a halo
   (`leadsSomewhere`).
 - **A fragment needs to be asked.** A site that answers other questions
-  (`answersOtherQuestions`: inside other forms, several continuations, a window
-  of the question outside it) is dropped unless the question names one of its
-  continuations. Otherwise the cover accounts the fragment's bytes as explained
-  by a stranger's answer (`unaskedFragments`).
+  (`answersOtherQuestions`: inside other forms, several continuations or one
+  only inherited, a window of the question outside it) is dropped unless the
+  question names one of its continuations. Otherwise the cover accounts the
+  fragment's bytes as explained by a stranger's answer (`unaskedFragments`).
 - **Scaffolding accounts for nothing.** A span made only of hub windows
   (`scaffoldSpans`) is not accounted (`evidence.md`).
 
@@ -41,14 +41,14 @@ enforced by masking rather than by price (`cost-model.md`).
 The synchronous search cannot run the async reads that two of its rules need: a
 concept target, which is a halo lookup, and a learnt connector between two
 answers, which is a `bridge`. So `offerConcepts` and `offerConnectors` offer the
-keys up front, cheaply. The search then asks for a key only when it reaches it:
-a connector when a splice's two premises meet, and a concept target when the
-form asking for it is popped.
+keys up front. The search then asks for a key only when it reaches it: a
+connector when a splice's two premises meet, and a concept target when the form
+asking for it is popped.
 
 A cover that asked is provisional. `cover.run` grants the asked keys and covers
-again, until a cover asks for nothing. That final cover is the one that
-resolving every key in advance would have produced. Joins licensed by rounds
-that asked for nothing are kept across re-covers.
+again, until a cover asks for nothing. That final cover is the one resolving
+every key in advance would produce. Joins licensed by rounds that asked for
+nothing are kept across re-covers.
 
 ## Provenance
 
