@@ -472,11 +472,8 @@ export interface Store {
   ): Promise<number>;
 
   // ── continuation edges (associations) ──────────────────────────────────
-  /** Learn that `to` follows `from`. Idempotent: true when the edge is new. */
-  link(from: NodeId, to: NodeId): Promise<boolean>;
-  /** Every context with a continuation, in the order its first edge was
-   *  learnt — a maintenance read (`closeSuffixes`), not a query read. */
-  edgeSources(): NodeId[];
+  /** Learn that `to` follows `from`. Idempotent. */
+  link(from: NodeId, to: NodeId): Promise<void>;
   /** What follows `id` (in insertion order). */
   next(id: NodeId): NodeId[];
   /** Whether ANY edge leaves `id` — the EXISTENCE probe for the forward
@@ -854,8 +851,7 @@ export abstract class AbstractStore implements Store {
   ): void;
 
   // -- Continuation edges --
-  protected abstract _dbInsertEdge(src: NodeId, dst: NodeId): boolean;
-  protected abstract _dbEdgeSources(): NodeId[];
+  protected abstract _dbInsertEdge(src: NodeId, dst: NodeId): void;
   protected abstract _dbGetNextEdges(id: NodeId): NodeId[];
   protected abstract _dbGetPrevEdges(id: NodeId): NodeId[];
   /** LIMITed variants of the two edge reads — same ORDER BY, `LIMIT ?`.
@@ -2335,7 +2331,7 @@ export abstract class AbstractStore implements Store {
 
   // ── Continuation edges ─────────────────────────────────────────────────
 
-  async link(from: NodeId, to: NodeId): Promise<boolean> {
+  async link(from: NodeId, to: NodeId): Promise<void> {
     await this._ensureReady();
     // Both endpoints become learnt EXPERIENCES whose whole subtree is REACH-
     // indexed, because the seat is symmetric — a query may name only a PORTION of
@@ -2357,11 +2353,7 @@ export abstract class AbstractStore implements Store {
     // An edge breaks the transparency of both endpoints — drop cached chains
     // (same reasoning as the kid-row invalidation in put).
     this._chainMemo.clear();
-    return this._dbInsertEdge(from, to);
-  }
-
-  edgeSources(): NodeId[] {
-    return this._dbEdgeSources();
+    this._dbInsertEdge(from, to);
   }
 
   next(id: NodeId): NodeId[] {

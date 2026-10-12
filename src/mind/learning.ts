@@ -183,12 +183,11 @@ async function propagateSuffixes(
   ctx: MindContext,
   src: number,
   dst: number,
-): Promise<number> {
+): Promise<void> {
   const W = ctx.space.maxGroup;
   const bytes = ctx.store.bytes(src);
   const n = bytes.length;
-  let added = 0;
-  if (n < 2 * W) return added;
+  if (n < 2 * W) return;
   // Existence prefilter — the write side of the canonical contract: every
   // deposit interns its WHOLE byte stream as a flat branch of per-byte leaf
   // ids (deposit(), canonical.ts).  A suffix is a stored form exactly when
@@ -210,33 +209,7 @@ async function propagateSuffixes(
     const known = ctx.store.parentsExceed(id, 1) ||
       (ctx.store.learntWhole(id) && ctx.store.hasNext(id));
     if (!known) continue;
-    if (await ctx.store.link(id, dst)) added++;
-  }
-  return added;
-}
-
-/** The CLOSURE of suffix inheritance.  A deposit links the suffixes known
- *  when it is made, so a form that becomes known later misses the
- *  continuations of every context deposited before it: the edges depend on
- *  the order of teaching (on real training episodes, about 31% of the closed
- *  suffix edges).  Every gate only grows — parents, wholes, edges — so the
- *  rule has one least fixed point whatever the order: every edge passes its
- *  continuation to its source's known suffixes, pass after pass, until a pass
- *  adds nothing.  Completing it at the moment a form becomes known found a
- *  quarter of the missing edges, at a third more ingestion: the forms that
- *  matter end many contexts, so their window's reach saturates.  Returns the
- *  edges added. */
-export async function closeSuffixes(ctx: MindContext): Promise<number> {
-  let added = 0;
-  for (;;) {
-    let fresh = 0;
-    for (const src of ctx.store.edgeSources()) {
-      for (const dst of ctx.store.next(src)) {
-        fresh += await propagateSuffixes(ctx, src, dst);
-      }
-    }
-    added += fresh;
-    if (fresh === 0) return added;
+    await ctx.store.link(id, dst);
   }
 }
 

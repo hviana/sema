@@ -948,19 +948,13 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // -- Continuation edges --
 
-  protected _dbInsertEdge(src: NodeId, dst: NodeId): boolean {
+  protected _dbInsertEdge(src: NodeId, dst: NodeId): void {
     if (!this._insertEdge) {
       this._insertEdge = this.sqlite!.prepare(
         "INSERT OR IGNORE INTO edge (src, dst) VALUES (?, ?)",
       );
     }
-    return Number(this._insertEdge.run(src, dst).changes) > 0;
-  }
-
-  protected _dbEdgeSources(): NodeId[] {
-    return (this.sqlite!.prepare(
-      "SELECT src FROM edge GROUP BY src ORDER BY MIN(seq)",
-    ).all() as Array<{ src: number }>).map((r) => r.src);
+    this._insertEdge.run(src, dst);
   }
 
   protected _dbGetNextEdges(id: NodeId): NodeId[] {

@@ -53,10 +53,10 @@ whatever the fold did around it. Teaching the same thing twice creates no
 structure.
 
 **Linked by succession.** The context's root gets an edge to the continuation's
-root. Each suffix of the context that is a known form inherits that edge too (or
-later, at `closeSuffixes`), and inside a bare experience the parts are chained
-in order. An edge is a unique pair, so how many contexts lead to a continuation
-counts distinct contexts, not repetitions.
+root. Each suffix of the context that is a known form inherits that edge too,
+and inside a bare experience the parts are chained in order. An edge is a unique
+pair, so how many contexts lead to a continuation counts distinct contexts, not
+repetitions.
 
 **What this structure can answer, exactly:**
 

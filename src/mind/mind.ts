@@ -166,7 +166,7 @@ export type {
 } from "./types.js";
 import { aluToMechanism, defaultMechanisms, think } from "./pipeline.js";
 import { articulate } from "./articulation.js";
-import { closeSuffixes, ingest } from "./learning.js";
+import { ingest } from "./learning.js";
 import { rItem } from "./trace.js";
 // The work meter is exported from src/index.ts (via src/meter.ts) — the one
 // definition; the Mind only consumes it.
@@ -1225,15 +1225,6 @@ export class Mind implements MindContext {
    *                queries will carry (text queries carry {@link textCanon}
    *                unless the Mind was constructed with its own)
    *  @returns number of index rows added */
-  /** Close suffix inheritance over everything learnt (learning.ts
-   *  `closeSuffixes`): the continuations a suffix known only later missed.
-   *  Returns the edges added; a second call adds none. */
-  async closeSuffixes(): Promise<number> {
-    invalidateStructuralCaches(this);
-    invalidateJunctionCache(this);
-    return await closeSuffixes(this);
-  }
-
   async buildCanonIndex(canon?: Canon): Promise<number> {
     const c = canon ?? this._canonFor(textCanon);
     const store = this.store;

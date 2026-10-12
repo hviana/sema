@@ -586,9 +586,9 @@ test("D2 — site-aware climb is seed-independent", async () => {
   );
 });
 
-// The SUBJECT of a substitution is a structure of this question.  Once suffix
-// inheritance is closed, `director` leads to every `… director` fact, so the
-// fragment is a point of the weave — but the question names none of its
+// The SUBJECT of a substitution is a structure of this question.  Where suffix
+// inheritance gives `director` every `… director` fact, the fragment is a
+// point of the weave — but the question names none of its
 // continuations, so it answers other questions, and filling `Premium (film)`'s
 // seat with it glued `directorfilm)` onto a stranger's fact.  (Minimised from
 // the 2Wiki fixture; the honest answer is silence.)
@@ -691,7 +691,6 @@ test("a fragment answering other questions is no substitution subject", async ()
       "The award received of Leslie Cockburn is George Polk Award.",
     ],
   ]);
-  await m.closeSuffixes();
   assert.equal(
     await m.respondText(
       "Are both directors of films The Princess Bride (Film) and I Never Sang For My Father from the same country?",
@@ -700,63 +699,86 @@ test("a fragment answering other questions is no substitution subject", async ()
   );
 });
 
-// A run NAMES a substitute only by what is not scaffolding.  `The ` of `Year Of
-// The Horse` opens `The Secret director` too: redirection took that as the
-// question naming `The Secret`, and voiced its director over the film the
-// question does name.  (Minimised from the 2Wiki fixture.)
+// A run NAMES a substitute only by what is not scaffolding.  `The ` of `The Fj
+// Holden` opens `The Hobbit: An Unexpected Journey director` too: redirection
+// took that as the question naming `The Hobbit`, and voiced Peter Jackson over
+// the director of the film the question does name.  (Minimised from the 2Wiki
+// fixture.)
 test("scaffolding names no redirection substitute", async () => {
   const m = new Mind({ seed: 7 });
   await m.ingest([
-    ["Winter Meeting", "The director of Winter Meeting is Bretaigne Windust."],
     [
-      "Year of the Horse director",
-      "The director of Year of the Horse is Jim Jarmusch.",
+      "Princess Augusta of Waldeck-Pyrmont",
+      "The father of Princess Augusta of Waldeck-Pyrmont is George II.",
     ],
-    ["The Secret director", "The director of The Secret is Robert Enrico."],
-    ["Wee Wee Hours", "The performer of Wee Wee Hours is Chuck Berry."],
+    ["The Marquise of O", "The director of The Marquise of O is Éric Rohmer."],
+    ["Éric Rohmer", "The employer of Éric Rohmer is Cahiers du cinéma."],
+    ["Caligula", "The mother of Caligula is Agrippina the Elder."],
     [
-      "O. P. Nayyar award received",
-      "The award received of O. P. Nayyar is Filmfare Award.",
-    ],
-    ["The Golden Calf", "The director of The Golden Calf is Millard Webb."],
-    [
-      "Who is the spouse of Millard Webb (1930 Film)?",
-      "The spouse of Millard Webb is Mary Eaton.",
-    ],
-    ["The Ride", "The director of The Ride is Jan Svěrák."],
-    ["The January Man", "The director of The January Man is Pat O'Connor."],
-    ["Amarajeevi", "The composer of Amarajeevi is Vijaya Bhaskar."],
-    ["Antikarisma", "The has part of Antikarisma is Shahin Najafi."],
-    [
-      "What is the place of birth of Shahin Najafi?",
-      "The place of birth of Shahin Najafi is Bandar-e Anzali, Gilan, Iran.",
+      "Timothy John Russert presenter",
+      "The presenter of Timothy John Russert is Tim Russert.",
     ],
     [
-      "The Messenger director",
-      "The director of The Messenger is Oren Moverman.",
-    ],
-    ["The Escapist", "The director of The Escapist is Gillies MacKinnon."],
-    [
-      "Where did Gillies MacKinnon (2002 Film) study?",
-      "The educated at of Gillies MacKinnon is National Film and Television School.",
+      "A Little Sister of Everybody director",
+      "The director of A Little Sister of Everybody is Robert Thornby.",
     ],
     [
-      "Who is the mother of Ben Stiller?",
-      "The mother of Ben Stiller is Meara Stiller.",
+      "The FJ Holden director",
+      "The director of The FJ Holden is Michael Thornhill.",
     ],
     [
-      "What nationality is Huo Jun?",
-      "The country of citizenship of Huo Jun is Eastern Han Dynasty.",
+      "Michael Thornhill place of birth",
+      "The place of birth of Michael Thornhill is Sydney, Australia.",
     ],
     [
-      "Ezriel Auerbach",
-      "The father of Ezriel Auerbach is Shlomo Zalman Auerbach.",
+      "Lisbeth Cathrine Amalie Rose date of birth",
+      "The date of birth of Lisbeth Cathrine Amalie Rose is 25 September 1738.",
+    ],
+    [
+      '"Step Into The Light performer',
+      'The performer of "Step Into The Light is Myra.',
+    ],
+    [
+      "The Hobbit: An Unexpected Journey director",
+      "The director of The Hobbit: An Unexpected Journey is Peter Jackson.",
+    ],
+    [
+      "Vladimir Vengerov award received",
+      "The award received of Vladimir Vengerov is People's Artist of the RSFSR.",
+    ],
+    ["The Unholy Wife", "The director of The Unholy Wife is John Farrow."],
+    [
+      "Elizabeth Garrett Anderson",
+      "The place of death of Elizabeth Garrett Anderson is Aldeburgh.",
+    ],
+    [
+      "Suicide Commandos director",
+      "The director of Suicide Commandos is Camillo Bazzoni.",
+    ],
+    [
+      "Suicide Commandos",
+      "The director of Suicide Commandos is Camillo Bazzoni.",
+    ],
+    [
+      "Where was Camillo Bazzoni born?",
+      "The place of birth of Camillo Bazzoni is Salsomaggiore Terme.",
+    ],
+    [
+      "Krisztina Nyáry",
+      "The spouse of Krisztina Nyáry is Nikolaus, Count Esterházy.",
+    ],
+    [
+      "What nationality is Nikolaus, Count Esterházy?",
+      "The country of citizenship of Nikolaus, Count Esterházy is Hungarian.",
+    ],
+    [
+      "Hospitals: The White Mafia director",
+      "The director of Hospitals: The White Mafia is Luigi Zampa.",
     ],
   ]);
-  await m.closeSuffixes();
   const answer = await m.respondText(
-    "Do director of film Winter Meeting and director of film Year Of The Horse have the same nationality?",
+    "What is the place of birth of the director of film The Fj Holden?",
   );
-  assert.ok(!answer.includes("Robert Enrico"), answer);
-  assert.ok(answer.includes("Jim Jarmusch"), answer);
+  assert.ok(!answer.includes("Peter Jackson"), answer);
+  assert.ok(answer.includes("Sydney, Australia"), answer);
 });
