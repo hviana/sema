@@ -25,7 +25,8 @@ import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { recognise } from "../dist/src/mind/recognition.js";
-import { atomIsHub, corpusN } from "../dist/src/mind/traverse.js";
+import { corpusN } from "../dist/src/mind/traverse.js";
+import { atomIsHub } from "../dist/src/geometry.js";
 
 const CHAIN = [
   ["Eiffel Tower country", "The country of Eiffel Tower is France."],
@@ -74,7 +75,7 @@ test("the fixture really is past the atomIsHub threshold", async () => {
   const n = corpusN(mind);
   assert.ok(n > 4096, `fixture must cross N=4096, got ${n}`);
   assert.equal(
-    atomIsHub(mind, n),
+    atomIsHub(n, mind.space.maxGroup),
     true,
     "atoms must read as hubs, or this file tests nothing",
   );

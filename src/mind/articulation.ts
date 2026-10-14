@@ -11,8 +11,6 @@ import { recognise } from "./recognition.js";
 import { answers, contains } from "./traverse.js";
 import { bestHaloMate } from "./match.js";
 import { noLicence } from "./graph-search.js";
-import type { CandidateSpan } from "../derive/src/index.js";
-import { coverSequence } from "../derive/src/index.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
 
 /** Re-voice an answer in the asker's own words.  For each recognised form
@@ -35,9 +33,7 @@ export async function articulate(
     return answer;
   };
 
-  const qCandidates: Array<
-    CandidateSpan<{ halo: Vec; bytes: Uint8Array; node: number }>
-  > = [];
+  const voices: Array<{ halo: Vec; bytes: Uint8Array; node: number }> = [];
   for (const s of recognise(ctx, query).sites) {
     // payload < 0 is a SINGLE-BYTE leaf (byte leaves occupy the implicit
     // negative id range −256…−1 — see store.ts).  A one-byte form's halo is
@@ -48,23 +44,15 @@ export async function articulate(
     if (s.payload < 0) continue;
     const h = store.halo(s.payload);
     if (!h) continue;
-    qCandidates.push({
-      start: s.start,
-      end: s.end,
-      payload: {
-        halo: h,
-        bytes: query.slice(s.start, s.end),
-        node: s.payload,
-      },
+    voices.push({
+      halo: h,
+      bytes: query.slice(s.start, s.end),
+      node: s.payload,
     });
   }
-  if (qCandidates.length === 0) {
+  if (voices.length === 0) {
     return keep("no asker concept to revoice — answer unchanged");
   }
-  if (coverSequence(query.length, qCandidates).spans.length === 0) {
-    return keep("no asker concept to revoice — answer unchanged");
-  }
-  const voices = qCandidates.map((s) => s.payload);
 
   const ans = recognise(ctx, answer);
   const substitutions = new Map<number, Uint8Array>();

@@ -7,10 +7,16 @@ import { addInto, normalize, Vec, zeros } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
 import { inputBytes, perceiveDeposit, resolve } from "./primitives.js";
-import { canonicalWindows, leafIdPrefix } from "./canonical.js";
+import { canonicalWindows, flatId } from "./canonical.js";
+import { flatBytesKids } from "../store.js";
 import { rItem, rNode } from "./trace.js";
 import { hubBound } from "./traverse.js";
-import { dominates, estimatorNoise, profileCapacity } from "../geometry.js";
+import {
+  dominates,
+  estimatorNoise,
+  profileCapacity,
+  twoQuanta,
+} from "../geometry.js";
 import { fold as foldVecs } from "../sema.js";
 
 /** Intern a perceived tree into node ids, bottom-up, sharing equal subtrees.
@@ -139,9 +145,8 @@ export async function deposit(
 
   const indexed = await indexSubSpans(ctx, tree, ids);
 
-  const leafIds = leafIdPrefix(ctx, bytes);
-  if (leafIds.length === bytes.length && leafIds.length >= 2) {
-    await ctx.store.putBranch(leafIds, tree.v);
+  if (bytes.length >= 2) {
+    await ctx.store.putBranch(flatBytesKids(bytes), tree.v);
   }
 
   if (track) ctx._prevSeen = indexed ? new Set(ids.values()) : null;
@@ -188,7 +193,7 @@ async function propagateSuffixes(
   const W = ctx.space.maxGroup;
   const bytes = ctx.store.bytes(src);
   const n = bytes.length;
-  if (n < 2 * W) return;
+  if (n < twoQuanta(W)) return;
   // Existence prefilter — the write side of the canonical contract: every
   // deposit interns its WHOLE byte stream as a flat branch of per-byte leaf
   // ids (deposit(), canonical.ts).  A suffix is a stored form exactly when
@@ -198,13 +203,8 @@ async function propagateSuffixes(
   // instead of O(suffix) vector folds per offset.  The probe is addressed by
   // the bytes, so the store's negative filter refuses most offsets before any
   // id list is built.
-  const flat = ctx.store.findFlatBranch?.bind(ctx.store);
-  const leafIds = flat ? null : leafIdPrefix(ctx, bytes);
   for (let i = 1; i <= n - W; i++) {
-    const twin = flat
-      ? flat(bytes.subarray(i))
-      : ctx.store.findBranch(leafIds!.slice(i));
-    if (twin === null) continue;
+    if (flatId(ctx, bytes.subarray(i)) === null) continue;
     const id = resolve(ctx, bytes.subarray(i));
     if (id === null || id === src) continue;
     const known = ctx.store.parentsExceed(id, 1) ||

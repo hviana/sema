@@ -113,7 +113,7 @@ export function decodeText(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes.filter((b) => b !== 0x00));
 }
 
-// THE SPAN ALGEBRA LIVES IN derivation.ts.  `unaccountedBytes` and
+// THE SPAN ALGEBRA LIVES IN derivation.ts.  `spanBytes` and
 // `unexplainedSpans` are the closure law's vocabulary — gap arithmetic over the
 // asker's own bytes — and they moved to the layer that owns the law, so they
 // have ONE home and are no longer asked of the tracer.  This module keeps the

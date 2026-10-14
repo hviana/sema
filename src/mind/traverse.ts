@@ -1,29 +1,44 @@
 // traverse.ts — Traverse primitives + disambiguation.
 //
-//   Traverse — node → nodes   (edgeAncestors, nextOf, prevOf, contains,
+//   Traverse — node → nodes   (edgeAncestors, contains,
 //                               guidedNext, chooseNext, chooseAmong, hubCap)
 //
 // The PROJECTIONS built on these walks (follow, conceptHop, reverseContext,
 // project) live in match.ts — the elementary match-and-project operation.
 
-import { addInto, cosine, dot, Vec, zeros } from "../vec.js";
-import { boundFor, dominates, significanceBar } from "../geometry.js";
+import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
+import {
+  AGREEMENT,
+  boundFor,
+  instanceCap,
+  phraseCap,
+  significanceBar,
+} from "../geometry.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { canonResolve, gistOf, read, resolve } from "./primitives.js";
-import {
-  canonicalWindows,
-  chainReach,
-  leafIdPrefix,
-  leafIdRun,
-} from "./canonical.js";
+import { chainReach, flatId, windowAt, windowIds } from "./canonical.js";
 // Imported at the TOP, where every other import is.  They used to sit 800 lines
 // down under a note claiming the position mattered ("before trace module is
 // loaded") — it does not: an ES module's static imports are HOISTED, so the
 // file's line order never decides load order.  The note described an intention
 // the runtime does not honour; the imports move and the claim goes.
 import { decodeText } from "./rationale.js";
-import { bytesEqual, concatBytes, indexOf, latin1 } from "../bytes.js";
+import {
+  bytesEqual,
+  concatBytes,
+  indexOf,
+  latin1,
+  sharedEnds,
+} from "../bytes.js";
 import { type WindowIndex, windowIndex, witness } from "./evidence.js";
+import { holdersFrom } from "./junction.js";
+import {
+  maskSpans,
+  spanBytes,
+  unexplainedSpans,
+  unionSpans,
+  windowSpans,
+} from "./derivation.js";
 import type { RationaleItem } from "./rationale.js";
 
 // ── Session structural memo ─────────────────────────────────────────────
@@ -192,11 +207,12 @@ function derivationCache(ctx: MindContext): DerivationCache | null {
   return c;
 }
 
-/** Invalidate every session-lifetime structural read after a write. */
+/** Invalidate every session-lifetime structural read after a write: every
+ *  session memo is keyed by the store-state identity, so a NEW identity drops
+ *  them all at once — the reach, structural, derivation, junction-walk and
+ *  window memos alike — with no memo left to forget. */
 export function invalidateStructuralCaches(ctx: MindContext): void {
-  reachCaches.delete(ctx._structMemoKey);
-  structCaches.delete(ctx._structMemoKey);
-  derivationCaches.delete(ctx._structMemoKey);
+  ctx._structMemoKey = {};
 }
 
 /** Cached {@link Store.hasNext} — pure during one respond(). */
@@ -244,6 +260,15 @@ function cachedHasParents(
   return v;
 }
 
+/** A PIECE: a node some larger form holds — a chunk of it (parents) or a span
+ *  inside it (containers).  What a deposit interned whole is held by none — a
+ *  TOP, the form an instance, a fact or a pivot is read from.  Every reading
+ *  of "is this a piece of something bigger" asks this one predicate. */
+export function heldWithin(ctx: MindContext, id: number): boolean {
+  return cachedHasParents(ctx, id, getStructCache(ctx)) ||
+    ctx.store.hasContainers(id);
+}
+
 // ── Graph climbing ───────────────────────────────────────────────────────
 
 /** Climb the structural DAG from a node to its edge-bearing ancestor contexts.
@@ -272,26 +297,24 @@ export function edgeAncestors(
   const hit = memo?.get(id);
   if (hit !== undefined) return hit;
 
-  // BYTE-ATOM COMMONALITY.  A single-byte leaf (implicit negative id) has no
-  // structural parents BY CONSTRUCTION — atoms are never linked into the kid
-  // or contain tables — so this climb cannot observe its containment at all.
-  // The walk below would see only the atom's own direct edges and report
-  // contextsReached ≈ 1, turning the MOST common content in the store into
-  // the MOST discriminative voter (observed on a 325K-context store: every
-  // recognised single-letter site voted full ln N for the one fact whose
-  // continuation is that letter, and their pooled sum out-voted every
-  // genuine anchor).  An unmeasurable containment must not default to
-  // "maximally rare": it is bounded below by the uniform expectation over
-  // the byte alphabet — N contexts, each at least one chunk of up to W of
-  // the 256 possible atoms, reach ≥ N·W/256 contexts per atom on average
-  // (see {@link atomReach}).  When that floor itself exceeds the hub bound
-  // √N the atom is a hub at this corpus scale and the climb abstains
-  // (saturated) — the atom's own edges remain fully traversable (tier-0
-  // exact recall, chooseNext, project); only its say as a consensus voter
-  // is withdrawn.  On a small store the floor stays ≤ √N and the atom
-  // climbs exactly as before, so single-letter facts keep working.
-  if (id < 0 && atomIsHub(ctx, contextCount)) {
-    const bound0 = boundFor(contextCount);
+  // A BYTE ATOM IS NEVER A VOTER — its containment is UNKNOWN, at every
+  // corpus size.  A single-byte leaf (implicit negative id) has no structural
+  // parents and no containment rows BY CONSTRUCTION (atoms are never linked
+  // into the kid or contain tables), so no climb can observe which contexts
+  // hold it.  The walk below would see only the atom's own direct edges and
+  // report contextsReached ≈ 1, turning the most common content in the store
+  // into the most discriminative voter (observed on a 325K-context store:
+  // every recognised single-letter site voted full ln N for the one fact
+  // whose continuation is that letter).  Unknown is neither rare nor common:
+  // the climb abstains.  The atom's own edges stay fully traversable (exact
+  // recall, chooseNext, project) — only its say as a consensus voter is
+  // withheld.  It used to be withheld only past N > 4096 contexts, by a
+  // uniform expectation N·W/256 that called a byte occurring nowhere "common"
+  // and let the same byte vote on a smaller store; a byte's vote no longer
+  // depends on how many unrelated experiences the store holds.  So a query
+  // whose only regions are single bytes (`2+2 equals what?` against `1+1`)
+  // commits no point of attention through them (test/35, test/37).
+  if (id < 0) {
     const reach: AncestorReach = {
       roots: [],
       contextsReached: 0,
@@ -299,10 +322,10 @@ export function edgeAncestors(
       ...(ctx.trace
         ? {
           saturation: {
-            reason: "byte-atom-commonality" as const,
+            reason: "byte-atom-unobservable" as const,
             node: id,
-            observed: atomReach(ctx, contextCount),
-            limit: bound0,
+            observed: 0,
+            limit: 0,
           },
           visited: 0,
           maxDepth: 0,
@@ -525,38 +548,6 @@ export function edgeAncestors(
   return reach;
 }
 
-/** Convenience: forward edges of a node. */
-export function nextOf(ctx: MindContext, id: number): number[] {
-  return ctx.store.next(id);
-}
-
-/** Convenience: reverse edges of a node. */
-export function prevOf(ctx: MindContext, id: number): number[] {
-  return ctx.store.prev(id);
-}
-
-/** The uniform-expectation floor on a byte atom's corpus commonality: N
- *  learnt contexts, each at least one perception chunk of up to W of the 256
- *  possible byte values, contain a given atom in ≥ N·W/256 contexts on
- *  average.  An atom's TRUE containment is unmeasurable (atoms carry no
- *  kid/contain links by construction), so this floor is the honest stand-in:
- *  derived entirely from the corpus scale N, the perception window W, and
- *  the alphabet size — never tuned. */
-export function atomReach(ctx: MindContext, contextCount: number): number {
-  return Math.max(
-    1,
-    Math.ceil((contextCount * ctx.space.maxGroup) / 256),
-  );
-}
-
-/** Whether a byte atom is a hub at this corpus scale — its commonality floor
- *  {@link atomReach} exceeds the hub bound √N.  Below it (small stores) an
- *  atom votes and is recognised exactly as any stored form; above it the
- *  alphabet is scaffolding everywhere and abstains. */
-export function atomIsHub(ctx: MindContext, contextCount: number): boolean {
-  return atomReach(ctx, contextCount) > boundFor(contextCount);
-}
-
 /** Cached "does this node bear a continuation edge?" — the CHEAP half of
  *  {@link leadsSomewhere}, exported for hot paths that must PRE-FILTER a
  *  candidate before paying for a fold and cannot afford the halo tier.
@@ -609,6 +600,13 @@ export function reachOf(
   return Math.max(1, r.contextsReached);
 }
 
+/** THE RARITY of a reach: `ln(N/c)` for a climb that reached `c` of `N`
+ *  contexts — inverse document frequency read over structure, the graded form
+ *  of the {@link dominates} cut.  At or below 0 it discriminates nothing. */
+export function idfOf(reach: AncestorReach, N: number): number {
+  return Math.log(N / Math.max(1, reach.contextsReached));
+}
+
 /** The corpus scale N — the count of DISTINCT learnt contexts, floored at 2
  *  so its derived readings (ln N in the consensus floor, √N in the hub bound)
  *  stay meaningful on a near-empty store.  The one definition every consumer
@@ -623,6 +621,16 @@ export function corpusN(ctx: MindContext): number {
  *  convention. */
 export function hubBound(ctx: MindContext): number {
   return boundFor(corpusN(ctx));
+}
+
+/** THE HUB BOUND FLOORED AT ONE DEPOSIT'S FOLD: `max(√N, W²)`.  Inside one
+ *  deposit's fold a window is already held by up to `chainReach(W) = W²`
+ *  chunks and branches, so on a store of a few facts √N alone would call every
+ *  window scaffolding and could not read even one fact's questions.  It is the
+ *  window-hub bar ({@link hubWindows}) and the read allowance of every decision
+ *  made over a question's instances. */
+export function readAllowance(ctx: MindContext): number {
+  return Math.max(hubBound(ctx), chainReach(ctx.space.maxGroup));
 }
 
 /** Cap a candidate list at the hub bound √N (insertion order) — the ONE
@@ -937,7 +945,7 @@ export function answersOtherQuestions(
 ): boolean {
   const asked = ctx._edgeAsked;
   if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
-  if (!(ctx.store.hasParents(id) || ctx.store.hasContainers(id))) return false;
+  if (!heldWithin(ctx, id)) return false;
   const nx = ctx.store.nextFirst(id, 2).length;
   if (nx === 0 || (nx < 2 && ctx.store.learntWhole(id))) return false;
   return namedContinuations(ctx, id, asked) === null;
@@ -998,6 +1006,9 @@ export function askedEvidence(
   if (asked === null) return [];
   const nx = ctx.store.nextFirst(id, hubBound(ctx));
   const entry = askedEntry(ctx, id, nx, asked);
+  // A pick named by its use is a proposal: the run that ranked it is not the
+  // question's evidence for it, and is not accounted as such.
+  if (entry.byUse) return [];
   return entry.named?.includes(pick) ? entry.spans.get(pick) ?? [] : [];
 }
 
@@ -1005,6 +1016,10 @@ interface AskedEntry {
   named: number[] | null;
   /** Per named continuation, the question spans that witnessed it. */
   spans: Map<number, Array<[number, number]>>;
+  /** Named by a USE (halo company, `byUse`) rather than by the question's
+   *  bytes: an approximate reading, which may PROPOSE the pick but whose spans
+   *  are no exact evidence (`askedEvidence`). */
+  byUse?: true;
 }
 
 function askedEntry(
@@ -1042,10 +1057,10 @@ function askedContinuationsImpl(
   asked: { bytes: Uint8Array; index: WindowIndex },
 ): AskedEntry {
   const W = ctx.space.maxGroup;
-  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const allowance = readAllowance(ctx);
   const formCap = asked.bytes.length + offsetCanon(
     ctx,
-    read(ctx, id, asked.bytes.length * W),
+    read(ctx, id, phraseCap(asked.bytes.length, W)),
   ).length;
   const seen = witnessedEntry(ctx, id, nx, asked);
   // ONE MEASURE FOR BOTH READINGS.  A continuation is named by the question
@@ -1064,15 +1079,13 @@ function askedContinuationsImpl(
     const whole = ctx._edgeAsked;
     const most = whole === null ? 0 : Math.max(
       0,
-      ...relationFrames(ctx, whole, allowance).map((fr) =>
-        fr.spans.reduce((a, [s, e]) => a + e - s, 0)
-      ),
+      ...relationFrames(ctx, whole, allowance).map((fr) => spanBytes(fr.spans)),
     );
     if (most <= seen.bytes) return seen.entry;
   }
   const other = byCoInstance(ctx, id, nx, asked, formCap, allowance);
   if (seen.entry.named === null && other.named === null) {
-    return byParaphrase(ctx, id, nx, asked, allowance);
+    return byUse(ctx, id, nx, asked, allowance);
   }
   if (seen.entry.named === null) return other;
   // The reading that explains more of the question names the step, whether
@@ -1085,9 +1098,7 @@ function askedContinuationsImpl(
       other.named.some((n) => !seen.entry.named!.includes(n)))
   ) {
     const framed = Math.max(
-      ...other.named.map((n) =>
-        (other.spans.get(n) ?? []).reduce((a, [s, e]) => a + e - s, 0)
-      ),
+      ...other.named.map((n) => spanBytes(other.spans.get(n) ?? [])),
     );
     if (framed > seen.bytes) return other;
   }
@@ -1120,33 +1131,58 @@ function useOf(
     : `${from}:${to}`;
   const hit = memo?.get(key);
   if (hit !== undefined) return hit;
+  const use = spanHalo(ctx, bytes, from, to);
+  memo?.set(key, use);
+  return use;
+}
+
+/** THE COMPANY OF A SPAN — the one reading of what a span of bytes is USED
+ *  for: the halos of the learnt contexts holding its windows that lead on,
+ *  bundled.  At most W windows, evenly spaced, each read by its
+ *  `chainReach(W)` oldest contexts (`oldestContexts`), common or rare — a
+ *  sample constant in the corpus, so a common window is read, not abstained
+ *  on.  Components are normalized before bundling, so one context's mass is
+ *  not a weight on the span.  Null where nothing keeps company.  It is the
+ *  query-time counterpart of the write-side halo pours: the use of a run a step
+ *  is named by (`useOf`), the substitution bridge's synonym tier and the analog
+ *  tests read this one object (a second reading — each window's own halo
+ *  with the roots of its voter climb — answered the same on the suite and on
+ *  900 fresh queries). */
+export function spanHalo(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  from = 0,
+  to = bytes.length,
+): Vec | null {
   const W = ctx.space.maxGroup;
+  if (to - from < W) return null;
+  if (ctx.meter) ctx.meter.spanHalos++;
   const windows = to - from - W + 1;
-  const samples = Math.min(W, Math.max(0, windows));
+  const samples = Math.min(W, windows);
   const out = zeros(ctx.store.D);
   const seen = new Set<number>();
   let found = false;
   for (let i = 0; i < samples; i++) {
     const o = from +
       (samples === 1 ? 0 : Math.floor((i * (windows - 1)) / (samples - 1)));
-    const ids = leafIdRun(ctx, bytes, o, o + W);
-    const w = ids === null ? null : ctx.store.findBranch(ids);
+    if (ctx.meter) ctx.meter.spanHaloWindows++;
+    const w = windowAt(ctx, bytes, o);
     if (w === null) continue;
     for (const c of oldestContexts(ctx, w, chainReach(W))) {
       if (seen.has(c) || !ctx.store.hasNext(c)) continue;
       seen.add(c);
       const h = ctx.store.halo(c);
       if (h === null) continue;
-      addInto(out, h, 1 / Math.sqrt(dot(h, h)));
+      const n = Math.sqrt(dot(h, h));
+      if (n === 0) continue;
+      addInto(out, h, 1 / n);
       found = true;
     }
   }
-  const use = found ? out : null;
-  memo?.set(key, use);
-  return use;
+  return found ? normalize(out) : null;
 }
 
-/** THE QUESTION NAMES A STEP BY A PARAPHRASE — the exact tier's third
+/** THE QUESTION NAMES A STEP BY ITS USE — the exact tier's third
  *  reading, asked only where neither witnessing nor another instance names a
  *  continuation of `id`.  `In which town did Z pass away?` holds no window of
  *  `Z end`, and no instance spells its frame; but `pass away` is USED as
@@ -1165,7 +1201,7 @@ function useOf(
  *    the run that best tells the continuations apart is the evidence, and its
  *    best is named only beyond chance and beyond the next by as much
  *    (`significanceBar`). */
-function byParaphrase(
+function byUse(
   ctx: MindContext,
   id: number,
   nx: readonly number[],
@@ -1180,26 +1216,22 @@ function byParaphrase(
   if (held === null) return none();
   const W = ctx.space.maxGroup;
   const q = whole.bytes;
-  const node = offsetCanon(ctx, read(ctx, id, q.length * W));
+  const node = offsetCanon(ctx, read(ctx, id, phraseCap(q.length, W)));
   const at = held[0];
   if (
     held[1] - at !== node.length ||
     !bytesEqual(offsetCanon(ctx, q.subarray(at, held[1])), node)
   ) return none();
   const hub = hubWindows(ctx, q);
-  const runs: Array<[number, number]> = [];
-  let start = -1;
+  const evidence: number[] = [];
   for (let o = 0; o + W <= q.length; o++) {
-    const evidence = !(o + W > at && o < held[1]) &&
-      !hub[o] &&
-      asked.index.has(latin1(offsetCanon(ctx, q.subarray(o, o + W))));
-    if (evidence && start < 0) start = o;
-    if (!evidence && start >= 0) {
-      runs.push([start, o + W - 1]);
-      start = -1;
-    }
+    if (
+      !(o + W > at && o < held[1]) && !hub[o] &&
+      asked.index.has(latin1(offsetCanon(ctx, q.subarray(o, o + W))))
+    ) evidence.push(o);
   }
-  if (start >= 0) runs.push([start, q.length]);
+  // A run is consecutive evidence windows.
+  const runs = unionSpans(windowSpans(evidence, W), 1 - W);
   const uses = runs.flatMap((r) => {
     const u = useOf(ctx, q, r[0], r[1], { question: whole });
     return u === null ? [] : [{ r, u }];
@@ -1213,7 +1245,7 @@ function byParaphrase(
     for (const c of ctx.store.prevFirst(n, Math.min(budget, allowance))) {
       budget--;
       if (c === id) continue;
-      const cb = offsetCanon(ctx, read(ctx, c, q.length * W));
+      const cb = offsetCanon(ctx, read(ctx, c, phraseCap(q.length, W)));
       const i = indexOf(cb, node, 0);
       if (i < 0) continue;
       for (const [a, b] of [[0, i], [i + node.length, cb.length]]) {
@@ -1237,10 +1269,10 @@ function byParaphrase(
   });
   const bar = significanceBar(ctx.store.D);
   if (best < 0 || top < bar || top - next < bar) return none();
-  if (ctx.meter) ctx.meter.paraphraseNamings++;
+  if (ctx.meter) ctx.meter.useNamings++;
   if (ctx.trace) {
     ctx.trace.step(
-      "askedByParaphrase",
+      "askedByUse",
       [
         rItemShort(ctx, id, "node"),
         {
@@ -1257,7 +1289,7 @@ function byParaphrase(
         })`,
     );
   }
-  return { named: [best], spans: new Map([[best, [run]]]) };
+  return { named: [best], spans: new Map([[best, [run]]]), byUse: true };
 }
 
 /** The witnessing reading alone: the continuations of `id` one of whose
@@ -1283,7 +1315,7 @@ function witnessedEntry(
     return null;
   }
   const cache = getStructCache(ctx);
-  const ownCap = asked.bytes.length * W;
+  const ownCap = phraseCap(asked.bytes.length, W);
   const own = offsetCanon(ctx, read(ctx, id, ownCap));
   const ownIndex = windowIndex(own, W);
   // Naming needs the question to say at least one window the node does not:
@@ -1306,11 +1338,10 @@ function witnessedEntry(
   // reply established by hundreds of contexts would otherwise spend the whole
   // allowance alone.  The order changes what is READ, never what wins: scores
   // are compared afterwards in the continuations' own order.
-  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const allowance = readAllowance(ctx);
   let budget = allowance;
   const order = nx
     .map((n, at) => ({ n, at, support: cachedPrevCount(ctx, n, cache) }))
-    .filter((c) => c.support >= 2) // only `id` establishes the rest
     .sort((a, b) => a.support - b.support || a.at - b.at);
   const scored: Array<
     {
@@ -1389,35 +1420,6 @@ function witnessedEntry(
   return { entry: { named: best, spans: evidence }, bytes: bestBytes };
 }
 
-/** The climb's points the question HOLDS under the response's equivalence —
- *  stored forms whose canonical bytes occur in the question's, as sites.  The
- *  recognition walk matches bytes and the fold's own boundaries, so a stored
- *  `Man at Bath` inside `… of film Man At Bath work at?` is no site; the
- *  consensus climb reaches it through the windows the two spellings share, and
- *  containment under the canon (offset-preserving, so the span is the
- *  question's own) decides.  Approximate proposes, exact decides.  Every point
- *  is read: a title cased otherwise shares few windows with its stored form,
- *  and ranks low (`House in the Sun`, 41st of 145).  Empty before the climb. */
-export function canonHeldPoints(
-  ctx: MindContext,
-  minLen: number,
-): Array<{ start: number; end: number; payload: number }> {
-  const asked = ctx._edgeAsked;
-  if (asked === null || asked.points === undefined || ctx.canon === null) {
-    return [];
-  }
-  const out: Array<{ start: number; end: number; payload: number }> = [];
-  for (const id of asked.points) {
-    const raw = read(ctx, id, asked.bytes.length);
-    if (raw.length < minLen || raw.length >= asked.bytes.length) continue;
-    const form = ctx.canon(raw);
-    if (form.length !== raw.length) continue;
-    const at = indexOf(asked.bytes, form, 0);
-    if (at >= 0) out.push({ start: at, end: at + raw.length, payload: id });
-  }
-  return out;
-}
-
 /** A CO-INSTANCE of the question: a stored form that shares the question's
  *  FRAME — the same opening and the same close, byte for byte under the
  *  response's equivalence — around ONE different filler.  `Where was Peter
@@ -1484,6 +1486,8 @@ export function otherInstance(
 ): ReturnType<typeof coInstanceFiller> {
   const asked = ctx._edgeAsked;
   if (asked === null) return null;
+  // Read at the instance scale, however much of the form the caller holds.
+  raw = raw.subarray(0, instanceCap(asked.bytes.length) + 1);
   const co = coInstanceFiller(ctx, raw, [asked.index], asked.bytes);
   if (co === null) return null;
   const W = ctx.space.maxGroup;
@@ -1505,14 +1509,7 @@ function coInstanceFrame(
 ): { open: number; close: number; spans: Array<[number, number]> } | null {
   const W = ctx.space.maxGroup;
   const form = offsetCanon(ctx, raw);
-  const max = Math.min(form.length, question.length);
-  let a = 0;
-  while (a < max && form[a] === question[a]) a++;
-  let b = 0;
-  while (
-    b < max - a &&
-    form[form.length - 1 - b] === question[question.length - 1 - b]
-  ) b++;
+  const [a, b] = sharedEnds(form, question);
   const fe = form.length - b;
   if (a + b < W || fe <= a || question.length - b <= a) return null;
   // Scaffolding is nobody's evidence, so a frame window that is a hub need not
@@ -1565,17 +1562,43 @@ function slotEntity(
   ownSpelling = false,
 ): { span: [number, number]; id: number } | null {
   const W = ctx.space.maxGroup;
-  const ids = leafIdPrefix(ctx, raw);
+  const reach = Math.min(raw.length, end + W - 1);
+  const rows: Array<Array<[number, number]>> = [];
+  for (let st = open; st >= Math.max(0, open - chainReach(W)); st--) {
+    const row: Array<[number, number]> = [];
+    for (let en = reach; en - st >= W && en > open; en--) row.push([st, en]);
+    rows.push(row);
+  }
+  // A stored form in its own spelling holds its names exactly; only a
+  // question is read under the response's equivalence.
+  return longestEntity(ctx, raw, rows, !ownSpelling);
+}
+
+/** The LONGEST stored context with continuations among `rows` of spans of
+ *  `raw` — each row ordered longest first, so a row is read only while it can
+ *  still beat the best found.  A span must leave at least one window of `raw`
+ *  outside it.  The exact reading is asked first (a flat probe before the
+ *  fold); then, when `canonToo` and the response has an equivalence, the
+ *  canonical class is asked where the exact reading found nothing — or, for
+ *  bytes already under the canon, for anything longer that holds it: the
+ *  question's `eric i of denmark` holds short exact runs (`mark`) inside the
+ *  entity only its canonical class spells. */
+function longestEntity(
+  ctx: MindContext,
+  raw: Uint8Array,
+  rows: ReadonlyArray<ReadonlyArray<readonly [number, number]>>,
+  canonToo: boolean,
+): { span: [number, number]; id: number } | null {
+  const W = ctx.space.maxGroup;
   const cache = getStructCache(ctx);
-  const reach = Math.min(ids.length, end + W - 1);
   let span: [number, number] | null = null;
   let id: number | null = null;
   const scan = (exact: boolean): void => {
-    for (let st = open; st >= Math.max(0, open - chainReach(W)); st--) {
-      for (let en = reach; en - st >= W && en > open; en--) {
+    for (const row of rows) {
+      for (const [st, en] of row) {
         if (span !== null && en - st <= span[1] - span[0]) break;
         if (st + raw.length - en < W) continue;
-        if (exact && ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+        if (exact && flatId(ctx, raw.subarray(st, en)) === null) continue;
         // A longer reading of the same entity holds the exact one.
         if (!exact && span !== null && (st > span[0] || en < span[1])) continue;
         const n = exact
@@ -1588,15 +1611,8 @@ function slotEntity(
     }
   };
   scan(true);
-  // The LONGEST, across both readings, where the bytes are read under the
-  // canon already: the question's `eric i of denmark` holds short exact runs
-  // (`mark`) inside the entity only its canonical class spells, and the
-  // canonical pass is asked for longer spans that hold the exact one.  A form
-  // in its own spelling holds its names exactly.
-  // A stored form in its own spelling holds its names exactly; only a
-  // question is read under the response's equivalence.
   if (
-    !ownSpelling && ctx.canon !== null &&
+    canonToo && ctx.canon !== null &&
     (span === null || readUnderCanon(ctx, raw))
   ) {
     scan(false);
@@ -1617,35 +1633,15 @@ function closingEntity(
   end: number,
 ): { span: [number, number]; id: number } | null {
   const W = ctx.space.maxGroup;
-  const ids = leafIdPrefix(ctx, raw);
-  const cache = getStructCache(ctx);
   const first = Math.max(0, open - W + 1);
-  let span: [number, number] | null = null;
-  let id: number | null = null;
-  const scan = (exact: boolean): void => {
-    const last = Math.min(ids.length, end + chainReach(W));
-    for (let en = end; en <= last; en++) {
-      for (let st = first; en - st >= W && st < end; st++) {
-        if (span !== null && en - st <= span[1] - span[0]) break;
-        if (st + raw.length - en < W) continue;
-        if (exact && ctx.store.findBranch(ids.slice(st, en)) === null) continue;
-        // A longer reading of the same entity holds the exact one.
-        if (!exact && span !== null && (st > span[0] || en < span[1])) continue;
-        const n = exact
-          ? resolve(ctx, raw.subarray(st, en))
-          : canonResolve(ctx, raw.subarray(st, en));
-        if (n === null || !cachedHasNext(ctx, n, cache)) continue;
-        [span, id] = [[st, en], n];
-        break;
-      }
-    }
-  };
-  scan(true);
-  // The longest across both readings, as `slotEntity`.
-  if (ctx.canon !== null && (span === null || readUnderCanon(ctx, raw))) {
-    scan(false);
+  const last = Math.min(raw.length, end + chainReach(W));
+  const rows: Array<Array<[number, number]>> = [];
+  for (let en = end; en <= last; en++) {
+    const row: Array<[number, number]> = [];
+    for (let st = first; en - st >= W && st < end; st++) row.push([st, en]);
+    rows.push(row);
   }
-  return span === null || id === null ? null : { span, id };
+  return longestEntity(ctx, raw, rows, true);
 }
 
 /** What a slot SAYS of its entity: the entity (the longest stored context
@@ -1714,16 +1710,8 @@ function slotSteps(
   const xb = read(ctx, x.id);
   for (const c of ctx.store.prevFirst(named[0], hubBound(ctx))) {
     if (c === x.id) continue;
-    const cb = read(ctx, c, bytes.length + xb.length + 1);
-    const at = indexOf(cb, xb, 0);
-    if (at < 0) continue;
-    return {
-      x,
-      steps: [{
-        prefix: cb.subarray(0, at),
-        suffix: cb.subarray(at + xb.length),
-      }],
-    };
+    const step = stepAround(read(ctx, c, bytes.length + xb.length + 1), xb);
+    if (step !== null) return { x, steps: [step] };
   }
   return { x, undetermined: true };
 }
@@ -1742,11 +1730,11 @@ function startsWith(steps: Step[], head: Step[]): boolean {
  *  another entity.  `Y's dad` is held by `Who is Z's dad?` (whose derivation
  *  from `Z` is `· father`) and by `Where was Z's dad born?` (`· father →
  *  · place of birth`): a description is applied first, nearest its entity, so
- *  what it names is the BEGINNING those derivations share.  The shortest
- *  sequence two forms spell alike is the reading, if every other sequence two
- *  forms spell begins with it; otherwise, or with none, nothing is read.  The
+ *  what it names is the BEGINNING those derivations share: the shortest
+ *  sequence two forms spell alike; with none, nothing is read.  The
  *  forms come from the description's rarest window (`siblingInstances`).
- *  Kept for the session by the description's bytes. */
+ *  Kept for the session by the description's bytes and the entity it leaves
+ *  out. */
 function describedSteps(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -1761,18 +1749,16 @@ function describedSteps(
   const after = offsetCanon(ctx, bytes.subarray(e0, end));
   if (before.length + after.length < W) return null;
   const memo = derivationCache(ctx);
-  const key = "d" + latin1(before) + "\u0000" + latin1(after);
+  const key = `d${x.id}:` + latin1(before) + "\u0000" + latin1(after);
   if (memo?.described.has(key)) return memo.described.get(key)!;
-  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const allowance = readAllowance(ctx);
   const cache = getStructCache(ctx);
-  const deposited = (c: number): boolean =>
-    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
   const spans: Array<[number, number]> = [];
   if (before.length > 0) spans.push([open, s0]);
   if (after.length > 0) spans.push([e0, end]);
-  const bySeq = new Map<string, { steps: Step[]; forms: Set<number> }>();
+  const bySeq = new Spellings<{ by: number[]; steps: Step[]; key: string }>();
   for (const f of siblingInstances(ctx, bytes, spans, allowance)) {
-    if (!deposited(f) || !cachedHasNext(ctx, f, cache)) continue;
+    if (heldWithin(ctx, f) || !cachedHasNext(ctx, f, cache)) continue;
     const fb = offsetCanon(ctx, read(ctx, f));
     for (const z of entitiesIn(ctx, f).held) {
       if (z.id === x.id) continue;
@@ -1785,30 +1771,23 @@ function describedSteps(
           ctx,
           f,
           z.id,
-          fb.length * 2,
+          instanceCap(fb.length),
           allowance,
-          deposited,
         )
       ) {
         const steps = [one, ...(rest ?? [])];
         const k = steps.map((st) =>
           latin1(st.prefix) + "\u0000" + latin1(st.suffix)
         ).join("\u0001");
-        let at = bySeq.get(k);
-        if (at === undefined) bySeq.set(k, at = { steps, forms: new Set() });
-        at.forms.add(f);
+        bySeq.spell(k, f, () => ({ by: [], steps, key: k }));
       }
     }
   }
-  const agreed = [...bySeq.entries()].filter(([, v]) => v.forms.size >= 2);
+  // A description is applied first, nearest its entity: what it names is the
+  // shortest sequence two forms agree on.
+  const agreed = bySeq.agreed().sort((a, b) => a.steps.length - b.steps.length);
   let out: Step[] | null = null;
-  if (agreed.length > 0) {
-    agreed.sort((a, b) => a[1].steps.length - b[1].steps.length);
-    const [k0, v0] = agreed[0];
-    if (agreed.every(([k]) => k === k0 || k.startsWith(k0 + "\u0001"))) {
-      out = v0.steps;
-    }
-  }
+  if (agreed.length > 0) out = agreed[0].steps;
   memo?.described.set(key, out);
   return out;
 }
@@ -1877,7 +1856,7 @@ function byCoInstance(
     chain: boolean,
     cond?: Map<string, Step>,
   ): void => {
-    const bytes = fr.spans.reduce((a, [s, e]) => a + e - s, 0);
+    const bytes = spanBytes(fr.spans);
     for (const n of capped(ctx, t, allowance)) {
       if (!nx.includes(n)) continue;
       // A step the derivation says more of names only a fact holding an
@@ -1903,7 +1882,7 @@ function byCoInstance(
     }
   };
   const at = (prefix: Uint8Array, suffix: Uint8Array): number | null => {
-    const t = resolve(ctx, concatBytes([prefix, node, suffix]));
+    const t = resolve(ctx, filled({ prefix, suffix }, node));
     return t === null || t === id ? null : t;
   };
   for (const fr of frames) {
@@ -1931,12 +1910,9 @@ function byCoInstance(
   // ONE MEASURE.  The frames naming a continuation rank by the question
   // material they share — the measure witnessing is ranked by — so `· father`,
   // which a partial frame of 8 bytes spells, does not tie with the 36-byte
-  // derivation that spells `· mother` at the same node.  Frames within one
-  // window of the strongest are evidence perception cannot tell apart (W, its
-  // smallest distinction), and name together.
-  const W = ctx.space.maxGroup;
+  // derivation that spells `· mother` at the same node; the strongest names.
   const top = Math.max(-1, ...named.map((x) => x.bytes));
-  const tier = named.filter((x) => top - x.bytes < W);
+  const tier = named.filter((x) => x.bytes === top);
   const best = nx.filter((n) => tier.some((x) => x.n === n));
   const most = new Set(tier.flatMap((x) => x.by)).size;
   if (best.length === 0) return none;
@@ -1994,11 +1970,8 @@ interface RelationFrame {
    *  there holds, spelled with the entity cut out — what the derivation says
    *  of the entities it stands on, not only how it leaves them. */
   cond?: Array<Map<string, Step>>;
-  /** The first instance's entities, per way, read for `cond` once another
-   *  agrees. */
-  first?: Array<Array<Step["to"]>>;
-  /** `cond` before the instance read last, which its further ways add to. */
-  base?: Array<Map<string, Step>>;
+  /** Per position, the ledger `cond` is read from. */
+  held: HeldByAll[];
 }
 
 /** Whether other instances of the question carry a relation — a frame two
@@ -2008,9 +1981,45 @@ interface RelationFrame {
 export function readsOffInstances(ctx: MindContext): boolean {
   const whole = ctx._edgeAsked;
   if (whole === null || whole.points === undefined) return false;
-  const W = ctx.space.maxGroup;
-  return relationFrames(ctx, whole, Math.max(hubBound(ctx), chainReach(W)))
+  return relationFrames(ctx, whole, readAllowance(ctx))
     .length > 0;
+}
+
+/** ONE INVENTORY.  The forms proposed as instances of the question: the
+ *  climb's points and the response's resonance inventory — the forms
+ *  `reference` and the substitution bridge read as instances
+ *  (`Precomputed.frames`) — taken alternately, each most corroborated first,
+ *  forms that lead somewhere only, at most `chainReach(W)` of them: the exact
+ *  tier's own floor.  Reading only the points missed co-instances the
+ *  resonance ranked (measured: +7/−0 answers over three 2Wiki fixtures,
+ *  grandparent derivations above all). */
+function instanceProposals(
+  ctx: MindContext,
+  whole: { points?: readonly number[]; forms?: readonly number[] },
+  allowance: number,
+  cache: StructCache | null,
+): number[] {
+  const budget = Math.min(allowance, chainReach(ctx.space.maxGroup));
+  const sources = [whole.points ?? [], whole.forms ?? []].map((xs) =>
+    xs.filter((c) => cachedHasNext(ctx, c, cache))
+  );
+  const proposals: number[] = [];
+  const taken = new Set<number>();
+  for (
+    let i = 0;
+    proposals.length < budget && sources.some((xs) => i < xs.length);
+    i++
+  ) {
+    for (const xs of sources) {
+      const c = xs[i];
+      if (c === undefined || taken.has(c) || proposals.length >= budget) {
+        continue;
+      }
+      taken.add(c);
+      proposals.push(c);
+    }
+  }
+  return proposals;
 }
 
 /** The relation frames the question's co-instances carry — a property of the
@@ -2024,25 +2033,20 @@ function relationFrames(
 ): RelationFrame[] {
   // A co-instance is the question's frame around ONE other filler, so it is
   // read at most to twice the question's length.
-  const formCap = 2 * asked.bytes.length;
+  const formCap = instanceCap(asked.bytes.length);
   const hit = frameMemo.get(asked);
   if (hit !== undefined && !ctx.trace) return hit;
   const whole = ctx._edgeAsked;
-  // THE PROPOSALS ARE THE CLIMB'S.  The consensus climb already scored the
-  // stored forms the question's regions reach — measured on the 2Wiki
-  // fixture with one-hop questions, the co-instances were among its points —
-  // so the tier reads co-instances from those and climbs nothing of its own.
-  // Before the climb has run there is nothing to read, and nothing is
-  // remembered: a later ask, after the climb, reads its points.
+  // THE PROPOSALS ARE THE RESPONSE'S INVENTORY (`instanceProposals`): the
+  // climb's points with the resonance inventory, so the tier climbs nothing of
+  // its own.  Before the climb has run there is nothing to read, and nothing is
+  // remembered: a later ask, after the climb, reads them.
   const points = whole?.points;
   if (points === undefined) return [];
   const frames: RelationFrame[] = [];
   frameMemo.set(asked, frames);
-  if (whole !== null && resolve(ctx, whole.bytes) !== null) return frames;
   const W = ctx.space.maxGroup;
   const cache = getStructCache(ctx);
-  const deposited = (c: number): boolean =>
-    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
   // What a form says as an instance does not depend on the material it is
   // read against — only whether its frame is held does — so the reading of
   // each form (its bytes, filler and relations) is kept on the question
@@ -2063,7 +2067,7 @@ function relationFrames(
     }
     return x;
   };
-  const spelled = new Map<string, RelationFrame>();
+  const spelled = new Spellings<RelationFrame>();
   const spell = (
     q: number,
     co: { spans: Array<[number, number]>; open: number; close: number },
@@ -2093,62 +2097,25 @@ function relationFrames(
       key += latin1(t.prefix) + "\u0000" + latin1(t.suffix) + "\u0001";
     }
     if (not !== undefined) key += `|not:${not}`;
-    // WHAT THE DERIVATION SAYS OF THE ENTITIES IT STANDS ON is what every
-    // instance's entity there is: `Which child of Y is a medic?` answered
-    // `The occupation of C is surgeon.` stands on a child of Y that is a
-    // surgeon, in every instance, though the question never says so.  A fact
-    // one instance's entity lacks says nothing of the derivation.
-    // Read once a second instance agrees on the steps: the first instance's
-    // entities for their facts, then each later one only for those still
-    // shared, an exact lookup of the whole fact — the test the question's
-    // entity will take.
+    // WHAT THE DERIVATION SAYS OF THE ENTITIES IT STANDS ON (`HeldByAll`):
+    // the entity after each step, where the instance stood on it.
     const at = said?.steps.length ?? 0;
     const to = all.slice(0, -1).map((_, i) => i < at ? undefined : tos[i - at]);
-    // An instance that reached a position by SEVERAL ways (two children of Y
-    // that share the answer) supports a fact there when ONE of its entities
-    // holds it: the facts are joined over an instance's ways and met across
-    // instances, so no way the corpus deposited first becomes a requirement.
-    const kept = (m: Map<string, Step>, e: Step["to"]) =>
-      m.size === 0 || e === undefined
-        ? new Map<string, Step>()
-        : new Map([...m].filter(([, c]) => holds(ctx, e.bytes, c)));
-    const known = spelled.get(key);
-    if (known !== undefined) {
-      if (known.by.at(-1) === q) {
-        // Another way of the instance read last.
-        if (known.cond === undefined) known.first!.push(to);
-        else {
-          known.cond = known.cond.map((m, i) =>
-            new Map([...m, ...kept(known.base![i], to[i])])
-          );
-        }
-        return;
+    const fr = spelled.spell(key, q, () => {
+      const made: RelationFrame = {
+        by: [],
+        ...all[0],
+        spans: co.spans,
+        held: to.map(() => new HeldByAll(ctx)),
+      };
+      if (not !== undefined) made.not = not;
+      if (all.length > 1) {
+        made.then = all.slice(1);
+        made.filler = asked.bytes.subarray(said!.x.span[0], said!.x.span[1]);
       }
-      if (known.by.includes(q)) return;
-      known.by.push(q);
-      known.base = known.cond ??
-        known.first![0].map((_, i) =>
-          new Map(
-            known.first!.flatMap((way) =>
-              way[i] === undefined ? [] : [...factFrames(ctx, way[i]!)]
-            ),
-          )
-        );
-      known.cond = known.base.map((m, i) => kept(m, to[i]));
-      return;
-    }
-    const fr: RelationFrame = {
-      by: [q],
-      ...all[0],
-      spans: co.spans,
-      first: [to],
-    };
-    if (not !== undefined) fr.not = not;
-    if (all.length > 1) {
-      fr.then = all.slice(1);
-      fr.filler = asked.bytes.subarray(said!.x.span[0], said!.x.span[1]);
-    }
-    spelled.set(key, fr);
+      return made;
+    });
+    fr.held.forEach((h, i) => h.add(q, to[i]));
   };
   const seen = new Set<number>();
   let frame: Array<[number, number]> | null = null;
@@ -2156,32 +2123,12 @@ function relationFrames(
   // Whether `q` shares a frame with the question — what the question-entity
   // fallback asks of its siblings — whether or not its slot then reads as an
   // instance's.
-  const consider = (q: number, sample = false): boolean => {
+  const consider = (q: number): boolean => {
     if (seen.has(q)) return false;
     seen.add(q);
-    if (!deposited(q)) return false;
-    let r = book.forms.get(q);
-    if (r === undefined) {
-      if (ctx.meter) ctx.meter.coInstanceReads++;
-      r = { raw: read(ctx, q, formCap + 1) };
-      book.forms.set(q, r);
-    }
-    if (r.raw.length > formCap) return false;
-    const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
-    if (co === null) return false;
-    // A SAMPLE read past a hub holds instances in the strict sense only: the
-    // slot is an entity and nothing else (`instanceEntity`, so a stored
-    // question spelling `Amadeus Vii, Count Of Savoy` as the asker does is
-    // read as every other instance is) — no description is read.
-    if (sample && r.filler === undefined) {
-      const e = instanceEntity(ctx, r.raw, co);
-      if (
-        e === null || e.span[0] > co.open || e.span[1] < r.raw.length - co.close
-      ) {
-        r.filler = null;
-        return true;
-      }
-    }
+    const read_ = bookInstance(ctx, book, q, formCap, asked);
+    if (read_ === null) return false;
+    const { r, co } = read_;
     // What the instance's slot SAYS of its entity, by the question's rule:
     // `Where was Y's dad born?` applies `· father` to Y before the frame does.
     if (r.filler === undefined) {
@@ -2204,7 +2151,6 @@ function relationFrames(
       r.filler.id,
       formCap,
       allowance,
-      deposited,
     );
     // The FRAME's relation is what follows what the slot already said: an
     // instance whose derivation does not begin with its slot's steps reads
@@ -2225,10 +2171,7 @@ function relationFrames(
     }
     return true;
   };
-  // Most corroborated first (the climb's own ranking), at most
-  // `chainReach(W)` read — the exact tier's own floor.
-  const proposals = points.filter((c) => cachedHasNext(ctx, c, cache))
-    .slice(0, Math.min(allowance, chainReach(W)));
+  const proposals = instanceProposals(ctx, whole!, allowance, cache);
   for (const q of proposals) consider(q);
   // ONE REGION VOTES FOR ONE CONTEXT, so the climb's points hold one instance
   // of a frame that several instances share.  The siblings are what the
@@ -2245,7 +2188,7 @@ function relationFrames(
         asked.bytes,
         frame,
         allowance,
-        ![...spelled.values()].some((fr) => fr.by.length >= 2),
+        !spelled.anyAgreed(),
       );
     if (asked === whole) book.siblings = siblings;
     // Read past a hub, the siblings are a sample: read until two instances
@@ -2254,12 +2197,12 @@ function relationFrames(
     const past = pastHub.has(siblings);
     let shownPast = false, triedPast = 0;
     for (const q of siblings) {
-      if (past && [...spelled.values()].some((fr) => fr.by.length >= 2)) break;
+      if (past && spelled.anyAgreed()) break;
       if (past && !shownPast && triedPast >= chainReach(W)) break;
       if (seen.has(q)) continue;
       if (ctx.meter) ctx.meter.coInstanceSiblings++;
       triedPast++;
-      if (consider(q, past)) shownPast = true;
+      if (consider(q)) shownPast = true;
     }
   }
   // THE QUESTION'S OWN ENTITY SHOWS ITS FRAME where no two co-instances
@@ -2270,7 +2213,7 @@ function relationFrames(
   // nothing: when the first `chainReach(W)` siblings hold no co-instance —
   // the exact tier's own floor — the rest are not read (on the trained store a
   // question's frame reached hundreds of contexts and no instance).
-  if (![...spelled.values()].some((fr) => fr.by.length >= 2)) {
+  if (!spelled.anyAgreed()) {
     if (book.held === undefined && asked === whole) {
       const x = heldEntity(ctx, asked.bytes);
       book.held = x === null ? [] : siblingInstances(
@@ -2286,23 +2229,25 @@ function relationFrames(
     const pastH = book.held !== undefined && pastHub.has(book.held);
     for (const q of book.held ?? []) {
       if (!shown && tried >= chainReach(W)) break;
-      if (pastH && [...spelled.values()].some((fr) => fr.by.length >= 2)) {
-        break;
-      }
+      if (pastH && spelled.anyAgreed()) break;
       if (seen.has(q)) continue;
       tried++;
       if (ctx.meter) ctx.meter.coInstanceSiblings++;
-      if (consider(q, pastH)) shown = true;
+      if (consider(q)) shown = true;
     }
   }
   // ONE INSTANCE AGREES WITH NOTHING.  A relation is read off the corpus only
   // where two co-instances spell it the same way — the agreement `reference`
-  // demands of a frame (MIN_INSTANCES), for the same reason: a single
+  // demands of a frame (AGREEMENT), for the same reason: a single
   // coincidental alignment is not evidence of what the frame means.  Measured
   // on the trained store, long dialogue turns proposed hundreds of one-off
   // "frames", each an exact lookup for every node asked about.
-  for (const fr of spelled.values()) if (fr.by.length >= 2) frames.push(fr);
-  frames.sort((a, b) => b.by.length - a.by.length);
+  for (const fr of spelled.all.values()) {
+    if (fr.held.every((h) => h.facts() !== null)) {
+      fr.cond = fr.held.map((h) => h.facts()!);
+    }
+  }
+  frames.push(...spelled.agreed());
   if (ctx.trace && seen.size > 0) {
     const show = (fr: RelationFrame): string =>
       `${decodeText(fr.prefix)}·${decodeText(fr.suffix)}` +
@@ -2321,12 +2266,12 @@ function relationFrames(
       ).join("");
     ctx.trace.step(
       "relationFrames",
-      [...new Set([...spelled.values()].flatMap((fr) => fr.by))].map((q) =>
+      [...new Set([...spelled.all.values()].flatMap((fr) => fr.by))].map((q) =>
         rItemShort(ctx, q, "co-instance")
       ),
       [],
       `${seen.size} form(s) read; frames ${
-        [...spelled.values()].map(show).join("; ")
+        [...spelled.all.values()].map(show).join("; ")
       } — ${frames.length} spelled alike by two or more`,
     );
   }
@@ -2341,6 +2286,27 @@ type Step = {
   suffix: Uint8Array;
   to?: { id: number; bytes: Uint8Array };
 };
+
+/** The STEP the bytes `cb` of a context are around `x`: `cb` with its first
+ *  occurrence of `x` cut out — or null when `cb` does not hold `x`.  An empty
+ *  step (`cb` IS `x`) is returned as such; a caller that reads relations
+ *  refuses it. */
+function stepAround(cb: Uint8Array, x: Uint8Array): Step | null {
+  const at = indexOf(cb, x, 0);
+  return at < 0
+    ? null
+    : { prefix: cb.subarray(0, at), suffix: cb.subarray(at + x.length) };
+}
+
+/** What a step spells around `x` — the inverse of {@link stepAround}. */
+function filled(step: Step, x: Uint8Array): Uint8Array {
+  return concatBytes([step.prefix, x, step.suffix]);
+}
+
+/** Whether a step says nothing beyond its entity. */
+function emptyStep(step: Step): boolean {
+  return step.prefix.length + step.suffix.length === 0;
+}
 
 /** One form's reading as an instance of the question, kept for the question:
  *  its bytes, its filler (null: none), and the relations it carries — each a
@@ -2368,40 +2334,54 @@ function instanceBook(whole: object): InstanceBook {
   return b;
 }
 
-/** The relations an instance `q` carries from its filler `z`.  Its
- *  continuation is established by other contexts too (`Peter Jackson place of
- *  birth`); one that holds the filler spells the relation the corpus's way.
- *  The continuation may also be the end of a DERIVATION from the filler, read
- *  as a path of facts (below).  Both are read: a context holding the filler may
- *  be another way to ask the same question (`Who among the children of Y is
- *  the medic?` beside `Which child of Y is a medic?`), a one-step reading that
- *  names nothing at a new question, and it must not hide the derivation —
- *  agreement and the question's evidence decide among them. */
+/** THE INSTANCE READING of one proposed form: a deposited form, read onto the
+ *  question's book once (up to `formCap`), and the frame it shares with
+ *  `asked` — or null when it is no co-instance.  Every reader of the question's
+ *  instances (`relationFrames`, `readConvergence`) reads its forms here. */
+function bookInstance(
+  ctx: MindContext,
+  book: InstanceBook,
+  q: number,
+  formCap: number,
+  asked: { bytes: Uint8Array; index: WindowIndex },
+): {
+  r: InstanceReading;
+  co: { open: number; close: number; spans: Array<[number, number]> };
+} | null {
+  let r = book.forms.get(q);
+  if (r === undefined) {
+    if (heldWithin(ctx, q)) return null;
+    if (ctx.meter) ctx.meter.coInstanceReads++;
+    r = { raw: read(ctx, q, formCap + 1) };
+    book.forms.set(q, r);
+  }
+  if (r.raw.length > formCap) return null;
+  const co = coInstanceFrame(ctx, r.raw, [asked.index], asked.bytes);
+  return co === null ? null : { r, co };
+}
+
+/** The relations an instance `q` carries from its filler `z`: every
+ *  DERIVATION the corpus holds from the filler to the instance's continuation,
+ *  of whatever length, read by the one path search (`pathSteps`).  One step
+ *  is a context of the continuation that holds the filler, other than the
+ *  instance itself (`Peter Jackson place of birth`); longer ones are paths of
+ *  facts.  All lengths are read: a context holding the filler may be another
+ *  way to ask the same question (`Who among the children of Y is the medic?`
+ *  beside `Which child of Y is a medic?`), a one-step reading that names
+ *  nothing at a new question, and it must not hide the derivation — agreement
+ *  and the question's evidence decide among them. */
 function instanceSteps(
   ctx: MindContext,
   q: number,
   z: number,
   formCap: number,
   allowance: number,
-  deposited: (c: number) => boolean,
 ): Array<[Step, Step[] | undefined]> {
   const W = ctx.space.maxGroup;
   // The filler as the corpus spells it — the co-instance may spell it only
   // under the response's equivalence.
   const filler = read(ctx, z, formCap);
   const out: Array<[Step, Step[] | undefined]> = [];
-  for (const f of ctx.store.nextFirst(q, W)) {
-    for (const c of ctx.store.prevFirst(f, allowance)) {
-      if (c === q || !deposited(c)) continue;
-      const cb = read(ctx, c, formCap + 1);
-      const at = indexOf(cb, filler, 0);
-      if (at < 0) continue;
-      const prefix = cb.subarray(0, at);
-      const suffix = cb.subarray(at + filler.length);
-      if (prefix.length + suffix.length === 0) continue;
-      out.push([{ prefix, suffix }, undefined]);
-    }
-  }
   for (const f of ctx.store.nextFirst(q, W)) {
     for (
       const [one, ...rest] of pathSteps(
@@ -2412,10 +2392,9 @@ function instanceSteps(
         q,
         allowance,
         formCap,
-        deposited,
       )
     ) {
-      if (rest.length > 0) out.push([one, rest]);
+      out.push([one, rest.length > 0 ? rest : undefined]);
     }
   }
   return out;
@@ -2437,27 +2416,7 @@ function entitiesIn(
   const memo = derivationCache(ctx);
   const hit = memo?.entities.get(factId);
   if (hit !== undefined) return { fact, held: hit };
-  const W = ctx.space.maxGroup;
-  const ids = leafIdPrefix(ctx, fact);
-  const cache = getStructCache(ctx);
-  const found: Array<{ span: [number, number]; id: number }> = [];
-  for (let st = 0; st + W <= ids.length; st++) {
-    for (let en = ids.length; en - st >= W; en--) {
-      // The form is not an entity inside itself.
-      if (en - st === fact.length) continue;
-      if (ctx.store.findBranch(ids.slice(st, en)) === null) continue;
-      const n = resolve(ctx, fact.subarray(st, en));
-      // LEARNT WHOLE, not inherited: a piece of other forms (`mother`, the
-      // tail of every `… mother` context) holds continuations by suffix
-      // inheritance but no company of its own (answersOtherQuestions).
-      if (
-        n === null || !cachedHasNext(ctx, n, cache) ||
-        !ctx.store.learntWhole(n)
-      ) continue;
-      found.push({ span: [st, en], id: n });
-      break;
-    }
-  }
+  const found = learntWholeSpans(ctx, fact, false);
   const out = found.filter((a) =>
     !found.some((b) =>
       b !== a && b.span[0] <= a.span[0] && b.span[1] >= a.span[1]
@@ -2475,20 +2434,43 @@ export function thingIn(
   ctx: MindContext,
   bytes: Uint8Array,
 ): { id: number; bytes: Uint8Array } | null {
+  const [hit] = learntWholeSpans(ctx, bytes, true, true);
+  return hit === undefined
+    ? null
+    : { id: hit.id, bytes: bytes.subarray(hit.span[0], hit.span[1]) };
+}
+
+/** Per start offset of `bytes`, the LONGEST span of at least one window that
+ *  the corpus learnt WHOLE as a context leading on — in start order; `first`
+ *  stops at the first.  `whole` admits the span that is all of `bytes`.
+ *  LEARNT WHOLE, not inherited: a piece of other forms (`mother`, the tail of
+ *  every `… mother` context) holds continuations by suffix inheritance but no
+ *  company of its own (answersOtherQuestions).  A span is probed by content
+ *  hash first (its flat twin), so only a stored run pays the fold. */
+function learntWholeSpans(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  whole: boolean,
+  first = false,
+): Array<{ span: [number, number]; id: number }> {
   const W = ctx.space.maxGroup;
-  const ids = leafIdPrefix(ctx, bytes);
   const cache = getStructCache(ctx);
-  for (let st = 0; st + W <= ids.length; st++) {
-    for (let en = ids.length; en - st >= W; en--) {
-      if (ctx.store.findBranch(ids.slice(st, en)) === null) continue;
+  const found: Array<{ span: [number, number]; id: number }> = [];
+  for (let st = 0; st + W <= bytes.length; st++) {
+    for (let en = bytes.length; en - st >= W; en--) {
+      if (!whole && en - st === bytes.length) continue;
+      if (flatId(ctx, bytes.subarray(st, en)) === null) continue;
       const n = resolve(ctx, bytes.subarray(st, en));
       if (
-        n !== null && cachedHasNext(ctx, n, cache) &&
-        ctx.store.learntWhole(n)
-      ) return { id: n, bytes: bytes.subarray(st, en) };
+        n === null || !cachedHasNext(ctx, n, cache) ||
+        !ctx.store.learntWhole(n)
+      ) continue;
+      found.push({ span: [st, en], id: n });
+      if (first) return found;
+      break;
     }
   }
-  return null;
+  return found;
 }
 
 /** The facts an entity holds, each spelled with the entity cut out (`The
@@ -2507,13 +2489,8 @@ function factFrames(
   const facts = ctx.store.nextFirst(to.id, bound);
   if (facts.length < bound) {
     for (const g of facts) {
-      const fb = read(ctx, g);
-      const at = indexOf(fb, to.bytes, 0);
-      if (at < 0) continue;
-      const step = {
-        prefix: fb.subarray(0, at),
-        suffix: fb.subarray(at + to.bytes.length),
-      };
+      const step = stepAround(read(ctx, g), to.bytes);
+      if (step === null) continue;
       out.set(latin1(step.prefix) + "\u0000" + latin1(step.suffix), step);
     }
   }
@@ -2524,7 +2501,7 @@ function factFrames(
 /** Whether the entity spelled `bytes` holds the fact `c` spells around it —
  *  an exact lookup of the whole fact. */
 function holds(ctx: MindContext, bytes: Uint8Array, c: Step): boolean {
-  return resolve(ctx, concatBytes([c.prefix, bytes, c.suffix])) !== null;
+  return resolve(ctx, filled(c, bytes)) !== null;
 }
 
 /** Whether the entity spelled `bytes` holds every fact `cond` names. */
@@ -2537,12 +2514,91 @@ function satisfies(
   return true;
 }
 
+/** THE LEDGER OF A READING OFF INSTANCES: what each instance spells, keyed by
+ *  its spelling.  An instance counts once per spelling; a spelling is evidence
+ *  only once AGREEMENT distinct instances spell it — one instance agrees with
+ *  nothing (a single coincidental alignment is not evidence of what a frame
+ *  means).  One ledger for every reading: a frame's relation, a description's
+ *  steps, a convergence. */
+class Spellings<M extends { by: number[] }> {
+  readonly all = new Map<string, M>();
+  /** The entry spelled `key`, made on first sight, with `instance` among the
+   *  instances that spell it. */
+  spell(key: string, instance: number, make: () => M): M {
+    let m = this.all.get(key);
+    if (m === undefined) this.all.set(key, m = make());
+    if (!m.by.includes(instance)) m.by.push(instance);
+    return m;
+  }
+  /** Whether some spelling is agreed on. */
+  anyAgreed(): boolean {
+    for (const m of this.all.values()) {
+      if (m.by.length >= AGREEMENT) return true;
+    }
+    return false;
+  }
+  /** The agreed spellings, most instances first (first spelled on a tie). */
+  agreed(): M[] {
+    return [...this.all.values()].filter((m) => m.by.length >= AGREEMENT)
+      .sort((a, b) => b.by.length - a.by.length);
+  }
+}
+
+/** WHAT EVERY INSTANCE'S ENTITY AT ONE POSITION HOLDS — its facts, each
+ *  spelled with the entity cut out (`factFrames`): what a derivation says of
+ *  the entities it stands on, not only how it leaves them (`Which child of Y
+ *  is a medic?` stands on a child that is a surgeon in every instance).  An
+ *  instance may stand there on several entities (several ways); a fact counts
+ *  for it when ONE of them holds it — joined over an instance's entities, met
+ *  across instances, so no entity the corpus deposited first becomes a
+ *  requirement.  Read lazily: the first instance's entities are only kept;
+ *  once a second instance comes, their facts are read, and every later entity
+ *  tests only those still shared — an exact lookup each, the test the
+ *  question's own entity will take. */
+class HeldByAll {
+  private readonly firstOf: Array<{ id: number; bytes: Uint8Array }> = [];
+  private readonly seen = new Set<number>();
+  private last: number | null = null;
+  private base: Map<string, Step> | null = null;
+  private shared: Map<string, Step> | null = null;
+  constructor(private readonly ctx: MindContext) {}
+  add(
+    instance: number,
+    e: { id: number; bytes: Uint8Array } | undefined | null,
+  ): void {
+    if (instance !== this.last) {
+      if (this.seen.has(instance)) return;
+      this.seen.add(instance);
+      if (this.last !== null) {
+        this.base = this.shared ?? new Map(
+          this.firstOf.flatMap((x) => [...factFrames(this.ctx, x)]),
+        );
+        this.shared = new Map();
+      }
+      this.last = instance;
+    }
+    if (this.shared === null) {
+      if (e) this.firstOf.push(e);
+      return;
+    }
+    if (!e || this.base!.size === 0) return;
+    for (const [k, c] of this.base!) {
+      if (holds(this.ctx, e.bytes, c)) this.shared.set(k, c);
+    }
+  }
+  /** The facts every instance's entity holds; null before a second instance. */
+  facts(): Map<string, Step> | null {
+    return this.shared;
+  }
+}
+
 /** A co-instance's continuation `f` read as the end of a DERIVATION from its
  *  filler `z`, of whatever length the corpus shows: a path of facts in which
  *  each fact is established by a context holding the entity the path stands
  *  on (`Z father` → `The father of Z is Y.`) and holds the entity the next one
- *  stands on (`Y`), until an entity some establishing context of `f` holds
- *  (`Y mother` → the answer).  Each step is that context with its entity cut
+ *  stands on (`Y`), until an entity that leads to `f` itself through a context
+ *  of `f` holding it (`Y mother` → the answer) — the one arrival convergence
+ *  reads too (`pathToFact`).  Each step is that context with its entity cut
  *  out, so the derivation is the sequence of frames (`· father`, `· mother`),
  *  replayed in order from the question's own entity.
  *
@@ -2561,59 +2617,26 @@ function pathSteps(
   q: number,
   allowance: number,
   formCap: number,
-  deposited: (c: number) => boolean,
 ): Step[][] {
   const memo = derivationCache(ctx);
-  const key = `${q}:${z}:${f}`;
+  // The key is every input the search reads: `formCap` follows the question,
+  // so a path kept under another question's cap is not this one's.
+  const key = `${q}:${z}:${f}:${formCap}:${latin1(filler)}`;
   const hit = memo?.paths.get(key);
   if (hit !== undefined) return hit;
-  const found = pathSearch(ctx, z, filler, f, q, allowance, formCap, deposited);
-  memo?.paths.set(key, found);
-  return found;
-}
-
-function pathSearch(
-  ctx: MindContext,
-  z: number,
-  filler: Uint8Array,
-  f: number,
-  q: number,
-  allowance: number,
-  formCap: number,
-  deposited: (c: number) => boolean,
-): Step[][] {
-  // Where the derivation must arrive: the entities f's own establishing
-  // contexts hold, each with the last step it would take.
-  const last = new Map<number, Step[]>();
-  for (const p of ctx.store.prevFirst(f, allowance)) {
-    if (p === q || !deposited(p)) continue;
-    const pb = read(ctx, p, formCap + 1);
-    if (pb.length > formCap || indexOf(pb, filler, 0) >= 0) continue;
-    for (const e of entitiesIn(ctx, p).held) {
-      const step = {
-        prefix: pb.subarray(0, e.span[0]),
-        suffix: pb.subarray(e.span[1]),
-      };
-      const at = last.get(e.id);
-      if (at === undefined) last.set(e.id, [step]);
-      else at.push(step);
-    }
-  }
-  if (last.size === 0) return [];
-  return searchWays(
+  // The one path search toward a fact (`pathToFact`), its goal the instance's
+  // own answer — the arrival convergence reads too.
+  const found = pathToFact(
     ctx,
     z,
     filler,
+    (g) => g === f,
     allowance,
     formCap,
-    deposited,
-    (s) =>
-      s.ways.flatMap((way) =>
-        way.length === 0
-          ? []
-          : (last.get(s.id) ?? []).map((step) => [...way, step])
-      ),
-  );
+    q,
+  ).map((p) => p.steps);
+  memo?.paths.set(key, found);
+  return found;
 }
 
 /** The steps that reach fact `g` from an entity spelled `bytes`: g's
@@ -2624,19 +2647,13 @@ function stepsInto(
   g: number,
   allowance: number,
   formCap: number,
-  deposited: (c: number) => boolean,
+  except?: number,
 ): Step[] {
   const steps: Step[] = [];
   for (const c of ctx.store.prevFirst(g, allowance)) {
-    if (!deposited(c)) continue;
-    const cb = read(ctx, c, formCap + 1);
-    const at = indexOf(cb, bytes, 0);
-    if (at < 0) continue;
-    const step = {
-      prefix: cb.subarray(0, at),
-      suffix: cb.subarray(at + bytes.length),
-    };
-    if (step.prefix.length + step.suffix.length > 0) steps.push(step);
+    if (heldWithin(ctx, c) || c === except) continue;
+    const step = stepAround(read(ctx, c, formCap + 1), bytes);
+    if (step !== null && !emptyStep(step)) steps.push(step);
   }
   return steps;
 }
@@ -2657,7 +2674,6 @@ function searchWays(
   filler: Uint8Array,
   allowance: number,
   formCap: number,
-  deposited: (c: number) => boolean,
   arrive: (s: Stand) => Step[][],
 ): Step[][] {
   const bound = hubBound(ctx);
@@ -2682,7 +2698,7 @@ function searchWays(
       const facts = ctx.store.nextFirst(s.id, bound);
       if (facts.length >= bound) continue;
       for (const g of facts) {
-        const steps = stepsInto(ctx, s.bytes, g, allowance, formCap, deposited);
+        const steps = stepsInto(ctx, s.bytes, g, allowance, formCap);
         if (steps.length === 0) continue;
         const { fact, held } = entitiesIn(ctx, g);
         for (const e of held) {
@@ -2740,15 +2756,22 @@ function replayOf(
   formCap: number,
   allowance: number,
   cond: Array<Map<string, Step>> = [],
+  last?: (fact: number, stand: Uint8Array) => void,
 ): Array<Set<number>> {
   const out: Array<Set<number>> = [];
   let front = new Map<number, Uint8Array>([[x, read(ctx, x, formCap)]]);
-  for (const [i, step] of steps.slice(0, -1).entries()) {
+  for (const [i, step] of steps.entries()) {
+    const final = i === steps.length - 1;
+    if (final && last === undefined) break;
     const next = new Map<number, Uint8Array>();
     for (const [e, bytes] of front) {
-      const t = resolve(ctx, concatBytes([step.prefix, bytes, step.suffix]));
+      const t = resolve(ctx, filled(step, bytes));
       if (t === null) continue;
       for (const g of capped(ctx, t, allowance)) {
+        if (final) {
+          last!(g, bytes);
+          continue;
+        }
         const { fact, held } = entitiesIn(ctx, g);
         for (const h of held) {
           // The derivation stands only where it would have named: on an
@@ -2762,7 +2785,7 @@ function replayOf(
         }
       }
     }
-    out.push(new Set(next.keys()));
+    if (!final) out.push(new Set(next.keys()));
     front = next;
   }
   return out;
@@ -2779,18 +2802,27 @@ function pathToFact(
   goal: (g: number) => boolean,
   allowance: number,
   formCap: number,
-  deposited: (c: number) => boolean,
+  /** A context that may not spell a step: the instance itself, whose own
+   *  spelling is the question's frame, not a relation. */
+  except?: number,
 ): Array<{ steps: Step[]; fact: number; stand: Uint8Array }> {
   const bound = hubBound(ctx);
   let found: Array<{ steps: Step[]; fact: number; stand: Uint8Array }> = [];
-  searchWays(ctx, z, filler, allowance, formCap, deposited, (s) => {
+  searchWays(ctx, z, filler, allowance, formCap, (s) => {
     const out: Step[][] = [];
     const facts = ctx.store.nextFirst(s.id, bound);
     if (facts.length >= bound) return out;
     for (const g of facts) {
       if (!goal(g)) continue;
       for (
-        const step of stepsInto(ctx, s.bytes, g, allowance, formCap, deposited)
+        const step of stepsInto(
+          ctx,
+          s.bytes,
+          g,
+          allowance,
+          formCap,
+          except,
+        )
       ) {
         for (const way of s.ways) {
           out.push([...way, step]);
@@ -2866,39 +2898,6 @@ const frameKey = (fr: AnswerFrame): string =>
     latin1(fr.mid)
   }\u0000${latin1(fr.tail)}`;
 
-/** The facts a derivation's full replay from `x` ends on: its steps before
- *  the last replayed as `replayOf` does, the last one's continuations
- *  collected — exact lookups of each frame around each entity. */
-function replayFacts(
-  ctx: MindContext,
-  x: number,
-  steps: Step[],
-  formCap: number,
-  allowance: number,
-): Array<{ fact: number; stand: Uint8Array }> {
-  let front = new Map<number, Uint8Array>([[x, read(ctx, x, formCap)]]);
-  const out: Array<{ fact: number; stand: Uint8Array }> = [];
-  for (const [i, step] of steps.entries()) {
-    const next = new Map<number, Uint8Array>();
-    for (const [e, bytes] of front) {
-      const t = resolve(ctx, concatBytes([step.prefix, bytes, step.suffix]));
-      if (t === null) continue;
-      for (const g of capped(ctx, t, allowance)) {
-        if (i === steps.length - 1) {
-          out.push({ fact: g, stand: bytes });
-          continue;
-        }
-        const { fact, held } = entitiesIn(ctx, g);
-        for (const h of held) {
-          if (h.id !== e) next.set(h.id, fact.subarray(h.span[0], h.span[1]));
-        }
-      }
-    }
-    front = next;
-  }
-  return out;
-}
-
 /** One CONVERGENCE read off instances of a question about TWO things: the
  *  derivation each thing takes, both ending at the entity the instance is
  *  answered with (`Who is both the mother of A and the spouse of B?` →
@@ -2913,11 +2912,11 @@ export interface Convergence {
   explains: Array<[number, number]>;
   /** Per instance, as read, before they are intersected. */
   shared?: Uint8Array[];
-  /** Per instance, the answers its pairs of derivations met at. */
-  met?: Map<number, Uint8Array[]>;
   /** The facts EVERY instance's meeting entity holds (one of them, where an
    *  instance met at several), spelled with the entity cut out. */
   cond?: Map<string, Step>;
+  /** The ledger `cond` is read from. */
+  held?: HeldByAll;
 }
 
 /** The two things a question names around its frame — and the convergences
@@ -2957,14 +2956,10 @@ function readConvergence(
 ): ConvergenceReading | null {
   const W = ctx.space.maxGroup;
   const Q = whole.bytes;
-  const formCap = 2 * Q.length;
-  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const formCap = instanceCap(Q.length);
+  const allowance = readAllowance(ctx);
   const cache = getStructCache(ctx);
-  const deposited = (c: number): boolean =>
-    !cachedHasParents(ctx, c, cache) && !ctx.store.hasContainers(c);
-  const proposals = (whole.points ?? []).filter((c) =>
-    cachedHasNext(ctx, c, cache)
-  ).slice(0, Math.min(allowance, chainReach(W)));
+  const proposals = instanceProposals(ctx, whole, allowance, cache);
   // What a slot holds, by its span — the question's read once per question,
   // a form's once per session (it does not depend on the question).
   const memo = derivationCache(ctx);
@@ -2997,7 +2992,7 @@ function readConvergence(
     }
     return things.get(key)!;
   };
-  const spelled = new Map<string, Convergence>();
+  const spelled = new Spellings<Convergence>();
   const candidates: Array<{
     q: number;
     raw: Uint8Array;
@@ -3013,19 +3008,10 @@ function readConvergence(
   // question: their bytes are on the question's book.
   const book = instanceBook(whole);
   const consider = (q: number): void => {
-    // A form on the book was read as deposited; any other is probed here and
-    // read onto the book, as `relationFrames` reads it.
-    let r = book.forms.get(q);
-    if (r === undefined) {
-      if (!deposited(q)) return;
-      if (ctx.meter) ctx.meter.coInstanceReads++;
-      r = { raw: read(ctx, q, formCap + 1) };
-      book.forms.set(q, r);
-    }
+    const read_ = bookInstance(ctx, book, q, formCap, whole);
+    if (read_ === null) return;
+    const { r, co } = read_;
     const raw = r.raw;
-    if (raw.length > formCap) return;
-    const co = coInstanceFrame(ctx, raw, [whole.index], Q);
-    if (co === null) return;
     const form = offsetCanon(ctx, raw);
     const fs = form.subarray(co.open, form.length - co.close);
     const qs = Q.subarray(co.open, Q.length - co.close);
@@ -3063,13 +3049,7 @@ function readConvergence(
     let pre = c.f.length, suf = c.f.length;
     for (const o of candidates) {
       if (o.q === c.q) continue;
-      let i = 0;
-      while (i < Math.min(c.f.length, o.f.length) && c.f[i] === o.f[i]) i++;
-      let j = 0;
-      while (
-        j < Math.min(c.f.length, o.f.length) - i &&
-        c.f[c.f.length - 1 - j] === o.f[o.f.length - 1 - j]
-      ) j++;
+      const [i, j] = sharedEnds(c.f, o.f);
       pre = Math.min(pre, i);
       suf = Math.min(suf, j);
     }
@@ -3094,7 +3074,7 @@ function readConvergence(
         p,
       ) => p.length >= W);
     }
-    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${
+    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${formCap}:${
       [answer, ...pieces].map(latin1).join("\u0000")
     }`;
     let shown = memo?.converges.get(ik);
@@ -3108,7 +3088,6 @@ function readConvergence(
         [answer, ...pieces],
         allowance,
         formCap,
-        deposited,
       );
       memo?.converges.set(ik, shown);
     }
@@ -3139,25 +3118,21 @@ function readConvergence(
           o + qa + len,
         ]]
       ) mask.fill(1, s0, e0);
-      const known = spelled.get(k);
-      if (known === undefined) {
-        spelled.set(k, {
-          by: [c.q],
-          steps: [a.steps, b.steps],
-          answers: [a.frame, b.frame],
-          explains: [],
-          shared: [mask],
-          met: new Map([[c.q, [a.name]]]),
-        });
-      } else if (!known.by.includes(c.q)) {
-        known.by.push(c.q);
-        known.shared!.push(mask);
-        known.met!.set(c.q, [a.name]);
-      } else known.met!.get(c.q)!.push(a.name);
+      const fresh = !spelled.all.get(k)?.by.includes(c.q);
+      const cv = spelled.spell(k, c.q, () => ({
+        by: [],
+        steps: [a.steps, b.steps],
+        answers: [a.frame, b.frame],
+        explains: [],
+        shared: [],
+        held: new HeldByAll(ctx),
+      }));
+      if (fresh) cv.shared!.push(mask);
+      cv.held!.add(c.q, thingIn(ctx, a.name));
       x ??= asked;
     }
   }
-  const frames = [...spelled.values()].filter((c) => c.by.length >= 2);
+  const frames = spelled.agreed();
   for (const c of frames) {
     const all = new Uint8Array(Q.length).fill(1);
     for (const m of c.shared!) {
@@ -3165,44 +3140,24 @@ function readConvergence(
     }
     for (const t of x ?? []) all.fill(1, t.span[0], t.span[1]);
     // WHAT THE DERIVATIONS SAY OF THE ENTITY THEY MEET AT, read as a path's
-    // entities are: what every instance's meeting entity holds.
-    let cond: Map<string, Step> | undefined;
-    for (const names of c.met!.values()) {
-      const facts = new Map<string, Step>();
-      for (const n of names) {
-        const t = thingIn(ctx, n);
-        if (t !== null) { for (const f of factFrames(ctx, t)) facts.set(...f); }
-      }
-      cond = cond === undefined
-        ? facts
-        : new Map([...cond].filter(([key]) => facts.has(key)));
-    }
-    if (cond !== undefined && cond.size > 0) c.cond = cond;
-    delete c.met;
-    c.explains = [];
-    for (let i = 0; i < all.length;) {
-      if (!all[i]) {
-        i++;
-        continue;
-      }
-      let j = i;
-      while (j < all.length && all[j]) j++;
-      c.explains.push([i, j]);
-      i = j;
-    }
+    // entities are (`HeldByAll`).
+    const cond = c.held!.facts();
+    if (cond !== null && cond.size > 0) c.cond = cond;
+    delete c.held;
+    c.explains = maskSpans(all);
     delete c.shared;
   }
-  if (ctx.trace && spelled.size > 0) {
+  if (ctx.trace && spelled.all.size > 0) {
     const show = (steps: Step[]): string =>
       steps.map((t) => `${decodeText(t.prefix)}·${decodeText(t.suffix)}`)
         .join(" → ");
     ctx.trace.step(
       "convergenceFrames",
-      [...new Set([...spelled.values()].flatMap((c) => c.by))].map((q) =>
+      [...new Set([...spelled.all.values()].flatMap((c) => c.by))].map((q) =>
         rItemShort(ctx, q, "co-instance")
       ),
       [],
-      [...spelled.values()].map((c) =>
+      [...spelled.all.values()].map((c) =>
         `${show(c.steps[0])} ⋈ ${show(c.steps[1])} (${c.by.length})` +
         (c.cond === undefined
           ? ""
@@ -3234,7 +3189,6 @@ function instanceConvergence(
   answers: Uint8Array[],
   allowance: number,
   formCap: number,
-  deposited: (c: number) => boolean,
 ): Array<[Arrival, Arrival]> {
   const found: Array<[Arrival, Arrival]> = [];
   for (const [i, answer] of answers.entries()) {
@@ -3247,7 +3201,6 @@ function instanceConvergence(
         (g) => at(g) >= 0,
         allowance,
         formCap,
-        deposited,
       ).flatMap((p) => {
         const s0 = at(p.fact);
         const fr = answerFrameOf(read(ctx, p.fact), p.stand, [
@@ -3332,19 +3285,24 @@ export function convergenceMeets(
     explains: Array<[number, number]>;
   }
 > {
-  const W = ctx.space.maxGroup;
   const whole = ctx._edgeAsked;
   if (whole === null) return [];
-  const formCap = 2 * whole.bytes.length;
-  const allowance = Math.max(hubBound(ctx), chainReach(W));
+  const formCap = instanceCap(whole.bytes.length);
+  const allowance = readAllowance(ctx);
   const out: ReturnType<typeof convergenceMeets> = [];
   for (const c of reading.frames) {
-    const side = (k: 0 | 1) =>
-      replayFacts(ctx, reading.x[k].id, c.steps[k], formCap, allowance)
-        .flatMap(({ fact, stand }) => {
-          const name = answerIn(read(ctx, fact), stand, c.answers[k]);
-          return name === null ? [] : [{ fact, name }];
-        });
+    // The facts each side's full replay ends on, named by its answer frame.
+    const side = (k: 0 | 1) => {
+      const named: Array<{ fact: number; name: Uint8Array }> = [];
+      replayOf(ctx, reading.x[k].id, c.steps[k], formCap, allowance, [], (
+        fact,
+        stand,
+      ) => {
+        const name = answerIn(read(ctx, fact), stand, c.answers[k]);
+        if (name !== null) named.push({ fact, name });
+      });
+      return named;
+    };
     const two = side(1);
     for (const one of side(0)) {
       for (const other of two) {
@@ -3369,6 +3327,22 @@ export function convergenceMeets(
   return out;
 }
 
+/** THE RARITY OF A WINDOW: how many places hold it, counted on BOTH
+ *  structural surfaces — the chunks that contain it and the nodes it is a
+ *  child of — each read up to `cap`.  The fold interns one window as a chunk
+ *  of one form and as a run across chunks of another, so either surface alone
+ *  under-counts (`'s dad` reached one of the two forms that spell it,
+ *  test/157).  The one reading behind every "rarest window" choice: the
+ *  bridge's anchors, the forms a question opens, a frame's siblings. */
+export function windowRarity(
+  ctx: MindContext,
+  id: number,
+  cap: number,
+): number {
+  return ctx.store.containersSlice(id, 0, cap).length +
+    ctx.store.parentsFirst(id, cap).length;
+}
+
 /** Further instances of a frame a co-instance has shown: the contexts the
  *  question's RAREST frame window reaches.  A window every frame shares is held
  *  by every instance; the rarest one reaches the fewest contexts, and a
@@ -3385,17 +3359,15 @@ function siblingInstances(
 ): number[] {
   const W = ctx.space.maxGroup;
   const bound = hubBound(ctx);
-  const ids = leafIdPrefix(ctx, question);
   const hub = hubWindows(ctx, question);
   let best: number | null = null;
   let rarity = bound + 1;
   for (const [s, e] of frame) {
-    for (let o = s; o + W <= e && o + W <= ids.length; o++) {
+    for (let o = s; o + W <= e && o + W <= question.length; o++) {
       if (hub[o]) continue;
-      const wid = ctx.store.findBranch(ids.slice(o, o + W));
+      const wid = windowAt(ctx, question, o);
       if (wid === null) continue;
-      const r = ctx.store.containersSlice(wid, 0, bound + 1).length +
-        ctx.store.parentsFirst(wid, bound + 1).length;
+      const r = windowRarity(ctx, wid, bound + 1);
       if (r > 0 && r < rarity) {
         rarity = r;
         best = wid;
@@ -3412,8 +3384,8 @@ function siblingInstances(
   const narrowestOf = (s: number, e: number): number | null => {
     let few = Infinity;
     let narrowest: number | null = null;
-    for (let o = s; o + W <= e && o + W <= ids.length; o++) {
-      const wid = ctx.store.findBranch(ids.slice(o, o + W));
+    for (let o = s; o + W <= e && o + W <= question.length; o++) {
+      const wid = windowAt(ctx, question, o);
       if (wid === null) continue;
       const r = ctx.store.containersSlice(
         wid,
@@ -3476,32 +3448,25 @@ function oldestContexts(
   id: number,
   allowance: number,
 ): number[] {
-  const W = ctx.space.maxGroup;
-  const out: number[] = [];
-  const seen = new Set<number>([id]);
-  const stack = [id];
-  let rows = allowance * W;
-  while (stack.length > 0 && out.length < allowance && rows > 0) {
-    const x = stack.pop()!;
-    const parents = ctx.store.parentsFirst(x, Math.min(allowance, rows));
-    rows -= parents.length;
-    const containers = rows > 0
-      ? ctx.store.containersSlice(x, 0, Math.min(allowance, rows))
-      : [];
-    rows -= containers.length;
-    const ups = [...parents, ...containers];
-    if (ups.length === 0) {
-      if (x !== id && ctx.store.hasNext(x)) out.push(x);
-      continue;
-    }
-    for (let i = ups.length - 1; i >= 0; i--) {
-      if (!seen.has(ups[i])) {
-        seen.add(ups[i]);
-        stack.push(ups[i]);
-      }
-    }
-  }
-  return out;
+  // The TOPS above `id` — contexts no larger form holds — oldest first, by the
+  // one ascent (`holdersFrom`).
+  return holdersFrom(
+    ctx,
+    [id],
+    (_bytes, x) =>
+      x !== id && ctx.store.hasNext(x) && !heldWithin(ctx, x) ? x : null,
+    {
+      containers: true,
+      order: "dfs",
+      maxDepth: Infinity,
+      maxBytes: Infinity,
+      fan: allowance,
+      hub: false,
+      budget: { n: allowance * ctx.space.maxGroup },
+      limit: allowance,
+      visits: "holderVisits",
+    },
+  ).found;
 }
 
 /** Whether a span of the question is HELD ELSEWHERE: by a context that is
@@ -3515,17 +3480,22 @@ function oldestContexts(
  *  question's, its canonical form, `point`'s own — since the holders under
  *  the equivalence are their union.  Breadth first, at most
  *  `max(√N, W²)·W` nodes: a frontier left unread past them is commonness past
- *  the hub, which singles nothing out (saturation.md). */
+ *  the hub, which singles nothing out (saturation.md).
+ *
+ *  THREE ANSWERS, NOT TWO: `held` (a holder was found), `apart` (the net was
+ *  read to its end and none was), `saturated` (the budget ran out first).
+ *  Exhaustion is not a found competitor, and a caller decides what it does
+ *  with it — it used to be returned as the same `true`. */
 export function heldElsewhere(
   ctx: MindContext,
   question: Uint8Array,
   span: readonly [number, number],
   point: number,
   voiced: number,
-): boolean {
+): "held" | "apart" | "saturated" {
   const W = ctx.space.maxGroup;
-  const budget = Math.max(hubBound(ctx), chainReach(W)) * W;
-  const cap = question.length * W;
+  const budget = readAllowance(ctx) * W;
+  const cap = phraseCap(question.length, W);
   const form = (id: number): Uint8Array => offsetCanon(ctx, read(ctx, id, cap));
   const pB = form(point);
   const vB = form(voiced);
@@ -3560,8 +3530,7 @@ export function heldElsewhere(
     let seed: number | null = null;
     let few = budget;
     for (let o = 0; o + W <= bytes.length; o++) {
-      const ids = leafIdRun(ctx, bytes, o, o + W);
-      const wid = ids === null ? null : ctx.store.findBranch(ids);
+      const wid = windowAt(ctx, bytes, o);
       if (wid === null) continue;
       const r = ctx.store.containersSlice(wid, 0, few).length +
         ctx.store.parentsFirst(wid, budget).length;
@@ -3578,17 +3547,32 @@ export function heldElsewhere(
   const apart = (t: Uint8Array): boolean =>
     indexOf(t, pB, 0) < 0 && indexOf(pB, t, 0) < 0 &&
     indexOf(t, vB, 0) < 0 && indexOf(vB, t, 0) < 0;
-  for (let i = 0; i < frontier.length; i++) {
-    if (i >= budget) return true;
-    const y = frontier[i];
-    if (ctx.meter) ctx.meter.holderVisits++;
-    if (ctx.store.hasNext(y)) {
-      const t = form(y);
-      if (apart(t) && indexOf(t, sp, 0) >= 0) return true;
-    }
-    for (const p of ctx.store.parentsFirst(y, budget)) push(p);
-  }
-  return false;
+  // Proposed by the climb, decided by the bytes (`holdersFrom`).  A frontier
+  // left unread past the net is commonness past the hub, which singles nothing
+  // out (saturation.md) — read as held.
+  const { found, exhausted } = holdersFrom(
+    ctx,
+    frontier,
+    (bytes, y) => {
+      if (!ctx.store.hasNext(y)) return null;
+      const t = offsetCanon(ctx, bytes().subarray(0, cap));
+      return apart(t) && indexOf(t, sp, 0) >= 0 ? y : null;
+    },
+    {
+      containers: false,
+      order: "bfs",
+      maxDepth: Infinity,
+      maxBytes: cap,
+      prune: false,
+      fan: budget,
+      hub: false,
+      budget: { n: budget },
+      limit: 1,
+      skip: seen,
+      visits: "holderVisits",
+    },
+  );
+  return found.length > 0 ? "held" : exhausted ? "saturated" : "apart";
 }
 
 /** The question's own entity: the longest of the climb's points the question
@@ -3707,14 +3691,9 @@ export function allWindowsAreScaffolding(
   ctx: MindContext,
   query: Uint8Array,
 ): boolean {
-  const W = ctx.space.maxGroup;
   const bound = hubBound(ctx);
   let sawOne = false;
-  for (let o = 0; o + W <= query.length; o++) {
-    const ids = leafIdRun(ctx, query, o, o + W);
-    if (ids === null) continue;
-    const id = ctx.store.findBranch(ids);
-    if (id === null) continue;
+  for (const id of windowIds(ctx, query).values()) {
     const rarity = ctx.store.containersSlice(id, 0, bound + 1).length;
     if (rarity === 0) continue;
     if (rarity <= bound) return false;
@@ -3735,14 +3714,10 @@ export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
   // already contained by up to `chainReach(W)` chunks and branches, so on a
   // store of a few facts the √N reading would call every window frame — that
   // is fold structure, not corpus commonality.
-  const bound = Math.max(hubBound(ctx), chainReach(W));
+  const bound = readAllowance(ctx);
   const hub = new Uint8Array(Math.max(0, bytes.length - W + 1));
-  for (let o = 0; o < hub.length; o++) {
-    const ids = leafIdRun(ctx, bytes, o, o + W);
-    const id = ids === null ? null : ctx.store.findBranch(ids);
-    if (id !== null && ctx.store.containersSlice(id, bound, 1).length > 0) {
-      hub[o] = 1;
-    }
+  for (const [o, id] of windowIds(ctx, bytes)) {
+    if (ctx.store.containersSlice(id, bound, 1).length > 0) hub[o] = 1;
   }
   hubWindowMemo.set(bytes, hub);
   return hub;
@@ -3758,26 +3733,12 @@ export function scaffoldSpans(
 ): Array<[number, number]> {
   const W = ctx.space.maxGroup;
   const hub = hubWindows(ctx, query);
-  const n = hub.length;
-  if (n <= 0) return [];
-  const spans: Array<[number, number]> = [];
-  let start = -1;
-  for (let i = 0; i < query.length; i++) {
-    let all = true;
-    for (let o = Math.max(0, i - W + 1); o <= Math.min(i, n - 1); o++) {
-      if (!hub[o]) {
-        all = false;
-        break;
-      }
-    }
-    if (all && start < 0) start = i;
-    if (!all && start >= 0) {
-      spans.push([start, i]);
-      start = -1;
-    }
-  }
-  if (start >= 0) spans.push([start, query.length]);
-  return spans;
+  if (hub.length <= 0) return [];
+  // Every byte lies under some window, so the core is what no NON-hub window
+  // reaches: the complement of the discriminating windows' extents.
+  const free: number[] = [];
+  for (let o = 0; o < hub.length; o++) if (!hub[o]) free.push(o);
+  return unexplainedSpans(query.length, windowSpans(free, W));
 }
 
 /** The EXTENTS of the query's SCAFFOLDING windows, merged: every byte some
@@ -3793,14 +3754,9 @@ export function scaffoldExtents(
 ): Array<[number, number]> {
   const W = ctx.space.maxGroup;
   const hub = hubWindows(ctx, query);
-  const spans: Array<[number, number]> = [];
-  for (let o = 0; o < hub.length; o++) {
-    if (!hub[o]) continue;
-    const last = spans[spans.length - 1];
-    if (last !== undefined && o <= last[1]) last[1] = o + W;
-    else spans.push([o, o + W]);
-  }
-  return spans;
+  const at: number[] = [];
+  for (let o = 0; o < hub.length; o++) if (hub[o]) at.push(o);
+  return unionSpans(windowSpans(at, W));
 }
 
 // ── THE PREFIX SUPPLY ───────────────────────────────────────────────────────
@@ -3853,19 +3809,15 @@ export function formsOpenedBy(
 ): number[] {
   const store = ctx.store;
   const W = ctx.space.maxGroup;
-  const run = leafIdPrefix(ctx, query);
-  // The widest canonical window is the most discriminative one the write side
-  // ever interned; a query too short to spell one carries no window evidence.
-  const len = canonicalWindows(W)[1];
-  if (run.length < len) return [];
+  // The widest canonical window (W) is the most discriminative one the write
+  // side ever interned; a query too short to spell one carries no window
+  // evidence.
   const bound = hubBound(ctx);
 
   let best: number | null = null;
   let bestN = 0;
-  for (let off = 0; off + len <= run.length; off++) {
-    const wid = store.findBranch(run.slice(off, off + len));
-    if (wid === null) continue;
-    const n = store.containersSlice(wid, 0, bound).length;
+  for (const wid of windowIds(ctx, query).values()) {
+    const n = windowRarity(ctx, wid, bound);
     // Empty says the window spans no chunk; saturated says it is a hub, whose
     // containment discriminates nothing.  Neither is evidence.
     if (n === 0 || n >= bound) continue;
@@ -3876,20 +3828,22 @@ export function formsOpenedBy(
   }
   if (best === null) return [];
 
-  let frontier = store.containersSlice(best, 0, bound);
-  const seen = new Set<number>(frontier);
-  let budget = bound;
-  while (frontier.length > 0 && budget > 0) {
-    const next: number[] = [];
-    for (const f of frontier) {
-      if (budget-- <= 0) break;
-      for (const p of store.parentsFirst(f, W)) {
-        if (seen.has(p)) continue;
-        seen.add(p);
-        next.push(p);
-      }
-    }
-    frontier = next;
-  }
-  return [...seen];
+  // The forms above the rarest window, proposed by the one ascent
+  // (`holdersFrom`); the prefix guards decide them by their bytes.
+  return holdersFrom(
+    ctx,
+    store.containersSlice(best, 0, bound),
+    (_bytes, id) => id,
+    {
+      containers: false,
+      order: "bfs",
+      maxDepth: Infinity,
+      maxBytes: Infinity,
+      fan: W,
+      hub: false,
+      budget: { n: bound },
+      limit: Infinity,
+      visits: "holderVisits",
+    },
+  ).found;
 }

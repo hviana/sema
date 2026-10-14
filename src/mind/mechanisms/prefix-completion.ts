@@ -98,6 +98,7 @@
 // same continuation reached through two trained forms is one answer, not an
 // ambiguity.
 
+import { phraseCap } from "../../geometry.js";
 import type { MindContext } from "../types.js";
 import { bytesEqual } from "../../bytes.js";
 import { rItem } from "../trace.js";
@@ -147,7 +148,7 @@ export function prefixCompletion(
   // Reads are bounded to phrase scale, the same bound the frame filler uses.
   // A query with no room for a whole grouping window past its own length
   // cannot clear guard 2, so it is not worth a single read.
-  const cap = query.length * W;
+  const cap = phraseCap(query.length, W);
   if (query.length === 0 || cap < query.length + W) {
     return done(null, "no room for a perceivable continuation within the cap");
   }
@@ -266,7 +267,7 @@ export const prefixMechanism: PipelineMechanism = {
     if (!worthRunning(STEP)) return STEP;
     // A query with no room for a perceivable continuation inside the phrase
     // cap cannot clear guard 2, so it is not worth a single read.
-    const cap = query.length * ctx.space.maxGroup;
+    const cap = phraseCap(query.length, ctx.space.maxGroup);
     if (query.length === 0 || cap < query.length + ctx.space.maxGroup) {
       return null;
     }

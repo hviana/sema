@@ -219,38 +219,50 @@ test("exact content is interned once (hash-consing)", async () => {
   await s.close();
 });
 
-test("branches merge via near dedup on near gist — against indexed TARGETS; leaves NEVER do", async () => {
+test("near dedup folds a branch onto a form learnt WHOLE that it near-duplicates; leaves NEVER merge", async () => {
   const s = memStore();
   const next = vecs(5);
-  const a = await s.putLeaf(enc("p"), next());
-  const b = await s.putLeaf(enc("q"), next());
-  const c = await s.putLeaf(enc("r"), next());
-
-  // Near dedup collapses a fresh branch onto a near-gist one — but only onto
-  // a node the content index actually holds, i.e. one that has become a
-  // resonance TARGET (edge/halo-bearing). This keeps the merge candidate set the
-  // small meaningful set (cheap, and it never folds a fresh branch onto a random
-  // intermediate one). So: index the first branch by giving it an edge, THEN a
-  // near-gist branch merges onto it.
-  const g = normalize(next());
-  const gNear = normalize(g.map((x, i) => x + (i === 0 ? 1e-4 : 0)));
-  const br1 = await s.putBranch([a, b], g);
-  await s.link(br1, a); // br1 is now a resonance target → indexed
-  const br2 = await s.putBranch([a, c], gNear);
-  assert.equal(
-    br2,
-    br1,
-    "near-gist branch merges onto the indexed target (1 - 1/√D)",
+  const L = async (c) => s.putLeaf(enc(c), next());
+  const [p, q, r, t, u, v, x] = await Promise.all(
+    ["p", "q", "r", "t", "u", "v", "x"].map(L),
   );
+  // A WHOLE form of three chunks — `pq` `rt` `uv` — that a deposit learnt.
+  const k1 = await s.putBranch([p, q], next());
+  const k2 = await s.putBranch([r, t], next());
+  const k3 = await s.putBranch([u, v], next());
+  const g = normalize(next());
+  const whole = await s.putBranch([k1, k2, k3], g);
+  await s.markWhole(whole);
+  s.indexTarget(whole);
 
-  // A fresh branch with NO indexed near-neighbour does not merge onto an
-  // unindexed intermediate one — it is kept distinct (correct: the structural
-  // climb needs the distinct node), costing only a SQLite row, no index slot.
-  const d = await s.putLeaf(enc("s"), next());
-  const e = await s.putLeaf(enc("t"), next());
-  const brX = await s.putBranch([d, e], normalize(next())); // unindexed
-  const brY = await s.putBranch([d, a], normalize(next().map((x, i) => x))); // distinct kids
-  assert.notEqual(brY, brX, "no merge onto an unindexed intermediate branch");
+  // A fresh branch reusing its first and last chunks, one byte apart in the
+  // middle (`rx` for `rt`), with a near gist: the same form, folded onto it.
+  const gNear = normalize(g.map((y, i) => y + (i === 0 ? 1e-4 : 0)));
+  const k2x = await s.putBranch([r, x], next());
+  const near = await s.putBranch([k1, k2x, k3], gNear);
+  assert.equal(near, whole, "one window apart, near gist: the same node");
+
+  // The same bytes with a FAR gist — one window apart can mean something
+  // else (`date of birth` / `date of death`): kept distinct.
+  const k2y = await s.putBranch([x, t], next());
+  const far = await s.putBranch([k1, k2y, k3], normalize(next()));
+  assert.notEqual(far, whole, "far gist: never folded, whatever the bytes");
+
+  // A near form of something NO deposit learnt whole is not a target.
+  const m1 = await s.putBranch([q, p], next());
+  const m2 = await s.putBranch([t, r], next());
+  const gi = normalize(next());
+  const interior = await s.putBranch([m1, m2, k3], gi);
+  const m2x = await s.putBranch([t, x], next());
+  const ontoInterior = await s.putBranch(
+    [m1, m2x, k3],
+    normalize(gi.map((y, i) => y + (i === 0 ? 1e-4 : 0))),
+  );
+  assert.notEqual(
+    ontoInterior,
+    interior,
+    "no merge onto a form not learnt whole",
+  );
 
   // Leaves never near-merge: distinct bytes stay distinct even with an
   // identical gist — near-merging a leaf would corrupt its bytes.
@@ -258,6 +270,40 @@ test("branches merge via near dedup on near gist — against indexed TARGETS; le
   const L2 = await s.putLeaf(enc("nn"), g); // different bytes, SAME gist
   assert.notEqual(L2, L1, "distinct leaf bytes never merge, whatever the gist");
   await s.close();
+});
+
+test("near dedup is the same whatever the batch size or session, and `nearDedup: false` keeps every byte", async () => {
+  // The identity of the knowledge cannot depend on an operational setting:
+  // it used to merge these two only when both sat in one write batch.
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { Mind } = await import("../dist/src/index.js");
+  const a =
+    "Wire transfer of 1000 dollars to account 4417 approved by the manager.";
+  const b =
+    "Wire transfer of 9000 dollars to account 4417 approved by the manager.";
+  const run = async (opts, reopen = false) => {
+    const dir = mkdtempSync(join(tmpdir(), "nd-"));
+    let store = new SQliteStore({ path: join(dir, "s"), ...opts });
+    let mind = new Mind({ seed: 7, store });
+    await mind.ingest(a);
+    if (reopen) {
+      await store.close();
+      store = new SQliteStore({ path: join(dir, "s"), ...opts });
+      mind = new Mind({ seed: 7, store });
+    }
+    await mind.ingest(b);
+    const ids = [a, b].map((t) => mind.resolve(enc(t)));
+    await store.close();
+    rmSync(dir, { recursive: true, force: true });
+    return ids[0] === ids[1];
+  };
+  const merged = await run({});
+  assert.equal(await run({ batchSize: 1 }), merged, "batch size 1");
+  assert.equal(await run({ batchSize: 100000 }), merged, "one huge batch");
+  assert.equal(await run({}, true), merged, "across a reopen");
+  assert.equal(await run({ nearDedup: false }), false, "disabled: both kept");
 });
 
 // =========================================================================
@@ -346,7 +392,7 @@ test("a halo accumulates poured signatures and gates on mass", async () => {
   const id = await s.putLeaf(enc("ice"), next());
   assert.equal(s.halo(id), null, "a fresh node has no halo");
 
-  // Default minHaloMass is 1, so one pour already makes the halo visible.
+  // A halo row is admission: one pour already makes the halo visible.
   await s.pourHalo(id, normalize(next()));
   const h1 = s.halo(id);
   assert.ok(h1 !== null, "halo present after a pour");

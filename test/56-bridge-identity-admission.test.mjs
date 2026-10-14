@@ -132,7 +132,7 @@ test("6. determinism: the admission is byte-exact, not scored", async () => {
 // ── The scaffolding reading ────────────────────────────────────────────────
 
 test("7. an omitted CORPUS-COMMON span is explained; a RARE one is not", async () => {
-  const { leafIdRun } = await import("../dist/src/mind/canonical.js");
+  const { windowAt } = await import("../dist/src/mind/canonical.js");
   const { corpusN, edgeAncestors } = await import(
     "../dist/src/mind/traverse.js"
   );
@@ -154,9 +154,7 @@ test("7. an omitted CORPUS-COMMON span is explained; a RARE one is not", async (
     const b = new TextEncoder().encode(text);
     if (b.length < W) return true;
     for (let o = 0; o + W <= b.length; o++) {
-      const ids = leafIdRun(mind, b, o, o + W);
-      if (ids === null) return false;
-      const wid = mind.store.findBranch(ids);
+      const wid = windowAt(mind, b, o);
       if (wid === null) return false;
       const r = edgeAncestors(mind, wid, N);
       if (r.saturated) continue;

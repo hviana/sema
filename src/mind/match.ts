@@ -18,40 +18,38 @@
 //                       direct or mutual-sibling)
 //   multi-hop pivot     byte containment               forward       —
 //   articulation        halo sibling                   substitute    conceptThreshold
-//   reference           frameSlots() (the shared       carry into    carriesFillers
-//                       aligner, gaps contracted)      the answer
+//   reference           frameSlots() (the shared       carry into    agreement on
+//                       aligner, gaps contracted)      the answer    the outcome
 //
 // This module holds the shared vocabulary those configurations are built
 // from — the MATCHERS (locate, alignRuns, alignGraded, alignAround/frameSlots,
 // analogyStrength) and the PROJECTIONS (follow, conceptHop, reverseContext,
 // project) — so each mechanism file states only its configuration, never its
 // own copy of the machinery.  Most gates live in geometry.ts (derived, never
-// tuned); the two STRUCTURAL gates that are byte predicates rather than
-// thresholds — isSpanShaped and carriesFillers — live here beside the matchers
-// they gate.
+// tuned); the STRUCTURAL gate that is a byte predicate rather than a
+// threshold — isSpanShaped — lives here beside the matchers it gates.
 
-import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
+import { cosine, Vec } from "../vec.js";
 import type { Hit } from "../store.js";
 import {
   conceptThreshold,
   dominates,
   identityBar,
+  phraseCap,
   significanceBar,
 } from "../geometry.js";
-import { bytesEqual, indexOf, latin1 } from "../bytes.js";
+import { bytesEqual, indexOf, latin1, sharedEnds } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { leafIdRun } from "./canonical.js";
+import { windowAt } from "./canonical.js";
 import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
 import {
   argmaxCosine,
   chooseAmong,
   chooseNext,
-  corpusN,
-  edgeAncestors,
   guidedFirst,
   hubBound,
   hubCap,
-  sharedReachMemo,
+  spanHalo,
 } from "./traverse.js";
 import { recognise, segment } from "./recognition.js";
 import type { Site } from "./graph-search.js";
@@ -330,9 +328,10 @@ export function alignGraded(
 //               projection, no licence.  SAFE FOR EVERY CONSUMER: knowing a
 //               span is variable can only improve an alignment.
 //   projection  follow / project — unchanged, already here.
-//   gate        carriesFillers — the licence to VOICE through a slot.  Needed
-//               only by a mechanism that voices, so it is deliberately NOT
-//               folded into the matcher.
+//   gate        the licence to VOICE through a slot (reference.ts: the
+//               frame's instances agree on the outcome).  Needed only by a
+//               mechanism that voices, so it is deliberately NOT folded into
+//               the matcher.
 //
 // The split matters.  Slot detection is universal; the licence is not, and a
 // consumer that took the matcher's answer as permission to voice would be
@@ -569,15 +568,8 @@ export function contractGap(
   c: Uint8Array,
   g: AlignGap,
 ): AlignGap | null {
-  let { qs, qe, cs, ce } = g;
-  while (qs < qe && cs < ce && q[qs] === c[cs]) {
-    qs++;
-    cs++;
-  }
-  while (qe > qs && ce > cs && q[qe - 1] === c[ce - 1]) {
-    qe--;
-    ce--;
-  }
+  const [p, s] = sharedEnds(q, c, g.qs, g.qe, g.cs, g.ce);
+  const [qs, qe, cs, ce] = [g.qs + p, g.qe - s, g.cs + p, g.ce - s];
   return qe > qs && ce > cs ? { qs, qe, cs, ce } : null;
 }
 
@@ -601,6 +593,12 @@ export interface FrameSlot {
   kind: SlotKind;
   /** The candidate's own bytes here — empty for an insertion. */
   filler: Uint8Array;
+  /** The query span of the gap as the aligner found it, before contraction —
+   *  the POSITION of the slot; a shared affix below one window (chance) moves
+   *  the contracted borders, not this. */
+  gq: [number, number];
+  /** The candidate span of the same gap before contraction. */
+  gc: [number, number];
 }
 
 /** One trained context read against the query as ONE structure with variable
@@ -613,6 +611,8 @@ export interface FrameSlot {
 export interface FrameInstance {
   /** The trained context this reading is against. */
   id: number;
+  /** The context's bytes the reading was taken of. */
+  bytes: Uint8Array;
   /** Every variable position, in query order. */
   slots: FrameSlot[];
   /** Query spans the pairing literally matched — the frame itself. */
@@ -694,10 +694,40 @@ export function frameSlots(
       ce: g.ce,
       kind,
       filler: cand.slice(g.cs, g.ce),
+      gq: [gap.qs, gap.qe],
+      gc: [gap.cs, gap.ce],
     });
   }
   const covered = spans.reduce((n, [s, e]) => n + e - s, 0);
-  return { id, slots, matched: spans, covered };
+  return { id, bytes: cand, slots, matched: spans, covered };
+}
+
+/** Every proposed form read as an instance of the query (`frameSlots`) — the
+ *  inventory `Precomputed.frames` keeps for a response and every reader of a
+ *  pairing (reference, the substitution bridge) judges.
+ *
+ *  PHRASE SCALE, the one bound applied: a form an order of magnitude longer
+ *  than the query is not a candidate for BEING it with a span replaced, and
+ *  it is rejected by its indexed length before a byte is rebuilt
+ *  (bounded-reads.md).  No lower bound and no judgement: a shorter form (`What
+ *  is the capital of France?` against `What is the capital of the country
+ *  where the Eiffel Tower is?`) is a pairing another consumer needs. */
+export function instancesOf(
+  ctx: MindContext,
+  query: Uint8Array,
+  ids: readonly number[],
+): FrameInstance[] {
+  const capBytes = phraseCap(query.length, ctx.space.maxGroup);
+  const out: FrameInstance[] = [];
+  for (const id of ids) {
+    const len = ctx.store.contentLen(id, capBytes + 1);
+    if (len === 0 || len > capBytes) continue;
+    const cand = ctx.store.bytesPrefix(id, capBytes + 1);
+    if (cand.length === 0 || cand.length > capBytes) continue;
+    const inst = frameSlots(ctx, query, cand, id);
+    if (inst !== null) out.push(inst);
+  }
+  return out;
 }
 
 /** THE DISPLACED-FILLER GATE: does `projection` speak the ANCHOR's occupant of
@@ -800,9 +830,8 @@ export function distinct(items: readonly Uint8Array[]): boolean {
  *  `hello.c -> zig.c` a sequential pass rewrites bytes it had just written,
  *  and the result depends on the order the slots happened to be found in.
  *  Longest-first at each position makes the pass independent of pair order,
- *  which is what keeps {@link carriesFillers} and the binding it licenses the
- *  SAME operation — if they could disagree, the licence would not be testing
- *  what is voiced. */
+ *  which is what makes every instance's proposal (reference.ts) a function of
+ *  its slots alone, whatever order they were found in. */
 export function substituteAll(
   hay: Uint8Array,
   pairs: ReadonlyArray<{ needle: Uint8Array; repl: Uint8Array }>,
@@ -834,44 +863,6 @@ export function substituteAll(
     i++;
   }
   return hit ? Uint8Array.from(out) : hay;
-}
-
-/** THE CARRIAGE LICENCE — the gate that decides whether a slot may be VOICED
- *  through.  Given two instances of one frame and what each one continues to,
- *  it asks one byte question:
- *
- *      substituteAll(contA, fillersA -> fillersB) == contB
- *
- *  When it holds, the corpus attests byte-exactly that the continuation is a
- *  function of the fillers and nothing else, so putting a NEW occupant through
- *  the same carriage is derivation rather than invention.  No threshold, no
- *  similarity, no new constant: the store's own instances decide, exactly as
- *  the bridge's `unanimous` decides whether a frame is a value slot.
- *
- *  Its FAILURE is what this is really for.  A frame whose continuation carries
- *  filler-DEPENDENT content — `What is the capital of X?` answering a different
- *  city per X — fails it, and that failure is the only thing between a slot
- *  and an invented fact.  Measured on the trained 15.7M-node store (325,615
- *  contexts): `What is the capital of Zamunda?` resonates to a PURE cohort,
- *  every one of the top 14 hits an instance of that frame, with an unambiguous
- *  slot; every structural gate passes and only this one refuses, on
- *  `replace("Tokyo", "Japan" -> "France") != "Paris"`.
- *
- *  With SEVERAL slots the test is unchanged, which is the point of testing the
- *  whole substitution at once: a frame whose answer tracks one slot but
- *  invents around another fails exactly as a single-slot value slot does. */
-export function carriesFillers(
-  contA: Uint8Array,
-  fillersA: readonly Uint8Array[],
-  contB: Uint8Array,
-  fillersB: readonly Uint8Array[],
-): boolean {
-  if (fillersA.length !== fillersB.length) return false;
-  const projected = substituteAll(
-    contA,
-    fillersA.map((needle, s) => ({ needle, repl: fillersB[s] })),
-  );
-  return bytesEqual(projected, contB);
 }
 
 /** The IN-LIST halo matcher: the best halo-mate for `halo` among EXPLICIT
@@ -928,79 +919,6 @@ export async function haloSiblings(
     : [];
   if (memo !== undefined) memo.set(id, out);
   return out;
-}
-
-/** Bundle the distributional company of every addressable W-window in a
- *  byte span.  This is the query-time counterpart of the write-side halo
- *  pours: no lexical unit or storage row is invented; the span is represented
- *  by VSA superposition of the window concepts the store already knows.
- *
- *  Components are normalized before bundling so repetition mass remains
- *  evidence about each stored node, not an accidental weight on one window
- *  inside the composed phrase.  Returns null when the corpus provides no
- *  distributional evidence for the span. */
-export function spanHalo(
-  ctx: MindContext,
-  bytes: Uint8Array,
-  from = 0,
-  to = bytes.length,
-): Vec | null {
-  const W = ctx.space.maxGroup;
-  if (to - from < W) return null;
-  if (ctx.meter) ctx.meter.spanHalos++;
-  const out = zeros(ctx.store.D);
-  let found = false;
-  const added = new Set<number>();
-  const episodeRoots: number[][] = [];
-  const N = corpusN(ctx);
-  const reachMemo = sharedReachMemo(ctx);
-  const addHalo = (id: number): void => {
-    if (added.has(id)) return;
-    const halo = ctx.store.halo(id);
-    if (halo === null) return;
-    const norm = Math.sqrt(dot(halo, halo));
-    if (norm === 0) return;
-    added.add(id);
-    addInto(out, halo, 1 / norm);
-    found = true;
-  };
-  const windowCount = to - from - W + 1;
-  const offsets: number[] = [];
-  const samples = Math.min(W, windowCount);
-  for (let i = 0; i < samples; i++) {
-    const relative = samples === 1
-      ? 0
-      : Math.floor((i * (windowCount - 1)) / (samples - 1));
-    const off = from + relative;
-    if (offsets[offsets.length - 1] !== off) offsets.push(off);
-  }
-  for (const off of offsets) {
-    if (ctx.meter) ctx.meter.spanHaloWindows++;
-    const ids = leafIdRun(ctx, bytes, off, off + W);
-    if (ids === null) continue;
-    const id = ctx.store.findBranch(ids);
-    if (id === null) continue;
-    addHalo(id);
-    // Canonical flat windows are retrieval addresses and normally carry no
-    // halo themselves. Their bounded structural ascent reaches the learned
-    // episode forms that contain them; bundling those forms' company is the
-    // distributional meaning of the window, derived entirely from existing
-    // containment and halo state.
-    if (!added.has(id)) {
-      episodeRoots.push(edgeAncestors(ctx, id, N, reachMemo).roots);
-    }
-  }
-  for (let rank = 0; added.size < ctx.cfg.haloQueryK; rank++) {
-    let any = false;
-    for (const roots of episodeRoots) {
-      if (rank >= roots.length) continue;
-      any = true;
-      addHalo(roots[rank]);
-      if (added.size >= ctx.cfg.haloQueryK) break;
-    }
-    if (!any) break;
-  }
-  return found ? normalize(out) : null;
 }
 
 /** A TEST SURFACE: exported for the tests that pin the synonym strength ladder
@@ -1109,8 +1027,7 @@ export function sharedFrameStrengthOf(
   for (let off = 0; off + W <= s.length; off++) {
     const win = s.subarray(off, off + W);
     // Learnt: the window resolves as a content-addressed flat form.
-    const ids = leafIdRun(ctx, s, off, off + W);
-    if (ids === null || ctx.store.findBranch(ids) === null) continue;
+    if (windowAt(ctx, s, off) === null) continue;
     if (indexOf(l, win, 0) < 0) continue;
     covered.fill(1, off, off + W);
   }

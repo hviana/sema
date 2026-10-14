@@ -327,71 +327,31 @@ test("10. the recompose descent is counted, and its zero is omitted", async () =
   );
 });
 
-test("11. the pivot's probe cap is visible: what it spent, and what it withheld", async () => {
-  // The cap itself is deliberate — probing every branch of a long answer made
-  // the pivot sweep the dominant ANN cost at corpus scale — but what it spent
-  // and what it withheld were both invisible.  Untraced on purpose (meter.ts
-  // contract 1), so seeing them cannot perturb the search.
-  //
-  // The withheld count is a CAPACITY fact, never a verdict: the sweep is
-  // breadth-first (largest regions first) and recognition still contributes
-  // every exact containment candidate, so the answer below is asserted to be
-  // the same either way — if a future change makes the cap actually lose
-  // reach, this pair of assertions forces it to be reported as a loss.
+test("11. the pivot is read exactly: recognition alone finds the context a long answer holds", async () => {
+  // The pivot once had a second, approximate proposer — a resonance sweep of
+  // the answer's sub-regions, capped by a probe budget.  Recognition reads
+  // every stored form an answer contains by content-addressed identity, so the
+  // sweep proposed nothing it did not; this pins that a LONG answer (many
+  // branches, the case the cap was for) still hops through the context it
+  // holds, with no approximate read of the answer.
   const LONG =
     "the capital of France is Paris and Paris is a city on the river Seine in " +
     "the north of the country and the river runs through the heart of the city " +
     "past the tower and the museums and the wide avenues of the old quarters";
-  const run = async (probeK) => {
-    const store = new SQliteStore({ path: ":memory:" });
-    const mind = new Mind({
-      seed: 7,
-      store,
-      profile: true,
-      // The pivot's budget is ITS OWN since F4: `recallQueryK` no longer widens
-      // it, which is exactly what this test now pins.
-      pivotProbeK: probeK,
-    });
-    await mind.ingest([
-      ["what is the capital of France", LONG],
-      ["Paris", "Paris is famous for the Eiffel Tower"],
-      ["the Eiffel Tower", "the Eiffel Tower is in Paris"],
-    ]);
-    const answer = String(
-      await mind.respondText("what is the capital of France famous for"),
-    ).trim();
-    const c = mind.lastCost.counters;
-    await store.close();
-    return {
-      answer,
-      probes: c.pivotProbes ?? 0,
-      // RAW on purpose: the "withholds nothing" case must be able to observe
-      // the field's ABSENCE (test 6's convention drops zeros), so coercing here
-      // would make the assertion below unable to fail.
-      withheld: c.pivotBranchesUnprobed,
-      pivots: c.pivotSteps ?? 0,
-    };
-  };
-
-  const wide = await run(64);
-  const tight = await run(12); // the default pivot budget
-
-  assert.ok(tight.probes > 0, "the sweep really ran");
-  assert.ok(
-    tight.withheld >= 1,
-    `the capacity the cap withheld must be counted (got ${tight.withheld})`,
-  );
-  assert.equal(
-    wide.withheld,
-    undefined,
-    "an allowance that probes every branch withholds nothing (zeros are dropped)",
-  );
-  assert.equal(tight.pivots, wide.pivots, "both runs took the same hop");
-  assert.equal(
-    tight.answer,
-    wide.answer,
-    "the cap withheld capacity, not the answer",
-  );
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest([
+    ["what is the capital of France", LONG],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["the Eiffel Tower", "the Eiffel Tower is in Paris"],
+  ]);
+  const answer = String(
+    await mind.respondText("what is the capital of France famous for"),
+  ).trim();
+  const c = mind.lastCost.counters;
+  await store.close();
+  assert.ok((c.pivotSteps ?? 0) >= 1, "the walk hopped through the pivot");
+  assert.ok(answer.includes("Eiffel Tower"), `got ${answer}`);
 });
 
 test("12. the extension's cost obeys the ladder's own inequality", async () => {
@@ -945,20 +905,20 @@ test("20. the non-IDF weighting modes never flip a gate verdict", async () => {
 });
 
 test("21. the price's second term has one definition, and it is the complement", async () => {
-  // `unaccountedBytes` collapsed four copies of the same `reduce` (audit, etapa 6).
+  // `spanBytes` collapsed four copies of the same `reduce` (audit, etapa 6).
   // Since the value did NOT change, the lot is only pinned if something would
   // fail when the helper sums the wrong thing — so this test uses an input where
   // the two candidate readings DIFFER.
   // PATH ONLY: the span algebra moved to the closure law's home
   // (src/mind/derivation.ts) when the law was extracted; the assertions below
   // are untouched and still pin the same contract.
-  const { unexplainedSpans, unaccountedBytes } = await import(
+  const { unexplainedSpans, spanBytes } = await import(
     "../dist/src/mind/derivation.js"
   );
   // Empty accounted ⇒ the whole query is unaccounted.
-  assert.equal(unaccountedBytes(unexplainedSpans(10, [])), 10);
+  assert.equal(spanBytes(unexplainedSpans(10, [])), 10);
   // Full cover ⇒ nothing is unaccounted (this is the honest-silence end).
-  assert.equal(unaccountedBytes(unexplainedSpans(10, [[0, 10]])), 0);
+  assert.equal(spanBytes(unexplainedSpans(10, [[0, 10]])), 0);
   // THE DISCRIMINATING CASE — OVERLAPPING accounted spans:
   //   [[0,6],[4,10]] covers the union [0,10) = 10 bytes, while summing their
   //   EXTENSIONS gives 6 + 6 = 12.  The price's term is the COMPLEMENT, so it
@@ -971,12 +931,12 @@ test("21. the price's second term has one definition, and it is the complement",
     0,
     `the union fully covers: gaps=${JSON.stringify(gaps)}`,
   );
-  assert.equal(unaccountedBytes(gaps), 0);
+  assert.equal(spanBytes(gaps), 0);
   // And the complement is additive against the covered union: half-covered.
-  assert.equal(unaccountedBytes(unexplainedSpans(10, [[0, 4], [2, 6]])), 4);
+  assert.equal(spanBytes(unexplainedSpans(10, [[0, 4], [2, 6]])), 4);
   // Nothing is ever negative or double-counted on a mixed input.
   assert.equal(
-    unaccountedBytes(unexplainedSpans(20, [[5, 8], [5, 8], [12, 15]])),
+    spanBytes(unexplainedSpans(20, [[5, 8], [5, 8], [12, 15]])),
     14,
   );
 });
@@ -1082,8 +1042,8 @@ test("22. the trace publishes the bar the margin gate ACTUALLY applied", async (
 
 test("23. the payload carries every section the draft supplies", async () => {
   // `ClimbConsensusData` is assembled by hand from `TraceDraft` (see
-  // traceAttention): four sections are plain pass-throughs (`regions`,
-  // `saturation`, `pooling`, `anchors`), one comes from the config
+  // traceAttention): two sections are plain pass-throughs (`regions`,
+  // `anchors`), one comes from the config
   // (`reaches`), and one is REBUILT from the summary plus two draft arrays
   // (`crossRegion`).  A section added to the draft and missed in that assembly
   // vanishes from the payload SILENTLY — which is the drift `visited?` records
@@ -1123,9 +1083,9 @@ test("23. the payload carries every section the draft supplies", async () => {
   for (const k of ["config", "candidates", "result"]) {
     assert.ok(td[k] !== undefined, `the payload must always carry \`${k}\``);
   }
-  // The four pass-through sections, plus the one the cfg supplies.
+  // The pass-through sections, plus the one the cfg supplies.
   const missing = [];
-  for (const k of ["regions", "saturation", "pooling", "anchors", "reaches"]) {
+  for (const k of ["regions", "anchors", "reaches"]) {
     if (td[k] === undefined) missing.push(k);
   }
   assert.deepEqual(

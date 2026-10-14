@@ -92,12 +92,62 @@ export type Span = readonly [number, number];
 // ── The span algebra: the law's vocabulary ──────────────────────────────────
 
 /** The BYTE COUNT of a span list — what the currency calls `unaccounted` in
- *  `weight = moves + PASS·unaccounted`.  ONE definition: this was four copies of
- *  the same `reduce` before the architecture audit collapsed them. */
-export function unaccountedBytes(spans: ReadonlyArray<Span>): number {
+ *  `weight = moves + PASS·unaccounted`, and every other sum of span lengths. */
+export function spanBytes(spans: ReadonlyArray<Span>): number {
   let total = 0;
   for (const [a, b] of spans) total += b - a;
   return total;
+}
+
+/** THE UNION of spans, sorted and merged wherever a span starts at most `join`
+ *  bytes past the reach of those before it.  `join` is the one parameter every
+ *  reading of "the same run" differs in: `0` merges touching spans, `W − 1`
+ *  merges what lies less than one quantum apart (no separate unit fits between,
+ *  so they are one cluster), and `1 − W` merges consecutive W-windows only. */
+export function unionSpans(
+  spans: Iterable<Span>,
+  join = 0,
+): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [s, e] of [...spans].sort((a, b) => a[0] - b[0])) {
+    const last = out[out.length - 1];
+    if (last !== undefined && s - last[1] <= join) {
+      if (e > last[1]) last[1] = e;
+    } else out.push([s, e]);
+  }
+  return out;
+}
+
+/** The spans `[o, o + W)` of the W-windows at `offsets`. */
+export function windowSpans(
+  offsets: Iterable<number>,
+  W: number,
+): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const o of offsets) out.push([o, o + W]);
+  return out;
+}
+
+/** The maximal runs of set positions of a mask, as spans. */
+export function maskSpans(
+  mask: ArrayLike<number | boolean>,
+): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let start = -1;
+  for (let i = 0; i <= mask.length; i++) {
+    const set = i < mask.length && !!mask[i];
+    if (set && start < 0) start = i;
+    else if (!set && start >= 0) {
+      out.push([start, i]);
+      start = -1;
+    }
+  }
+  return out;
+}
+
+/** The bytes between two spans: 0 when they overlap or touch. */
+export function spanGap(a: Span, b: Span): number {
+  return a[1] <= b[0] ? b[0] - a[1] : b[1] <= a[0] ? a[0] - b[1] : 0;
 }
 
 /** The `[start, end)` gaps of `[0, queryLen)` NOT covered by `accounted` — the

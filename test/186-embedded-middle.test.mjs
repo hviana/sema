@@ -86,7 +86,7 @@ test("an UNSTORED form is still refused in the middle — the assertion above is
   );
 });
 
-test("the reading is deterministic, and the interior counter is wired", async () => {
+test("the reading is deterministic, and the sweep counter is wired", async () => {
   const first = await mind();
   const second = await mind();
   const query = `I ask: ${OTHER}, ${FORM}, and the note is filed.`;
@@ -95,7 +95,7 @@ test("the reading is deterministic, and the interior counter is wired", async ()
   assert.equal(a, b);
   const counters = first.lastCost?.counters ?? {};
   assert.ok(
-    (counters.recogniseInteriorPairs ?? 0) > 0,
-    "recogniseInteriorPairs must be wired",
+    (counters.recogniseSpans ?? 0) > 0,
+    "recogniseSpans must be wired",
   );
 });

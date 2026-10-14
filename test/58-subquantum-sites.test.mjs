@@ -44,10 +44,11 @@ test("1. a sub-quantum coincidental substring is not a recognised site", async (
     ["What is the capital of Italy?", " The capital of Italy is Rome."],
   ]);
   const { recognise } = await import("../dist/src/mind/recognition.js");
-  const { atomIsHub, corpusN } = await import("../dist/src/mind/traverse.js");
+  const { corpusN } = await import("../dist/src/mind/traverse.js");
+  const { atomIsHub } = await import("../dist/src/geometry.js");
   const N = corpusN(mind);
   const W = mind.space.maxGroup;
-  if (!atomIsHub(mind, N)) {
+  if (!atomIsHub(N, mind.space.maxGroup)) {
     // Below hub scale the rule is deliberately inert — nothing to assert.
     await mind.store.close();
     return;

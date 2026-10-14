@@ -1,4 +1,4 @@
-# Reference — Voice a Slot With the Asker's Bytes
+# Reference — Read the Question Through Its Frame's Instances
 
 `reference` learns a frame from worked examples and voices its slot with the
 bytes the asker put in that position (`src/mind/mechanisms/reference.ts`). It
@@ -23,41 +23,56 @@ only once within `k` is out of reach. Measured on the trained store,
 top 24, so `reference` abstains. Widening the supply is not the fix: abstaining
 on thin evidence is.
 
-## Election and voicing gates
+## The reading — instances agree on the outcome
 
-`electFrame` keeps the modal group of instances that place the question's slots
-alike. It needs at least `MIN_INSTANCES = 2`, because one alignment agrees with
-nothing. Each instance must also be voiceable:
+An instance must lead somewhere (an answer that aligns with the question is no
+instance of what it asks), read as one structure whose slots are all
+substitutions (an insertion or deletion has no occupant to carry), and share at
+least one window with the question (a frame with no window in common is chance).
 
-1. the frame dominates the question, covering more than half of it;
-2. every slot reaches one window `W` on both sides;
-3. substitutions only, with no insertion or deletion;
-4. the fillers are pairwise distinct, the referents are distinct, and no slot
-   lies inside an already answered span.
+**One frame is one set of positions.** Instances belong to the same frame when
+they have the same number of slots, each overlapping its counterpart. A slot's
+borders move with bytes two forms share by chance (`Darwin`/`Einstein` both end
+in `in`), so the borders do not name the frame. The largest frame is the
+question's, and it needs `AGREEMENT = 2` instances: one alignment agrees with
+nothing.
 
-## The licence — what a new referent may inherit
+**Each instance proposes the answer.** Its continuation is followed, its fillers
+replaced by the bytes the question holds in the same slots
+(`substituteAll(cont, fillers → referents)`), and the result is that instance's
+proposal. Two kinds of dependence fall out of the one construction:
 
-Each instance's continuation is followed, one at a time, because refusal is the
-common outcome and usually comes on the second instance. Two checks apply:
+- **template** — the answer holds a filler (`Run gcc hello.c` carries `main.c`);
+  its limit, the answer that IS the filler, is extraction
+  (`The dog is named Rex.` → `Rex` reads `Clover`);
+- **constant** — the answer holds no filler; every occupant gets the same one.
 
-- **Co-variation.** `carriesFillers` requires
-  `substituteAll(contA, fillersA → fillersB) == contB`, byte for byte, for all
-  slots at once. Content that depends on which filler stands in the slot is
-  refused.
-- **A fact filed under a filler is not a carriage.** A continuation that does
-  not vary passes co-variation vacuously, and coincidence lives there. If an
-  instance's answer is a continuation of its own filler, it is something the
-  corpus knows _about_ that filler. Two people born in Wellington can give an
-  unknown `Zorblax` the same birthplace. `Run gcc hello.c` is filed under the
-  question alone, so it still carries.
+Every instance of the frame must propose the same bytes; one breaking the
+pattern refuses all. The template keeps what two forms share, so `Poland` read
+against `England` carries `Po` → `Eng` and still says `England`.
+
+Refusals, each with its reason:
+
+- **A fact filed under a filler is not a carriage.** If an instance's answer is
+  a continuation of its own filler, it is something the corpus knows _about_
+  that filler (a derivation). Two people born in Wellington would give an
+  unknown `Zorblax` the same birthplace.
+- **A voiced referent reaches one window**, and the referents voiced are a
+  minority of the question: the rest is what makes it an instance of the frame.
+- Fillers and referents are distinct; no referent lies inside an answered span.
+- **Restatement.** An answer that is part of the question is refused, unless the
+  instances agree that the answer IS the asker's referent (identity carriage).
 
 ## Cost
 
-`moves = STEP · slots + STEP`: one binding per slot and one edge followed. It is
-not `CONCEPT`, because the reading is byte identity, not halo. The matched frame
-and every slot are `accounted`, the answer is `complete`, and no scaffolding is
-reported. The floor is `2·STEP`, checked with `worthRunning` before `frames()`
-is touched.
+`moves = STEP · voiced + STEP`: one binding per carried referent and one edge
+followed. It is not `CONCEPT`, because the reading is byte identity, not halo.
+The matched frame and the carried referents are `accounted`; a slot the answer
+does not carry is not explained by it. A constructed answer is `complete`, so
+the walk never takes bytes the corpus never said for a trained fact; an identity
+reading (the asker's referent read back) is not, and reasoning may go on from
+it. The floor is `2·STEP`, checked with `worthRunning` before `frames()` is
+touched.
 
 ## Provenance
 

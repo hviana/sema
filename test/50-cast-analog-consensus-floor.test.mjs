@@ -14,11 +14,14 @@
 // continuation ("Winds of change blow free…") as the answer — a wrong
 // answer where recall, extraction, and the ALU all honestly refused.
 //
-// The gate (cast.ts): comparison may cite a hop-reached (unnamed) analog
-// only when some committed root's vote clears consensusFloor(N); a
-// DIRECTLY aligned analog (the query's own bytes evidence it, e.g. test/29
-// C1's "Steel is hard") needs no floor.  Derived, never tuned — the floor
-// is the one recall.ts already gates the same trust decision with.
+// The gate that first closed it (cast.ts): comparison could cite a
+// hop-reached (unnamed) analog only when some committed root's vote cleared
+// consensusFloor(N).  What decides it now is the IGNORED-KNOWN principle:
+// the junk pair leaves the query's own trained content ("planet", "sun") in
+// its gaps, and comparison refuses to dismiss what the store knows.  The
+// floor bar was measured redundant with it (suite + three 2Wiki fixtures,
+// no answer moved) and removed; these probes pin the behaviour, whichever
+// reading carries it.
 //
 // This miniature reproduces the exact shape: ~200 filler pairs whose LONG
 // contexts (longer than the probe query) can never be direct analogs, so

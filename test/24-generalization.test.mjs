@@ -21,7 +21,7 @@
 //          combine all into one coherent answer — not silently drop any. (The
 //          trace must also surface more than one ordered anchor.)  The forest
 //          read-out is generic for any K via naturalBreak + span-disjoint
-//          overlap + the saturation gate (leadingEnd).  Tests here cover
+//          overlap.  Tests here cover
 //          K = 2 (the minimum multi-root case).
 //
 // GAP 3.2 — extractByAlignment must extract MULTIPLE pieces, not one span. A

@@ -23,7 +23,7 @@ import {
   type Rule,
 } from "../derive/src/index.js";
 import type { Store } from "../store.js";
-import { boundFor } from "../geometry.js";
+import { atomIsHub, boundFor } from "../geometry.js";
 import { bytesEqual, concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { GraphSearchHost } from "./types.js";
 
@@ -751,13 +751,7 @@ export class GraphSearch {
     computedResults?: ReadonlyArray<ComputedResult>,
   ): DeductionSystem<GItem> {
     const W = this.maxGroup; // fusible span ceiling (shortest composite bound)
-    // Same corpus-scale hub floor {@link atomIsHub}/{@link atomReach} (traverse.ts)
-    // derive for byte atoms — see {@link hubBound} below for why this module
-    // states the formula itself instead of importing it.
-    const atomsAreHubs = Math.max(
-      1,
-      Math.ceil((this.store.edgeSourceCount() * W) / 256),
-    ) > this.hubBound();
+    const atomsAreHubs = atomIsHub(this.store.edgeSourceCount(), W);
     const nodeBytes = (n: number) => this.store.bytesPrefix(n, ALL);
     // Content-addressed probes over the store's hash-cons maps — the same keys
     // training filled.  No byte-by-byte trie walk.
@@ -1470,51 +1464,33 @@ export class GraphSearch {
    *  open — the invariant a reader needs to check the guard. */
   private recompleteOpen = new Set<number>();
 
-  /** The ENTITIES a produced fact's bytes contain that lead somewhere — the
-   *  candidates a join may travel through.  The forms the fact CONTAINS, by the
-   *  same recogniser the query went through (so the evidence standard is the
-   *  query's), plus — because the recognition of a STORED WHOLE returns the
-   *  whole and stops (measured: one site, the fact's own node, for `The
-   *  director of Eva is Gustaf Molander.`) — the longest canonically-resolving
-   *  form at each offset.  A byte atom is never a subject.  The scan runs only
-   *  for a FORM (≥ W: per letter it measured 20-26 s in test/99), and each probe
-   *  is a `canonResolve` whose exact tier decides a miss by its segment probe,
-   *  without a fold.  The admission predicate is the store's `leadsSomewhere`
-   *  (edge or halo); the host lends its memoised form when it can.
-   *
-   *  The SOURCE of each proposal travels with it, so a refusal names which path
-   *  proposed the candidate.  Memoised per fact bytes ({@link entityMemo}). */
+  /** The ENTITIES a produced fact's bytes hold — the candidates a join may
+   *  travel through: the THINGS (`thingsIn`, lent by the host), the same set
+   *  the walk's pivot reads.  The SOURCE of each proposal (exact or canonical
+   *  spelling) travels with it, so a refusal names which reading proposed the
+   *  candidate.  Memoised per fact bytes ({@link entityMemo}). */
   private entityProposals(factBytes: Uint8Array): EntityProposals {
     const memoKey = latin1(factBytes);
     const hit = this.entityMemo.get(memoKey);
     if (hit !== undefined) return hit;
-    const leads = (id: number): boolean =>
-      this.host.leadsSomewhere !== undefined
-        ? this.host.leadsSomewhere(id)
-        : this.store.leadsSomewhere(id);
     const sites = this.host.recogniseSpan?.(factBytes)?.sites ?? [];
     const proposed = new Map<number, Uint8Array>();
     const source = new Map<number, string>();
-    for (const s of sites) {
-      if (s.payload >= 0 && leads(s.payload)) {
-        proposed.set(s.payload, this.store.bytesPrefix(s.payload, ALL));
-        source.set(s.payload, "recognised site");
-      }
-    }
-    const W = this.maxGroup;
-    if (this.host.canonResolve !== undefined && factBytes.length >= W) {
-      const canon = this.host.canonResolve.bind(this.host);
-      for (let start = 0; start < factBytes.length; start++) {
-        for (let end = factBytes.length; end - start >= W; end--) {
-          const id = canon(factBytes.subarray(start, end));
-          if (id === null) continue;
-          if (leads(id)) {
-            proposed.set(id, this.store.bytesPrefix(id, ALL));
-            source.set(id, "canonical fold");
-          }
-          break; // the longest form at this offset wins
-        }
-      }
+    // THE THINGS THE FACT HOLDS — the walk's pivot reads the same (`thingsIn`):
+    // learnt whole, leading on, in the fact's spelling or its canonical one.
+    // The key is formed from the thing's STORED spelling (`gustaf molander` +
+    // the tail), so its bytes are the store's.  A bare host keeps the
+    // recognised sites that are things.  (Admitting any node with an edge or a
+    // halo, and a `canonResolve` scan of every span, answered the same on the
+    // suite and on 900 fresh queries.)
+    const things = this.host.thingsIn?.(factBytes) ??
+      sites.filter((s) =>
+        s.payload >= 0 && this.store.hasNext(s.payload) &&
+        this.store.learntWhole(s.payload)
+      ).map((s) => ({ id: s.payload, canonical: false }));
+    for (const t of things) {
+      proposed.set(t.id, this.store.bytesPrefix(t.id, ALL));
+      source.set(t.id, t.canonical ? "canonical spelling" : "recognised site");
     }
     const out = { proposed, source, sites };
     this.entityMemo.set(memoKey, out);
@@ -1562,11 +1538,8 @@ export class GraphSearch {
     // The entity candidates are the forms the fact's own bytes CONTAIN — the
     // same recogniser the query went through, so the evidence standard is the
     // query's.  A byte atom is never a subject; the fact's own node is the span
-    // itself, not an entity inside it.  The admission predicate has ONE
-    // definition — the store's `leadsSomewhere` (edge or halo); the host LENDS
-    // its memoised form when it can (Mind does, with the response-scoped struct
-    // cache), and a bare host asks the store directly, so the search stays
-    // host-based.
+    // itself, not an entity inside it.  An entity is a thing: learnt whole,
+    // leading on (`entityProposals`).
     const { proposed, source, sites: factSites } = this.entityProposals(
       fact.bytes,
     );

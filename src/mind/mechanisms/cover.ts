@@ -15,13 +15,17 @@ import type {
   ConceptLicence,
   ConnectorLicence,
   DerivationStep,
+  Seg,
   Site,
 } from "../graph-search.js";
-import { read, resolve } from "../primitives.js";
+import { canonResolve, read, resolve } from "../primitives.js";
+import { indexOf } from "../../bytes.js";
 import {
   answersOtherQuestions,
+  askedEvidence,
   guidedFirst,
   hubBound,
+  offsetCanon,
   scaffoldSpans,
 } from "../traverse.js";
 import { conceptHop } from "../match.js";
@@ -393,7 +397,39 @@ export const coverMechanism: PipelineMechanism = {
       );
     }
 
-    const composed = liftAnswer(segs, query.length, query, W);
+    // A CHAIN'S INTERMEDIATE IS NOT VOICED.  A composed fact that voices the
+    // subject of another composed fact — the question span that fact stood on —
+    // is a step toward it, not a second answer (`The performer of Heaven is
+    // Namie Amuro.` before `The place of birth of Namie Amuro is …`); and a fact
+    // the composition already voices is not voiced again.  A comparison's two
+    // facts hold neither one the other's subject, and both stay.
+    const recs = segs.filter((x) => x.rec && x.node !== undefined);
+    // A subject is a THING — a form a deposit learnt whole — never a fragment
+    // the question's bytes happen to hold (`ountry`, inside `country`, whose
+    // inherited continuation is somebody's fact).
+    const subjectAt = (y: Seg): boolean => {
+      const site = resolve(ctx, query.subarray(y.i, y.j)) ??
+        canonResolve(ctx, query.subarray(y.i, y.j));
+      return site !== null && ctx.store.learntWhole(site);
+    };
+    const intermediate = (x: Seg): boolean =>
+      recs.some((y) =>
+        y !== x && y.node !== x.node && !(x.i <= y.i && y.j <= x.j) &&
+        subjectAt(y) &&
+        indexOf(
+            offsetCanon(ctx, x.bytes),
+            offsetCanon(ctx, query.subarray(y.i, y.j)),
+            0,
+          ) >= 0
+      );
+    const again = (x: Seg): boolean =>
+      recs.some((y) =>
+        y !== x && y.i < x.i && y.bytes.length === x.bytes.length &&
+        indexOf(y.bytes, x.bytes, 0) === 0
+      );
+    const kept = segs.filter((x) => !(x.rec && (intermediate(x) || again(x))));
+    const voicedSegs = kept.some((x) => x.rec) ? kept : segs;
+    const composed = liftAnswer(voicedSegs, query.length, query, W);
     if (composed === null) return [];
 
     ctx.trace?.step(
@@ -424,10 +460,28 @@ export const coverMechanism: PipelineMechanism = {
         !scaffold.some(([a, b]) => a <= s.i && s.j <= b)
       )
       .map((s) => [s.i, s.j]);
+    // EVIDENCE TRAVELS: the question spans that NAMED each followed site's step
+    // are explained too, as recall's argument binding accounted them
+    // (mechanism-market.md).  The site is read as the question spells it, or
+    // under the response's equivalence.
+    for (const [i, j] of [...accounted]) {
+      const site = resolve(ctx, query.subarray(i, j)) ??
+        canonResolve(ctx, query.subarray(i, j));
+      if (site === null) continue;
+      const hop = guidedFirst(ctx, site);
+      if (hop !== undefined) accounted.push(...askedEvidence(ctx, site, hop));
+    }
 
     return [{
       bytes: composed,
       accounted,
+      // WHAT THE ANSWER SPEAKS FOR, declared: the facts it composed.  Inferred
+      // instead (every form of the answer the question witnesses), an
+      // order-free window witness took `John II` for the question's `John III`
+      // and consumed the walk's pivot.
+      used: new Set<number>(
+        segs.flatMap((s) => s.rec && s.node !== undefined ? [s.node] : []),
+      ),
       // The derivation's DISCRETE work.  The bytes the chart could not
       // recognise are NOT priced here: they are exactly the spans `accounted`
       // leaves uncovered, and the pipeline's one formula charges them at PASS —

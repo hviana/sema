@@ -225,7 +225,7 @@ test("n-ary jump does not swallow the asker's separator", async () => {
 // SIBLING of one answer participates in a learnt whole with the other (e.g.
 // "chilly or hot" where "chilly" is a distributional synonym of "cold"), the
 // bridge must find that junction through the sibling and extract the connector.
-// This is the halo-sibling tier between the exact edge junctions (tier 2)
+// This is the halo-sibling tier between the exact junction containers (tier 1)
 // and the approximate resonance fallback (tier 3): the container evidence is
 // exact (content-addressed DAG ascent, same as tier 1), but one side is
 // relaxed from the exact answer to a distributional sibling.

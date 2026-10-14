@@ -18,7 +18,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import { atomIsHub, corpusN } from "../dist/src/mind/traverse.js";
+import { corpusN } from "../dist/src/mind/traverse.js";
+import { atomIsHub } from "../dist/src/geometry.js";
 
 test("crossRegion shares one k·W allowance per tier once atoms are hubs", async () => {
   const m = new Mind({
@@ -43,7 +44,7 @@ test("crossRegion shares one k·W allowance per tier once atoms are hubs", async
 
   const N = corpusN(m);
   assert.ok(
-    atomIsHub(m, N),
+    atomIsHub(N, m.space.maxGroup),
     `fixture must cross atomIsHub (N=${N}); the shared budget is scale-gated ` +
       `and this suite would otherwise assert nothing`,
   );

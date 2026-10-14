@@ -7,7 +7,7 @@ import { rItem, rNode } from "./trace.js";
 import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import type { Attention, MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
-import { countClusters } from "./attention.js";
+import { instanceCap } from "../geometry.js";
 import {
   guidedFirst,
   hubBound,
@@ -16,7 +16,7 @@ import {
   otherInstance,
 } from "./traverse.js";
 import { unspoken, type WindowIndex, windowIndex } from "./evidence.js";
-import { containsSpan, follow, haloSiblings, project } from "./match.js";
+import { containsSpan, follow, project } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import {
   closed,
@@ -27,7 +27,11 @@ import {
   type Offer,
   restates,
   type Span,
-  unaccountedBytes,
+  spanBytes,
+  spanGap,
+  unexplainedSpans,
+  unionSpans,
+  windowSpans,
   type Witness,
 } from "./derivation.js";
 import type { Precomputed } from "./pipeline-mechanism.js";
@@ -49,8 +53,8 @@ function meterTransition(
   for (const w of witnesses) {
     if (w.window) ctx.meter.reasonCarriedBytes += w.window[1] - w.window[0];
   }
-  ctx.meter.closureDrainedBytes += unaccountedBytes(before.remainder) -
-    unaccountedBytes(after.remainder);
+  ctx.meter.closureDrainedBytes += spanBytes(before.remainder) -
+    spanBytes(after.remainder);
 }
 
 /** Extend a grounded answer forward across facts (multi-hop reasoning) — the
@@ -159,78 +163,19 @@ export function walkLayer(
       return false;
     }
 
-    // ANSWERED DIRECTLY — the echo guard's other half, and the same principle:
-    // the QUERY's own position in the graph, not the answer's content, says the
-    // read-out is complete.  Above: the query is itself a learnt CONTINUATION.
-    // Here: the query is a learnt CONTEXT and the grounded answer is one of ITS
-    // OWN continuations.  Either way the question was answered directly and there
-    // is nothing left to chain for.
-    //
-    // Every stopping condition in the loop below judges the ANSWER (`consumed` /
-    // the law's `restates` / `bytesEqual`); none asks whether the QUESTION was
-    // satisfied.  So a single-hop question whose answer happens to name another
-    // learnt context extends past a correct answer and REPLACES it:
-    //
-    //   asked  "<subj> father"
-    //   hop 1  "The father of <subj> is Ernest I of Anhalt-Dessau."   <- correct
-    //   pivot  "Ernest I of Anhalt-Dessau"                <- a learnt context too
-    //   got    "The date of death of Ernest I of Anhalt-Dessau is 12 June 1516."
-    //
-    // Any store holding a bare-entity context alongside a relation fact has that
-    // shape; it is not exotic.
-    //
-    // Checked ONCE, before the loop, and ahead of BOTH extension branches:
-    // `absorbForward` extends the answer too, and nothing about the defect is
-    // specific to pivoting, so a guard between them would gate one arbitrary half
-    // of the same step.  Hop 0 is also the only hop at which the question can be
-    // answered directly at all — after a hop, `cur` is no longer the query's own
-    // continuation, so re-testing per hop could only cost reads.
-    //
-    // Read from the ANSWER's side (`prevFirst`) rather than the query's
-    // (`nextFirst`).  Same relation, but a CONTEXT's fan-out is hub-sized while
-    // this is one answer's establishing-context fan-in.  Both the resolve and the
-    // reverse read are exactly what hop 0 of the loop below would perform, so
-    // they are computed ONCE here and handed down (`groundedId`, `groundedPrev`)
-    // — the guard then costs nothing when it does not fire.  Stated because the
-    // naive placement does NOT: `resolve` re-folds the answer bytes on every call
-    // (no memo) and `prevFirst` is a direct read (no memo), so a guard that
-    // recomputed them would add one fold plus one √N-bounded read per ask.
-    // The √N cap carries the file-wide visibility trade, and fails SAFE in the
-    // direction that matters: a missed guard costs an over-extended answer, never
-    // a suppressed chain.
-    //
-    // A genuine multi-hop query is not a deposited context at all ("What is the
-    // capital of the country of Eiffel Tower?" resolves to nothing), so this can
-    // never gate a real chain.
+    // Hop 0's resolve and reverse read, computed once and handed down to the
+    // loop (`groundedId`, `groundedPrev`).  (A guard that stopped here when the
+    // grounded answer is one of the query's own continuations — "answered
+    // directly" — was measured redundant with the walk's own stops over the
+    // suite and three 2Wiki fixtures, and removed.)
     groundedId = resolve(ctx, answer);
     groundedPrev = groundedId === null
       ? null
       : ctx.store.prevFirst(groundedId, bound);
-    if (qId !== null && groundedPrev !== null && groundedPrev.includes(qId)) {
-      return false;
-    }
-
-    // Pre-consume whatever the grounding stage already spoke for.  The halo
-    // sweep is one ANN query per node — cap it at haloQueryK sweeps (cover
-    // grounding can pre-consume one node per recognised site, O(query length));
-    // nodes past the cap are still consumed directly, they just skip the
-    // synonym expansion.
-    const preconsume = async () => {
-      let haloSweeps = 0;
-      for (const id of preConsumed) {
-        consumeNode(id);
-        if (haloSweeps >= ctx.cfg.haloQueryK) continue;
-        const h = ctx.store.halo(id);
-        if (!h) continue;
-        haloSweeps++;
-        for (const sib of await haloSiblings(ctx, id, h)) consumeNode(sib.id);
-      }
-    };
-    if (ctx.meter) {
-      await ctx.meter.time("reason.preconsumeHalos", preconsume);
-    } else {
-      await preconsume();
-    }
+    // Pre-consume whatever the grounding stage already spoke for.  (Widening
+    // each node to its halo siblings — one ANN query per node — was measured
+    // to change no answer, and removed.)
+    for (const id of preConsumed) consumeNode(id);
     return true;
   };
 
@@ -500,7 +445,7 @@ export function walkLayer(
     // where a reader learns that an extension was declined for want of
     // question material, and where the next person sees why the chain stopped
     // here.  Measured with the check disabled, test/110 and test/116 fail.
-    const left = unaccountedBytes(at.remainder);
+    const left = spanBytes(at.remainder);
     ctx.trace?.step(
       "pivotRefused",
       [rItem(p.cur, "answer"), rItem(query, "query")],
@@ -538,7 +483,7 @@ export function walkLayer(
           rItem(query.subarray(a, b), "uncovered")
         ),
         `the walk ended with ${
-          unaccountedBytes(closed_.remainder)
+          spanBytes(closed_.remainder)
         } byte(s) unaccounted and no further offer — no structural continuation`,
       );
     }
@@ -556,7 +501,7 @@ export function walkLayer(
       // over the tail of the state's list — and computed ONLY when a meter is
       // attached: this used to slice and MAP a fresh array on every response, for a
       // counter that usually does not exist.  One allocation, under the meter.
-      ctx.meter.reasonAccountedBytes += unaccountedBytes(
+      ctx.meter.reasonAccountedBytes += spanBytes(
         closed_.accounted.slice(d0.accounted.length),
       );
     }
@@ -598,17 +543,13 @@ function sharedPlaces(
   quantum: number,
 ): number {
   if (context.length < quantum || query.length < quantum) return 0;
-  const windows = new Set<string>();
-  for (let o = 0; o + quantum <= context.length; o++) {
-    windows.add(latin1(context.subarray(o, o + quantum)));
-  }
-  const spans: Array<[number, number]> = [];
+  const held = windowIndex(context, quantum);
+  const offsets: number[] = [];
   for (let o = 0; o + quantum <= query.length; o++) {
-    if (windows.has(latin1(query.subarray(o, o + quantum)))) {
-      spans.push([o, o + quantum]);
-    }
+    if (held.has(latin1(query.subarray(o, o + quantum)))) offsets.push(o);
   }
-  return countClusters(spans, quantum);
+  // One place per cluster: windows less than a quantum apart are one place.
+  return unionSpans(windowSpans(offsets, quantum), quantum - 1).length;
 }
 
 /** Whether any query byte lies at least `quantum` away from every span — the
@@ -619,17 +560,8 @@ function roomBeyond(
   spans: ReadonlyArray<Span>,
   quantum: number,
 ): boolean {
-  if (spans.length === 0) return len > 0;
-  const widened = spans
-    .map(([s, e]): [number, number] => [s - quantum, e + quantum])
-    .sort((a, b) => a[0] - b[0]);
-  let reach = 0; // every byte below `reach` is within a quantum of a span
-  for (const [s, e] of widened) {
-    if (s > reach) return true;
-    reach = Math.max(reach, e);
-    if (reach >= len) return false;
-  }
-  return reach < len;
+  const widened = spans.map(([s, e]): Span => [s - quantum, e + quantum]);
+  return unexplainedSpans(len, widened).length > 0;
 }
 
 /** Fuse independent points of attention into one answer (multi-topic).
@@ -704,14 +636,9 @@ export function fusionLayer(
     // vacuously qualifies, preserving the original behaviour exactly.
     const quantum = ctx.space.maxGroup;
     const independentOfPrimary = (root: Attention): boolean =>
-      primarySpans.every(([s, e]) => {
-        const gap = root.end <= s
-          ? s - root.end
-          : e <= root.start
-          ? root.start - e
-          : 0;
-        return gap >= quantum;
-      });
+      primarySpans.every((sp) =>
+        spanGap([root.start, root.end], sp) >= quantum
+      );
     // Decided BEFORE the climb when it is already decided: a root spans at
     // least one query byte, so where every byte lies within a quantum of
     // primary's evidence no root can be independent, and there is nothing the
@@ -845,7 +772,7 @@ export function fusionLayer(
       // answer.  Such a root says what the question's relation IS (traverse.ts,
       // `byCoInstance`), never what it asks about.
       {
-        const form = read(ctx, root.anchor, 2 * query.length);
+        const form = read(ctx, root.anchor, instanceCap(query.length));
         const co = otherInstance(ctx, form);
         if (co !== null) {
           ctx.trace?.step(

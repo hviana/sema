@@ -163,27 +163,6 @@ test("G1: answerRunsInContext decomposes a sparse subsequence and rejects a non-
   assert.equal(answerRunsInContext(null, enc("abc"), enc("xyz")), null);
 });
 
-test("G2: detectSaturated — a saturated PARENT region cannot swallow an unsaturated chunk", async () => {
-  const { detectSaturated } = await import("../dist/src/mind/attention.js");
-  const ctx = { space: { maxGroup: 4 } };
-  // collectRegions emits post-order: the parent (0-8) arrives AFTER its two
-  // chunks and shares chunk 1's start.  With chunk 2 (4-8) unsaturated, the
-  // saturated parent + saturated chunk 3 must NOT fuse into one interval
-  // spanning 0-12 over the unsaturated middle.
-  const regions = [
-    { start: 0, end: 4, chunk: true },
-    { start: 4, end: 8, chunk: true },
-    { start: 0, end: 8, chunk: false }, // post-order parent
-    { start: 8, end: 12, chunk: true },
-  ];
-  const sat = detectSaturated(ctx, regions, [true, false, true, true]);
-  assert.deepEqual(sat.intervals, [
-    { start: 0, end: 4 },
-    { start: 8, end: 12 },
-  ]);
-  assert.equal(sat.leadingEnd, 4);
-});
-
 test("G3: poured halo mass breaks equal-diversity ties (repetition is evidence)", async () => {
   // Both continuations have ONE distinct predecessor context; the second is
   // reinforced across three episodes.  Insertion order must not decide —

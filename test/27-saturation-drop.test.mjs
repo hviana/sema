@@ -27,36 +27,20 @@
 //        A feeds this by storing flat branches BEFORE internTreeIds, so common
 //        words in multiple contexts share one node id → correct parent count.
 //
-//   LAYER 2 — SATURATION NOISE DROP (reads a geometric fact layer 1
-//     already computed, never assumes a probability distribution over position):
-//     During the vote loop (layer 1), each region records `canonicalFailed` —
-//     whether `canonicalChunkId` could NOT resolve those bytes to a
-//     position-independent flat branch.  This is the honest signal: if
-//     `findBranch` (content-addressed hash-consing) failed, the region's
-//     identity is position-dependent — the same content at a different offset
-//     would get a different node id with an artificially low parent count,
-//     making the DAG's IDF read unreliable.  If `canonicalChunkId` SUCCEEDED,
-//     the IDF is already honest (corpus-wide parent count) and no adjustment
-//     is needed: saturated regions were already skipped by `reach.saturated`,
-//     unsaturated ones carry the correct IDF.
-//
-//     After structural saturated-interval detection (`detectSaturated`), votes are
-//     committed: any region whose bytes sit entirely within the detected
-//     saturated interval AND whose `canonicalFailed` is true is DROPPED — before
-//     it is ever summed into a context's total.  Dropping at the REGION level
-//     (not the context level) means a position-fragile region's contribution
-//     can never hide inside a legitimate context's accumulated vote.
-//
-// Layer 1 is ARCHITECTURAL — content identity should not depend on byte position.
-// Layer 2 is GEOMETRIC — it reads a fact layer 1 already computed; no assumed
-// distribution, no tuned constants, no byte scanning.
+//   NO LAYER 2.  A saturation noise drop used to follow: votes of regions
+//   inside a detected saturated opening whose canonicalisation failed were
+//   dropped before pooling, and a root starting inside a leading saturated
+//   interval was refused.  Measured over the suite and three 2Wiki fixtures
+//   (900 questions), neither changed an answer: once layer 1 gives a region a
+//   position-independent identity its IDF is honest, saturated regions abstain
+//   by `reach.saturated`, and nothing is left for a drop to correct.  The
+//   tests below that pinned the drop now pin that layer 1 alone keeps the
+//   focus past a shared opening.
 //
 // REMOVAL INDICATORS (what breaks if each mechanism is removed):
 //   A removed → findBranch returns null for KNOWN leaf-parent sub-span ids
 //   B removed → a common word at a new position doesn't saturate
 //   C removed → flat branch has 0 structural parents after single deposit
-//   (drop) removed → saturated-interval canonicalFailed-region votes are not
-//     suppressed, and can fragment the consensus or inflate a context's total
 //
 // These tests are the IRREVERSIBLE SAFEGUARD.  A build that removes or neuters
 // any mechanism must FAIL here — even if end-to-end answers still pass through
@@ -73,7 +57,7 @@ const dec = (b) => new TextDecoder().decode(b);
 const mk = () =>
   new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
 
-// Shared SYS opening — long enough for hasLeading detection (≥ maxGroup = 4 bytes).
+// Shared SYS opening — longer than one window (≥ maxGroup = 4 bytes).
 const SYS =
   "You are a helpful and harmless assistant.\n\nYou are not allowed to use any tools.\n";
 const SYSLen = enc(SYS).length; // 81 bytes on the reference seed
@@ -347,32 +331,18 @@ test("B — single-topic query is not fragmented", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SATURATED-PREFIX NOISE DROP (layer 2 — reads a fact layer 1 already computed)
+// A SHARED OPENING DOES NOT TAKE THE FOCUS — layer 1 alone.
 //
-// During the vote loop, each chunk region records `canonicalFailed` — whether
-// canonicalChunkId (content-addressed hash-consing via findBranch) could NOT
-// resolve its bytes to a position-independent flat branch.  After detectSaturated
-// finds the saturated-interval boundary, the vote commit drops any region whose
-// bytes sit entirely inside that interval AND whose canonicalFailed is true.
+// A query with a shared SYS opening must return roots whose focus is PAST the
+// opening (in distinctive content): the opening's regions resolve to their
+// position-independent flat branches, whose corpus-wide reach saturates or
+// carries an honest (low) IDF.
 //
-// `canonicalFailed` is the honest signal: if findBranch failed, the region's
-// identity is position-dependent — the same content at a different offset
-// would get a different node id with an artificially low parent count, so the
-// DAG's IDF read is unreliable.  If canonicalChunkId SUCCEEDED, the IDF is
-// already honest (corpus-wide parent count) and needs no adjustment: saturated
-// regions were already skipped by reach.saturated, unsaturated ones carry the
-// correct IDF.
-//
-// We test the EFFECT: a query with a shared SYS opening must return roots
-// whose focus is PAST the saturated interval (in distinctive content).  If the
-// noise drop were removed, saturated-interval foci would not be suppressed and
-// could out-vote genuine distinctive foci.
-//
-// REMOVAL INDICATOR: a query with a saturated interval returns a root whose
-// focus is deep within the SYS opening.
+// REMOVAL INDICATOR: a query with a shared opening returns a root whose focus
+// is deep within it.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test("noise drop — saturated-interval foci are suppressed", async () => {
+test("shared opening — the focus lies past it", async () => {
   const m = mk();
   await m.ingest([
     [
@@ -392,33 +362,22 @@ test("noise drop — saturated-interval foci are suppressed", async () => {
 
   assert.equal(forest.length, 1, "must return 1 root for single-topic query");
 
-  // The root's focus must be AT OR PAST leadingEnd (the saturated-interval
-  // boundary).  leadingEnd is computed from per-region saturation of leading
-  // contiguous regions.  The focus must not be deep within the SYS — if the
-  // noise drop were removed, a saturated-interval region's focus could out-vote
-  // the distinctive one.  `canonicalFailed` regions inside the SYS opening are
-  // dropped per-region during vote commit; regions that canonicalized
-  // successfully have honest IDF and either saturated out (reach.saturated)
-  // or carry correct weight.
-  //
-  // leadingEnd ≥ maxGroup (4) for hasLeading to be true.  The focus position
-  // should be past at least this minimum — if it were at byte 0-3 (deep in
-  // the SYS), the noise drop is broken.
+  // The root's focus must lie past the shared opening's first window: the
+  // opening's regions resolve to flat branches every deposit shares, so they
+  // saturate or carry a low IDF, and the distinctive content out-votes them.
   const focusStart = forest[0].start;
   assert.ok(
     focusStart >= 4,
     `root focus at byte ${focusStart} must be ≥ maxGroup (4). ` +
-      "If the saturated-interval noise drop were removed, interval foci would not be suppressed and " +
-      "could appear as the top root's focus even for distinctive queries.",
+      "a shared opening's regions must not out-vote the distinctive content.",
   );
 
   await m.store.close();
 });
 
-test("noise drop — query without leading interval (no hasLeading) does not drop votes", async () => {
+test("no shared opening — the focus may start at byte 0", async () => {
   const m = mk();
   // No shared SYS opening — the query starts with distinctive content.
-  // hasLeading should be false, so the noise drop should NOT suppress any votes.
   await m.ingest([
     [
       "Neil Armstrong and Buzz Aldrin landed on the Moon in 1969.",
@@ -436,22 +395,20 @@ test("noise drop — query without leading interval (no hasLeading) does not dro
 
   assert.equal(forest.length, 1, "must return 1 root");
 
-  // With no saturated interval, the focus CAN be at byte 0 (the query starts
-  // with distinctive content).  If the noise drop incorrectly fired without
-  // hasLeading, it would suppress this legitimate focus.
+  // With no shared opening, the focus CAN be at byte 0 (the query starts with
+  // distinctive content).
   const focusStart = forest[0].start;
   assert.ok(
     focusStart < SYSLen,
-    `without leading interval, focus at byte ${focusStart} can be early — ` +
-      "the noise drop must gate on hasLeading and not suppress votes when no saturated interval is detected",
+    `without a shared opening, focus at byte ${focusStart} can be early`,
   );
 
   await m.store.close();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// INTEGRATION — identity infra + saturated-interval noise drop compose to fix
-// position-dependent perception failures
+// INTEGRATION — the identity infrastructure fixes position-dependent
+// perception failures
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test("integration — edgeAncestors connects flat branches to edge-bearing contexts", async () => {
@@ -569,11 +526,7 @@ test("integration — combined DF modes work correctly (24-gen combined DF safeg
 // Layer 1 (identity infrastructure) resolves this by deriving a position-
 // independent identity from the only position-independent primitive:
 // single-byte leaves.  Flat branches keyed by those leaf ids are the same node
-// regardless of where the bytes appear.  Layer 2 (saturated-interval noise drop)
-// reads whether layer 1 succeeded (`canonicalFailed`) and drops
-// position-fragile regions before they reach any context's vote total —
-// reading a geometric fact the identity layer already computed, never
-// assuming a probability distribution over byte position.
+// regardless of where the bytes appear.
 //
 // This test is the CANONICAL PROOF: deposit the same byte sequence at two
 // different positions in two different contexts, and verify that the flat
@@ -634,4 +587,60 @@ test("fundamental-gap — same bytes at different positions produce the same fla
   );
 
   await m.store.close();
+});
+
+test("heldElsewhere answers held, apart or saturated — exhaustion is not a holder", async () => {
+  // A span the net reads to its end is `apart` (no other holder) or `held`
+  // (one found); a net the budget cuts off is `saturated`, which the caller
+  // treats as an abstention.  It used to be the same `true` as a holder.
+  const { Mind, SQliteStore } = await import("../dist/src/index.js");
+  const tr = await import("../dist/src/mind/traverse.js");
+  const enc = (s) => new TextEncoder().encode(s);
+  const SYL = [
+    "ba",
+    "ko",
+    "ri",
+    "ten",
+    "mar",
+    "lo",
+    "vi",
+    "sun",
+    "del",
+    "ga",
+    "pu",
+    "zem",
+  ];
+  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  const name = (n) =>
+    cap(SYL[n % 12]) + SYL[(5 * n + 3) % 12] + " " +
+    cap(SYL[(7 * n + 1) % 12]) + SYL[Math.floor(n / 12) % 12];
+  const world = async (holders) => {
+    const store = new SQliteStore({ path: ":memory:" });
+    const m = new Mind({ seed: 7, store });
+    const pairs = [
+      ["Ravenmoor harbour beacon", "lit at dusk"],
+      ["Quillford mill", "grinds barley"],
+    ];
+    for (let i = 0; i < holders; i++) {
+      pairs.push([`${name(i)} keeps the harbour beacon`, `${name(i)} rests`]);
+    }
+    for (let i = 0; i < 40; i++) {
+      pairs.push([`${name(100 + i)} grinds`, "flour"]);
+    }
+    await m.ingest(pairs);
+    const s = "Who keeps the Ravenmoor harbour beacon and the Quillford mill?";
+    const at = s.indexOf("harbour beacon");
+    const r = tr.heldElsewhere(
+      m,
+      enc(s),
+      [at, at + "harbour beacon".length],
+      m.resolve(enc("Ravenmoor harbour beacon")),
+      m.resolve(enc("Quillford mill")),
+    );
+    await store.close();
+    return r;
+  };
+  assert.equal(await world(0), "apart");
+  assert.equal(await world(1), "held");
+  assert.equal(await world(200), "saturated");
 });

@@ -70,7 +70,13 @@ test("a branch's bytes are reconstructed once, not re-walked", async () => {
   // Long deposits, so the nodes have real interior structure to re-walk.
   await mind.ingest([
     ["alpha", "the quick brown fox jumps over the lazy dog again and again"],
-    ["beta", "the quick brown fox jumps over the lazy cat again and again"],
+    // Shares the root's chunks but differs in length by more than a window,
+    // so near dedup rejects it on LENGTH alone (`contentLen`, which never warms
+    // `_bytesCache`) and the reconstruction below still starts cold.
+    [
+      "beta",
+      "the quick brown fox jumps over the lazy cat again and again and again",
+    ],
     ["gamma", "a quick brown fox once jumped over a lazy dog and then rested"],
   ]);
 

@@ -25,13 +25,14 @@
 // voicing them cannot fabricate corpus knowledge.  The only thing that can be
 // fabricated is the RELATION claimed about them — the licence's whole subject.
 //
-// THE LICENCE, IN ONE BYTE PREDICATE (match.ts carriesFillers).  For two
-// instances i, j of one frame:
+// THE LICENCE, IN ONE BYTE CONSTRUCTION (reference.ts).  Each instance i of
+// one frame proposes the answer
 //
-//     substituteAll(cont_i, fillers_i -> fillers_j) == cont_j
+//     substituteAll(cont_i, fillers_i -> referents)
 //
-// If it holds, the corpus attests byte-exactly that the continuation is a
-// function of the fillers and nothing else.  No threshold, no similarity, no
+// and every instance must propose the same bytes: the corpus then attests
+// byte-exactly that the continuation is a function of the fillers and nothing
+// else.  No threshold, no similarity, no
 // new constant.  Three readings, all pinned below:
 //
 //   CARRIED    the continuation quotes the fillers  -> splice the referents

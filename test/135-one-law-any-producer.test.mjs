@@ -6,7 +6,7 @@
 // admits, and the law never asks who produced it.  133 shows that over synthetic
 // states and one provenance label each; 134 shows it against the engine's own
 // refusal on ONE fixture.  This file takes the states the ENGINE actually
-// produced, across five fixtures whose winners are DIFFERENT mechanisms, and asks
+// produced, across fixtures whose winners are DIFFERENT mechanisms, and asks
 // the law about them:
 //
 //   • the winners must really span several mechanisms — otherwise nothing here is
@@ -78,6 +78,14 @@ const FIVE = [
       ["How do I compile parser.c?", "Run gcc parser.c"],
     ],
     query: "How do I compile program.c?",
+  },
+  {
+    name: "counterfactual (test/29)",
+    pairs: [
+      ["The capital of France is Paris", "Paris is in Europe"],
+      ["Lyon", "Lyon is a city in France"],
+    ],
+    query: "what if the capital were Lyon",
   },
   {
     name: "two topics",

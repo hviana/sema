@@ -18,7 +18,7 @@ of coverage that the widest point lacks.
 Frame is what the cohort of aligned structures shares (`commonality.md`):
 
 ```
-frame(i)  ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)     MIN_WEAVE = 2
+frame(i)  ⇔ depth[i] > AGREEMENT ∧ dominates(depth[i], aligned)     AGREEMENT = 2
 usable(r) ⇔ ¬dominates(framedCount(qs, qe), runLen)
 ```
 
@@ -35,7 +35,6 @@ Further competence checks:
 - the question is at least two quanta long;
 - there are at least two ranked anchors;
 - the weave touches a committed point of attention;
-- the weave is genuinely woven, not every run restating a recognised site;
 - no schema transfers through a co-instance of the question (`evidence.md`):
   what it shares is frame, its seat another filler's answer.
 
@@ -54,7 +53,12 @@ Further competence checks:
   `seatOfNode` and corroborated by `analogyStrength` (halo company). The
   question names each with a run it holds, outside the other's runs, not
   scaffolding, held by no other context (`heldElsewhere`). Otherwise a
-  stranger's question or fact is glued to the answer.
+  stranger's question or fact is glued to the answer. A frame-tier analog may
+  not dismiss stored content of the question (`dismissedKnownContent`), the
+  analog is no co-instance, and the largest gap the two leave is smaller than
+  the dominant's own context. (An evidence bar — naming, a trusted root —, the
+  analog's scale, a single committed root and a gap dominating the question were
+  measured redundant with these and removed.)
 
 ## Cost
 
@@ -75,7 +79,7 @@ floor is `2·STEP`. Before first touching the climb or the weave, the floor asks
 - `test/29` — substitution, redirection and comparison, and the displacement of
   their seats. C3: a further hop inside a comparison's seat waits to be asked.
 - `test/43` — the direction of `seatOfNode`.
-- `test/47`, `test/50` — comparison coverage, the analog consensus floor and the
-  shared guards.
+- `test/47`, `test/50` — comparison coverage, the junk analog refused by the
+  ignored-known principle, and the shared guards.
 - `test/154.7`, `test/154.11`, `test/155.9`, `test/155.12` — a comparison names
   two things apart; no schema transfers through a co-instance.

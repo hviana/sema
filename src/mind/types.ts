@@ -74,12 +74,6 @@ export interface GraphSearchHost {
    *  and using them skipped the shortest names first — which is a semantic law,
    *  not an optimisation (test/106, test/108 pin it). */
   contentKeyEnds?(prefix: Uint8Array, tail: Uint8Array): readonly number[];
-  /** The admission predicate — `traverse.ts`'s `leadsSomewhere`, its ONE
-   *  definition: does this node bear an edge or a halo?  Optional, so a bare
-   *  host (a raw Store and nothing else) still works; when present, the search
-   *  uses it rather than re-probing the store, which keeps the predicate
-   *  single-defined AND memoised on the response-scoped struct cache. */
-  leadsSomewhere?(id: number): boolean;
   /** Report a SEARCH REFUSAL into the rationale — the channel AGENTS §6
    *  requires: a callback threaded through a call chain must FEED the
    *  rationale, the way `GraphSearch`'s `onDerivation` feeds `traceDerivation`,
@@ -97,6 +91,12 @@ export interface GraphSearchHost {
    *  canonical resolver maps the surface form to the deposited node while a raw
    *  resolve returns null).  A bare host falls back to the plain probe. */
   canonResolve?(bytes: Uint8Array): number | null;
+  /** The THINGS a span holds — `recognition.ts`'s `thingsIn`, the one entity
+   *  reader of the walk's pivot and the search's derive-through.  A bare host
+   *  falls back to the recognised sites that are things. */
+  thingsIn?(
+    bytes: Uint8Array,
+  ): ReadonlyArray<{ id: number; span: [number, number]; canonical: boolean }>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -251,7 +251,6 @@ export interface Region {
 export interface RegionVote {
   start: number;
   end: number;
-  canonicalFailed: boolean;
   roots: readonly number[];
   w: number;
   wFocus: number;
@@ -288,7 +287,7 @@ export interface RegionVote {
  *  instrumentation for {@link ClimbConsensusData}'s reach trace; it never
  *  feeds back into the climb itself. */
 export type SaturationReason =
-  | "byte-atom-commonality"
+  | "byte-atom-unobservable"
   | "predecessor-fan-in"
   | "distinct-context-limit"
   | "parent-fan-out"
@@ -324,13 +323,6 @@ export interface AncestorReach {
    *  processed nodes.  Present only when a trace was requested — see
    *  {@link visited}. */
   maxDepth?: number;
-}
-
-/** Saturated-interval information for the noise-drop gate. */
-export interface SaturationInfo {
-  leadingEnd: number;
-  hasLeading: boolean;
-  intervals: Array<{ start: number; end: number }>;
 }
 
 /** The items of poolVotes' deduction system. */
@@ -415,10 +407,17 @@ export interface MindContext extends GraphSearchHost {
    *  exact tier witnesses a continuation's establishing contexts against —
    *  its bytes (canonical when the response's canon preserves offsets) and
    *  their window index.  Set and cleared with `_edgeGuide`.  `points` are the
-   *  anchors the response's consensus climb scored, once it has climbed —
-   *  the proposals the exact tier reads co-instances from. */
+   *  anchors the response's consensus climb scored, once it has climbed;
+   *  `forms` the response's resonance inventory (`Precomputed.frames`'
+   *  supply), published with them — together the proposals the exact tier
+   *  reads co-instances from. */
   _edgeAsked:
-    | { bytes: Uint8Array; index: WindowIndex; points?: readonly number[] }
+    | {
+      bytes: Uint8Array;
+      index: WindowIndex;
+      points?: readonly number[];
+      forms?: readonly number[];
+    }
     | null;
   _edgeChoice: Map<number, number>;
   _prevSeen: Set<number> | null;
@@ -539,6 +538,18 @@ export function liftAnswerParts(
     const s = segs[recognised[0]];
     if (s.computed && s.i > 0) return [s];
     if (dominates(s.j - s.i, queryLen)) {
+      // THE PRODUCT DOES NOT VOICE THE ASK.  Around a dominating form, an
+      // edge run of scaffolding a window long is the question's ASK (`Why
+      // did … 's wife die?`): the answer is the form's replacement alone —
+      // voicing the ask would also make the walk read it as said.  Shorter
+      // runs are glue (`2+2.` → `4.`), and the question's own punctuation is
+      // the rewrite's.
+      let pre = 0, post = 0;
+      for (let k = 0; k < recognised[0]; k++) pre += segs[k].bytes.length;
+      for (let k = recognised[0] + 1; k < segs.length; k++) {
+        post += segs[k].bytes.length;
+      }
+      if (pre >= W || post >= W) return [s];
       return segs.filter((_, k) => !restated[k]);
     }
     return [s];

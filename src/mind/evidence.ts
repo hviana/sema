@@ -21,9 +21,11 @@
 // identityBar, attestedQ and the site test all draw), so a form shorter than W
 // is never witnessed.
 //
-// Layering: bytes only — importable from traverse.ts and everything above it.
+// Layering: bytes and the span algebra only — importable from traverse.ts and
+// everything above it.
 
 import { latin1 } from "../bytes.js";
+import { spanBytes, unexplainedSpans, unionSpans } from "./derivation.js";
 
 /** Where each W-window of one source first occurs.  Built once per source and
  *  reused across every form asked against it. */
@@ -87,7 +89,7 @@ export function witness(
       residue: form.length > 0 ? [[0, form.length]] : [],
     };
   }
-  const covered = new Uint8Array(form.length);
+  const covered: Array<[number, number]> = [];
   const own: Array<[number, number]> = [];
   for (let o = 0; o + W <= form.length; o++) {
     const key = latin1(form.subarray(o, o + W));
@@ -102,24 +104,11 @@ export function witness(
       }
     }
     if (from < 0) continue;
-    covered.fill(1, o, o + W);
+    covered.push([o, o + W]);
     if (from === 0) own.push([at, at + W]);
   }
-  const residue: Array<[number, number]> = [];
-  for (let i = 0; i < form.length; i++) {
-    if (covered[i]) continue;
-    const last = residue[residue.length - 1];
-    if (last !== undefined && last[1] === i) last[1] = i + 1;
-    else residue.push([i, i + 1]);
-  }
-  own.sort((a, b) => a[0] - b[0]);
-  const spans: Array<[number, number]> = [];
-  for (const [s, e] of own) {
-    const last = spans[spans.length - 1];
-    if (last !== undefined && s <= last[1]) last[1] = Math.max(last[1], e);
-    else spans.push([s, e]);
-  }
-  let bytes = 0;
-  for (const [s, e] of spans) bytes += e - s;
+  const residue = unexplainedSpans(form.length, covered);
+  const spans = unionSpans(own);
+  const bytes = spanBytes(spans);
   return { complete: residue.length === 0, spans, bytes, residue };
 }

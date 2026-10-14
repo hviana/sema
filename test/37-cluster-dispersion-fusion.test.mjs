@@ -91,9 +91,19 @@ async function setup() {
   const q = enc("red circle then 2+2 equals what");
   const roots = await m.climbAttention(q, 24);
   const binding = roots.find((r) => r.start === 0); // "red circle" [0,10)
-  const echo = roots.find((r) => r.start === 16); // "1+1" [16,17)
   assert.ok(binding, "expected the 'red circle' binding root");
-  assert.ok(echo, "expected the '1+1' echo root");
+  // THE ECHO IS FABRICATED.  Single-byte regions never vote (a byte atom's
+  // containment is unknown — traverse.ts `edgeAncestors`), so the climb no
+  // longer commits the coincidental `1+1` echo the live shape had (test/35).
+  // These tests are about FUSION's gate, so the echo root is built from the
+  // stored `1+1` context at the `2` of the query.
+  assert.ok(
+    !roots.some((r) => r.start === 16),
+    "the climb commits no root for the single-byte region",
+  );
+  const anchor = m.resolve(enc("1+1"));
+  assert.ok(anchor !== null, "the `1+1` context is stored");
+  const echo = { ...binding, start: 16, end: 17, anchor };
   const guide = gistOf(m, q);
   return { m, q, binding, echo, guide };
 }

@@ -38,7 +38,13 @@ export interface AlphabetConfig {
 }
 
 export interface StoreConfig {
-  minHaloMass: number;
+  /** Near dedup at intern: a fresh branch whose bytes differ from a form a
+   *  deposit learnt whole by ONE span of at most W bytes, and whose gist clears
+   *  the length-aware identity bar against it, reuses that form's id — a
+   *  byte-losing compression, decided the same way whatever the batch size,
+   *  flush schedule or session.  On by default; `false` keeps every distinct
+   *  byte sequence its own node. */
+  nearDedup: boolean;
   /** Query breadth of the IVF vector indices: clusters probed per query =
    *  ceil(efSearch / 4).  Inserts have no quality knob — the partitioned
    *  index routes and appends, so ingestion cost is flat by construction. */
@@ -116,17 +122,6 @@ export interface MindConfig {
   seed: number;
   recallQueryK: number;
   haloQueryK: number;
-  /** Branch nodes the pivot sweep may PROBE looking for the learnt context an
-   *  answer contains — the pivot's own shortlist capacity, separate from
-   *  `recallQueryK` because they are different quantities: this one bounds a
-   *  MECHANICAL sweep over the answer's tree (breadth-first, largest regions
-   *  first, so an exhausted allowance drops the far ones and never the near
-   *  ones), while `recallQueryK` bounds the bridge's candidate reads.  Sharing
-   *  one number for both meant that tightening either silently starved the
-   *  other — measured: at `recallQueryK: 1` the pivot cannot find a pivot at
-   *  all.  (`rationaleSampleK` was split out of `recallQueryK` for the same
-   *  reason, found by an adversarial review.) */
-  pivotProbeK: number;
   /** Corpus reading (see src/mind/corpus.ts): results per call, resolved
    *  nodes climbed from, contexts requested per climb, probes used to stride
    *  the id space when browsing, bytes of each side a preview keeps, and the
@@ -159,7 +154,6 @@ export const DEFAULT_CONFIG: MindConfig = {
   seed: 42,
   recallQueryK: 12,
   haloQueryK: 12,
-  pivotProbeK: 12,
   rationaleSampleK: 12,
   corpusLimitMax: 24,
   corpusClimbs: 24,
@@ -183,11 +177,11 @@ export const DEFAULT_CONFIG: MindConfig = {
     seedMask: 0xa1fa17,
   },
   store: {
-    minHaloMass: 1,
     efSearch: 64,
     compactEveryNWrites: 50_000,
     overfetch: 4,
     batchSize: 256,
+    nearDedup: true,
     dedupCacheMax: 1_000_000,
     bytesCacheMax: 20_000_000,
     recCacheBytes: 10_000_000,
@@ -208,7 +202,6 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
     seed: opts.seed ?? DEFAULT_CONFIG.seed,
     recallQueryK: opts.recallQueryK ?? DEFAULT_CONFIG.recallQueryK,
     haloQueryK: opts.haloQueryK ?? DEFAULT_CONFIG.haloQueryK,
-    pivotProbeK: opts.pivotProbeK ?? DEFAULT_CONFIG.pivotProbeK,
     rationaleSampleK: opts.rationaleSampleK ?? DEFAULT_CONFIG.rationaleSampleK,
     corpusLimitMax: opts.corpusLimitMax ?? DEFAULT_CONFIG.corpusLimitMax,
     corpusClimbs: opts.corpusClimbs ?? DEFAULT_CONFIG.corpusClimbs,
@@ -236,12 +229,12 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
       seedMask: opts.alphabet?.seedMask ?? DEFAULT_CONFIG.alphabet.seedMask,
     },
     store: {
-      minHaloMass: opts.store?.minHaloMass ?? DEFAULT_CONFIG.store.minHaloMass,
       efSearch: opts.store?.efSearch ?? DEFAULT_CONFIG.store.efSearch,
       compactEveryNWrites: opts.store?.compactEveryNWrites ??
         DEFAULT_CONFIG.store.compactEveryNWrites,
       overfetch: opts.store?.overfetch ?? DEFAULT_CONFIG.store.overfetch,
       batchSize: opts.store?.batchSize ?? DEFAULT_CONFIG.store.batchSize,
+      nearDedup: opts.store?.nearDedup ?? DEFAULT_CONFIG.store.nearDedup,
       dedupCacheMax: opts.store?.dedupCacheMax ??
         DEFAULT_CONFIG.store.dedupCacheMax,
       bytesCacheMax: opts.store?.bytesCacheMax ??

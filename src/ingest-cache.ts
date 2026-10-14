@@ -44,7 +44,6 @@ import type { Input } from "./mind/index.js";
 import { BoundedMap } from "./store.js";
 import type { Vec } from "./vec.js";
 import { invalidateStructuralCaches } from "./mind/traverse.js";
-import { invalidateJunctionCache } from "./mind/junction.js";
 
 /** The interned result of perceiving + interning ONE input.
  *
@@ -126,7 +125,6 @@ export class CachedIngest {
     second?: Input,
   ): Promise<(Sema & { id: number }) | undefined> {
     invalidateStructuralCaches(this.mind);
-    invalidateJunctionCache(this.mind);
     // One shape-reading for both ingest paths — see {@link dispatchIngest}.
     return dispatchIngest(
       input,

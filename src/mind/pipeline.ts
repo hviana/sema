@@ -21,7 +21,7 @@ import {
   type DerivationState,
   remainderOf,
   type Span,
-  unaccountedBytes,
+  spanBytes,
   unexplainedSpans,
   windowOf,
 } from "./derivation.js";
@@ -135,6 +135,9 @@ export interface DecideGroundingData {
     grade: number;
     /** Query bytes the candidate's accounted spans leave unexplained. */
     unexplainedBytes: number;
+    /** The candidate's own discrete moves — `weight` is exactly these plus
+     *  PASS per unexplained byte (the one formula). */
+    moves: number;
     /** Whether this candidate won the decision. */
     decided: boolean;
   }>;
@@ -274,6 +277,7 @@ export async function think(
     bytes: Uint8Array;
     provenance: string;
     weight: number;
+    moves: number;
     used?: ReadonlySet<number>;
     accounted: ReadonlyArray<[number, number]>;
     complete?: boolean;
@@ -284,7 +288,7 @@ export async function think(
   }
   const grade = (w: number) => Math.floor(w / STEP);
   const unaccounted = (spans: ReadonlyArray<[number, number]>): number =>
-    unaccountedBytes(unexplainedSpans(query.length, spans));
+    spanBytes(unexplainedSpans(query.length, spans));
   const weigh = (
     accounted: ReadonlyArray<[number, number]>,
     moves: number,
@@ -589,11 +593,36 @@ export async function think(
         bytes: r.bytes,
         provenance: r.provenance ?? mech.provenance,
         weight,
+        moves: r.moves,
         used: r.used,
         accounted: r.accounted,
         complete: r.complete,
         scaffolding: r.scaffolding,
       });
+    }
+  }
+  // …AND A RESULT READ BEFORE THE CLIMB IS READ AGAIN AFTER IT, whoever ran
+  // first.  A mechanism at the head of the declared order (the cover) runs
+  // before any climb, so the evidence that names its pick through another
+  // instance was not there either; once a later mechanism has run the climb and
+  // instances carry a relation, it is read again, as a run-ahead result is.
+  if (pointsShown() && readsOffInstances(ctx)) {
+    for (let mi = 0; mi < mechanisms.length; mi++) {
+      const held = runs.get(mi);
+      if (held === undefined || held.points) continue;
+      const mech = mechanisms[mi];
+      for (const r of await runOf(mi, () => true)) {
+        consider({
+          bytes: r.bytes,
+          provenance: r.provenance ?? mech.provenance,
+          weight: weigh(r.accounted, r.moves),
+          moves: r.moves,
+          used: r.used,
+          accounted: r.accounted,
+          complete: r.complete,
+          scaffolding: r.scaffolding,
+        });
+      }
     }
   }
   // A market of ONE mechanism never reaches iteration 1; the step is still
@@ -648,6 +677,7 @@ export async function think(
           weight: c.weight,
           grade: grade(c.weight),
           unexplainedBytes: unaccounted(c.accounted),
+          moves: c.moves,
           decided: c === decided,
         })),
         ...(margin !== null ? { runnerUpMargin: margin } : {}),
@@ -752,8 +782,8 @@ export async function think(
   // paid-in-full reading is computed only when a meter will read it.
   if (ctx.meter) {
     const paidInFull = remainderOf(query.length, priced, ctx.space.maxGroup);
-    ctx.meter.groundingWithheldBytes += unaccountedBytes(paid) -
-      unaccountedBytes(paidInFull);
+    ctx.meter.groundingWithheldBytes += spanBytes(paid) -
+      spanBytes(paidInFull);
   }
   const state: DerivationState = {
     product: answer,
@@ -860,7 +890,7 @@ export async function think(
       // every other operand here — and the spans are the state's, so a reader
       // can check them against the meter's aggregate of the same remainder.
       remainderSpans: state.remainder.length,
-      remainderBytes: unaccountedBytes(state.remainder),
+      remainderBytes: spanBytes(state.remainder),
       fixed: state.fixed === true,
     },
   );
@@ -884,7 +914,7 @@ export async function think(
   // extension or a fusion stops being invisible.
   if (meter) {
     meter.postGroundingRemainderSpans += uncovered.length;
-    meter.postGroundingRemainderBytes += unaccountedBytes(uncovered);
+    meter.postGroundingRemainderBytes += spanBytes(uncovered);
   }
   // ── THE CLOSURE ENGINE ───────────────────────────────────────────────
   //

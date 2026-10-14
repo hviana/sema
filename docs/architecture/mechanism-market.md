@@ -41,7 +41,7 @@ then the ALU (`aluToMechanism`), then extensions. A mechanism reports what it
 did, never a price. The decider prices it in one place (`cost-model.md`):
 
 ```
-weight = moves + PASS · unaccountedBytes      grade = ⌊weight / STEP⌋
+weight = moves + PASS · unaccounted    grade = ⌊weight / STEP⌋
 ```
 
 The lowest grade wins. At equal grade, fewer `scaffolding` bytes win, then the
@@ -99,6 +99,12 @@ birth of John Lennon is Liverpool.` owed 49 bytes ahead of the
 climb and 28 after it. Rerunning whenever the climb has run costs 26% more bytes
 read on the 31.7M-node store and changes no answer, so the rerun waits for that
 evidence.
+
+The same holds for a mechanism at the head of the declared order: the cover runs
+before any climb, so a result read without the climb's points is read again once
+a later mechanism has run the climb and instances carry a relation. Without it,
+the evidence that names the cover's step was never counted (the grandmother
+questions, whose step is named only through other instances).
 
 This is never extra work. On the 31.7M-node store a grade-1 recall run ahead of
 CAST's climb answers a lowercased Persian turn in 1.2 s, against 18.0 s in the

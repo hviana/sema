@@ -13,40 +13,44 @@ import {
   perceive,
   resolve,
 } from "./primitives.js";
-import { atomIsHub, bearsEdge, corpusN, leadsSomewhere } from "./traverse.js";
-import { chainReach, leafIdAt, leafIdRun } from "./canonical.js";
-import { canonHash } from "../canon.js";
-import { latin1 } from "../bytes.js";
+import {
+  bearsEdge,
+  corpusN,
+  heldWithin,
+  leadsSomewhere,
+  offsetCanon,
+} from "./traverse.js";
+import { atomIsHub } from "../geometry.js";
+import { chainReach, flatId } from "./canonical.js";
+import { bytesEqual, latin1 } from "../bytes.js";
 import { isChunk, type Sema } from "../sema.js";
 import type { Leaf, Site } from "./graph-search.js";
 
 /** Decompose a byte stream into every stored form that leads somewhere
- *  (has a continuation edge or a halo).  Two complementary readings:
+ *  (has a continuation edge or a halo).  Three readings of ONE question —
+ *  "which spans of these bytes are stored forms?":
  *
- *   • structural — walk the query's own perceived tree, naming each subtree
- *     by findLeaf at the leaves and findBranch above.  Catches every form
- *     aligned to the query's segmentation.
+ *   • structural — the query's own perceived tree, each subtree named as the
+ *     write side named it (and, where that misses, by its canonical class);
+ *   • the exact sweep — every span within one reach of every start, and the
+ *     stream's edges beyond it, probed by its flat twin (one hash extended a
+ *     byte at a time) and resolved where it hits.  Every form that leads
+ *     somewhere HAS a flat twin, so this names a stored form at whatever
+ *     offset it sits — no fold cut needs to fall on its borders;
+ *   • the canonical sweep — the same sweep over the stream's canonical bytes,
+ *     against the canon index.
  *
- *   • canonical — re-derive the store's segmentation directly: at each byte,
- *     the longest known leaf, chained into flat branches.  Names forms the
- *     query's own cut cannot, and records sub-leaf boundaries as `splits`.
+ *  Probes are content-addressed and filtered (bloom) — never a scan of the
+ *  corpus.  This replaced ten tiers (edge trims at three reaches, chunk
+ *  sub-runs, chains at two reaches, budgeted edge and interior probes, cut
+ *  suffixes): each was a special case of the sweep, measured identical on
+ *  every compositional and inference question of three fixtures, with CPU
+ *  unchanged.
  *
- *  Both O(n · maxGroup) bounded O(1) probes — never a scan of the corpus.
- *
- * ONE READING PER BYTE STREAM, deliberately: there is no "cheap mode" that
- * skips
- * the edge-trim fallbacks. A `trimmed` variant was tried and REFUTED twice
- * over. Its premise — "the trims only recover misaligned FRAGMENTS, so a
- * consumer whose gate rejects fragments loses nothing" — is false: the
- * left/right trim loops below exist precisely to find WHOLE trained forms
- * embedded at an offset the query's own fold did not cut, and such a form has
- * no structural parents or containers, so it passes the pivot's fragment gate
- * and is exactly the candidate a multi-hop chain steps through. Skipping them
- * narrows the pivot's evidence silently. And a per-caller variant has to key
- * the memo by the variant, which breaks the "computed at most once" property
- * (memoization.md): the pipeline recognises a grounded answer untrimmed for
- * `preConsumed`, and the pivot then recognises the same bytes again — the
- * saving inverts into a doubling on the path it was measured for. */
+ *  ONE READING PER BYTE STREAM, deliberately: a per-caller variant would key
+ *  the memo by the variant and break "computed at most once" (memoization.md):
+ *  the pipeline recognises a grounded answer for `preConsumed`, and the pivot
+ *  then recognises the same bytes again. */
 export function recognise(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -159,13 +163,11 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // ("qq8f3kz9…") grounds to an arbitrary learnt sentence instead of
   // silence.  Atoms stay available as leaves (PASS-carried literals) and
   // through exact tier-0 resolution regardless.
-  const atomsAreHubs = atomIsHub(ctx, corpusN(ctx));
-  // Distinct probes (structural exact match, canon fallback, edge trims at
-  // several offsets) can legitimately re-derive the SAME (start, end, id)
-  // site from different tree nodes — a wide edge-trim search is exactly
-  // this on purpose (see below).  Duplicate site entries are not wrong
-  // evidence, but they double the weight cover's derivation search gives
-  // that span, distorting its cost model — the same span must count once.
+  const atomsAreHubs = atomIsHub(corpusN(ctx), ctx.space.maxGroup);
+  // The structural and sweep readings can legitimately re-derive the SAME
+  // (start, end, id) site.  Duplicate site entries are not wrong evidence,
+  // but they double the weight cover's derivation search gives that span,
+  // distorting its cost model — the same span must count once.
   const seen = new Set<string>();
   const emit = (start: number, end: number, id: number) => {
     if (id < 0 && atomsAreHubs) return;
@@ -222,547 +224,103 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     else if (n.kids !== null) {
       const cid = canonResolve(ctx, bytes.subarray(start, end));
       if (cid !== null) emit(start, end, cid);
-      // The edge-trim fallbacks below remove 1 byte from a side; the
-      // remainder must still be a composite (>= 2 bytes, the same floor
-      // n.kids !== null enforces above) rather than degenerate into
-      // single-byte-atom territory, which atomIsHub already governs
-      // separately.
-      else if (end - start - 1 >= 2) {
-        // The chunk's own boundary is drawn by content geometry, not by
-        // any notion of "form" — it can include one edge byte the query's
-        // fold happened to attach here that the trained span never had
-        // (e.g. a separator from the preceding chunk).  The core has no
-        // idea what that byte means; it only knows resolve()/canonResolve
-        // are self-verifying (hash-then-verify, same discipline as every
-        // content lookup here), so a blind one-byte-shorter guess on
-        // either edge costs nothing when wrong and is trustworthy when it
-        // hits.  Two extra probes, only on the already-failed miss path.
-        const left = resolve(ctx, bytes.subarray(start + 1, end));
-        if (left !== null) emit(start + 1, end, left);
-        const right = resolve(ctx, bytes.subarray(start, end - 1));
-        if (right !== null) emit(start, end - 1, right);
-        // A misalignment wider than one byte (e.g. more than one edge
-        // separator swallowed) is not itself geometry-quantized — the
-        // WRITE side's canonical index (canonicalWindows) interns sliding
-        // W−1/W-length windows over leaf ids at EVERY offset, not just
-        // radix-aligned ones (see canonical.ts) — so the offset that
-        // recovers a trained span can be anything, not a multiple of W.
-        // What IS bounded is how far it's worth looking: chainReach(W)=W²,
-        // the same reach the canonical pass (tryChain) trusts for a chain
-        // rebuilt off the query's own fold.  Every candidate offset is
-        // gated by store.findBranch(leafIds) first — the SAME cheap,
-        // fold-free existence check tryChain already uses — so the extra
-        // resolve() fold (the real cost) is only paid when a branch could
-        // plausibly exist there, not for every offset.  The node itself is
-        // also bounded to chunk-scale (end - start <= W²): widening this at
-        // whole-query/root scale can rediscover a smaller subtree's own
-        // content as a second, overlapping site the structural walk's own
-        // finer recursion already emits correctly on its own — a duplicate
-        // that downstream derivation can stitch into a wrong answer.
-        const W = ctx.space.maxGroup;
-        for (
-          let k = 1;
-          end - start <= W * W && k <= W * W && start + k < end - 1;
-          k++
-        ) {
-          const lIds = leafIdRun(ctx, bytes, start + k, end);
-          if (lIds !== null && store.findBranch(lIds) !== null) {
-            const eLeft = resolve(ctx, bytes.subarray(start + k, end));
-            if (eLeft !== null) emit(start + k, end, eLeft);
-          }
-          const rIds = leafIdRun(ctx, bytes, start, end - k);
-          if (rIds !== null && store.findBranch(rIds) !== null) {
-            const eRight = resolve(ctx, bytes.subarray(start, end - k));
-            if (eRight !== null) emit(start, end - k, eRight);
-          }
-        }
-        // A trained form embedded at this span's left edge, past the
-        // chunk-scale bound above.  The loop above probes exactly this — trim
-        // k leading bytes, verify the remainder is a stored branch — but only
-        // for spans of at most W².  A turn prefixed with a connective is
-        // turn-scale, so it never qualified.
-        //
-        // Widening that loop's SIZE bound is what reopens test/46's
-        // root-scale false positive.  Widening only its LEFT trim, to a
-        // bounded W offsets, does not: every candidate is still verified by
-        // exact content addressing (the leaf-id run must BE a stored branch),
-        // and the result always ends where this span ends, so it can never
-        // introduce the smaller-subtree duplicate that regression was about.
-        //
-        // This replaces an assumption that no longer holds — that such a
-        // form's left edge must be a cut the fold itself drew.  It held while
-        // cuts had long memory and a turn boundary reliably produced one; a
-        // bounded-window rule re-synchronises a byte or two INTO the turn
-        // instead, so the edge itself is often not a cut ("And " ends at 65,
-        // and the fold's nearest cuts are 61 and 67).
-        // No leaf-id prefilter here, unlike the loop above: a leaf id is the
-        // LONGEST known leaf at a position, so the run itself is context
-        // sensitive — measured, the embedded copy of a trained form yields a
-        // different run from the standalone one and findBranch misses even
-        // though the bytes resolve exactly (span [65,94): findBranch null,
-        // resolve 91).  With only W candidates the exact fold is affordable,
-        // and it is the stronger evidence anyway: if it resolves, these exact
-        // bytes ARE a stored node.
-        for (let k = 1; k <= W && start + k < end - 1; k++) {
-          const eLeft = resolve(ctx, bytes.subarray(start + k, end));
-          if (eLeft !== null) emit(start + k, end, eLeft);
-        }
-        // THE SAME SEARCH ON THE OTHER EDGE.  Everything above trims from the
-        // LEFT and keeps this span's END fixed, so a stored form was findable
-        // only when it ENDED where a fold node ends.  Measured on a 12-context
-        // store, probing for a trained 47-byte sentence wrapped in filler:
-        // 1-4 bytes of LEFT padding kept it recognisable, while ONE byte of
-        // right padding lost it.  That asymmetry was never argued for — the
-        // reasoning above is about a form's left edge landing on a cut, and it
-        // says nothing about which side the noise is on.
-        //
-        // The stated hazard for widening this search is test/46's root-scale
-        // false positive, and it is a hazard of the SIZE bound, not of the
-        // direction: like its mirror this loop is bounded to W offsets and
-        // every candidate is verified by exact content addressing, so it can
-        // only ever emit spans that ARE stored nodes.  Measured: neutral on
-        // the suite, and the right-padded cases above become recognisable.
-        for (let k = 1; k <= W && start < end - k - 1; k++) {
-          const eRight = resolve(ctx, bytes.subarray(start, end - k));
-          if (eRight !== null) emit(start, end - k, eRight);
-        }
-        // A REAL extra word at the left edge (a discourse connective like
-        // "And " prepended to a follow-up turn — not boundary noise, actual
-        // content the injected canonicalizer has no equivalence for) shows
-        // up as a canon-miss too big for the chunk-scale search above: the
-        // turn is its OWN segment, so it can be turn/segment-scale, not
-        // chunk-scale.  Widening the size bound itself reopens the root-scale
-        // false-positive this module already fixed once (test/46); widening the
-        // SEARCH instead does not, because every candidate is a cut the query's
-        // OWN fold drew (`starts`, the same set the canonical pass privileges
-        // with full chain reach) — fold EVIDENCE, never a blind guess.
-        //
-        // The candidates are the fold's own segment starts inside this span, in
-        // order.  They used to be probed at `start + k*W`, which assumed cuts
-        // land on multiples of W; content-defined cuts do not, so that stride
-        // tested offsets no segment ever began at and this search silently
-        // never fired (test/44 pins it).  Still bounded to W candidates, each
-        // one O(1) from the sorted cut list before paying for a real
-        // canonResolve fold — canonResolve, not resolve()/findBranch, because
-        // the gap here is often exactly the kind of equivalence (case, in the
-        // live trace) canon exists for, not an exact-content coincidence.
-        // A deposit's ROOT is a whole-stream node, and a stream's ends are not
-        // content cuts — so an embedded occurrence of a trained form reproduces
-        // its SEGMENTS (which are offset-free) but never its root.  What is
-        // being looked for is therefore a suffix of this span that happens to be
-        // a whole trained form, and its left edge can only be a cut the fold
-        // itself drew.  Candidates are taken from the RIGHT, nearest the end
-        // first: the form ends where this node ends, so its start is near it.
-        // Left-to-right was wrong — in test/44 the target's start is the 6th cut
-        // from the end but the 12th from the beginning.
-        //
-        // `starts` is still filling (this runs inside the post-order walk), but
-        // post-order guarantees every chunk BELOW this span is already in it —
-        // exactly the set wanted.  Bounded to chainReach(W) candidates, the same
-        // reach the canonical pass trusts, so cost stays O(reach · span).
-        let hi = startList.length; // first index past the last usable cut
-        let lo = 0;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (startList[mid] < end - 1) lo = mid + 1;
-          else hi = mid;
-        }
-        const reach = chainReach(W);
-        for (let k = 0; k < reach; k++) {
-          const p = startList[lo - 1 - k];
-          if (p === undefined || p <= start) break;
-          const cid = canonResolve(ctx, bytes.subarray(p, end));
-          if (cid !== null) emit(p, end, cid);
-        }
-      }
     }
     if (isChunk(n)) {
       starts.add(start);
       if (startList[startList.length - 1] !== start) startList.push(start);
-      // Try every sub-span within this leaf-parent.
-      const leafOffsets: number[] = [];
-      let off = start;
-      for (const k of n.kids) {
-        leafOffsets.push(off);
-        off += k.leaf?.length ?? 0;
-      }
-      // Sub-spans starting at i > 0 begin INSIDE the chunk, at an offset the
-      // query's own fold did not itself choose as a boundary — the same
-      // opportunistic byte-atom-chain risk `tryChain`'s `boundary` gate
-      // guards below (see its comment).  Only the chunk's own left edge
-      // (i === 0, already registered in `starts` above) carries the fold's
-      // evidence; interior sub-starts are exempt from the guard only while
-      // atoms themselves still discriminate at this corpus scale.
-      for (let i = 0; i < n.kids.length; i++) {
-        if (i > 0 && atomsAreHubs) break;
-        const subIds: number[] = [];
-        for (let j = i; j < n.kids.length; j++) {
-          const kj = n.kids[j];
-          if (kj.kids !== null || !kj.leaf) break;
-          const lid = store.findLeaf(kj.leaf);
-          if (lid === null) break;
-          subIds.push(lid);
-          const branch = store.findBranch(subIds);
-          if (branch === null) continue;
-          const subEnd = leafOffsets[j] + (kj.leaf?.length ?? 0);
-          const resolved = resolveSpan(leafOffsets[i], subEnd);
-          if (resolved !== null) emit(leafOffsets[i], subEnd, resolved);
-        }
-      }
     }
   });
 
-  // ── canonical: longest-known-leaf re-segmentation ──────────────────
+  // ── THE ONE EXACT SWEEP ──────────────────────────────────────────────
+  // Every form that leads somewhere has a FLAT twin (a deposit is interned
+  // whole and flat; a suffix inherits an edge only where its flat twin
+  // exists), and with implicit byte leaves the flat probe is exact at any
+  // offset.  So "which spans of the question are stored forms?" is one
+  // sweep: every span within one reach of every start, the hash extended a
+  // byte at a time (Store.flatSpans), each hit resolved; and the whole
+  // question's edges beyond the reach.  Where the exact probe misses, the
+  // canonical sweep proposes.
   const W = ctx.space.maxGroup;
-  const singleLeaf: Array<{ id: number; end: number } | null> = new Array(
-    bytes.length,
-  ).fill(null);
-  for (let p = 0; p < bytes.length; p++) {
-    const id = leafIdAt(ctx, bytes, p);
-    if (id !== null) singleLeaf[p] = { id, end: p + 1 };
-  }
-
-  const leafFrom = (p: number): { id: number; end: number } | null => {
-    if (p >= bytes.length) return null;
-    return singleLeaf[p];
+  const flatAt = store.flatSpans?.(bytes) ??
+    ((start: number, end: number) => flatId(ctx, bytes.subarray(start, end)));
+  const n = bytes.length;
+  const reach = chainReach(W) * W * W + 2 * ctx.space.seats.length;
+  // Spans the exact probe did not name — what the canonical sweep asks.
+  const missed = new Set<number>();
+  const exact = (p: number, e: number, chained: boolean): boolean => {
+    if (ctx.meter) ctx.meter.recogniseSpans++;
+    const flat = flatAt(p, e);
+    if (flat === null) {
+      missed.add(p * (n + 1) + e);
+      return false;
+    }
+    // At the scale where atoms are hubs, a stored run starting off the fold's
+    // own cuts is read only when it can lead somewhere: it bears an edge
+    // itself, or it is a whole deposit's flat twin — a flat node no larger
+    // form holds (a window or a chunk always is held).  Existence probes,
+    // paid before the fold `resolve` would cost.
+    if (
+      chained && atomsAreHubs && !starts.has(p) && !bearsEdge(ctx, flat) &&
+      heldWithin(ctx, flat)
+    ) return false;
+    const id = resolveSpan(p, e);
+    if (id === null) {
+      if (ctx.meter) ctx.meter.bloomFalsePositives++;
+      missed.add(p * (n + 1) + e);
+      return false;
+    }
+    emit(p, e, id);
+    return true;
   };
-
-  // ── exact query-edge forms beyond the canonical chain reach ─────────
-  //
-  // At corpus scale off-boundary atom chains are deliberately suppressed,
-  // but a whole trained form can be longer than chainReach(W) and sit at a
-  // query edge without being a subtree of the query's larger root. Appending
-  // another topic demonstrates the failure: the exact 30-byte trained
-  // question `What is the capital of France?` ends inside the larger query's
-  // [27,33) content segment, so neither the structural walk nor a W² chain
-  // can name it.
-  //
-  // Probe only prefix/suffix endpoints within one maximum segment of the
-  // query's own content cuts. The flat-branch lookup is byte-exact and runs
-  // before resolveSpan pays for a fold; approximate evidence never enters.
-  // This tier is needed only where atom chains are suppressed. Small stores
-  // retain their existing decomposition unchanged.
-  // ALWAYS ON, AND LINEAR.  This used to be gated on `atomsAreHubs` — small
-  // stores were said to "retain their existing decomposition unchanged", which
-  // was true only while the query's fold was told where the turns were: every
-  // turn was then a NODE, so the structural walk found it and this tier had
-  // nothing to add.  The fold no longer imposes turn boundaries (a turn start
-  // is an ordinary interior offset now), so a trained form embedded in a
-  // longer query is reachable ONLY here — the chain caps at chainReach(W)=W²
-  // bytes and cannot span one.  Measured: with the fold imposing boundaries
-  // every turn is a node; without it, none is.
-  //
-  // Ungating it alone made inference QUADRATIC (test/14's constant-KB/s guard
-  // went to 41.8s): every offset near a cut is an endpoint, and each probe
-  // costs O(span) to slice the leaf-id run and hash it.  The budget below is
-  // what makes it affordable — see `spend`.
-  {
-    const allLeafIds = singleLeaf.map((x) => x?.id ?? null);
-    if (allLeafIds.every((x): x is number => x !== null)) {
-      const radius = ctx.space.seats.length;
-      const endpoints = new Set<number>([0, bytes.length]);
-      for (const cut of startList) {
-        for (
-          let p = Math.max(0, cut - radius);
-          p <= Math.min(bytes.length, cut + radius);
-          p++
-        ) endpoints.add(p);
-      }
-      const ordered = [...endpoints].sort((a, b) => a - b);
-      // The leaf-id run is BYTE-EXACT, while `resolveSpan` behind it resolves
-      // exactly OR canonically — so this gate was strictly narrower than its
-      // own resolver, and every embedded form differing from its deposit only
-      // by the response's equivalence (case, width) was dropped before the
-      // resolver ever saw it.  Rebuilding the run over canonicalized bytes
-      // does NOT fix that: a differently-cased deposit's branch kid-ids are
-      // not the query's leaf-id run under ANY canonicalization of the query,
-      // so the second admission route has to be the canon INDEX itself — the
-      // same candidate proposal `canonResolve` makes, and the same
-      // cheap-probe-before-a-fold discipline the exact route already follows
-      // (a hash and an indexed lookup; no fold, no vector, no scan).  Both
-      // routes only PROPOSE; `resolveSpan` still decides, so a hash-bucket
-      // collision costs one fold and can never emit a wrong site (test/71).
-      const canonAdmits = (start: number, end: number): boolean => {
-        const canon = ctx.canon;
-        if (canon === null || !store.canonFind) return false;
-        const key = canon(bytes.subarray(start, end));
-        if (key.length === 0) return false;
-        return store.canonFind(canonHash(key)).length > 0;
-      };
-      // The byte-exact route probes the SPAN ITSELF (see
-      // Store.findFlatBranch): for a run of single-byte leaves the flat-kid
-      // encoding is the identity, so the span's bytes ARE the branch key.
-      // `subarray` is a view — this allocates nothing per probe, and the
-      // bloom filter answers the misses without touching the database.
-      //
-      // Through ONE span prober (Store.flatSpans), because hashing the key was
-      // itself the quadratic: every probe hashed its span from the start, and
-      // the interior pass below sweeps up to `reach` ends past each endpoint —
-      // O(n · reach²) bytes hashed.  Measured on the 31.7M-node store, one
-      // composition-regime response (#97 of the battery) probed 2,079,400
-      // spans and hashed 251,660,406 bytes for them.  The prober extends each
-      // start's hash instead, so the same probes, answered identically, cost
-      // O(n · reach).
-      const spans = store.flatSpans?.(bytes) ?? null;
-      const flatProbe = (start: number, end: number): number | null =>
-        spans !== null
-          ? spans(start, end)
-          : store.findFlatBranch
-          ? store.findFlatBranch(bytes.subarray(start, end))
-          : store.findBranch(allLeafIds.slice(start, end));
-      // THE TWO ROUTES COST DIFFERENT THINGS, SO THEY ARE PRICED SEPARATELY.
-      //
-      // The exact route is a bloom-gated hash over a subarray VIEW: no
-      // allocation, and a miss never reaches the database.  It is cheap enough
-      // to run on every endpoint, and that is what makes this tier able to
-      // find a trained form embedded anywhere in the query.
-      //
-      // The canon route is not: it runs the canonicalizer over the span
-      // (NFKC, case-fold, whitespace) and allocates a fresh key for every
-      // probe.  That is the O(span) cost with the heavy constant, and it is
-      // the one worth a budget.  Sharing ONE budget between them made the
-      // cheap route starve on the expensive one's behalf — measured, test/71's
-      // embedded differently-cased form needed 64x the budget to be found,
-      // while the exact route it was competing with needed none of it.
-      const probe = (
-        start: number,
-        end: number,
-        canonBudget: boolean,
-      ): boolean => {
-        // Any span at least one river window wide is worth a probe.  This used
-        // to stop at `chainReach(W)` — "the chain already covers anything that
-        // short" — and that premise does not hold for every embedded form: the
-        // chain grows single-byte leaf ids and SKIPS a prefix whose
-        // `findBranch(ids)` is null, so a form the write side stored as a nested
-        // tree rather than as a flat leaf-id branch is never `resolveSpan`ned
-        // (measured: "Gustaf Molander" embedded in "The director of Eva is
-        // Gustaf Molander." gains no branch at any prefix), and its INTERIOR
-        // reach is one chunk plus W, which can be shorter than the form.  The
-        // result was a dead zone: a form shorter than `chainReach` that neither
-        // starts on a fold cut nor ends on a node edge was unreachable by either
-        // tier — the exact site whose loss `tryChain`'s own note records as "the
-        // pivot dies with the site and multi-hop goes silent".  The interior
-        // pass below spends the same budget on those pairs.  Returns whether it
-        // emitted, so a caller can retry a trimmed edge on the miss path only.
-        if (end - start < W) return false;
-        // The byte-exact route is a BLOOM, so a non-null answer means MAYBE: it can neither
-        // decide (that is `resolveSpan`'s job) nor deny (that is `canonAdmits`').  Reading it
-        // as a YES made a false positive both drop the span and skip the decider, because the
-        // canon route ran only on a null.  Measured on the trained corpus: 280 spans where the
-        // bloom claimed and the identity refused.  A bloom HIT that resolves still emits
-        // without touching the canon route, which is what keeps the cheap path cheap.
-        const flat = flatProbe(start, end);
-        let id = flat === null ? null : resolveSpan(start, end);
-        if (id === null) {
-          if (flat !== null && ctx.meter) ctx.meter.bloomFalsePositives++;
-          if (!canonBudget) {
-            if (ctx.meter) ctx.meter.canonProbesDenied++;
-            return false;
-          }
-          if (!canonAdmits(start, end)) return false;
-          id = resolveSpan(start, end);
-        }
-        if (id === null) return false;
-        emit(start, end, id);
-        return true;
-      };
-      // A CUMULATIVE BYTE BUDGET, SPENT SHORTEST-SPAN-FIRST.
-      //
-      // Each probe costs O(span), and there are O(n) endpoints, so probing
-      // them all is O(n²) — the quadratic this tier was gated to avoid.  The
-      // budget caps TOTAL probe bytes at a multiple of the query's own length,
-      // which is what keeps whole-query inference linear.
-      //
-      // Spending it shortest-first is what makes the cap a scale bound rather
-      // than a position bound: the tier recovers embedded forms up to roughly
-      // √(2·budget) bytes ANYWHERE in the endpoint set, instead of walking the
-      // endpoints in order and running out partway along the query.  A form
-      // longer than that is out of this tier's reach — but so is a form the
-      // chain cannot span, and that is exactly the trade the budget prices.
-      // The factor is chainReach(W) — the same W² scale the chain itself
-      // trusts — so the cap is derived from the fold's geometry, never tuned.
-      // (It was briefly an environment variable while the cost was being
-      // measured; an env-read here would make inference non-reproducible,
-      // which the determinism contract forbids outright.)
-      //
-      // It now prices ONLY the canonicalizing route; the exact route runs on
-      // every endpoint regardless, so exhausting this budget narrows which
-      // equivalence-class forms are proposed, never which byte-exact ones.
-      let budget = bytes.length * chainReach(W) * chainReach(W);
-      const spend = (start: number, end: number): boolean => {
-        const span = end - start;
-        const afford = span <= budget;
-        if (afford) budget -= span;
-        return probe(start, end, afford);
-      };
-      const prefixes = ordered.filter((e) => e > 0).sort((a, b) => a - b);
-      const suffixes = ordered
-        .filter((s2) => s2 < bytes.length)
-        .sort((a, b) => b - a);
-      for (let i = 0; i < Math.max(prefixes.length, suffixes.length); i++) {
-        // Interleaved so neither edge starves the other when the budget runs
-        // out — a query can carry a trained form at either end.  The scan never
-        // stops on a miss: the exact route is unbudgeted, so running out of
-        // canon budget must not stop it.
-        if (i < prefixes.length) spend(0, prefixes[i]);
-        if (i < suffixes.length) {
-          const s = suffixes[i];
-          // An edge form can end ONE byte before the edge does: a query often
-          // closes with a separator ("…is Timur Bekmambetov.") that belongs
-          // BETWEEN forms, and the text canonicalizer passes punctuation through,
-          // so the full-edge probe can never match it.  Retry the trimmed edge
-          // ON THE MISS PATH ONLY — self-verifying (resolve decides, so a wrong
-          // trim can never emit), the same ±1 edge-trim discipline the canon-miss
-          // fallback above already trusts, and the hit path pays nothing.  A form
-          // LONGER than `chainReach` at the sentence end (measured: "Timur
-          // Bekmambetov", 17 bytes) is recovered only here — the interior pass is
-          // capped at `chainReach`.
-          if (!spend(s, bytes.length)) spend(s, bytes.length - 1);
-        }
-      }
-      // INTERIOR pairs within the same `chainReach(W)` span bound the chain
-      // trusts — the dead zone the gate above used to leave: a form that neither
-      // starts on a fold cut nor ends on a node edge is exactly the one neither
-      // the chain (nested, `findBranch` misses) nor the two edge scans reach.
-      // Only pairs whose span lies in [W, chainReach(W)] are PROBED, which is
-      // the O(n · W²) work that matters; the enumeration itself is the all-pairs
-      // scan, each pair a constant-time span check — and the span bound is what
-      // keeps this off the quadratic path the budget note above describes (that
-      // one had no span bound at all).
-      {
-        // The span bound is the chain's own limit PLUS the slack the endpoint set already grants: every endpoint sits
-        // within `radius` of a cut, so a pair that names one form may straddle cuts and still be a single form's span.
-        // Measured on the composite fixture: W=4 (reach 16), radius 8, and the useful [7,32) is 25 bytes with its edges
-        // 2 bytes from cuts 5 and 30 — already IN `ordered`, and excluded only by the upper bound.  Both terms are
-        // derived (W and the seat count); no new constant enters.
-        //
-        // The chain term is W^2 * W = W^4, for a form embedded in the MIDDLE of a longer query.  Measured on the
-        // trained corpus, the SAME real contexts in three positions: opening 12/17, MIDDLE 0/17, end 12/17.  The two
-        // edge scans reach only prefixes and suffixes, so the interior pass is the only tier that could name it, and
-        // at W^2 it could not.  WHAT KEEPS THIS LINEAR IS THE BOUND BEING A CONSTANT — each endpoint pairs only with
-        // the partners inside a fixed window, so the work stays O(n).  Measured against a cut-pair enumeration with
-        // ±W trims (an earlier, 43-line attempt): that one reached the same 136 B at 70 888 probes, this one at
-        // 84 169 (x1.19 more) — and BOTH pass test/14, which gates the CLASS (linear) and not the constant.  The
-        // simpler form won on that measurement.
-        const reach = chainReach(W) * W * W + 2 * radius;
-        if (ctx.meter) ctx.meter.recogniseInteriorGaps += ordered.length;
-        // Each end pairs only with the starts in [end − reach, end − W], in
-        // ascending order — the pairs, and the order the budget is spent in,
-        // of the all-pairs scan, without its O(n²) enumeration.
-        let lo = 0;
-        for (const end of ordered) {
-          while (ordered[lo] < end - reach) lo++;
-          for (let i = lo; i < ordered.length; i++) {
-            const start = ordered[i];
-            if (end - start < W) break;
-            if (ctx.meter) ctx.meter.recogniseInteriorPairs++;
-            spend(start, end);
-          }
-        }
-      }
-    }
+  for (let p = 0; p < n; p++) {
+    emit(p, p + 1, -(bytes[p] + 1));
+    const last = Math.min(n, p + reach);
+    for (let e = p + 2; e <= last; e++) exact(p, e, true);
   }
-
-  const chunkEnd = new Uint32Array(bytes.length);
-  const chunkSpan = new Uint32Array(bytes.length);
-  const sorted = [...starts].sort((a, b) => a - b);
-  for (let si = 0; si < sorted.length; si++) {
-    const chunkStart = sorted[si];
-    const chunkLimit = si + 1 < sorted.length ? sorted[si + 1] : bytes.length;
-    for (let p = chunkStart; p < chunkLimit; p++) {
-      chunkEnd[p] = chunkLimit;
-      chunkSpan[p] = chunkLimit - chunkStart;
-    }
+  // The question's own edges beyond the reach: a whole trained form at
+  // either end, however long — and, at the end, one byte short of it (a
+  // closing separator belongs between forms).
+  for (let e = reach + 1; e <= n; e++) exact(0, e, false);
+  for (let s0 = n - reach - 1; s0 > 0; s0--) {
+    if (!exact(s0, n, false)) exact(s0, n - 1, false);
   }
-
-  // A chain rebuilt from a NON-boundary offset (the query's own perceived
-  // cut, `starts`, never chose to segment here) is opportunistic: the same
-  // byte-atom coincidence the hub guard above already exists for, just
-  // spelled over 2+ leaves instead of 1.  At small corpus scale that's fine
-  // — coincidence is rare and every chain is real evidence (see `atomIsHub`).
-  // Past the scale where atoms themselves stop discriminating, the same
-  // uniform-expectation argument bounds a CHAIN'S commonality too: it is at
-  // least as rare as its rarest atom, so a store where atoms are hubs makes
-  // interior chain reconstructions no more trustworthy than the atoms they
-  // are built from ("hi" resolving out of "W[hi]ch" is exactly this: two
-  // hub-scale atoms, chained at an offset nothing in the query's own fold
-  // selected).  Chains that start ON a boundary carry the fold's own
-  // evidence instead and are exempt.
-  //
-  // NOTE (2026-07-24): that last sentence is FALSE — `starts` is exactly
-  // {0, W, 2W, …} (riverFold groups fixed-arity), so the exemption is
-  // arithmetic, not evidence.  Removing it wholesale was measured and
-  // REVERTED: it also drops legitimate multi-byte chains (the 12-byte
-  // "Eiffel Tower" site vanished with it).  The premise is wrong but the
-  // trust it stood in for is real; the replacement signal follows.
-  //
-  // THE REPLACEMENT SIGNAL (2026-08-13): `leadsSomewhere` on the BYTE-EXACT
-  // branch the chain already found.  The blanket off-boundary suppression is
-  // a decision that CHANGES WITH CORPUS SIZE — `atomsAreHubs` flips at
-  // N = 4096 (atomReach = ⌈N·W/256⌉ exceeds √N there) — so a store crossing
-  // that point silently loses interior sites it used to have.  Measured: with
-  // the two-hop chain deposited, `recognise("The country of Eiffel Tower is
-  // France.")` yields 4 sites including `France` at N = 3920 and 2 sites
-  // without it at N = 4227; the pivot dies with the site and multi-hop goes
-  // silent from there up (the trained store is N = 325,615).
-  //
-  // The honest gate is the one `emit` already applies, moved EARLIER and paid
-  // for with existence probes instead of a fold: `findBranch` has already
-  // proved these bytes are a stored branch, so the only remaining question is
-  // whether that branch is a deposited whole (bears an edge or a halo) or an
-  // interned fragment.  "hi" out of "W[hi]ch" leads nowhere and is still
-  // suppressed; `France` bears both and is admitted.  Structural, not scalar
-  // — no constant enters and nothing reads N, so the verdict no longer moves
-  // when the corpus grows.
-  //
-  // COST: `bearsEdge` is the response-MEMOISED edge probe, not the full
-  // `leadsSomewhere` — its uncached `hasHalo` tier took haloProbes from 922 to
-  // 9,144 on a nine-query battery over the trained store, which is not a price
-  // this pass may charge.  `emit` still applies the full predicate, so this is
-  // a pre-filter that never widens what is admitted.
-  const tryChain = (
-    p: number,
-    maxIds: number,
-    boundary: boolean,
-  ): void => {
-    const first = leafFrom(p);
-    if (!first) return;
-    emit(p, first.end, first.id);
-    const ids = [first.id];
-    let pos = first.end;
-    let prevId: number | null = null;
-    for (let depth = 1; pos < bytes.length && ids.length <= maxIds; depth++) {
-      const nx = leafFrom(pos);
-      if (!nx) break;
-      ids.push(nx.id);
-      pos = nx.end;
-      const branch = store.findBranch(ids);
-      if (branch === null) continue;
-      if (!boundary && atomsAreHubs && !bearsEdge(ctx, branch)) continue;
-      const id = resolveSpan(p, pos);
-      if (id === null || id === prevId) continue;
-      prevId = id;
-      emit(p, pos, id);
-    }
-  };
-
-  for (let p = 0; p < bytes.length; p++) {
-    if (starts.has(p)) {
-      tryChain(p, chainReach(W), true); // boundary start — full reach
-    } else {
-      // THE INTERIOR BUDGET IS "ONE CHUNK PLUS A QUANTUM", MEASURED FROM THE
-      // CHAIN'S OWN START.  It used to be `chunkEnd[p] + W - p`, which counts
-      // from the chunk's END, so the reach an interior chain gets depended on
-      // WHERE INSIDE its chunk it happened to begin: measured on a composed
-      // answer, a chunk spanning [0,6) gave offset 1 nine ids and offset 4
-      // only six — and the 9-id trained form `Mona Lisa` starting at 4 died
-      // three ids short of itself.  The same form one byte earlier would have
-      // been found.  That is the position artifact this module has been
-      // removing everywhere else, not a budget.
-      //
-      // Stated from `p` the trust is unchanged — a chain may span its own
-      // chunk and one quantum beyond it — and it no longer varies with phase.
-      tryChain(p, Math.min(chunkSpan[p] + W, chainReach(W)), false);
+  // THE CANONICAL SWEEP — the same sweep over the question's canonical
+  // bytes.  Where the canonicalizer keeps every offset (case, width), the
+  // canonical key of a span IS that span of the canonical question, so its
+  // index hash extends a byte at a time exactly as the exact one does, and
+  // the canon index's negative filter answers most spans with no I/O.  A hit
+  // only proposes: `resolve` re-canonicalizes and verifies.
+  // The edges beyond the reach are asked as the exact sweep asks them: the
+  // whole prefix, and every suffix that starts on a cut the fold drew.
+  const canon = ctx.canon;
+  const canonFind = store.canonFind?.bind(store);
+  if (canon !== null && canonFind !== undefined) {
+    const qc = canon(bytes);
+    if (qc.length === n) {
+      const ask = (p: number, e: number, h: number): void => {
+        if (e - p < 2 || !missed.has(p * (n + 1) + e)) return;
+        if (ctx.meter) ctx.meter.recogniseCanonSpans++;
+        if (canonFind(h).length === 0) return;
+        const id = resolveSpan(p, e);
+        if (id !== null) emit(p, e, id);
+        else if (ctx.meter) ctx.meter.canonProbesDenied++;
+      };
+      for (let p = 0; p < n; p++) {
+        let h = 0x811c9dc5 >>> 0;
+        const last = p === 0 ? n : Math.min(n, p + reach);
+        for (let e = p + 1; e <= last; e++) {
+          h = Math.imul(h ^ qc[e - 1], 0x01000193) >>> 0;
+          ask(p, e, h);
+        }
+      }
+      for (const s0 of startList) {
+        if (s0 === 0 || n - s0 <= reach) continue;
+        let h = 0x811c9dc5 >>> 0;
+        for (let e = s0 + 1; e <= n; e++) {
+          h = Math.imul(h ^ qc[e - 1], 0x01000193) >>> 0;
+          if (e >= n - 1) ask(s0, e, h);
+        }
+      }
     }
   }
 
@@ -834,5 +392,38 @@ export function segment(ctx: MindContext, bytes: Uint8Array): Segment[] {
   };
   walk(tree, 0);
   flush();
+  return out;
+}
+
+/** THE THINGS a span of bytes holds — the one entity reader of the walk's
+ *  pivot (`pivotInto`) and the engine's derive-through (`entityProposals`):
+ *  every stored form recognition reads in the bytes, and in their canonical
+ *  spelling, that a deposit learnt WHOLE and that leads on.  The canonical
+ *  spelling is the canonical class read WITHOUT an index — a deposit spelled
+ *  `gustaf molander` is found in `Gustaf Molander` — at the cost of one more
+ *  memoised recognition (a `canonResolve` scan of every span found the same
+ *  forms at O(L²) probes).  Each thing with its span in the bytes and whether
+ *  the canonical spelling held it; first occurrence per node, exact spelling
+ *  first, in recognition's order. */
+export function thingsIn(
+  ctx: MindContext,
+  bytes: Uint8Array,
+): Array<{ id: number; span: [number, number]; canonical: boolean }> {
+  const out: Array<{ id: number; span: [number, number]; canonical: boolean }> =
+    [];
+  const seen = new Set<number>();
+  const take = (b: Uint8Array, canonical: boolean): void => {
+    for (const s of recognise(ctx, b).sites) {
+      if (s.payload < 0 || seen.has(s.payload)) continue;
+      if (!ctx.store.hasNext(s.payload) || !ctx.store.learntWhole(s.payload)) {
+        continue;
+      }
+      seen.add(s.payload);
+      out.push({ id: s.payload, span: [s.start, s.end], canonical });
+    }
+  };
+  take(bytes, false);
+  const c = offsetCanon(ctx, bytes);
+  if (!bytesEqual(c, bytes)) take(c, true);
   return out;
 }

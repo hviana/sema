@@ -1,5 +1,5 @@
 // 51-structural-resonance-ladder.test.mjs — the graded cross-region junction
-// ladder (exact → single-synonym → double-synonym → structural-resonance ANN)
+// ladder (exact → single-synonym → structural-resonance ANN)
 // specified this session.  See junction.ts (junctionSynonyms,
 // loadJunctionSynonymSides) and attention.ts (crossRegionVotes,
 // structuralResonance) plus geometry.ts (composeStructuralGist).
@@ -56,7 +56,7 @@ const ATTR_CORPUS = [
 // A corpus where "red" and "crimson" resolve as STANDALONE nodes (each
 // trained alone, exactly like ATTR_CORPUS) AND become halo siblings by
 // shared distributional company ("is a color", each combining with
-// "circle") — needed for the single- and double-synonym DAG tiers (2, 3, 4).
+// "circle") — needed for the single-synonym DAG tier (2, 3).
 // junctionSynonyms resolves via resolve(), so (unlike test 49's bare-word
 // natural-units gap) both sides must be independently resolvable nodes.
 const SYN_ATTR_CORPUS = [
@@ -144,45 +144,6 @@ test("2/3. single-synonym junction: both directions (left-sibling and right-sibl
   );
   assert.ok(synRight.length > 0, "right-sibling synonym junction must fire");
   assert.equal(synRight[0].tier, "single-synonym");
-  await m.store.close();
-});
-
-// ── 4. double-synonym junctions work + confidence = min(sibling scores) ──
-
-test("4. double-synonym tier: only runs when single-synonym finds nothing, confidence = min(sibling scores)", async () => {
-  const m = mk();
-  await m.ingest(SYN_ATTR_CORPUS);
-  const sides = await loadJunctionSynonymSides(
-    m,
-    enc("crimson"),
-    enc("crimson"),
-  );
-  assert.ok(sides.leftId !== null);
-
-  // Neither "crimson"+"crimson" (nonsense pairing) has a single-synonym
-  // container (no "crimson X crimson"-shaped container exists at all for
-  // any halo sibling on one side alone) — this exercises the FALL-THROUGH
-  // to double-synonym, and its confidence must be min(l.score, r.score).
-  const syn = await junctionSynonyms(
-    m,
-    enc("crimson"),
-    enc("crimson"),
-    64,
-    true,
-  );
-  if (syn.length > 0) {
-    for (const j of syn) {
-      assert.ok(j.confidence > 0 && j.confidence <= 1);
-      if (j.tier === "double-synonym") {
-        // min(sibling, sibling) can never exceed either individual score.
-        const maxPossible = Math.max(
-          ...sides.leftSiblings.map((s) => s.score),
-          1,
-        );
-        assert.ok(j.confidence <= maxPossible);
-      }
-    }
-  }
   await m.store.close();
 });
 

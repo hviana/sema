@@ -190,14 +190,13 @@ test("154.2 the continuation the question names wins over the most-poured one", 
     mind,
     "Who is the father of Frederick II?",
   );
-  // The projection that grounds on the argument `Frederick II` crosses the
-  // father fact — the one whose own question `Frederick II father` the asker's
-  // bytes witness — not the citizenship fact popularity prefers.
-  const bound = steps.find((s) =>
-    s.name === "recallByResonance" && /argument binding/.test(s.note)
-  );
-  assert.ok(bound, "the argument binding must ground");
-  assert.equal(bound.outputs[0], FATHER);
+  // The grounding on the argument `Frederick II` (the cover's site, its edge
+  // followed) crosses the father fact — the one whose own question `Frederick
+  // II father` the asker's bytes witness — not the citizenship fact popularity
+  // prefers; and it voices that fact alone, the question's ask left out.
+  const lifted = steps.find((s) => s.name === "liftAnswer");
+  assert.ok(lifted, "the cover must ground on the argument");
+  assert.equal(lifted.outputs[0], FATHER);
   const named = steps.find((s) =>
     s.name === "askedContinuation" && s.inputs[1] === "Frederick II father"
   );
@@ -297,7 +296,7 @@ test("154.5 a fragment answers other questions unless the question names one", a
   await mind.store.close();
 });
 
-test("154.6 recall's argument binding does not bind a fragment the question names nothing of", async () => {
+test("154.6 a fragment the question names nothing of is not bound", async () => {
   const mind = await fixture();
   // Subjects ending in a parenthesis (2Wiki's own titles) let the fold intern
   // `director` as a node of its own, which inherits every director fact.
@@ -309,7 +308,10 @@ test("154.6 recall's argument binding does not bind a fragment the question name
   const answer = await mind.respondText(
     "When was the director of film Jinpa born?",
     (st) => {
-      if (st.mechanism.includes("recallByResonance")) {
+      if (
+        st.mechanism.includes("recallByResonance") ||
+        st.mechanism.at(-1) === "unaskedFragments"
+      ) {
         steps.push({
           name: st.mechanism.at(-1),
           outputs: st.outputs.map((o) => o.text ?? ""),
@@ -441,7 +443,7 @@ test("154.10 a paraphrase names the step: the use proposes, the bytes decide", a
       `In which town did ${z} pass away?`,
       (st) => {
         if (
-          st.mechanism.at(-1) === "askedByParaphrase" &&
+          st.mechanism.at(-1) === "askedByUse" &&
           st.inputs[0].text === z
         ) named++;
       },

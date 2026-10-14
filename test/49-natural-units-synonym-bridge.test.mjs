@@ -31,6 +31,7 @@ import {
 } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { substitutionBridge } from "../dist/src/mind/bridge.js";
+import { instancesOf } from "../dist/src/mind/match.js";
 import { spanSynonymStrength } from "../dist/src/mind/match.js";
 import { perceive, resolve } from "../dist/src/mind/primitives.js";
 
@@ -205,10 +206,11 @@ test("VSA company grounds a differently-spelled synonym without a lexical unit i
 
   const trained = resolve(m, enc("Which physician is on duty?"));
   assert.notEqual(trained, null);
+  const asked = enc("Which doctor is on duty?");
   const hit = await substitutionBridge(
     m,
-    enc("Which doctor is on duty?"),
-    async () => [trained],
+    asked,
+    async () => instancesOf(m, asked, [trained]),
   );
   assert.equal(hit?.id, trained);
   assert.ok(hit?.subs.length > 0);

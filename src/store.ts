@@ -30,9 +30,9 @@
 
 import { addInto, copy, dot, normalize, Vec } from "./vec.js";
 import type { StoreConfig } from "./config.js";
-import { identityBar } from "./geometry.js";
+import { boundFor, identityBar } from "./geometry.js";
 import type { Meter } from "./meter.js";
-import { latin1 } from "./bytes.js";
+import { concatBytes, latin1, sharedEnds } from "./bytes.js";
 
 /** A node id: a dense, non-negative integer assigned in creation order. */
 export type NodeId = number;
@@ -641,19 +641,6 @@ function yieldToEventLoop(): Promise<void> {
   });
 }
 
-/** Concatenate an array of byte arrays. */
-function concat(parts: Uint8Array[]): Uint8Array {
-  let n = 0;
-  for (const p of parts) n += p.length;
-  const out = new Uint8Array(n);
-  let o = 0;
-  for (const p of parts) {
-    out.set(p, o);
-    o += p.length;
-  }
-  return out;
-}
-
 /** The byte string a FLAT branch spans — a branch whose kids are ALL implicit
  *  single-byte leaves (ids −256…−1) is fully determined by its bytes, one per
  *  kid. Returns null when any kid is a real node. Such branches (the sliding
@@ -976,8 +963,8 @@ export abstract class AbstractStore implements Store {
    *  never trained.  A backend that omits it simply reports null, which leaves
    *  the caller's configured seed in force. */
   protected _trainSeed: number | null = null;
-  protected readonly minHaloMass: number;
   protected readonly efSearch: number;
+  protected readonly nearDedup: boolean;
   protected readonly overfetch: number;
   protected readonly batchSize: number;
   protected readonly compactEveryNWrites: number;
@@ -1070,13 +1057,6 @@ export abstract class AbstractStore implements Store {
     Set<NodeId>
   >();
 
-  /** Dedup-target candidates still in the write buffer (keyed by id).  Only
-   *  roots that have gained an edge/halo are targets; a fresh intermediate
-   *  branch is never folded onto. */
-  protected _nearDedupBuf: Map<NodeId, Float32Array> = new Map<
-    NodeId,
-    Float32Array
-  >();
   /** Ids currently in `_contentBuffer` (not yet flushed) — O(1) membership. */
   protected _bufferedIds: Set<NodeId> = new Set<NodeId>();
 
@@ -1103,7 +1083,7 @@ export abstract class AbstractStore implements Store {
   constructor(config: StoreConfig, D: number, maxGroup: number) {
     this._D = D;
     this._maxGroup = maxGroup;
-    this.minHaloMass = config.minHaloMass;
+    this.nearDedup = config.nearDedup;
     this.efSearch = config.efSearch;
     this.overfetch = config.overfetch;
     this.batchSize = config.batchSize;
@@ -1312,7 +1292,7 @@ export abstract class AbstractStore implements Store {
       if (!ready) continue;
 
       stack.pop();
-      const out = concat(kids.map((k) => done.get(k)!));
+      const out = concatBytes(kids.map((k) => done.get(k)!));
       done.set(nid, out);
       cache.set(nid, out);
     }
@@ -1379,7 +1359,7 @@ export abstract class AbstractStore implements Store {
       parts.push(child);
       got += child.length;
     }
-    const out = concat(parts);
+    const out = concatBytes(parts);
     // Cache the BRANCH too, not just the leaf above.  Reconstruction is a pure
     // function of the store, so this is a transparent cache in the strict sense
     // — an eviction costs a re-walk and nothing else — which is exactly what
@@ -1703,7 +1683,7 @@ export abstract class AbstractStore implements Store {
     // A LIMITed probe: this runs once per kid insert on the MINT hot path,
     // and a shared child's full parent set grows with the corpus.
     if (this._dbGetParentsFirst(id, 2).length < 2) return;
-    this.indexGist(id, false);
+    this.indexGist(id);
   }
 
   // ── Core interning: dedup → near-dedup → mint ──────────────────────────
@@ -1788,69 +1768,16 @@ export abstract class AbstractStore implements Store {
     const cache = leaf !== null ? this._leafKey : this._branchKey;
     const key = leaf !== null ? keyOf(leaf) : kids!.join(",");
 
-    // 2. Near dedup — BRANCHES ONLY, against RESONANCE TARGETS only.
-    //    Leaves are single bytes: exact dedup already collapses every identical
-    //    leaf, and near-merging distinct leaves only corrupts bytes for no real
-    //    saving. Real near-dedup compression lives in subtree (branch) fusion.
-    //
-    //    There is deliberately NO ANN probe of the FLUSHED index here. It used
-    //    to fire for EVERY new branch that the buffer scan didn't settle — i.e.
-    //    ~every interior branch, since interiors are never dedup targets —
-    //    making one ANN query per branch the dominant training cost (it dwarfed
-    //    perception and the index write). And it was not merely expensive but
-    //    WRONG: the 1-bit RaBitQ code can rank a byte-DISTINCT branch as the
-    //    nearest "target" of a fresh branch, so the fold collapsed two
-    //    byte-different subtrees onto one id and corrupted exact reconstruction
-    //    (02-roundtrip's random-byte streams). Real near-duplicate EXPERIENCES
-    //    are caught two cheaper, exact ways instead: identical content by the
-    //    exact-dedup hash-cons above, and a near-gist target still in the write
-    //    buffer by the scan below.
-    if (leaf === null) {
-      // Near-dedup PREFILTER — the scale-aware identity bar
-      // ({@link identityBar}) for THIS branch's own length, not the fixed
-      // estimator floor: under the linear fold a long branch crosses
-      // 1 − 1/√D while whole windows differ, and every such crossing paid a
-      // full differsByOneWindow byte reconstruction.  Same final semantics
-      // (the byte check below still decides identity); strictly fewer byte
-      // reads.  The scan runs FIRST: the branch length (Σ kids' contentLen —
-      // memoized bottom-up by the interning order itself, O(kids)) is only
-      // computed once a nearest candidate actually exists, so the hot
-      // no-candidate mint pays nothing.
-      let best = -1;
-      let bestId: NodeId | null = null;
-      if (this._nearDedupBuf.size > 0) {
-        const g = normalize(copy(gist));
-        // Candidates are the buffered DEDUP TARGETS only — genuine whole
-        // experiences (edge/halo-bearing roots) not yet flushed.
-        for (const [id, vector] of this._nearDedupBuf) {
-          const s = dot(g, vector);
-          if (s > best) {
-            best = s;
-            bestId = id;
-          }
-        }
-      }
-      let blen = 0;
-      if (bestId !== null) {
-        for (const k of kids!) blen += this.contentLen(k);
-      }
-      if (
-        bestId !== null &&
-        best >= identityBar(this.D, this._maxGroup, blen)
-      ) {
-        // Scale-aware acceptance.  The cosine bar alone is scale-BLIND
-        // against a scale-DEPENDENT quantity: the hierarchical fold dilutes
-        // a localized difference faster than linearly in form size, so for
-        // deep forms ANY fixed bar below 1 is crossed by exactly the one
-        // span that distinguishes two experiences.  No inversion of the
-        // deficit is trustworthy, so the bytes themselves decide: the two
-        // forms must be identical except for ONE local span of at most W
-        // bytes — the river window, the perception's own resolution quantum.
-        const W = this._maxGroup;
-        if (this.differsByOneWindow(kids!, bestId, W)) {
-          if (key.length <= DEDUP_KEY_MAX) cache.set(key, bestId);
-          return bestId;
-        }
+    // 2. Near dedup — BRANCHES ONLY (a leaf is one byte: exact dedup already
+    //    collapses identical leaves, and near-merging distinct ones only
+    //    corrupts bytes), onto a form a deposit learnt WHOLE, decided the same
+    //    way whatever the batch size, flush schedule or session
+    //    (`nearDedupTarget`).
+    if (leaf === null && this.nearDedup) {
+      const near = this.nearDedupTarget(kids!, gist);
+      if (near !== null) {
+        if (key.length <= DEDUP_KEY_MAX) cache.set(key, near);
+        return near;
       }
     }
 
@@ -1907,6 +1834,75 @@ export abstract class AbstractStore implements Store {
     return id;
   }
 
+  /** THE NEAR-DEDUP TARGET of a fresh branch — one decision, the same whatever
+   *  the batch size, flush schedule or session.
+   *
+   *  PROPOSED BY STRUCTURE.  A near-duplicate differing in one window reuses
+   *  every chunk away from the difference (the fold cuts by content), so the
+   *  form it duplicates is an ancestor of this branch's EXISTING kids; with at
+   *  most one window changed, the first or the last existing kid is unchanged.
+   *  Both are climbed by the kid index, pruned by length (an ancestor longer
+   *  than the branch + W cannot be its near-duplicate, and its own ancestors
+   *  are longer still), each node's parents read up to the hub bound.  A branch
+   *  of fresh kids — nearly every one — climbs nothing.  (A probe of the
+   *  content index per minted branch decides the same and made training ten
+   *  times slower; scanning only the unflushed write buffer made the flush
+   *  schedule decide identity.)
+   *
+   *  DECIDED BY BYTES, THEN BY THE BAR.  A proposal must be a form a deposit
+   *  learnt WHOLE, identical but for one span of at most W bytes, and its gist
+   *  must clear the length-aware identity bar: bytes one window apart can
+   *  mean different things (`X date of birth` / `X date of death` merged
+   *  without it, and ten answers were lost).  The bar reads ONE place — the
+   *  content index, the write buffer flushed into it first (rare: only a
+   *  branch that has a proposal), scored by its one estimator. */
+  private nearDedupTarget(kids: NodeId[], gist: Vec): NodeId | null {
+    const W = this._maxGroup;
+    const existing = kids.filter((k) => k >= 0 && this.get(k) !== null);
+    if (existing.length === 0) return null;
+    let blen = 0;
+    for (const k of kids) blen += this.contentLen(k);
+    const cap = blen + W;
+    const fan = Math.max(boundFor(this.edgeSourceCount()), W * W);
+    const seen = new Set<NodeId>();
+    const found: NodeId[] = [];
+    let frontier = [...new Set([existing[0], existing[existing.length - 1]])];
+    for (const k of frontier) seen.add(k);
+    for (let depth = 0; depth < W && frontier.length > 0; depth++) {
+      const next: NodeId[] = [];
+      for (const x of frontier) {
+        if (this.meter) this.meter.nearDedupParentReads++;
+        const ps = this._dbGetParentsFirst(x, fan + 1);
+        if (ps.length > fan) continue; // a hub: shared by too much to tell
+        for (const p of ps) {
+          if (seen.has(p)) continue;
+          seen.add(p);
+          const len = this.contentLen(p, cap + 1);
+          if (len > cap) continue;
+          if (len >= blen - W && this.learntWhole(p)) found.push(p);
+          next.push(p);
+        }
+      }
+      frontier = next;
+    }
+    const near = found.sort((a, b) => a - b).filter((id) =>
+      this.differsByOneWindow(kids, id, W)
+    );
+    if (near.length === 0) return null;
+    if (this._contentBuffer.length > 0) this.flushContent();
+    const bar = identityBar(this.D, W, blen);
+    const scored = new Map<NodeId, number>();
+    for (
+      const h of this._vecContentQuery(
+        normalize(copy(gist)),
+        this.overfetch * near.length,
+        this.efSearch,
+      )
+    ) scored.set(h.id, 1 - h.distance);
+    for (const id of near) if ((scored.get(id) ?? -1) >= bar) return id;
+    return null;
+  }
+
   /** Whether the byte content under `kids` and the byte content of `targetId`
    *  are identical except for ONE local span of at most `W` bytes on each side
    *  — the near dedup's byte-grain definition of a near-duplicate.  A
@@ -1940,14 +1936,10 @@ export abstract class AbstractStore implements Store {
     // sum reaches it, so `>= cap` is exactly "longer than la + W".
     const lb = this.contentLen(targetId, cap);
     if (lb >= cap || Math.abs(la - lb) > W) return false;
-    const a = concat(kids.map((k, i) => this.bytesPrefix(k, lens[i] + 1)));
+    const a = concatBytes(kids.map((k, i) => this.bytesPrefix(k, lens[i] + 1)));
     const b = this.bytesPrefix(targetId, lb + 1);
     if (Math.abs(a.length - b.length) > W) return false;
-    const n = Math.min(a.length, b.length);
-    let i = 0;
-    while (i < n && a[i] === b[i]) i++;
-    let j = 0;
-    while (j < n - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+    const [i, j] = sharedEnds(a, b);
     return a.length - i - j <= W && b.length - i - j <= W;
   }
 
@@ -1974,17 +1966,8 @@ export abstract class AbstractStore implements Store {
    *  or receives a continuation edge) or `pourHalo` (it gains distributional
    *  company). Idempotent: a node already indexed, or whose gist has been evicted
    *  from the bounded pending map, is a no-op.
-   *
-   *  `dedupTarget` marks the node a candidate the near dedup may fold a fresh
-   *  near-gist branch ONTO. Only a genuine target — an edge/halo-bearing ROOT —
-   *  is one; a climb-only interior is reach-indexed but never a dedup sink. */
-  protected indexGist(id: NodeId, dedupTarget: boolean): void {
-    if (dedupTarget && this._bufferedIds.has(id)) {
-      // Still buffered (indexed this batch, not yet flushed) — a live dedup
-      // candidate, recorded in O(1) with no scan of the content buffer.
-      const v = this._pendingGist.get(id);
-      if (v !== undefined) this._nearDedupBuf.set(id, v);
-    }
+   */
+  protected indexGist(id: NodeId): void {
     if (this._indexedIds.has(id)) return;
     const v = this._pendingGist.get(id);
     if (v === undefined) return;
@@ -2002,8 +1985,6 @@ export abstract class AbstractStore implements Store {
     this._indexedIds.set(id, true);
     this._contentBuffer.push({ id, vector: v });
     this._bufferedIds.add(id);
-    // A node indexed AS a dedup target enters the candidate set immediately.
-    if (dedupTarget) this._nearDedupBuf.set(id, v);
   }
 
   /** {@link Store.indexTarget} — the public hook for marking a deposit root a
@@ -2011,7 +1992,7 @@ export abstract class AbstractStore implements Store {
    *  root is a genuine target (a whole experience), so it is a dedup target
    *  too. */
   indexTarget(id: NodeId): void {
-    this.indexGist(id, true);
+    this.indexGist(id);
   }
 
   /** Index a node and its interior forms as resonance targets.  A node that
@@ -2031,15 +2012,14 @@ export abstract class AbstractStore implements Store {
    *  The store's hash-cons bounds the index by the number of DISTINCT byte
    *  patterns in the corpus — not by the number of deposits.
    *
-   *  Only the ROOT is a DEDUP TARGET — the whole experience a fresh near-gist
-   *  branch may legitimately fold onto.  Interior nodes are REACH-ONLY: they
-   *  let a partial query resonate and climb, but a fresh branch must never
-   *  merge onto an interior node of another experience.
+   *  A fresh branch never merges onto an interior node of another experience:
+   *  near dedup folds only onto a form a deposit learnt WHOLE
+   *  (`nearDedupTarget`); interior nodes are reach-only.
    *
    *  Iterative explicit-queue walk: the call stack never sees tree depth. */
   protected indexSubtree(root: NodeId): void {
-    // The root is the whole experience — always index as a merge target.
-    this.indexGist(root, true);
+    // The root is the whole experience.
+    this.indexGist(root);
 
     const seen = new Set<NodeId>([root]);
     const stack: NodeId[] = [root];
@@ -2072,7 +2052,7 @@ export abstract class AbstractStore implements Store {
       // anchor for partial-query recall.  The _indexedIds cache and the
       // durable-index check in indexGist prevent duplicate indexing across
       // multiple encounters of the same shared subtree.
-      this.indexGist(id, false);
+      this.indexGist(id);
     }
   }
 
@@ -2432,7 +2412,7 @@ export abstract class AbstractStore implements Store {
     const cached = this._haloNorm.get(id);
     if (cached !== undefined) return copy(cached);
     const r = this._dbGetHalo(id);
-    if (!r || r.mass < this.minHaloMass) return null;
+    if (!r) return null;
     const exact = this._haloExact.get(id);
     const v = normalize(exact ? copy(exact) : haloDecode(r.vec, this.D));
     this._haloNorm.set(id, v);
@@ -2440,11 +2420,13 @@ export abstract class AbstractStore implements Store {
   }
 
   /** {@link Store.hasHalo} — MUST mirror {@link halo}'s null condition
-   *  exactly (row present AND mass ≥ minHaloMass), minus the decode. */
+   *  exactly (a halo row is present: every pour leaves mass ≥ 1), minus the
+   *  decode.  Admission is that fact, not a configurable mass — a threshold
+   *  on evidence admission belongs to the derived bars, never to config. */
   hasHalo(id: NodeId): boolean {
     if (this.meter) this.meter.haloProbes++;
     const r = this._dbGetHalo(id);
-    return r !== null && r.mass >= this.minHaloMass;
+    return r !== null;
   }
 
   /** {@link Store.leadsSomewhere} — edge first (the cheaper, commoner probe). */
@@ -2456,7 +2438,7 @@ export abstract class AbstractStore implements Store {
     await this._ensureReady();
     // A node with a halo is a genuine resonance target — the consensus climb
     // resonates a query region to it, and articulation reads its halo.
-    this.indexGist(id, true);
+    this.indexGist(id);
     const r = this._dbGetHalo(id);
     const acc = this._haloExact.get(id) ??
       (r ? haloDecode(r.vec, this.D) : new Float32Array(this.D));
@@ -2468,7 +2450,7 @@ export abstract class AbstractStore implements Store {
     this._dbUpsertHalo(id, haloEncode(acc), mass);
 
     // Re-index on a geometric schedule only (the exact halo is persisted).
-    if (mass >= this.minHaloMass && geometricMass(mass)) {
+    if (geometricMass(mass)) {
       this._haloBuffer.set(id, normalize(copy(acc)));
       await this.maybeFlush();
     }
@@ -2518,9 +2500,6 @@ export abstract class AbstractStore implements Store {
   protected flushContent(): number {
     if (this._contentBuffer.length === 0) return 0;
     const batch = this._contentBuffer.splice(0);
-    // The merge scan only consults UNFLUSHED candidates, so clear them in
-    // lockstep with the content buffer they mirror.
-    this._nearDedupBuf.clear();
     this._bufferedIds.clear();
     this._vecContentUpsert(batch);
     this._resonateCache = null;

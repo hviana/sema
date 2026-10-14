@@ -70,3 +70,23 @@ export function indexOf(
   }
   return -1;
 }
+
+/** THE FRAME two byte runs share around what varies: the length of their
+ *  longest common PREFIX, then of their longest common SUFFIX in what is left
+ *  of the shorter — so the two never overlap.  Over `a[as, ae)` and
+ *  `b[bs, be)`; whole arrays by default. */
+export function sharedEnds(
+  a: Uint8Array,
+  b: Uint8Array,
+  as = 0,
+  ae = a.length,
+  bs = 0,
+  be = b.length,
+): [number, number] {
+  const max = Math.min(ae - as, be - bs);
+  let p = 0;
+  while (p < max && a[as + p] === b[bs + p]) p++;
+  let s = 0;
+  while (s < max - p && a[ae - 1 - s] === b[be - 1 - s]) s++;
+  return [p, s];
+}

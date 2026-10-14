@@ -27,16 +27,32 @@ with distinct content, and every span the fold produced is addressable.
    flat node over the same bytes. Its gist is re-captured, because the same
    bytes fold differently standing alone and embedded, and the index must hold
    the gist that a direct query will present (`fold-contract.md`).
-3. **Near dedup.** Branches only, against whole experiences still in the write
-   buffer. The gist proposes a candidate reaching the branch's `identityBar`.
-   The bytes then decide: the two must be identical except for one span of at
-   most `W` bytes (`differsByOneWindow`). This is the only place two different
-   contents share an id.
+3. **Near dedup** (`nearDedup`, on by default). Branches only, onto a form a
+   deposit learnt WHOLE (`learntWhole`), decided the same way whatever the batch
+   size, flush schedule or session (`nearDedupTarget`):
+   - **proposed by structure.** A near-duplicate differing in one window reuses
+     every chunk away from the difference (the fold cuts by content), so the
+     form it duplicates is an ancestor of the branch's first or last existing
+     kid. The kid index is climbed, pruned by length, each node's parents read
+     up to the hub bound. A branch of fresh kids climbs nothing.
+   - **decided by bytes, then by the bar.** The two must be identical except for
+     one span of at most `W` bytes (`differsByOneWindow`), and the gist must
+     clear the length-aware `identityBar`, read from the content index (the
+     write buffer flushed into it first — only for a branch that has a
+     proposal). Bytes one window apart can mean different things: without the
+     bar, `X date of birth` and `X date of death` merged and ten answers were
+     lost.
+
+   This is the only place two different contents share an id.
+   `nearDedup:
+   false` keeps every distinct byte sequence its own node.
 4. **Mint** a new id.
 
-Refuted: probing the flushed ANN index for near targets, the dominant training
-cost, and wrong. The 1-bit code ranked a byte-distinct branch as nearest and
-collapsed two different subtrees onto one id (`test/02`).
+Refuted: scanning only the unflushed write buffer for near targets — the flush
+schedule then decided identity (two deposits merged at the default batch size
+and stayed apart at batch size 1). Probing the content index for every minted
+branch decides the same as the structural proposal but made training ten times
+slower.
 
 ## Relations on the nodes
 
@@ -67,7 +83,7 @@ hashed, then verified:
 - `findFlatBranch` memoizes hits only, and a miss builds no key.
 - `flatSpans(bytes)` extends one FNV-1a hash per start position, so sweeping a
   span's ends costs O(1) per probe instead of O(span). Otherwise, recognition's
-  interior pass hashes 251,660,406 bytes in one response (`test/153.4`).
+  sweep would hash O(n · reach²) bytes (`test/153.4`).
 
 `bytes(id)` and `bytesPrefix(id, cap)` return buffers shared with the caches.
 Callers must never mutate them.
@@ -114,5 +130,7 @@ Maintenance is incremental:
 - `test/08` — storage: the node layout, halo persistence and 2-bit round trip,
   the `haloMass`/`hasHalo` contract, and survival across a reopen.
 - `test/02` — exact round trip: near dedup never merges distinct bytes.
+- `test/08` — near dedup onto a whole form only, kept apart by the bar, the same
+  at every batch size and across a reopen, and off with `nearDedup: false`.
 - `test/36-bloom` — the filters' exactness and persistence.
 - `test/153.4` — the span prober answers exactly what `findFlatBranch` answers.

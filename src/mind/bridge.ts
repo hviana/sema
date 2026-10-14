@@ -15,11 +15,11 @@
 // THE MECHANISM — read-only, refusal-path-only.  When recall is about to
 // refuse, the query's own content-addressed windows (the W-byte leaf-id
 // flat branches indexSubSpans already interns at every byte offset) are
-// probed against the store; the rarest ones anchor a climb (edgeAncestors —
-// the same climb consensus voting uses) to the trained contexts that
-// contain them.  Each candidate context is ALIGNED to the query byte-for-
-// byte around the anchor, leaving mismatched spans; a mismatch grounds as a
-// SUBSTITUTION only under two derived gates:
+// probed against the store; the rarest ones pick, among recall's ranked
+// hits, the trained contexts that hold them.  Each candidate is READ against
+// the query as `reference` reads a frame instance (`frameSlots`: one
+// monotone chain, the gaps it leaves); a mismatch grounds as a SUBSTITUTION
+// only under two derived gates:
 //
 //   • CORROBORATION — the query-side span is itself corpus-attested: every
 //     W-window inside it resolves as a stored flat form, at least one of
@@ -32,10 +32,9 @@
 //     whose bundled halos must clear significanceBar(D), the same
 //     distributional-evidence bar used by analogyStrength.
 //
-// A candidate context is accepted when its aligned-plus-substituted spans
-// DOMINATE the query (the same half-dominance predicate used throughout)
-// and every unexplained gap stays within one perception window W (the same
-// single-window tolerance identityBar prices).  The accepted context is
+// A candidate context is accepted when every unexplained gap, and each of
+// its edges, stays within one perception window W (the same single-window
+// tolerance identityBar prices).  The accepted context is
 // then grounded exactly like any recall hit — project() through its learnt
 // edges — so the answer is a trained continuation, never synthesized bytes.
 //
@@ -91,21 +90,27 @@
 //     suite green (358/358).
 
 import { cosine, type Vec } from "../vec.js";
-import { conceptThreshold, dominates, significanceBar } from "../geometry.js";
+import {
+  AGREEMENT,
+  conceptThreshold,
+  dominates,
+  significanceBar,
+  twoQuanta,
+} from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { exactNode, perceive, read } from "./primitives.js";
-import { chainReach, leafIdRun } from "./canonical.js";
+import { exactNode, perceive } from "./primitives.js";
+import { chainReach, windowAt, windowIds } from "./canonical.js";
+import { unexplainedSpans } from "./derivation.js";
 import {
   allWindowsAreScaffolding,
-  corpusN,
-  edgeAncestors,
   hubBound,
-  sharedReachMemo,
+  hubWindows,
+  spanHalo,
+  windowRarity,
 } from "./traverse.js";
 import { rItem, rNode } from "./trace.js";
-import { junctionContainersFrom } from "./junction.js";
-import { alignAround, type AlignGap, spanHalo } from "./match.js";
+import { type AlignGap, type FrameInstance } from "./match.js";
 
 /** One accepted substitution: query span [qs,qe) stands in for the
  *  candidate context's span — recorded for the rationale trace.  The same
@@ -136,23 +141,13 @@ export function dismissedKnownContent(
   spans: ReadonlyArray<readonly [number, number]>,
 ): boolean {
   const W = ctx.space.maxGroup;
-  const sorted = [...spans].sort((a, b) => a[0] - b[0]);
-  let cursor = 0;
-  for (const [s, e] of [...sorted, [query.length, query.length] as const]) {
-    for (let o = cursor; o + W <= s; o++) {
-      const ids = leafIdRun(ctx, query, o, o + W);
-      if (ids !== null && ctx.store.findBranch(ids) !== null) return true;
+  for (const [a, b] of unexplainedSpans(query.length, spans)) {
+    for (let o = a; o + W <= b; o++) {
+      if (windowAt(ctx, query, o) !== null) return true;
     }
-    cursor = Math.max(cursor, e);
   }
   return false;
 }
-
-// The seeded aligner this file used to own now lives in the shared match family
-// as {@link alignAround} — the frame reading (match.ts) reads the same gaps and
-// asks the OPPOSITE question of them (see AlignGap's own doc). Two consumers,
-// one definition (factored-machinery.md); the bridge's reading is unchanged.
-const align = alignAround;
 
 /** Recall's corroborated-substitution bridge — see the module comment.
  *  Returns the best bridged grounding proposal, or null. */
@@ -168,7 +163,7 @@ const align = alignAround;
 export async function substitutionBridge(
   ctx: MindContext,
   query: Uint8Array,
-  proposed: () => Promise<ReadonlyArray<number>> = async () => [],
+  proposed: () => Promise<ReadonlyArray<FrameInstance>> = async () => [],
 ): Promise<BridgeHit | null> {
   const meter = ctx.meter;
   return meter
@@ -179,14 +174,11 @@ export async function substitutionBridge(
 async function bridgeImpl(
   ctx: MindContext,
   query: Uint8Array,
-  proposed: () => Promise<ReadonlyArray<number>>,
+  proposed: () => Promise<ReadonlyArray<FrameInstance>>,
 ): Promise<BridgeHit | null> {
   const W = ctx.space.maxGroup;
-  if (query.length < 2 * W) return null;
+  if (query.length < twoQuanta(W)) return null;
   const bound = hubBound(ctx);
-  const N = corpusN(ctx);
-  const marketScale = ctx.cfg.recallQueryK * W;
-  const candidateCap = N <= marketScale ** 3 ? bound : 2 * ctx.cfg.recallQueryK;
   const bar = conceptThreshold(ctx.store.D);
   const synonymBar = significanceBar(ctx.store.D);
   const reachCap = chainReach(W);
@@ -195,13 +187,10 @@ async function bridgeImpl(
       anchors: 0,
       picked: 0,
       proposed: 0,
-      structuralProposed: 0,
       proposedGrounded: 0,
       synonymChecks: 0,
       bestSynonym: 0,
-      climbed: 0,
       phraseScale: 0,
-      seeded: 0,
       aligned: 0,
       structurallyValid: 0,
       coverageValid: 0,
@@ -248,15 +237,6 @@ async function bridgeImpl(
   // unanimity scan — which walks EVERY collected candidate's bytes, inside
   // the per-gap expansion loop — paid that volume back tens of times per
   // substitution.  Recall's run() was 0.7–2.6 s per refusing query.
-  const capBytes = query.length * W;
-  /** A candidate's bytes, phrase-scale capped: null when it exceeds the cap
-   *  (read one byte past it, so "too long" is decided without materialising
-   *  the rest) or has no content. */
-  const candidateBytes = (sid: number): Uint8Array | null => {
-    const b = read(ctx, sid, capBytes + 1);
-    return b.length === 0 || b.length > capBytes ? null : b;
-  };
-
   // 1. The query's stored windows, rarest first (fewest containers — the
   //    most discriminative anchors; hub-clamped like every fan-out read).
   //    The scan doubles as the ONE store probe of every query window: the
@@ -264,17 +244,11 @@ async function bridgeImpl(
   //    attestation and ignored-known check as plain array reads (the same
   //    probes repeated per candidate dominated the refusal-path cost).
   const nWin = Math.max(0, query.length - W + 1);
-  const winStored = new Uint8Array(nWin);
   const winReused = new Uint8Array(nWin);
   const anchors: Array<{ off: number; id: number; rarity: number }> = [];
-  for (let o = 0; o + W <= query.length; o++) {
-    const ids = leafIdRun(ctx, query, o, o + W);
-    if (ids === null) continue;
-    const id = ctx.store.findBranch(ids);
-    if (id === null) continue;
-    winStored[o] = 1;
-    const rarity = ctx.store.containersSlice(id, 0, bound + 1).length;
-    if (rarity >= 2) winReused[o] = 1;
+  for (const [o, id] of windowIds(ctx, query)) {
+    const rarity = windowRarity(ctx, id, bound + 1);
+    if (rarity >= AGREEMENT) winReused[o] = 1;
     if (rarity === 0) continue;
     anchors.push({ off: o, id, rarity });
   }
@@ -333,22 +307,10 @@ async function bridgeImpl(
     if (qe - qs < W) return false;
     let reused = false;
     for (let o = qs; o + W <= qe; o++) {
-      if (!winStored[o]) return false;
+      if (windowAt(ctx, query, o) === null) return false;
       if (winReused[o]) reused = true;
     }
     return reused;
-  };
-  // dismissedKnownContent (see above) over the same precomputed facts.
-  const dismissedKnownQ = (
-    spans: ReadonlyArray<readonly [number, number]>,
-  ): boolean => {
-    const sorted = [...spans].sort((a, b) => a[0] - b[0]);
-    let cursor = 0;
-    for (const [s, e] of [...sorted, [query.length, query.length] as const]) {
-      for (let o = cursor; o + W <= s; o++) if (winStored[o]) return true;
-      cursor = Math.max(cursor, e);
-    }
-    return false;
   };
   // ── EXPLAINED SPANS — the scaffolding judgement, corpus-global ──────────
   //
@@ -378,25 +340,21 @@ async function bridgeImpl(
   // written off as filler. So an empty-rooted window is NEVER explained, and
   // neither is an untrained one (the same principle attestedQ applies to the
   // query side).
-  const reachMemo = sharedReachMemo(ctx);
   const explainedSpan = (
     bytes: Uint8Array,
     from: number,
     to: number,
   ): boolean => {
     if (to - from < W) return true;
+    // Common content: every window of it a hub (`hubWindows`, the one
+    // reading of a window's commonness — its containers past the read
+    // allowance).  (A reading of its own — saturated, or reaching a corpus
+    // majority — was measured to decide the same on the suite and the 2Wiki
+    // fixtures.)
     const common = (start: number, end: number): boolean => {
       if (end - start < W) return false;
-      for (let o = start; o + W <= end; o++) {
-        const ids = leafIdRun(ctx, bytes, o, o + W);
-        if (ids === null) return false;
-        const wid = ctx.store.findBranch(ids);
-        if (wid === null) return false;
-        const r = edgeAncestors(ctx, wid, N, reachMemo);
-        if (r.saturated) continue; // in too many places to discriminate
-        if (r.roots.length === 0) return false; // reaches nothing: novel content
-        if (!dominates(r.contextsReached, N)) return false;
-      }
+      const hub = hubWindows(ctx, bytes);
+      for (let o = start; o + W <= end; o++) if (!hub[o]) return false;
       return true;
     };
     if (common(from, to)) return true;
@@ -423,201 +381,50 @@ async function bridgeImpl(
     picked.push(a);
   }
   if (diagnostics) diagnostics.picked = picked.length;
-  // 2. Candidate trained contexts.  Two proposal channels, one verifier:
-  //    (a) the caller's PROPOSED hits — recall's whole-query resonance
-  //    ranking, the retrieval structure built to surface near-paraphrase
-  //    forms the window climb cannot single out at corpus scale; (b) each
-  //    picked anchor climbed to its edge-bearing ancestors (the same climb
-  //    consensus voting uses).  Both are only ever PROPOSALS — every
-  //    candidate passes the same byte-exact alignment and gates below.
+  // 2. Candidate trained contexts: the caller's PROPOSED hits — recall's
+  //    whole-query resonance ranking — holding a picked anchor window.  Only
+  //    ever PROPOSALS: every candidate passes the byte-exact reading and gates
+  //    below.  (Two further channels — each picked anchor climbed to its
+  //    edge-bearing ancestors, and junction containers of anchor-window pairs
+  //    — were measured to propose nothing this one missed, and removed.)
   const seen = new Set<number>();
-  const candidates: number[] = [];
-  // Exact co-occurrence proposes contexts the whole-form ANN can miss when a
-  // short insertion shifts every later fold boundary. The byte alignment below
-  // remains the decider. All pairs share one candidateCap·W junction
-  // allowance, ordered
-  // by their rarest side and then span: a rare content window joined to a
-  // distant frame boundary discriminates a whole question better than two
-  // neighbouring rare windows inside the same word.
-  if (query.length <= 2 * reachCap) {
-    const pairs: Array<[typeof picked[number], typeof picked[number]]> = [];
-    for (let i = 0; i < picked.length; i++) {
-      for (let j = i + 1; j < picked.length; j++) {
-        pairs.push([picked[i], picked[j]]);
-      }
-    }
-    pairs.sort((a, b) =>
-      Math.min(a[0].rarity, a[1].rarity) -
-        Math.min(b[0].rarity, b[1].rarity) ||
-      Math.abs(b[0].off - b[1].off) - Math.abs(a[0].off - a[1].off) ||
-      a[0].rarity + a[1].rarity - b[0].rarity - b[1].rarity
-    );
-    const structuralBudget = {
-      n: chainReach(W) * W * ctx.cfg.recallQueryK,
-    };
-    for (const [left, right] of pairs.slice(0, W)) {
-      const found = junctionContainersFrom(
-        ctx,
-        query.subarray(left.off, left.off + W),
-        query.subarray(right.off, right.off + W),
-        capBytes,
-        [left.id],
-        [right.id],
-        structuralBudget,
-        true,
-      );
-      for (const hit of found) {
-        if (candidates.length >= candidateCap) break;
-        if (seen.has(hit.id) || !ctx.store.hasNext(hit.id)) continue;
-        seen.add(hit.id);
-        candidates.push(hit.id);
-        if (diagnostics) diagnostics.structuralProposed++;
-      }
-    }
-  }
-  // Once exact structural proposals fill the shared cap, no caller proposal
-  // can enter the verifier. Do not evaluate the lazy ANN thunk merely to
-  // discard every result at the loop's first guard.
-  const proposedIds = candidates.length < candidateCap ? await proposed() : [];
-  if (diagnostics) diagnostics.proposed = proposedIds.length;
-  for (const sid of proposedIds) {
-    if (candidates.length >= candidateCap) break;
-    if (seen.has(sid)) continue;
-    seen.add(sid);
-    const tb = candidateBytes(sid);
-    if (tb === null) continue;
+  const candidates: Array<{ use: number; inst: FrameInstance }> = [];
+  const instances = await proposed();
+  if (diagnostics) diagnostics.proposed = instances.length;
+  for (const inst of instances) {
+    if (seen.has(inst.id)) continue;
+    seen.add(inst.id);
+    const tb = inst.bytes;
     if (
       !picked.some((a) => indexOf(tb, query.subarray(a.off, a.off + W), 0) >= 0)
     ) continue;
-    let use = sid;
+    let use = inst.id;
     if (!ctx.store.hasNext(use)) {
       const folded = exactNode(ctx, tb);
-      if (folded === null || folded === sid || !ctx.store.hasNext(folded)) {
+      if (folded === null || folded === use || !ctx.store.hasNext(folded)) {
         continue;
       }
       use = folded;
       if (seen.has(use)) continue;
       seen.add(use);
     }
-    candidates.push(use);
+    candidates.push({ use, inst });
     if (diagnostics) diagnostics.proposedGrounded++;
   }
-  // Proposal channel — carries its caller's own bound (recall's resonance
-  // k), sharing the 2·recallQueryK candidate allowance
-  // with the structural and climb channels. A proposal may
-  // be a FLAT content twin whose continuation edge lives on the
-  // fold-shaped deposit node with the same bytes — the same twin split
-  // canonResolve bridges by re-folding (primitives.ts) — but the re-fold
-  // (an identity fold of the candidate's bytes) is paid only for proposals
-  // that could align at all: alignment can only seed at a picked anchor
-  // window occurring literally in the candidate (measured: unconditional
-  // re-folds multiplied the refusal-path latency several-fold).
-  // FIRST TOUCH of the caller's proposals — past every gate that could have
-  // refused without them (see substitutionBridge's doc).
-  // Climb channel — edge-bearing ancestors only, decided by the indexed
-  // O(1) hasNext; no byte is read here (the climb visits hundreds of
-  // roots, and reading each was measured to dominate the refusal path).
-  for (const a of picked) {
-    const reach = edgeAncestors(ctx, a.id, N, reachMemo);
-    for (const sid of reach.roots) {
-      if (candidates.length >= candidateCap) break;
-      if (seen.has(sid)) continue;
-      seen.add(sid);
-      if (!ctx.store.hasNext(sid)) continue;
-      candidates.push(sid);
-      if (diagnostics) diagnostics.climbed++;
-    }
-    if (candidates.length >= candidateCap) break;
-  }
-  // 3. Align each candidate; gate its mismatches; keep the best.
-  // Over-cap candidates are dropped here rather than earlier: the climb
-  // channel deliberately reads no bytes while collecting (the climb visits
-  // hundreds of roots), so this is where its proposals are first sized.
+  // A proposal may be a FLAT content twin whose continuation edge lives on
+  // the fold-shaped deposit node with the same bytes — the same twin split
+  // canonResolve bridges by re-folding (primitives.ts) — but the re-fold is
+  // paid only for proposals that hold a picked anchor window.
   //
-  // Candidate bytes are read LAZILY — on first access during the seed
-  // check — not eagerly for every collected id. Most climb-proposed
-  // candidates fail the seed check and never reach the expensive identity
-  // and frame-consensus gates.
-  //
-  // Frame unanimity is different: once any candidate reaches that gate, it
-  // must be evaluated against the COMPLETE collected candidate population,
-  // not only the prefix whose bytes happened to be loaded earlier. The full
-  // phrase-scale population is therefore materialised once, lazily, on the
-  // first unanimous() call and reused afterward.
-  //
-  // Null results are memoised too, so an empty or over-cap candidate is never
-  // read repeatedly by the candidate loop and the population materialiser.
-  const candidateByteMemo = new Map<number, Uint8Array | null>();
-
-  /** Read one candidate at most once. Returns null when it exceeds the
-   * phrase-scale cap or has no content. */
-  const bytesOfCandidate = (sid: number): Uint8Array | null => {
-    const cached = candidateByteMemo.get(sid);
-    if (cached !== undefined) return cached;
-
-    const b = candidateBytes(sid);
-    candidateByteMemo.set(sid, b);
-    return b;
-  };
-
-  let framePopulation: Map<number, Uint8Array> | null = null;
-
-  /** Return the complete phrase-scale candidate population.
-   *
-   * This is intentionally lazy: queries that never reach frame unanimity
-   * keep the cheap per-candidate seed path. Once required, every candidate
-   * is bounded by candidateBytes(), loaded at most once, and all subsequent
-   * unanimity checks observe the same order-independent population.
-   */
-  const ensureFramePopulation = (): ReadonlyMap<number, Uint8Array> => {
-    if (framePopulation !== null) {
-      return framePopulation;
-    }
-
-    const complete = new Map<number, Uint8Array>();
-
-    for (const sid of candidates) {
-      const bytes = bytesOfCandidate(sid);
-      if (bytes !== null) {
-        complete.set(sid, bytes);
-      }
-    }
-
-    framePopulation = complete;
-
-    if (diagnostics) {
-      diagnostics.phraseScale = complete.size;
-    }
-
-    return complete;
-  };
-
-  // FRAME UNANIMITY: a substitution U → C inside the frame (Lf, Rf) is
-  // groundable only when the collected candidates — the store's own sample
-  // of contexts sharing the query's content — are unanimous about the
-  // filler: every occurrence of Lf…Rf across them holds either U (the
-  // query's own word, corroboration) or C.  A THIRD distinct filler means
-  // the frame is a VALUE SLOT ("was born in _" held Germany, Poland,
-  // England, Serbia — observed live), and picking one value would assert
-  // knowledge the store does not have.  Consensus of the store's own
-  // instances, no similarity judgement, no tuned constant.
-  // Requires a genuine CORROBORATING sighting, not merely the absence of a
-  // conflicting one: scanning only the handful of resonance/climb-proposed
-  // candidates means the frame can easily occur NOWHERE else among them
-  // (observed live: "of Fra[nce]" -> "of Spain si[nce]" passed vacuously —
-  // the frame "tal …nce " never recurred among the collected candidates at
-  // all, so there was no consensus, only an absence of disagreement, yet
-  // the substitution was accepted).  "Unanimous" must mean the store's own
-  // instances agree, which requires at least one instance to consult.
+  // Frame unanimity reads the COMPLETE collected population, in order.
+  if (diagnostics) diagnostics.phraseScale = candidates.length;
   const unanimous = (
     u: Uint8Array,
     c: Uint8Array,
     lf: Uint8Array,
     rf: Uint8Array,
   ): boolean => {
-    const population = ensureFramePopulation();
-
-    for (const bytes of population.values()) {
+    for (const { inst: { bytes } } of candidates) {
       let from = 0;
       for (;;) {
         const i = indexOf(bytes, lf, from);
@@ -657,25 +464,23 @@ async function bridgeImpl(
     candidateIndex < candidates.length;
     candidateIndex++
   ) {
-    const sid = candidates[candidateIndex];
-    // Read bytes lazily — most climb-proposed candidates have no picked
-    // anchor window and will never pass the seed check below, so their
-    // bytes are never read at all.
-    const cBytes = bytesOfCandidate(sid);
-    if (cBytes === null) continue;
-    // Seed at the rarest picked anchor that literally occurs in this
-    // candidate.
-    let seed: { qo: number; co: number } | null = null;
-    for (const a of picked) {
-      const co = indexOf(cBytes, query.subarray(a.off, a.off + W), 0);
-      if (co >= 0) {
-        seed = { qo: a.off, co };
-        break;
-      }
-    }
-    if (seed === null) continue;
-    if (diagnostics) diagnostics.seeded++;
-    const { matched, gaps } = align(ctx, query, cBytes, seed.qo, seed.co);
+    const { use: sid, inst } = candidates[candidateIndex];
+    const cBytes = inst.bytes;
+    // THE SAME READING `reference` takes of a candidate (`frameSlots`, read
+    // once per response by `Precomputed.frames`): one monotone chain from the
+    // origin, each gap with its raw borders.  Gaps outside the first and last
+    // matched run are the edges the coverage test below reads, not mismatches.
+    const matched = inst.matched.filter(([s0, e0]) => e0 > s0);
+    const first = matched.length > 0 ? matched[0][0] : query.length;
+    const last = matched.length > 0 ? matched[matched.length - 1][1] : 0;
+    const gaps = inst.slots
+      .filter((sl) => sl.gq[0] >= first && sl.gq[1] <= last)
+      .map((sl) => ({
+        qs: sl.gq[0],
+        qe: sl.gq[1],
+        cs: sl.gc[0],
+        ce: sl.gc[1],
+      }));
     if (diagnostics) diagnostics.aligned++;
 
     // Investment gate: even treating every two-sided mismatch as a valid
@@ -830,11 +635,11 @@ async function bridgeImpl(
     if (!ok) continue;
     if (diagnostics) diagnostics.structurallyValid++;
 
-    // Coverage: matched runs plus accepted substitutions must dominate the
-    // query, every interior gap already proved ≤ W above, and the EDGES
-    // must be explained to the same one-window tolerance — the same "at
-    // most one river window of foreign content" identityBar prices.  The
-    // live junk this closes: alignments that matched a query's scaffolding
+    // Coverage: every interior gap is already proved ≤ W above, and the
+    // EDGES must be explained to the same one-window tolerance — the same
+    // "at most one river window of foreign content" identityBar prices.  (A
+    // further bar, that the covered bytes dominate the query, was measured
+    // redundant with these and removed.)  The live junk this closes: alignments that matched a query's scaffolding
     // and one substitution but left the query's whole trailing content
     // ("…planet orbiting our sun.", 24 bytes) unexplained, yet still
     // half-dominated the byte count.
@@ -876,7 +681,6 @@ async function bridgeImpl(
       if (diagnostics.closest.length > W) diagnostics.closest.length = W;
     }
     if (spans[0][0] > W || query.length - reachEnd > W) continue;
-    if (!dominates(covered, query.length)) continue;
     if (diagnostics) diagnostics.coverageValid++;
 
     // ZERO-SUBSTITUTION ADMISSION — an IDENTITY claim, not a substitution.
@@ -949,7 +753,7 @@ async function bridgeImpl(
     // Matrix synopsis by writing off "ance" — a stored window of the
     // trained "France" — as a gap, while genuinely novel spans like
     // test/49's untrained "Name" remain tolerable).
-    if (dismissedKnownQ(spans)) continue;
+    if (dismissedKnownContent(ctx, query, spans)) continue;
     if (diagnostics) diagnostics.knownContentValid++;
 
     if (covered > bestAccounted) {

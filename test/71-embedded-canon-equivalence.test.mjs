@@ -16,7 +16,7 @@
 // exactly at offset 0.
 //
 // WHY THE 4.3k-FACT FIXTURE IS NOT OPTIONAL: the tier runs only when
-// `atomIsHub(ctx, corpusN)` is true, i.e. N > ~4096 contexts at maxGroup=4.
+// `atomIsHub(corpusN, W)` is true, i.e. N > ~4096 contexts at maxGroup=4.
 // Every small-store suite exercises the OTHER branch of recognition, so a
 // conventional fixture would pass while the defect is fully present.  The
 // atomIsHub assertion below fails loudly if that crossover ever moves, so this
@@ -27,7 +27,8 @@ import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { recognise } from "../dist/src/mind/recognition.js";
 import { resolve } from "../dist/src/mind/primitives.js";
-import { atomIsHub, corpusN } from "../dist/src/mind/traverse.js";
+import { corpusN } from "../dist/src/mind/traverse.js";
+import { atomIsHub } from "../dist/src/geometry.js";
 import { textCanon } from "../dist/src/canon.js";
 
 const enc = (s) => new TextEncoder().encode(s);
@@ -66,7 +67,7 @@ test("an embedded trained form is recognised under canonical equivalence", async
 
   const N = corpusN(m);
   assert.ok(
-    atomIsHub(m, N),
+    atomIsHub(N, m.space.maxGroup),
     `fixture must cross atomIsHub (N=${N}); the tier under test is ` +
       `scale-gated and this suite would otherwise assert nothing`,
   );

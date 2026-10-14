@@ -180,12 +180,63 @@ export function consensusFloor(N: number): number {
   return Math.log(N) + 1 / 2;
 }
 
+/** AGREEMENT — the fewest independent instances that make a pattern rather
+ *  than an accident: one is a coincidence, two agree.  Anti-unification's
+ *  minimum (Plotkin 1970), and the one count behind every "instances agree",
+ *  "the weave has a pair", "a window is reused" and "another context
+ *  establishes it too" reading.  Scale-free, like {@link dominates}. */
+export const AGREEMENT = 2;
+
+/** THE PHRASE SCALE of a span of `len` bytes: `len·W`, the longest form that can
+ *  still BE that span with a slot replaced — its glue may be up to one window per
+ *  byte it holds.  Past it a form is a document quoting the span, not a phrase
+ *  standing for it.  The one cap on reading a candidate against a question. */
+export function phraseCap(len: number, W: number): number {
+  return len * W;
+}
+
+/** THE INSTANCE SCALE of a question of `len` bytes: `2·len`, the longest form
+ *  that can be the question's frame around ONE other filler — a filler no
+ *  longer than the question itself.  The one cap on reading a form as another
+ *  instance of a question (relation frames, convergence, descriptions, and the
+ *  refusals that ask `otherInstance`); a phrase-scale cap there answered the
+ *  same on the suite and on 900 fresh queries. */
+export function instanceCap(len: number): number {
+  return 2 * len;
+}
+
+/** THE TWO-QUANTUM FLOOR: below `2W` bytes a span holds no perceivable unit
+ *  beyond the one being matched — the least a composition, a meet or a carried
+ *  slot can stand on. */
+export function twoQuanta(W: number): number {
+  return 2 * W;
+}
+
 /** The hub bound `⌈√n⌉` for a count of learnt contexts, floored at 2 — the
  *  one cap on every per-query read (bounded-reads.md).  `traverse.ts` reads
  *  it over the corpus (`hubBound`); a module holding a bare store reads it
  *  over `edgeSourceCount()` (`GraphSearch`). */
 export function boundFor(contextCount: number): number {
   return Math.ceil(Math.sqrt(Math.max(2, contextCount)));
+}
+
+/** The uniform-expectation floor on a byte atom's corpus commonality: N
+ *  learnt contexts, each at least one perception chunk of up to W of the 256
+ *  possible byte values, contain a given atom in ≥ N·W/256 contexts on
+ *  average.  An atom's TRUE containment is unmeasurable (atoms carry no
+ *  kid/contain links by construction), so this floor is the honest stand-in:
+ *  derived entirely from the corpus scale N, the perception window W, and
+ *  the alphabet size — never tuned. */
+export function atomReach(contextCount: number, W: number): number {
+  return Math.max(1, Math.ceil((contextCount * W) / 256));
+}
+
+/** Whether a byte atom is a hub at this corpus scale — its commonality floor
+ *  {@link atomReach} exceeds the hub bound √N.  Below it (small stores) an
+ *  atom votes and is recognised exactly as any stored form; above it the
+ *  alphabet is scaffolding everywhere and abstains. */
+export function atomIsHub(contextCount: number, W: number): boolean {
+  return atomReach(contextCount, W) > boundFor(contextCount);
 }
 
 // ---- types ----

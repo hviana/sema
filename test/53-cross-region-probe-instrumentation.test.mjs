@@ -48,7 +48,7 @@ const SYN_ATTR_CORPUS = [
 ];
 
 // Structural-resonance is the LAST rung: it runs only when every DAG tier —
-// exact junction, single- and double-synonym — found no container at all.
+// exact junction and single-synonym — found no container at all.
 // SYN_ATTR_CORPUS cannot reach it, and no longer pretends to: every attribute
 // there shares a context ("is a color" / "is a shape") with its neighbours, so
 // the single-synonym tier always finds a bridge and accepts before the ladder
@@ -189,33 +189,6 @@ test("4. single-synonym junction: exact returns zero, single attempted and retur
   assert.ok(probe.singleSynonym.candidatesReturned > 0);
   assert.equal(probe.structural.tier, "single-synonym");
   assert.equal(probe.structural.outcome, "accepted");
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 5. double-synonym junction: verify the ladder position and fields.
-// ═══════════════════════════════════════════════════════════════════════════
-
-test("5. double-synonym tier: probe fields report single returned zero and double attempted when only the double tier can fire", async () => {
-  const m = mk(1);
-  await m.ingest(SYN_ATTR_CORPUS);
-  const { steps } = await trace(m, "crimson then crimson");
-  await m.store.close();
-
-  const step = climbStep(steps);
-  const cr = step.data.crossRegion ?? { probes: [] };
-  // Whether or not a double-synonym container was actually found (fixture-
-  // sensitive per test/51's own test 4), every probe that attempted the
-  // synonym ladder must report single/double consistently: double is only
-  // ever attempted when single returned zero.
-  for (const p of cr.probes) {
-    if (p.doubleSynonym.attempted) {
-      assert.equal(p.singleSynonym.candidatesReturned, 0);
-      assert.equal(p.singleSynonym.attempted, true);
-    }
-    if (p.singleSynonym.candidatesReturned > 0) {
-      assert.equal(p.doubleSynonym.attempted, false);
-    }
-  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

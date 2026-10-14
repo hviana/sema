@@ -26,8 +26,8 @@ the container-as-hub saturation in `saturation.md`).
 
 - Measure: `depth[i]`, the number of distinct structures in the weave that cover
   byte `i`. They are counted as distinct, never by weight.
-- Cut: `frame(i) ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)`, with
-  `MIN_WEAVE = 2`, because a pair is ambiguous when insertions are possible.
+- Cut: `frame(i) ⇔ depth[i] > AGREEMENT ∧ dominates(depth[i], aligned)`, with
+  `AGREEMENT = 2`, because a pair is ambiguous when insertions are possible.
 - Read by CAST (`cast.ts`).
 
 **Places: where a window occurs.**
@@ -55,7 +55,7 @@ discriminates nothing and abstracts nothing.
 
 ## Pins
 
-- `test/17` — the weave-local frame, `MIN_WEAVE` and `dominates`, against corpus
+- `test/17` — the weave-local frame, `AGREEMENT` and `dominates`, against corpus
   reach (the reorder probe).
 - `test/34` — containment and reach-driven disambiguation.
 - `test/73` — a question made only of scaffolding is abstained from by the

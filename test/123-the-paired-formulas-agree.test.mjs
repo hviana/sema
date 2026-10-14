@@ -46,21 +46,20 @@ test("123. the duplicated derived formulas agree, home by home", () => {
     );
   }
 
-  // ── (2) atomReach = max(1, ⌈N·W/256⌉), in traverse.ts and in graph-search.ts ──
-  // Each home names N and W differently (a parameter and `ctx.space.maxGroup`
-  // against the store's edge-source count and the local `W`), so the PAIR is the
-  // arithmetic shape — the `256` and the floor.
-  const reachShape = (file, what) =>
-    extract(
-      file,
-      /Math\.max\(1,\s*Math\.ceil\(\((?:[^()]|\([^()]*\))*\*\s*[A-Za-z_.]+\)\s*\/\s*(256)\)\)/,
-      what,
-    );
-  assert.equal(
-    reachShape("mind/traverse.js", "atomReach's shape"),
-    reachShape("mind/graph-search.js", "the atomsAreHubs shape"),
-    "the atom-reach formula has drifted between traverse.ts and graph-search.ts",
+  // ── (2) atomReach = max(1, ⌈N·W/256⌉) has ONE home too: geometry.ts.  It
+  // was spelled in traverse.ts and graph-search.ts and pinned equal here; now
+  // both read the one definition, and neither may spell it again.
+  const REACH = /Math\.max\(1,\s*Math\.ceil\([^;]*\/\s*256\)\)/;
+  assert.ok(
+    REACH.test(SRC("geometry.js")),
+    "atomReach must live in geometry.js",
   );
+  for (const file of ["mind/traverse.js", "mind/graph-search.js"]) {
+    assert.ok(
+      !REACH.test(SRC(file)),
+      `${file} spells the atom-reach formula again instead of importing it`,
+    );
+  }
 
   // ── (4) the interior phrase-scale allowance, in resonance.ts and attention.ts ──
   const resonance = extract(

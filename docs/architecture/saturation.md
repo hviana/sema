@@ -29,10 +29,13 @@ saturations, each exact below its threshold (`bound = √N`):
    `bound`. Commonness spread across the cone is caught as surely as commonness
    concentrated at one node, while a deep chain inside one structure accrues no
    laterals and reaches its root at any depth.
-5. **Byte atoms.** Atoms carry no containment rows, so their reach is
-   unmeasurable, and the uniform expectation `atomReach(N, W)` replaces it. Past
-   `bound`, an atom abstains as a voter (`atomIsHub`), though its edges remain
-   traversable.
+5. **Byte atoms.** Atoms carry no parent or containment rows, so their reach is
+   UNKNOWN, and unknown is neither rare nor common: an atom never votes, at any
+   corpus size (`byte-atom-unobservable`), though its edges remain traversable.
+   A query whose only regions are single bytes commits no point of attention
+   through them (`test/35`). (It used to abstain only past
+   `atomReach(N, W) = ⌈N·W/256⌉ > bound` — a uniform expectation that called a
+   byte occurring nowhere common and let the same byte vote on a smaller store.)
 
 Below every stop, the walk equals the unbounded climb, and its work is
 `O(bound)` contexts, seeds streamed in `bound`-sized pages. A stop ends a VOTE;
@@ -43,17 +46,23 @@ frame's instances, `evidence.md`).
 window occurs with the _contexts_ it reaches (`test/49`: `fran`, 4 containers, 2
 contexts). So is counting holders only: it lost answers on every 2Wiki fixture,
 held-out too, as the neighbourhood silences frame windows; holders are read by
-bytes (`heldElsewhere`).
+bytes (`heldElsewhere`). It answers `held`, `apart` or `saturated`: a net the
+budget cut off is not a holder found, and its caller abstains on it explicitly.
 
 ## `pivotInto` — the longest wins (`mind/resonance.ts`)
 
-Candidates rank by `contentLen(id, answerLen + 1)`, descending, first-inserted
-breaking ties, so the first candidate passing every filter wins and no shorter
-candidate's bytes are read. A candidate must be a learnt whole: a span with
-parents or containers no deposit learnt whole is a piece of bigger forms
-(`s=70`). Structure alone over-reads: the content-defined cuts can reuse a
-name's subtree inside its own contexts (`William Henry Fellowes`: parents 2,
-halo 2), and refusing such a name stopped the walk a hop short (`test/157`).
+Candidates are the THINGS the answer holds (`thingsIn`, `mind/recognition.ts`):
+the stored forms recognition reads in the answer and in its canonical spelling
+(the canonical class without an index), each learnt whole and leading on — the
+same set the cover's derive-through reads (`entityProposals`). A resonance sweep
+of the answer's sub-regions and a `canonResolve` scan of every span proposed
+nothing more (suite, 900 fresh queries). Candidates rank by span length,
+descending, recognition's order breaking ties, so the first one passing the
+filters wins; containment is the span itself. A thing is a learnt whole: `s=70`
+was learnt only as a piece of `latency_ms=70`. Structure is not the test: the
+content-defined cuts reuse a name's subtree inside its own contexts
+(`William Henry Fellowes`: parents 2), and refusing such a name stopped the walk
+a hop short (`test/157`).
 
 ## Junction ascent — guards against a budget (`mind/junction.ts`)
 
@@ -79,5 +88,7 @@ Two tightenings were refuted:
 
 - `test/16`, `test/34` — refute stopping when one cone is exhausted, in the
   bridge junction and in n-ary cross-region binding.
-- `test/27` — dropping saturated leading and trailing intervals from the climb.
+- `test/27` — a shared saturated opening does not take the climb's focus; the
+  identity layer alone keeps it past the opening (a separate drop of saturated
+  intervals was measured redundant and removed).
 - `test/49` — refutes treating container fan-out as a hub.

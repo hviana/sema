@@ -7,13 +7,16 @@
 //   WRITE side (training):
 //     • learning.indexSubSpans — interns sliding windows of the two
 //       {@link canonicalWindows} lengths over the stream's leaf ids;
-//     • learning.deposit — interns the WHOLE stream as one flat branch
-//       (via {@link leafIdPrefix}) so every deposit has a byte-level identity.
+//     • learning.deposit — interns the WHOLE stream as one flat branch so
+//       every deposit has a byte-level identity.
 //   READ side (inference):
-//     • recognition's canonical pass — chains leaf ids from every position and
-//       probes each growing prefix as a flat branch, up to {@link chainReach};
-//     • attention.canonicalChunkId — reads a chunk's window of leaf ids
-//       (via {@link leafIdRun}) and probes its prefixes for the best anchor.
+//     • recognition's sweep — every span from every start probed as a flat
+//       branch, its hash extended a byte at a time, within W⁴ + 2r;
+//     • every W-window reading — {@link windowIds}, the one table of the
+//       content address of each W-slice of a byte stream.
+//
+// A single-byte leaf needs no lookup: its id is implicit, −(b+1), so every
+// byte span HAS a kid run and its flat identity is one probe ({@link flatId}).
 //   (geometry.knownPrefixLength is the same convention below the store layer,
 //    expressed through injected `leafAt`/`lookup` capabilities — it cannot
 //    import this module without inverting the dependency spine, so its header
@@ -24,6 +27,7 @@
 // what training indexed, which no type checker catches.
 
 import type { MindContext } from "./types.js";
+import { flatBytesKids } from "../store.js";
 
 /** The two sliding-window lengths the WRITE side interns over a stream's leaf
  *  ids: W−1 and W (the river's grouping quantum and its off-by-one neighbour,
@@ -44,48 +48,15 @@ export function chainReach(W: number): number {
   return W * W;
 }
 
-/** The id of the single-byte leaf at position `p`, or null when that byte was
- *  never interned. */
-export function leafIdAt(
-  ctx: MindContext,
-  bytes: Uint8Array,
-  p: number,
-): number | null {
-  return ctx.store.findLeaf(bytes.subarray(p, p + 1));
-}
-
-/** The leaf ids of the window `[from, to)`, or null the moment ANY byte in it
- *  is unknown — the all-or-nothing read {@link canonicalChunkId} anchors on. */
-export function leafIdRun(
-  ctx: MindContext,
-  bytes: Uint8Array,
-  from: number,
-  to: number,
-): number[] | null {
-  const ids: number[] = [];
-  for (let i = from; i < to; i++) {
-    const lid = leafIdAt(ctx, bytes, i);
-    if (lid === null) return null;
-    ids.push(lid);
-  }
-  return ids;
-}
-
-/** The leaf ids of the LONGEST KNOWN PREFIX of `bytes` — stops at the first
- *  unknown byte and returns what it has (possibly empty).  The caller decides
- *  what a partial prefix means (deposit only interns the whole-stream flat
- *  branch when the prefix covers everything). */
-export function leafIdPrefix(
-  ctx: MindContext,
-  bytes: Uint8Array,
-): number[] {
-  const ids: number[] = [];
-  for (let i = 0; i < bytes.length; i++) {
-    const lid = leafIdAt(ctx, bytes, i);
-    if (lid === null) break;
-    ids.push(lid);
-  }
-  return ids;
+/** THE FLAT NODE over a byte span — the node the write side interns for a
+ *  whole deposit and for each canonical window — or null when none was
+ *  interned.  One content-addressed probe; the store's negative filter refuses
+ *  most misses without I/O. */
+export function flatId(ctx: MindContext, span: Uint8Array): number | null {
+  const store = ctx.store;
+  return store.findFlatBranch
+    ? store.findFlatBranch(span)
+    : store.findBranch(flatBytesKids(span));
 }
 
 /** Which prefixes of `prefix ‖ tail` are STORED NODES — as lengths in the
@@ -98,11 +69,9 @@ export function leafIdPrefix(
  *  exists, leads on, and its boundary 6 is in neither the tail's cuts nor the
  *  concatenation's.
  *
- *  ONE cheap content-addressed probe per offset — `leafIdPrefix` walks the bytes
- *  once (a point probe each), `findBranch` hashes the growing kid run — and NO
- *  `resolve`, which is what keeps this off the O(suffix) vector folds the
- *  recognition path pays.  It stops at the first byte that was never interned,
- *  which costs nothing real: a stored key's bytes are interned by construction. */
+ *  ONE cheap content-addressed probe per offset, the hash extended by one byte
+ *  per probe ({@link Store.flatSpans}), and NO `resolve`, which is what keeps
+ *  this off the O(suffix) vector folds the recognition path pays. */
 export function keyEnds(
   ctx: MindContext,
   prefix: Uint8Array,
@@ -112,44 +81,68 @@ export function keyEnds(
   const joined = new Uint8Array(prefix.length + tail.length);
   joined.set(prefix, 0);
   joined.set(tail, prefix.length);
-  const ids = leafIdPrefix(ctx, joined);
-  if (ids.length < prefix.length) return [];
+  const probe = ctx.store.flatSpans?.(joined) ??
+    ((s: number, e: number) => flatId(ctx, joined.subarray(s, e)));
   const ends: number[] = [];
-  // The kid run GROWS by one id per offset; `findBranch` wants an array, so the
-  // run is built once and pushed into, never re-sliced.  Re-slicing
-  // `ids.slice(0, prefix.length + p)` per offset made this O(|tail| ·
-  // (|prefix| + |tail|)) — quadratic in the tail, where the learning path this
-  // follows slices a run that SHRINKS.  Same ends, linear copying.
-  const run = ids.slice(0, prefix.length);
-  // The loop ENDS at the first byte that was never interned (`ids.length`):
-  // every later prefix contains it, so none of them can be a node either — this
-  // is where the scan stops, not a silent truncation of the answer.
-  for (let p = 1; prefix.length + p <= ids.length; p++) {
-    run.push(ids[prefix.length + p - 1]);
-    if (ctx.store.findBranch(run) !== null) ends.push(p);
+  for (let p = 1; p <= tail.length; p++) {
+    if (probe(0, prefix.length + p) !== null) ends.push(p);
   }
   return ends;
 }
 
-/** The canonical W-window node ids of a byte stream, offset → id — the
- *  CONTENT-ADDRESSED IDENTITY of every W-sized slice, under which any content
- *  two deposits share IS the same node (hash-consing paid the comparison at
- *  write time).  The read side of the {@link canonicalWindows} contract asked
- *  at every offset: a window over unknown bytes, or one never interned as a
- *  flat branch, has no identity and is skipped.  Confluence's meet and CAST's
- *  frame detection both read shared/common content through this — never
- *  through a byte scan. */
+/** The content-addressed id of the W-window of `bytes` at offset `o`, or
+ *  null when none was interned — THE window identity every W-window reading
+ *  of the engine asks (commonness, scaffolding, anchors, dismissed content,
+ *  shared content).  Memoised per byte array and store state, offset by
+ *  offset, so a reader that stops early pays only for what it read and a
+ *  second reader of the same bytes pays nothing. */
+export function windowAt(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  o: number,
+): number | null {
+  const table = tableOf(ctx, bytes);
+  let id = table.at.get(o);
+  if (id === undefined) {
+    const W = ctx.space.maxGroup;
+    id = o + W <= bytes.length ? flatId(ctx, bytes.subarray(o, o + W)) : null;
+    table.at.set(o, id);
+  }
+  return id;
+}
+
+/** The canonical W-window node ids of a byte stream, offset → id, ascending —
+ *  {@link windowAt} at every offset, with the windows never interned left
+ *  out.  Under this identity any content two deposits share IS the same node
+ *  (hash-consing paid the comparison at write time). */
 export function windowIds(
   ctx: MindContext,
   bytes: Uint8Array,
 ): Map<number, number> {
-  const W = ctx.space.maxGroup;
-  const out = new Map<number, number>();
-  for (let off = 0; off + W <= bytes.length; off++) {
-    const ids = leafIdRun(ctx, bytes, off, off + W);
-    if (ids === null) continue;
-    const wid = ctx.store.findBranch(ids);
-    if (wid !== null) out.set(off, wid);
+  const table = tableOf(ctx, bytes);
+  if (table.all === undefined) {
+    const W = ctx.space.maxGroup;
+    const all = new Map<number, number>();
+    for (let o = 0; o + W <= bytes.length; o++) {
+      const id = windowAt(ctx, bytes, o);
+      if (id !== null) all.set(o, id);
+    }
+    table.all = all;
   }
-  return out;
+  return table.all;
+}
+
+interface WindowTable {
+  key: object;
+  at: Map<number, number | null>;
+  all?: Map<number, number>;
+}
+const windowTables = new WeakMap<Uint8Array, WindowTable>();
+function tableOf(ctx: MindContext, bytes: Uint8Array): WindowTable {
+  let t = windowTables.get(bytes);
+  if (t === undefined || t.key !== ctx._structMemoKey) {
+    t = { key: ctx._structMemoKey, at: new Map() };
+    windowTables.set(bytes, t);
+  }
+  return t;
 }

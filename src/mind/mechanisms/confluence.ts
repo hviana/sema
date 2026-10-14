@@ -50,9 +50,9 @@ import {
   reachOf,
   thingIn,
 } from "../traverse.js";
-import { dominates } from "../../geometry.js";
+import { dominates, twoQuanta } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
-import { insideAnsweredTurn } from "../derivation.js";
+import { insideAnsweredTurn, unionSpans, windowSpans } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 
@@ -80,7 +80,9 @@ export async function confluenceJoin(
   pre: Precomputed,
 ): Promise<JoinResult | null> {
   const W = ctx.space.maxGroup;
-  if (query.length < 2 * W || ctx.store.edgeSourceCount() === 0) return null;
+  if (query.length < twoQuanta(W) || ctx.store.edgeSourceCount() === 0) {
+    return null;
+  }
   const { ranked } = await pre.attention();
   if (ranked.length < 2) return null;
 
@@ -186,7 +188,7 @@ export async function confluenceJoin(
   // constraints).  Shard-bound streams are no constraints, and their meets
   // are connective debris (". Sure,", "ngul" — observed).
   const bindsAConstituent = (cover: Array<[number, number]>): boolean =>
-    cover.some(([cs, ce]) => ce - cs >= 2 * W);
+    cover.some(([cs, ce]) => ce - cs >= twoQuanta(W));
 
   // THE VOTE ENTERS AS ORDER, NEVER AS A BAR.  This is the only one of the
   // climb's four consumers (recall, fuseAttention, cast, here) that uses the
@@ -229,20 +231,18 @@ export async function confluenceJoin(
     if (streams.some((s) => s.anchor === cand.anchor)) continue;
     const ids = new Set(windowsOfAnchor(cand.anchor).values());
     if (ids.size === 0) continue;
-    const cover: Array<[number, number]> = [];
-    const held: Array<[number, number]> = [];
+    const heldAt: number[] = [];
+    const bindsAt: number[] = [];
     const binds = new Set<number>();
-    let curC: [number, number] | null = null;
-    let curH: [number, number] | null = null;
     for (const [off, wid] of queryWin) {
       if (!ids.has(wid)) continue;
-      if (curH !== null && off <= curH[1]) curH[1] = off + W;
-      else held.push(curH = [off, off + W]);
+      heldAt.push(off);
       if (dominates(reachOf(ctx, wid, N, reachMemo), N)) continue; // scaffolding never binds
       binds.add(wid);
-      if (curC !== null && off <= curC[1]) curC[1] = off + W;
-      else cover.push(curC = [off, off + W]);
+      bindsAt.push(off);
     }
+    const held = unionSpans(windowSpans(heldAt, W));
+    const cover = unionSpans(windowSpans(bindsAt, W));
     if (cover.length > 0 && bindsAConstituent(cover)) {
       streams.push({
         anchor: cand.anchor,
@@ -279,14 +279,13 @@ export async function confluenceJoin(
       if (nx.length < bound) {
         for (const c of nx) {
           const has = new Set(windowsOfAnchor(c).values());
-          const runs: Array<[number, number]> = [];
-          let cur: [number, number] | null = null;
+          const at: number[] = [];
           for (const [off, wid] of queryWin) {
-            if (!st.binds.has(wid) || !has.has(wid)) continue;
-            if (cur !== null && off <= cur[1]) cur[1] = off + W;
-            else runs.push(cur = [off, off + W]);
+            if (st.binds.has(wid) && has.has(wid)) at.push(off);
           }
-          if (bindsAConstituent(runs)) st.evidence.push(c);
+          if (bindsAConstituent(unionSpans(windowSpans(at, W)))) {
+            st.evidence.push(c);
+          }
         }
       }
       st.evidenceIds = new Set(
@@ -331,27 +330,34 @@ export async function confluenceJoin(
         // Offsets of A whose window id is shared with B and absent from the
         // query — merged into maximal contiguous spans (windows overlap, so
         // consecutive shared offsets weave one span).
-        const spans: Array<[number, number]> = [];
-        let cur: [number, number] | null = null;
+        const meet: number[] = [];
         for (const [off, wid] of wa) {
-          const inMeet = wb.has(wid) && !queryIds.has(wid);
-          if (inMeet) {
-            if (cur !== null && off <= cur[1]) cur[1] = off + W;
-            else spans.push(cur = [off, off + W]);
-          }
+          if (wb.has(wid) && !queryIds.has(wid)) meet.push(off);
         }
+        const spans = unionSpans(windowSpans(meet, W));
         if (spans.length === 0) continue;
 
         const aBytes = read(ctx, text);
         for (const [s, e] of spans) {
-          // Scaffolding gate: the span's MOST discriminative window decides.
-          // Content reaching a corpus MAJORITY of contexts discriminates
-          // nothing (the same half-dominance convention every wrapper test
-          // uses); the query-subtraction above already removed everything the
-          // question names, so what survives here is a genuine open-seat
-          // entity.
+          // ONE WINDOW IS NOT AN ENTITY.  The reach below is read at the
+          // finest grain the fold can address, where content-defined window
+          // identity is at its most phase-sensitive: a scaffolding phrase
+          // whose cut happens to land in a rare phase reads as rare content.
+          // Measured on test/29 C3, a 13-context store: the meet of `The Mona
+          // Lisa was painted by Leonardo da Vinci.` and `Hamlet was written by
+          // William Shakespeare.` came out as ` by ` at reach 3 — pure frame,
+          // priced as the corpus's third-rarest content, and voiced as the
+          // entity where the two evidence streams meet.  A single quantum
+          // agrees with half the corpus by accident (the same argument
+          // pipeline-mechanism.ts's proposed-run gate makes about a 4-byte
+          // span), so a meet must clear the two-quantum floor this file's own
+          // entry gate uses — the smallest span that carries a perceivable
+          // unit BEYOND the one being matched.
+          // (A further gate refusing a meet whose rarest window reaches a
+          // corpus majority was measured redundant with the query
+          // subtraction above and THE SEAT IS A THING below, and removed.)
           const len = e - s;
-          if (len < 2 * W) continue;
+          if (len < twoQuanta(W)) continue;
           // THE SEAT IS A THING.  Where the question names a thing of its
           // own (`heldEntity`: `Zhu Gaoxu`, `My Wife's Lodger` under the
           // equivalence), what it asks for is one too, and a meet holding no
@@ -375,21 +381,6 @@ export async function confluenceJoin(
               reach = Math.min(reach, reachOf(ctx, wid, N, reachMemo));
             }
           }
-          // ONE WINDOW IS NOT AN ENTITY.  The reach above is read at the
-          // finest grain the fold can address, where content-defined window
-          // identity is at its most phase-sensitive: a scaffolding phrase
-          // whose cut happens to land in a rare phase reads as rare content.
-          // Measured on test/29 C3, a 13-context store: the meet of `The Mona
-          // Lisa was painted by Leonardo da Vinci.` and `Hamlet was written by
-          // William Shakespeare.` came out as ` by ` at reach 3 — pure frame,
-          // priced as the corpus's third-rarest content, and voiced as the
-          // entity where the two evidence streams meet.  A single quantum
-          // agrees with half the corpus by accident (the same argument
-          // pipeline-mechanism.ts's proposed-run gate makes about a 4-byte
-          // span), so a meet must clear the two-quantum floor this file's own
-          // entry gate uses — the smallest span that carries a perceivable
-          // unit BEYOND the one being matched.
-          if (!isFinite(reach) || dominates(reach, N)) continue;
           if (
             met === null || reach < met.reach ||
             (reach === met.reach && len > met.len)
@@ -438,7 +429,9 @@ export const confluenceMechanism: PipelineMechanism = {
   provenance: "join",
   async floor(_ctx, query, pre, worthRunning) {
     const W = _ctx.space.maxGroup;
-    if (query.length < 2 * W || _ctx.store.edgeSourceCount() === 0) return null;
+    if (query.length < twoQuanta(W) || _ctx.store.edgeSourceCount() === 0) {
+      return null;
+    }
     // Confluence's floor is always exactly 3*STEP when it exists — same
     // investment discipline as CAST's (see cast.ts): when the bound already
     // cannot beat the incumbent, return it UNINVESTED (never first-touch the

@@ -140,10 +140,9 @@ import {
   invalidateStructuralCaches,
   leadsSomewhere,
 } from "./traverse.js";
-import { invalidateJunctionCache } from "./junction.js";
 import type { WindowIndex } from "./evidence.js";
 import { follow } from "./match.js";
-import { recognise, segment } from "./recognition.js";
+import { recognise, segment, thingsIn } from "./recognition.js";
 import { meaningOf } from "./resonance.js";
 import {
   climbAttention as climbAttentionFn,
@@ -220,8 +219,6 @@ export interface MindOptions {
   seed?: number;
   recallQueryK?: number;
   haloQueryK?: number;
-  /** Branch nodes the pivot sweep may probe — see {@link MindConfig}. */
-  pivotProbeK?: number;
   /** Items one rationale step may itemise — see {@link MindConfig}. */
   rationaleSampleK?: number;
   /** Corpus-reading capacities and budgets — see {@link MindConfig}. */
@@ -400,6 +397,13 @@ export class Mind implements MindContext {
 
   leadsSomewhere(id: number): boolean {
     return leadsSomewhere(this, id);
+  }
+
+  /** The things a span holds (see GraphSearchHost). */
+  thingsIn(
+    bytes: Uint8Array,
+  ): ReadonlyArray<{ id: number; span: [number, number]; canonical: boolean }> {
+    return thingsIn(this, bytes);
   }
 
   // recogniseSpan wraps recognise
@@ -1147,7 +1151,6 @@ export class Mind implements MindContext {
     inspectRationale?: InspectRationale,
   ): Promise<(Sema & { id: number }) | undefined> {
     invalidateStructuralCaches(this);
-    invalidateJunctionCache(this);
     const prevTrace = this.trace;
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
     try {

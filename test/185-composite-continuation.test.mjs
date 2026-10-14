@@ -83,11 +83,11 @@ test("recognise(): the reading is deterministic across two answers", async () =>
   await m.store.close();
 });
 
-test("recognise(): the interior tier is instrumented, and the whole-stream guard is what runs it", async () => {
+test("recognise(): the sweep is instrumented", async () => {
   const m = await mind();
   await m.respondText(`I ask: ${B}, and ${A}.`, () => {});
   const c = m.lastCost?.counters ?? {};
-  for (const k of ["recogniseInteriorGaps", "recogniseInteriorPairs"]) {
+  for (const k of ["recogniseSpans", "recogniseCanonSpans"]) {
     assert.ok(
       Object.hasOwn(c, k),
       `the meter must carry ${k} — a cost claim with no counter is a claim with no evidence (got: ${
@@ -96,8 +96,8 @@ test("recognise(): the interior tier is instrumented, and the whole-stream guard
     );
   }
   assert.ok(
-    c.recogniseInteriorPairs > 0,
-    "the interior tier must have probed at least one gated pair",
+    c.recogniseSpans > 0,
+    "the exact sweep must have probed at least one span",
   );
   await m.store.close();
 });

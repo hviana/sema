@@ -92,20 +92,19 @@ const ARITH_CORPUS = [
   ["7+1", "8"],
 ];
 
-test("breadth: a coincidental single-region echo does not dominate", async () => {
+test("breadth: single-byte regions commit no point of attention — the echo cannot form", async () => {
+  // `2+2 equals what?` used to climb, through its single-byte regions (`2`,
+  // `+`), to the unrelated `1+1` — a coincidental echo the breadth bar then had
+  // to keep from dominating.  A byte atom's containment is UNKNOWN (atoms have
+  // no parent or containment rows), so an atom never votes, at any corpus size
+  // (traverse.ts `edgeAncestors`): the echo is not committed at all.
   const m = mk(1);
   await m.ingest(ARITH_CORPUS);
   const roots = await m.climbAttention(enc("2+2 equals what?"), 24);
-  assert.equal(roots.length, 1, "expected exactly one committed root");
-  assert.ok(
-    typeof roots[0].breadth === "number",
-    "Attention must carry a breadth field",
-  );
-  assert.ok(
-    roots[0].breadth <= 0.5,
-    `a coincidental echo must NOT dominate the query's own regions, got breadth=${
-      roots[0].breadth
-    }`,
+  assert.equal(
+    roots.length,
+    0,
+    `single-byte regions must commit no root, got ${roots.length}`,
   );
   await m.store.close();
 });
@@ -118,7 +117,11 @@ test("breadth: a coincidental single-region echo does not dominate", async () =>
 // flip either verdict merely by changing N.
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("breadth: the same bar holds as the corpus grows (scale invariance)", async () => {
+test("breadth: the same holds as the corpus grows (scale invariance)", async () => {
+  // A byte's vote no longer depends on how many unrelated experiences the store
+  // holds: it was withheld only past N > 4096 contexts (a uniform expectation
+  // N·W/256), so the same byte voted on a small store and abstained on a large
+  // one.  More arithmetic facts change nothing: still no root.
   const bigArith = [...ARITH_CORPUS];
   for (let a = 1; a <= 9; a++) {
     for (let b = 1; b <= 9; b++) {
@@ -128,12 +131,10 @@ test("breadth: the same bar holds as the corpus grows (scale invariance)", async
   const m = mk(1);
   await m.ingest(bigArith);
   const roots = await m.climbAttention(enc("2+2 equals what?"), 24);
-  assert.equal(roots.length, 1, "expected exactly one committed root");
-  assert.ok(
-    roots[0].breadth <= 0.5,
-    `a coincidental echo must still not dominate on a larger corpus, got breadth=${
-      roots[0].breadth
-    }`,
+  assert.equal(
+    roots.length,
+    0,
+    `still no root on a larger corpus, got ${roots.length}`,
   );
   await m.store.close();
 });

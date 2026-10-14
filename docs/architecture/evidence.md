@@ -76,7 +76,7 @@ The co-instance's continuation is also established by contexts that hold the
 filler (`Peter Jackson place of birth`), and they spell the relation the
 corpus's way, as a **relation frame** (`relationFrames`). A frame counts only
 where two co-instances spell it alike, the same bar `reference` holds
-(`MIN_INSTANCES`).
+(`AGREEMENT`).
 
 `byCoInstance` puts the node into each frame and looks the result up by content.
 If `Edmond T. Gréville place of birth` exists, its continuation is named.
@@ -242,14 +242,18 @@ and says 23 more. Reading such slots costs 13–20% more lookups on 2Wiki and
 answers nothing more. They still count as forms that share a frame when the
 question-entity fallback asks whether its hypothesis shows.
 
-**The proposals are the climb's, and their siblings.** One region votes for one
-context, so the climb's points hold one instance of a frame several share. Once
-a co-instance has shown the frame, the contexts its rarest non-hub window
-reaches on both surfaces (`siblingInstances`: the fold makes one window a chunk
-of one form and a run across another's) are read as further candidates. What a
-form says as an instance is independent of the material: its bytes, filler and
-relations are read once per question (`instanceBook`); each later material pays
-only the frame check.
+**The proposals are one inventory, and their siblings.** The climb's points and
+the response's resonance inventory — the forms `reference` and the substitution
+bridge read as instances — are taken alternately under one budget
+(`instanceProposals`, `chainReach(W)`); reading the points alone missed
+co-instances the resonance ranked (+7/−0 over three 2Wiki fixtures). One region
+votes for one context, so the climb's points hold one instance of a frame
+several share. Once a co-instance has shown the frame, the contexts its rarest
+non-hub window reaches on both surfaces (`siblingInstances`: the fold makes one
+window a chunk of one form and a run across another's) are read as further
+candidates. What a form says as an instance is independent of the material: its
+bytes, filler and relations are read once per question (`instanceBook`); each
+later material pays only the frame check.
 
 Where the points hold no two agreeing instances, the question's own entity shows
 the frame instead: the longest point the question holds whole, exactly or under
@@ -268,8 +272,9 @@ ranked points (`asked.points`), and climbs nothing itself: a climb of its own
 costs 16% more climb visits and names nothing more. So:
 
 - the pick memo is cleared when the points arrive (`memoization.md`);
-- recall's argument binding asks for the climb first when its choice would
-  otherwise be blind.
+- a grounding read before the climb (the cover's, at the head of the declared
+  order) is read again once the climb's points show and instances carry a
+  relation (`pipeline.ts`), so the evidence that names its step is counted.
 
 A question stored verbatim is its own instance and reads no frames.
 
@@ -302,16 +307,16 @@ A step at `x` is named with no new fact about `x` exactly when:
 - **agreement:** two fillers spell the relation alike;
 - **target:** `A·x·B` is deposited.
 
-An oracle reading only the deposits predicted it over 4,064 controlled questions
-and 520 2Wiki ones (three held-out ranges): Sema named no step it denied. The
-decisive contrast fixes the information: an instance's fact respelled on one
-side (two nodes) names nothing, respelled on both (one node) names as before,
-about 45 answers per 300 rows. The description reader (`describedSteps`) obeys
-the same law. Limits:
+The law is pinned by the constructed worlds of `test/154`–`test/158`. The
+contrast that fixes the information: an instance's fact respelled on one side
+(two nodes) names nothing, respelled on both (one node) names as before. The
+description reader (`describedSteps`) obeys the same law. (A larger measurement
+against an oracle reading only the deposits motivated it; that oracle is not
+part of this repository, and no figure from it is claimed here.) Limits:
 
 - **Identity, not meaning.** A paraphrased frame, an alias or a fact respelled
   on one side leaves the step unavailable to every exact reading; only the use
-  (`byParaphrase`) crosses, approximately, below the hub.
+  (`byUse`) crosses, approximately, below the hub.
 - **Strength is not represented.** Two misleading instances weigh as eight true
   ones; only `x`'s own facts tell them apart, at the lookup of `A·x·B`. What is
   named grows with experience; that one thing is named does not.
@@ -322,7 +327,7 @@ the same law. Limits:
   witness (`husband` for `spouse`) stays unavailable however sufficient the
   facts.
 
-## A paraphrase — `byParaphrase`
+## A step named by its use — `byUse`
 
 Where neither reading names a step, the question may name it by use: in
 `In which town did Z pass away?`, `pass away` is used as `end` is in `Z end`. A
@@ -333,19 +338,10 @@ the relation. On the whole question, for its own thing (`heldEntity`) with two
 continuations, the unsaid run free of scaffolding telling them apart best ranks
 them, beyond chance and beyond the next by `significanceBar`.
 
-## Arguments held under the response's equivalence
-
-2Wiki title-cases its questions (`Man At Bath` for the stored `Man at Bath`),
-meeting none of the fold's cuts. When recall's argument binding finds no
-recognised argument, every point the climb reaches is a candidate if the
-question holds it canonically at its offsets (`canonHeldPoints`; a cased title
-ranks low). The climb proposes, exact containment decides, through the canonical
-index (`buildCanonIndex`).
-
-A fragment that answers other questions is set aside before the binding looks
-for one maximal argument, so `director` does not cancel `Man at Bath`. The same
-predicate refuses CAST's substitution subject and redirection substitute
-(`ong)?`, the tail of every `… (… Song)?` question).
+A fragment that answers other questions is set aside before the cover takes it
+as a site (`answersOtherQuestions`). The same predicate refuses CAST's
+substitution subject and redirection substitute (`ong)?`, the tail of every
+`… (… Song)?` question).
 
 A fragment with a single continuation is no safer when it was never learnt as a
 context. Suffix inheritance admits a reused piece once two deposits share it, so

@@ -34,10 +34,23 @@ unit is `1/√D`.
 
 - `hubBound = ⌈√N⌉`, the bound on every `LIMIT` read (`hubCap` on lists)
 - `consensusFloor = ln N + ½`, for pooled climb votes
-- `atomReach = max(1, ⌈N·W/256⌉)`; an atom is a hub when `atomReach > hubBound`
+- `atomReach = max(1, ⌈N·W/256⌉)`; the corpus is past the atom-hub scale when
+  `atomReach > hubBound` — a COST regime only (what recognition probes off the
+  fold's cuts, the chart's atom handling, the cross-region budget); an atom's
+  VOTE never depends on it: an atom never votes (`saturation.md`)
 
-`dominates(part, whole) = 2·part > whole` is the one scale-free bar: a strict
-majority.
+`dominates(part, whole) = 2·part > whole` is one scale-free bar: a strict
+majority. `AGREEMENT = 2` is the other: the fewest independent instances that
+make a pattern rather than an accident (two instances of a frame, a weave's
+pair, a window in two places, a second establishing context).
+
+Two length scales are named once in `geometry.ts`: `phraseCap(len, W) = len·W`,
+the longest form that can still be a span of `len` bytes with a slot replaced
+(the cap on reading a candidate against a question), and `twoQuanta(W) = 2W`,
+the least a composition, a meet or a carried slot stands on. A third,
+`instanceCap(len) = 2·len`, is the longest form that can be the question's frame
+around one other filler: the cap on reading a form as another instance of the
+question.
 
 The vector bars are compared against RaBitQ estimates, not exact cosines. That
 is benign for inequality gates over broad regions, and it is why no bar ever
@@ -68,5 +81,5 @@ answer falls back to a noisy concept hop.
 - `test/64` — `mergeThreshold`, `identityBar` and `reachThreshold`, and the
   scale-aware floor.
 - `test/40` — `consensusFloor` must not gate `chooseNext`'s support counts.
-- `test/78` — `atomReach`/`atomIsHub`: atoms abstain once the corpus makes them
-  hubs.
+- `test/78` — `atomReach`/`atomIsHub`: the scale regime recognition reads.
+- `test/35` — a byte atom never votes, at any corpus size.

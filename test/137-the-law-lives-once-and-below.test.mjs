@@ -112,7 +112,7 @@ test("137.2 every unified reading has exactly one definition", async () => {
   // the law's own functions, each defined once in all of src/
   for (
     const fn of [
-      "unaccountedBytes",
+      "spanBytes",
       "unexplainedSpans",
       "remainderOf",
       "carries",

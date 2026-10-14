@@ -21,12 +21,13 @@ import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
 import { dominates } from "../geometry.js";
 import { windowIds } from "./canonical.js";
+import { spanBytes, unexplainedSpans } from "./derivation.js";
 import { read, resolve } from "./primitives.js";
 import {
   alignGraded,
   type FrameInstance,
-  frameSlots,
   type GradedRun,
+  instancesOf,
   skillExemplar,
 } from "./match.js";
 import { climbAttentionAll } from "./attention.js";
@@ -179,41 +180,18 @@ export class Precomputed {
    *
    *  NO LICENCE EITHER.  Knowing a span is variable is safe for every consumer
    *  — it can only improve an alignment.  Knowing one may be VOICED through is
-   *  a different and much stronger claim, gated separately by
-   *  {@link carriesFillers}, which needs projections this must not perform. */
+   *  a different and much stronger claim, gated by the consumer that voices
+   *  (reference.ts), which needs projections this must not perform. */
   frames(): Promise<ReadonlyArray<FrameInstance>> {
-    return this._frames ??= this.shared("frames", async () => {
-      const ctx = this.ctx;
-      const W = ctx.space.maxGroup;
-      // PHRASE SCALE, the same bound the bridge and the frame filler put on a
-      // candidate's bytes: a form an order of magnitude longer than the query
-      // is not a candidate for BEING it with a span replaced.
-      const capBytes = this.query.length * W;
-      const out: FrameInstance[] = [];
-      for (const h of await this.resonance()) {
-        // REJECT BY LENGTH BEFORE RECONSTRUCTING (bounded-reads.md):
-        // `contentLen` is an indexed read, `bytesPrefix` rebuilds a subtree.
-        // ONLY the phrase-scale cap is applied — it is a bounded-read
-        // discipline, not a judgement.
-        //
-        // A LOWER bound was here too (`dominates(len, query.length)`, on the
-        // reasoning that a candidate shorter than half the query cannot supply
-        // a frame that dominates it).  That is reference's gate wearing a cost
-        // argument's clothes, and it hid the very pairings another consumer
-        // needs: `What is the capital of France?` (30 B) against `What is the
-        // capital of the country where the Eiffel Tower is?` (61 B) was
-        // rejected before it was ever read — a definite description standing
-        // where a noun stands, which is exactly the shape the frame filler
-        // exists for.
-        const len = ctx.store.contentLen(h.id, capBytes + 1);
-        if (len === 0 || len > capBytes) continue;
-        const cand = ctx.store.bytesPrefix(h.id, capBytes + 1);
-        if (cand.length === 0 || cand.length > capBytes) continue;
-        const inst = frameSlots(ctx, this.query, cand, h.id);
-        if (inst !== null) out.push(inst);
-      }
-      return out;
-    });
+    return this._frames ??= this.shared(
+      "frames",
+      async () =>
+        instancesOf(
+          this.ctx,
+          this.query,
+          (await this.resonance()).map((h) => h.id),
+        ),
+    );
   }
 
   private _attention?: Promise<AttentionRead>;
@@ -225,18 +203,23 @@ export class Precomputed {
     return this._attention ??= this.shared(
       "attention",
       () => climbAttentionAll(this.ctx, this.query, this.k),
-    ).then((read) => {
-      // The climb's scored anchors are what the exact tier reads co-instances
-      // of the question from (traverse.ts, `relationFrames`): the
-      // approximate climb proposes, witnessing decides.
+    ).then(async (read) => {
+      // The climb's scored anchors, with the response's resonance inventory —
+      // the forms every reader of an instance reads (`frames`) — are what the
+      // exact tier reads co-instances of the question from (traverse.ts,
+      // `relationFrames`): approximate reads propose, witnessing decides.
       // A pick made before the points existed read less evidence than one
       // made after, so the response's pick memo starts over (traverse.ts,
       // guidedNext: a pick is a function of the store, the guide AND the
       // points — traced and untraced responses must agree).
       const asked = this.ctx._edgeAsked;
       if (asked !== null && asked.points === undefined) {
-        asked.points = read.ranked.map((a) => a.anchor);
-        this.ctx._edgeChoice.clear();
+        const forms = (await this.resonance()).map((h) => h.id);
+        if (asked.points === undefined) {
+          asked.forms = forms;
+          asked.points = read.ranked.map((a) => a.anchor);
+          this.ctx._edgeChoice.clear();
+        }
       }
       return read;
     });
@@ -274,22 +257,6 @@ export class Precomputed {
       this._spanShaped.set(anchor, p);
     }
     return p;
-  }
-
-  /** Every ranked anchor's classification at once, sharing the same
-   *  per-anchor cache as {@link spanShapedOf} — for a mechanism that
-   *  genuinely needs the full picture (not an early-exit scan).  Mixing
-   *  access patterns across mechanisms never duplicates work: whichever
-   *  anchors an early-exit consumer already asked for are reused here, and
-   *  whichever this computes first are reused by a later early-exit scan. */
-  async spanShapedAll(): Promise<Map<number, SkillInfo | null>> {
-    const { ranked } = await this.attention();
-    const out = new Map<number, SkillInfo | null>();
-    for (const cand of ranked) {
-      if (out.has(cand.anchor)) continue;
-      out.set(cand.anchor, await this.spanShapedOf(cand.anchor));
-    }
-    return out;
   }
 }
 
@@ -341,8 +308,7 @@ function computeWeave(
   // recognising) a corpus-sized deposit: profiled on a 17.7M-node store,
   // uncapped weaves spent 5–8s per query recognising conversation-length
   // anchors that could never form a weave point.
-  const askerBytes = query.length -
-    ctx.answeredSpans.reduce((n, [start, end]) => n + end - start, 0);
+  const askerBytes = query.length - spanBytes(ctx.answeredSpans);
   const capBytes = askerBytes * quantum;
   // RUNS ARE NOT TRIMMED AGAINST EACH OTHER.  A point keeps every byte it
   // aligned; exclusivity is a property of STRUCTURES (see "one place, one
@@ -380,16 +346,8 @@ function computeWeave(
     ctxBytes: Uint8Array;
     raw: GradedRun[];
   }> = [];
-  const querySegments: Array<[number, number]> = [];
-  let segmentStart = 0;
-  for (const [start, end] of ctx.answeredSpans) {
-    if (segmentStart < start) querySegments.push([segmentStart, start]);
-    segmentStart = Math.max(segmentStart, end);
-  }
-  if (segmentStart < query.length) {
-    querySegments.push([segmentStart, query.length]);
-  }
-  const weaveLength = querySegments.reduce((n, [s, e]) => n + e - s, 0);
+  const querySegments = unexplainedSpans(query.length, ctx.answeredSpans);
+  const weaveLength = spanBytes(querySegments);
   const weaveQuery = new Uint8Array(weaveLength);
   const weaveMap: Array<{
     compactStart: number;
@@ -638,11 +596,6 @@ function computeWeave(
   // order, which is the arbiter this file already trusts for what belongs in
   // the weave; unlike run trimming, nothing is CUT here — a point keeps every
   // byte it aligned or it is not a separate structure at all.
-  const coveredOf = (p: WeaveInfo["points"][number]): Set<number> => {
-    const set = new Set<number>();
-    for (const r of p.runs) for (let i = r.qs; i < r.qe; i++) set.add(i);
-    return set;
-  };
   const kept: WeaveInfo["points"] = [];
   const keptCover: Array<Set<number>> = [];
   for (const p of points) {
@@ -664,6 +617,13 @@ function computeWeave(
   points.length = 0;
   points.push(...kept);
   return { points, depth };
+}
+
+/** The query bytes a weave point's runs cover. */
+export function coveredOf(p: WeaveInfo["points"][number]): Set<number> {
+  const set = new Set<number>();
+  for (const r of p.runs) for (let i = r.qs; i < r.qe; i++) set.add(i);
+  return set;
 }
 
 // ── SkillInfo ────────────────────────────────────────────────────────────────

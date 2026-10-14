@@ -40,11 +40,9 @@ const TOP = [
   "candidates",
   "config",
   "crossRegion",
-  "pooling",
   "reaches",
   "regions",
   "result",
-  "saturation",
   "version",
 ];
 const REQUIRED = ["cache", "candidates", "config", "result", "version"];
@@ -72,8 +70,6 @@ const SECTIONS = {
     "stopReason",
     "supersededOrdinaryVotes",
   ],
-  saturation: ["hasLeading", "leadingEnd", "regionIntervals"],
-  pooling: ["eligibleVotes", "inputVotes", "saturationMaskedVotes"],
 };
 const ANCHOR = [
   "anchor",
@@ -93,7 +89,6 @@ const REGION = [
   "annHitsExamined",
   "annHitsReturned",
   "annQueried",
-  "canonicalFailed",
   "canonicalId",
   "canonicalUsable",
   "chunk",

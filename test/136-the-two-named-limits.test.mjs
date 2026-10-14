@@ -53,7 +53,7 @@ test("136.1 the fuse gate asks the LAW — one condition, one home, one less sum
     [[3, 6], [9, 12]],
     "the construction must leave exactly the two sub-quantum gaps",
   );
-  const total = law.unaccountedBytes(gaps);
+  const total = law.spanBytes(gaps);
   const perSpan = law.remainderOf(len, explained, W);
   assert.ok(
     total >= W,
@@ -134,7 +134,7 @@ test("136.2 the extension is not priced — and it pays for itself", async () =>
   );
   assert.equal(
     winner.weight,
-    STEP + PASS * winner.unexplainedBytes,
+    winner.moves + PASS * winner.unexplainedBytes,
     "the winning candidate's weight is now something other than the ladder " +
       "formula on its own accounting — most likely the extension's cost was " +
       "folded in.  That is a behaviour change: measure what pricing the " +

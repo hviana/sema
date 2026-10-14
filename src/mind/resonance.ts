@@ -1,7 +1,7 @@
 // resonance.ts — Pattern A: Resonance Search.
 //
 //   Address → Resonate → filter by Traverse/Read predicates → transform.
-//   Used by bridge, recallByResonance, pivotInto, meaningOf.
+//   Used by bridge, recallByResonance, meaningOf; pivotInto (exact only).
 //   (The graded locate() matcher formerly here lives in match.ts.)
 import { rItem } from "./trace.js";
 
@@ -9,18 +9,14 @@ import { cosine, Vec } from "../vec.js";
 import { mergeThreshold } from "../geometry.js";
 import { concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { gistOf, read, resolve, walkTree } from "./primitives.js";
-import { perceive } from "./primitives.js";
-import { argmaxCosine, candidateGist, hubBound } from "./traverse.js";
+import { gistOf, read } from "./primitives.js";
+import { argmaxCosine, candidateGist } from "./traverse.js";
 import {
-  cachedRead,
   type Junction,
   junctionContainers,
   junctionSynonyms,
-  walkCache,
 } from "./junction.js";
-import { recognise } from "./recognition.js";
-import type { Sema } from "../sema.js";
+import { recognise, thingsIn } from "./recognition.js";
 
 // ── The bridge — the junction between two adjacent results ──────────────────
 //
@@ -72,57 +68,6 @@ function pickJunction(
     a.id - b.id
   );
   return scored[0];
-}
-
-/** Tier 2: junctions learnt as EDGES.  A continuation of left that contains
- *  right carries the glue as its prefix; a context of right that contains
- *  left carries it as its suffix.  Fan-outs read through the store's LIMITed
- *  edge reads at the hub bound, like every edge walk. */
-function junctionEdges(
-  ctx: MindContext,
-  left: Uint8Array,
-  right: Uint8Array,
-  maxContainer: number,
-): Junction[] {
-  const bound = hubBound(ctx);
-  const out: Junction[] = [];
-  const lId = resolve(ctx, left);
-  if (lId !== null) {
-    // A FULL √N page of continuations means the side is an edge hub: its
-    // fan-out is non-discriminative for a junction (the same common-content
-    // abstention as tier 1's containment gate), and reading √N capped
-    // continuations per pair is exactly the cost a miss must not pay.
-    // Below the page the list IS the full fan — read exactly.
-    const nexts = ctx.store.nextFirst(lId, bound);
-    if (nexts.length < bound) {
-      const cache = walkCache(ctx);
-      for (const n of nexts) {
-        // Prefix-capped read (same phrase-scale discipline as tier 1): a
-        // continuation longer than any admissible container cannot carry a
-        // junction-sized glue — skipped without reconstructing it.
-        const b = cachedRead(ctx, cache, n, maxContainer);
-        if (b.length > maxContainer) continue;
-        const ri = indexOf(b, right, 0);
-        if (ri >= 0) out.push({ id: n, interior: b.subarray(0, ri) });
-      }
-    }
-  }
-  const rId = resolve(ctx, right);
-  if (rId !== null) {
-    const prevs = ctx.store.prevFirst(rId, bound);
-    if (prevs.length < bound) {
-      const cache = walkCache(ctx);
-      for (const p of prevs) {
-        const b = cachedRead(ctx, cache, p, maxContainer);
-        if (b.length > maxContainer) continue;
-        const li = indexOf(b, left, 0);
-        if (li >= 0) {
-          out.push({ id: p, interior: b.subarray(li + left.length) });
-        }
-      }
-    }
-  }
-  return out;
 }
 
 /** Per-response memo of bridge results, keyed by the response's lifecycle
@@ -206,22 +151,7 @@ async function bridgeUncached(
     return container.interior;
   }
 
-  // Tier 2 — junctions learnt as edges.
-  const edge = pickJunction(
-    ctx,
-    junctionEdges(ctx, left, right, maxContainer),
-  );
-  if (edge !== null) {
-    ctx.trace?.step(
-      "bridge",
-      [rItem(left, "left"), rItem(right, "right")],
-      [rItem(edge.interior, "connector", edge.id)],
-      "edge junction — a learnt continuation/context carries the glue between the two",
-    );
-    return edge.interior;
-  }
-
-  // Tier 2.5 — synonym junctions: the content-addressed container search
+  // Tier 2 — synonym junctions: the content-addressed container search
   // applied to halo siblings of left/right.  Container evidence is exact
   // (same DAG ascent as tier 1, with window-id-enhanced seeds); the
   // relaxation is only in which form occupies one side.
@@ -239,7 +169,9 @@ async function bridgeUncached(
     return synonym.interior;
   }
 
-  // Tier 3 — the legacy resonance path (approximate, last resort).
+  // Tier 3 — the legacy resonance path (approximate, last resort).  (A tier
+  // reading junctions learnt as EDGES — a continuation of left holding right —
+  // was measured to find nothing the tiers around it missed, and removed.)
   const hits = await ctx.store.resonate(
     gistOf(ctx, joined),
     ctx.cfg.recallQueryK * 2,
@@ -294,9 +226,9 @@ export async function joinWithBridge(
 
 /** The pivot a produced answer bridges through: the longest UNCONSUMED learnt
  *  CONTEXT (a node bearing a continuation edge) whose bytes `answer` literally
- *  contains.  Candidates are gathered by resonating the answer's sub-regions
- *  (breadth-first, leaves skipped, probes capped by branch count), then
- *  confirmed by exact byte containment — a near-resonance alone never hops.
+ *  contains.  Candidates are the stored forms recognition reads in the answer
+ *  (content-addressed, every offset), then confirmed by exact byte
+ *  containment.
  *
  *  `voiced` carries the BYTES of the anchors the grounding mechanism declared
  *  it spoke for, and no candidate CONTAINED IN one of them may be pivoted
@@ -316,162 +248,38 @@ export async function pivotInto(
   consumed: ReadonlySet<number>,
   voiced: readonly Uint8Array[] = [],
 ): Promise<number | null> {
-  // The pivot's OWN shortlist capacity — not `recallQueryK`: they are different
-  // quantities (a mechanical sweep's probe budget vs the bridge's candidate-read
-  // allowance), and one number serving both means tightening either silently
-  // starves the other.  The reason is the duplication, NOT a measured strangle:
-  // an earlier version of this comment claimed "at recallQueryK 1 the pivot finds
-  // no pivot", and that was probed and is FALSE on test/23's fixture — the
-  // strangle is fixture-specific, so it is not the evidence for this split.
-  const k = ctx.cfg.pivotProbeK;
-  // ONE perception of the answer, shared by the probe budget and the walk —
-  // this used to fold the same bytes twice, back to back, on every hop.
-  const tree = perceive(ctx, answer);
-  // Probe budget: one per branch node, CAPPED at k.  The sweep is a
-  // resonance-shortlist question ("which learnt contexts does this answer
-  // contain?"), so it carries the same k budget every resonance read does —
-  // an answer's branch count grows with its length, and probing every
-  // branch of a long answer made the pivot sweep the dominant ANN cost of
-  // multi-hop reasoning at corpus scale (profiled: ~150 ANN queries per
-  // response on conversation-length answers).  Breadth-first order means
-  // the k probes spent are the LARGEST regions — the ones that name learnt
-  // contexts; and recognition below still contributes every exact,
-  // content-addressed containment candidate regardless of the probe budget,
-  // so short answers (branchCount ≤ k) keep the identical exhaustive sweep.
-  let branchCount = 0;
-  walkTree(tree, 0, (n) => {
-    if (n.kids !== null) branchCount++;
-  });
-  const probeCap = Math.min(branchCount, k);
-
-  const scored = new Map<number, number>();
-  const queue: Sema[] = [tree];
-  let probes = 0;
-  while (queue.length > 0 && probes < probeCap) {
-    const n = queue.shift()!;
-    if (n.kids === null) continue; // a leaf never names a learnt context
-    probes++;
-    for (const hit of await ctx.store.resonate(n.v, k)) {
-      if (!consumed.has(hit.id) && ctx.store.hasNext(hit.id)) {
-        const prev = scored.get(hit.id) ?? 0;
-        if (hit.score > prev) scored.set(hit.id, hit.score);
-      }
-    }
-    for (const c of n.kids) queue.push(c); // breadth-first: larger regions first
-  }
-  // The sweep's two FACTS, untraced (meter.ts contract 1: a counter never
-  // reaches a decision).  `probes` is the work done; the shortfall is the
-  // capacity the cap withheld — the branches the breadth-first order never got
-  // to.  Whether that withheld anything that mattered is NOT said here: the
-  // order spends the largest regions first, and recognition below still
-  // contributes every exact containment candidate regardless of the budget.
-  if (ctx.meter) {
-    ctx.meter.pivotProbes += probes;
-    const unprobed = branchCount - probeCap;
-    if (unprobed > 0) ctx.meter.pivotBranchesUnprobed += unprobed;
-  }
-  // THE FULL recognition, memo-shared with every other reader of these bytes.
-  // A "skip the edge trims here" variant was refuted (see recognise's own
-  // note): those trims are what find a WHOLE trained form embedded at an
-  // offset the answer's fold did not cut, and such a form is parentless,
-  // container-free and edge-bearing — i.e. exactly what the filter below
-  // ADMITS as a pivot, not what it rejects.
-  const rec = recognise(ctx, answer);
-  for (const s of rec.sites) {
-    if (!consumed.has(s.payload) && ctx.store.hasNext(s.payload)) {
-      scored.set(s.payload, Math.max(scored.get(s.payload) ?? 0, 1));
-    }
-  }
-  // Byte containment, longest wins — the answer literally contains the
-  // pivot's bytes, and the biggest well-evidenced span is the real pivot.
+  // THE THINGS THE ANSWER HOLDS (`thingsIn`): the stored forms recognition
+  // reads in it and in its canonical spelling, each a thing — learnt WHOLE by
+  // a deposit, leading on — with the span where the answer holds it.  The one
+  // reader the engine's derive-through reads too.  Exact decides: recognition
+  // is content-addressed, so containment is the span itself, never a re-read.
   //
-  // REAL SATURATION, not a hard cap: the score IS the candidate's byte length,
-  // so the scan is DECIDED the moment the first candidate that passes every
-  // filter is found in DESCENDING length order — a shorter candidate can never
-  // outscore it. `contentLen` (the prefix-capped length read, bounded-reads.md)
-  // is the cheap ordering key, and the first-inserted tie-break is made
-  // explicit (`a.index - b.index`) so equal lengths keep `scored`'s insertion
-  // order — exactly the tie argmaxBy(strict) used to keep. The bytes of at most
-  // ONE winning candidate are read; every shorter candidate the probes proposed
-  // is skipped without reconstruction, where the old argmax read them all.
-  const ranked = [...scored.keys()]
-    .map((id, index) => ({
-      id,
-      index,
-      len: ctx.store.contentLen(id, answer.length + 1),
-    }))
-    .sort((a, b) => b.len - a.len || a.index - b.index);
-  let pivotId: number | null = null;
-  for (const c of ranked) {
-    const id = c.id;
-    // A ZERO-LENGTH candidate is not a pivot. `argmaxBy(…, 0, strict)` used to
-    // carry this floor in its threshold argument, and dropping it here would
-    // admit an empty node: `indexOf(answer, <empty>)` returns 0, so every
-    // filter below passes and the chain would hop through nothing
-    // (INVARIANTS.md — empty bytes are truthy).
-    if (c.len === 0) continue;
-    // A PIVOT MUST BE A THING THE CORPUS DEPOSITED, NOT A PIECE OF ONE.
-    // "Longest wins" ranks candidates but never asks whether the winner is
-    // an entity at all, and by the time a chain reaches here `consumeAll`
-    // has taken the answer's real contexts — so on a corpus of
-    // near-identical records the field is left to whatever interned
-    // fragments remain.  Measured on a 200-line templated log corpus, query
-    // "what happened to request_id=1042 and request_id=1077?": CAST
-    // produced the correct comparison and one `pivotStep` replaced it
-    // wholesale, pivoting through `s=70` — a four-byte tail of
-    // `latency_ms=70` — onto an unrelated record (`handled 1130`).
-    //
-    // The separator is NOT length.  Measured against the multi-hop tests'
-    // own pivots: `Paris` (5 bytes), `Jupiter` (7), `lithium` (7), `Mona
-    // Lisa` (9) against junk `s=70` (4) — a two-quantum floor, which
-    // confluence.ts applies to a meet for the same "one window is not an
-    // entity" reason, discards three of the four legitimate pivots.
-    // Entities are simply short.
-    //
-    // What separates them is STRUCTURAL, and the store already holds it:
-    //
-    //   s=70       parents 2  containers 1  prevCount 0  halo no
-    //   Paris      parents 0  containers 0  prevCount 1  halo yes
-    //   Jupiter    parents 0  containers 0  prevCount 1  halo yes
-    //   lithium    parents 0  containers 0  prevCount 1  halo yes
-    //   Mona Lisa  parents 0  containers 0  prevCount 1  halo yes
-    //
-    // A deposited whole — a context or an answer — is interned in its own
-    // right and has neither structural parents nor containment links.  A
-    // fragment is addressable ONLY because window interning made its span
-    // addressable inside something bigger, and that containment is exactly
-    // what `parents`/`containers` record.  Reasoning steps THROUGH a fact;
-    // a span that was never a fact on its own is not one to step through.
-    // No constant enters — it is a structural predicate, not a threshold.
-    //
-    // …but structure alone over-reads: the content-defined cuts can reuse a
-    // deposited name's subtree inside its own contexts (`William Henry
-    // Fellowes` inside `William Henry Fellowes place of birth`: parents 2), and
-    // the filter then refused a person the corpus learnt whole.  What the
-    // fragment lacks is COMPANY: it was never a context or an answer of its
-    // own, so nothing poured a halo into it (`s=70`: halo no; the name: halo
-    // yes).  A piece is refused; a learnt whole that is also reused is not.
-    if (
-      (ctx.store.hasParents(id) || ctx.store.hasContainers(id)) &&
-      !ctx.store.learntWhole(id)
-    ) continue;
-    // A candidate whose bytes are LONGER than the answer cannot be a substring
-    // of it — `indexOf` would return −1 regardless. Prune by length BEFORE
-    // reconstructing the bytes: `read` is an UNCAPPED read (bounded-reads.md),
-    // and a resonated context far longer than the answer is exactly the
-    // candidate that makes it cost a whole deposit's worth of reconstruction
-    // for a containment test that must fail. `contentLen` with the
-    // `answer.length + 1` cap is the prefix-capped length read the same
-    // contract prescribes; the prune is byte-identical to the old `indexOf`
-    // miss (it returns −1 for a needle longer than the haystack).
-    if (c.len > answer.length) continue;
-    const bytes = read(ctx, id);
-    if (indexOf(answer, bytes, 0) < 0) continue;
+  // A PIVOT MUST BE A THING, NOT A PIECE OF ONE.  Measured on a 200-line
+  // templated log corpus, query "what happened to request_id=1042 and
+  // request_id=1077?": one `pivotStep` replaced CAST's correct comparison by
+  // pivoting through `s=70`, a four-byte tail of `latency_ms=70`, onto an
+  // unrelated record.  The separator is not length — `Paris`, `Jupiter`,
+  // `Mona Lisa` are short too — but what the deposit RECORDED: `Paris` was
+  // learnt whole, `s=70` only as a piece.  (A resonance sweep of the answer's
+  // sub-regions beside recognition proposed nothing more, and a structural
+  // reading of the thing — no parents and no containers — answered the same;
+  // both measured on the suite and 900 fresh queries.)
+  //
+  // LONGEST WINS, the corpus's order on a tie (recognition's, exact spelling
+  // first): the span IS the thing's length, so the first candidate passing the
+  // filters in descending length decides.
+  const ranked = thingsIn(ctx, answer)
+    .filter((t) => !consumed.has(t.id))
+    .map((t, index) => ({ ...t, index }))
+    .sort((a, b) =>
+      (b.span[1] - b.span[0]) - (a.span[1] - a.span[0]) || a.index - b.index
+    );
+  for (const t of ranked) {
+    const bytes = answer.subarray(t.span[0], t.span[1]);
     if (voiced.some((v) => indexOf(v, bytes, 0) >= 0)) continue;
-    pivotId = id;
-    break;
+    return t.id;
   }
-  return pivotId;
+  return null;
 }
 
 /** Which of the given labelled forms a span MEANS — generic resonance over

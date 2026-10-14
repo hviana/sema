@@ -67,9 +67,9 @@ phases: each runs to its own end, in order, and is never revisited.
   consumed (`test/108`). It is priced only for the facts the lightest derivation
   stands on, never for everything the exploration reached (`test/150`).
 - **A gap's reach is not a consequence everywhere.** In alignment it is: the
-  walk goes outward with no cap. Recognition's interior pass is bounded at
-  `W⁴ + 2r`, because exact unbounded reach would need a whole-stream index the
-  store does not have.
+  walk goes outward with no cap. Recognition's sweep reaches `W⁴ + 2r` bytes
+  from every start (and the stream's edges beyond), because exact unbounded
+  reach would need a whole-stream index the store does not have.
 
 Three limits were proved and deliberately left out:
 

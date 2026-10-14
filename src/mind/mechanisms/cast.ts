@@ -18,13 +18,12 @@ import {
   answersOtherQuestions,
   argmaxBy,
   corpusN,
-  edgeAncestors,
   heldElsewhere,
   hubBound,
   hubWindows,
   offsetCanon,
   otherInstance,
-  sharedReachMemo,
+  thingIn,
 } from "../traverse.js";
 import {
   analogyStrength,
@@ -36,12 +35,23 @@ import {
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
 import { CONCEPT, STEP } from "../graph-search.js";
-import { indexOf, latin1 } from "../../bytes.js";
-import { consensusFloor, dominates } from "../../geometry.js";
-import { restates, unexplainedSpans } from "../derivation.js";
+import { indexOf, latin1, sharedEnds } from "../../bytes.js";
+import {
+  AGREEMENT,
+  consensusFloor,
+  dominates,
+  instanceCap,
+  phraseCap,
+  twoQuanta,
+} from "../../geometry.js";
+import {
+  restates,
+  unexplainedSpans,
+  unionSpans,
+  windowSpans,
+} from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";
-import { leafIdRun } from "../canonical.js";
 
 // ── CAST gates ────────────────────────────────────────────────────────────
 //
@@ -50,7 +60,7 @@ import { leafIdRun } from "../canonical.js";
 //   1. MIN WEAVE — the same 2 as the precondition `points.length < 2` (CAST
 //      needs at least two aligned structures to form a weave).  Frame requires
 //      evidence BEYOND the minimum pair — a third structure agreeing — so the
-//      depth gate is `depth > MIN_WEAVE`.  One definition, two uses.
+//      depth gate is `depth > AGREEMENT`.  One definition, two uses.
 //
 //   2. HALF-DOMINANCE — `dominates(framed, len)` (the same test
 //      collectRegions, liftAnswer, and confluence's filler gate all use): a
@@ -72,11 +82,9 @@ import { leafIdRun } from "../canonical.js";
 // single-fact queries.  The two commonality notions coincide often, but
 // neither derives the other.
 
-/** The minimum number of aligned structures to form a weave — the same 2 that
- *  gates CAST entry (`points.length < 2`).  Frame requires MORE than this
- *  minimum: `depth > MIN_WEAVE` means at least three structures agree on a
- *  byte, so no byte is frame when only the minimum pair exists. */
-const MIN_WEAVE = 2;
+// A weave needs AGREEMENT aligned structures; frame requires MORE than that
+// minimum: `depth > AGREEMENT` means at least three structures agree on a
+// byte, so no byte is frame when only the minimum pair exists.
 
 // ── Counterfactual Transfer ───────────────────────────────────────────────
 
@@ -212,7 +220,7 @@ export async function counterfactualTransfer(
   };
 
   const quantum = ctx.space.maxGroup;
-  if (query.length < 2 * quantum || ctx.store.edgeSourceCount() === 0) {
+  if (query.length < twoQuanta(quantum) || ctx.store.edgeSourceCount() === 0) {
     return fail("query below the two-quantum floor, or no edges learnt yet");
   }
   const { roots, ranked } = await pre.attention();
@@ -245,15 +253,10 @@ export async function counterfactualTransfer(
   // contribute at least one perception quantum of query bytes the
   // best-covered point does not.  Derived from the runs themselves, order-free,
   // and independent of how many points survived.
-  const coveredBy = (p: typeof points[0]): Set<number> => {
-    const set = new Set<number>();
-    for (const r of p.runs) for (let i = r.qs; i < r.qe; i++) set.add(i);
-    return set;
-  };
   let widest = points[0];
   let widestN = -1;
   for (const p of points) {
-    const n = coveredBy(p).size;
+    const n = coveredOf(p).size;
     if (n > widestN) {
       widestN = n;
       widest = p;
@@ -261,12 +264,12 @@ export async function counterfactualTransfer(
   }
   const widestSet = widest === undefined
     ? new Set<number>()
-    : coveredBy(widest);
+    : coveredOf(widest);
   let distinct = points.length === 0 ? 0 : 1;
   for (const p of points) {
     if (p === widest) continue;
     let own = 0;
-    for (const i of coveredBy(p)) if (!widestSet.has(i)) own++;
+    for (const i of coveredOf(p)) if (!widestSet.has(i)) own++;
     if (own >= quantum) {
       distinct = 2;
       break;
@@ -293,8 +296,8 @@ export async function counterfactualTransfer(
   // from places at least a quantum apart.  (Dispersion alone was measured and
   // is too weak — it let CAST into test/33's near-tie and test/24's list
   // skill, whose points the climb elects from the same place.)
-  const dispersed = roots.length >= MIN_WEAVE ||
-    roots.some((r) => r.clusters >= MIN_WEAVE);
+  const dispersed = roots.length >= AGREEMENT ||
+    roots.some((r) => r.clusters >= AGREEMENT);
   const apart = points.some((a) =>
     points.some((b) =>
       a !== b &&
@@ -323,12 +326,12 @@ export async function counterfactualTransfer(
   type Point = typeof points[0];
 
   // ── Frame gate (half-dominance, weave-local) ─────────────────────────
-  // A byte is FRAME when more than MIN_WEAVE aligned structures cover it
+  // A byte is FRAME when more than AGREEMENT aligned structures cover it
   // AND those structures are a majority of all aligned structures.
-  // Per-byte:  frame(i) ⇔ depth[i] > MIN_WEAVE ∧ dominates(depth[i], aligned)
+  // Per-byte:  frame(i) ⇔ depth[i] > AGREEMENT ∧ dominates(depth[i], aligned)
   // Per-run:   usable(r) ⇔ ¬dominates(framedCount, runLen)
   const isFrame = (i: number): boolean =>
-    depth[i] > MIN_WEAVE && dominates(depth[i], aligned);
+    depth[i] > AGREEMENT && dominates(depth[i], aligned);
   const framedCount = (qs: number, qe: number): number => {
     let n = 0;
     for (let i = qs; i < qe; i++) if (isFrame(i)) n++;
@@ -383,8 +386,7 @@ export async function counterfactualTransfer(
   // construction.  Without this disjunct the gate refuses test/29 B3 ("what if
   // the capital of France were Lyon?" must answer about Lyon), where the
   // substitute is named outright and the climb never commits it.  This mirrors
-  // the pairing the comparison gate already makes with
-  // `!rootTrusted && !namedByQuery`.
+  // the pairing the hub fallback makes with `!rootTrusted && !namedByQuery`.
   const namedFromOpening = (p: Point): boolean =>
     p.runs.some((r) => r.cs === 0 && usable(r.qs, r.qe));
   const voiceable = (p: Point): boolean =>
@@ -414,46 +416,6 @@ export async function counterfactualTransfer(
       },
     );
     return [];
-  }
-
-  // WOVEN — is anything actually brought TOGETHER?  A run restating a site
-  // the query already contains is not, by itself, evidence of that; but TWO
-  // points restating DIFFERENT sites is exactly a comparison ("How is
-  // Michelangelo like Homer?" names both entities, recognition finds both,
-  // and the weave aligns each to its own stored structure).  The escape
-  // clause alone called that unwoven — a reading that held only while
-  // recognition UNDER-reported sites, and test/29 A2 started failing the
-  // moment recognition's interior chains stopped dying mid-form.
-  //
-  // Both points must be evidenced in what the asker JUST SAID.  A multi-turn
-  // query is the whole transcript, so the earlier turns' own questions are
-  // aligned points too — traced on test/48, the weave for `And what is the
-  // capital of Spain?` holds `What is the capital of France?` (runs q0-61,
-  // entirely inside the previous turn and its answer) beside the new question
-  // (q65-94).  Two points, two named sites, and nothing woven at all: one of
-  // them is conversation history.  The current turn is the bytes past the last
-  // answered span — the same `askerBytes` notion computeWeave prices its read
-  // budget with — so requiring both points to have evidence THERE separates a
-  // genuine two-place weave from a follow-up.  Single-turn queries have no
-  // answered spans, so the current turn is the whole query and nothing changes.
-  const turnStart = ctx.answeredSpans.reduce((n, [, e]) => Math.max(n, e), 0);
-  const inTurn = points.filter((p) => p.runs.some((r) => r.qe > turnStart));
-  const siteAt = (r: GradedRun): number =>
-    pre.rec.sites.findIndex((s) => r.qs >= s.start && r.qe <= s.end);
-  const namedSites = new Set<number>();
-  for (const p of inTurn) {
-    for (const r of p.runs) {
-      const i = siteAt(r);
-      if (i >= 0) namedSites.add(i);
-    }
-  }
-  const woven = points.some((p) => p.runs.some((r) => siteAt(r) < 0)) ||
-    (inTurn.length >= MIN_WEAVE && namedSites.size >= MIN_WEAVE);
-  if (!woven) {
-    return fail(
-      `every aligned run restates a recognised query site — nothing was ` +
-        `actually WOVEN across structures, so there is nothing to transfer`,
-    );
   }
 
   // Each schema tried below RECORDS its candidate (when it fires) rather than
@@ -520,7 +482,9 @@ export async function counterfactualTransfer(
   const isCoInstance = (anchor: number): boolean => {
     let v = coInstances.get(anchor);
     if (v === undefined) {
-      v = otherInstance(ctx, read(ctx, anchor, 2 * query.length + 1)) !== null;
+      v =
+        otherInstance(ctx, read(ctx, anchor, instanceCap(query.length) + 1)) !==
+          null;
       coInstances.set(anchor, v);
     }
     return v;
@@ -694,6 +658,41 @@ export async function counterfactualTransfer(
   // A run NAMES only by what is not scaffolding: `The ` of `Year Of The
   // Horse` opens `The Secret director` too, and named nothing (the evidence
   // TWO THINGS NAMED asks of a comparison, commonality.md).
+  // A REDIRECTION PUTS ONE THING IN ANOTHER'S PLACE; A QUESTION THAT ASKS
+  // THE SAME OF TWO THINGS ENUMERATES.  When what the substitute would voice
+  // and what the displaced structure would voice are two instances of one
+  // frame (shared ends of at least a window, each with its own middle), and
+  // the question names the displaced one's thing too (held whole, every
+  // window of it), the question asks about both — `Which film has the
+  // director who was born later, A or B?` — and voicing B's fact alone
+  // answers half of it.  `…were Lyon?` against `What is the capital of
+  // France?` (Paris / Lyon is a city in France: no shared frame) and
+  // `When was the director of film Jinpa born?` (the displaced director's
+  // film is not named) still redirect.  Measured: 86 of the 100 real answers
+  // the schema misvoiced over three 2Wiki fixtures, with every redirection
+  // test kept.
+  const enumerates = async (
+    displaced: Point,
+    voiced: Uint8Array,
+  ): Promise<boolean> => {
+    const d = await follow(ctx, displaced.anchor, qv);
+    if (d === null) return false;
+    const [p, q] = sharedEnds(d, voiced);
+    if (
+      p + q < quantum || d.length - p - q <= 0 || voiced.length - p - q <= 0
+    ) {
+      return false;
+    }
+    const th = thingIn(ctx, d.subarray(p, d.length - q));
+    const asked = ctx._edgeAsked;
+    if (th === null || asked === null) return false;
+    const own = offsetCanon(ctx, th.bytes);
+    if (own.length < quantum) return false;
+    for (let o = 0; o + quantum <= own.length; o++) {
+      if (!asked.index.has(latin1(own.subarray(o, o + quantum)))) return false;
+    }
+    return true;
+  };
   const hubQ = hubWindows(ctx, query);
   const names = (r: GradedRun): boolean => {
     for (let o = r.qs; o + quantum <= r.qe; o++) if (!hubQ[o]) return true;
@@ -718,14 +717,6 @@ export async function counterfactualTransfer(
     -Infinity,
     true,
   )?.item;
-  // Displacement test, capped at the hub bound: a hub anchor can carry a
-  // corpus-sized fan-out, and each continuation costs a full byte
-  // reconstruction plus an O(|query|·|bytes|) scan.  The first √N edges (the
-  // same insertion-order convention chooseNext caps by) decide; past a hub's
-  // cap the test reads "none of the established continuations appears".
-  const domNext = ctx.store.nextFirst(dominant.anchor, hubBound(ctx));
-  const displaced = domNext
-    .every((n) => !restates(query, read(ctx, n), 0));
   // The SUBSTITUTE is what redirection speaks — the answer IS `project(last)`,
   // its own fact — so the same bar applies.  The displaced structure is only
   // recognised as the slot being overridden and is never voiced, so it is
@@ -744,11 +735,11 @@ export async function counterfactualTransfer(
       last.run.qe - last.run.qs,
     );
   if (
-    last !== undefined && last.point !== dominant && displaced &&
+    last !== undefined && last.point !== dominant &&
     voiceable(last.point) && !stranger
   ) {
     const g = await project(ctx, last.point.anchor, qv);
-    if (g !== null) {
+    if (g !== null && !(await enumerates(dominant, g))) {
       ctx.trace?.step(
         "projectCounterfactual",
         [
@@ -862,8 +853,8 @@ export async function counterfactualTransfer(
   // query-local generator finds none.  Both loops above are query-local (an
   // aligned point, or one forward hop off one), while the gate that judges
   // candidates — analogyStrength's halo tier — is cross-domain by construction
-  // and is licence enough on its own (`bestHalo` exempts it from the naming and
-  // trusted-root bars).  So the gate reads as strictly more capable than the
+  // and is licence enough on its own (`bestHalo` exempts it from the
+  // ignored-known principle).  So the gate reads as strictly more capable than the
   // generator, and closing that asymmetry looks like the fix for test/29 A2
   // (`Michelangelo is to sculpture as who is to literature?`, whose only stored
   // content is `Michelangelo`: the weave aligns the concept and its own
@@ -899,7 +890,7 @@ export async function counterfactualTransfer(
     if (c.point !== null) return true;
     const bytes = read(ctx, c.anchor);
     return c.src.runs.some((r) =>
-      r.qe - r.qs >= 2 * quantum &&
+      r.qe - r.qs >= twoQuanta(quantum) &&
       indexOf(bytes, query.subarray(r.qs, r.qe), 0) >= 0
     );
   };
@@ -908,8 +899,7 @@ export async function counterfactualTransfer(
   // consensusFloor(N) = ln(N) + 1/2.  The climb's FIRST root is
   // deliberately floor-free (attention.ts: "the dominant one always
   // grounds") — fine for ORIENTING mechanisms, not for voicing learnt
-  // content the query never asked about.  Computed once here; both the
-  // hub fallback below and the comparison gate consume it.
+  // content the query never asked about.  The hub fallback below reads it.
   const rootTrusted = roots.some((r) =>
     r.idfVote >= consensusFloor(corpusN(ctx))
   ); // the IDF sum: the bar's own quantity
@@ -973,7 +963,7 @@ export async function counterfactualTransfer(
     // was never failing to discriminate; it was reading the fillers.
     //
     // Still the FRAME tier (`halo` stays false), so this evidence remains
-    // subject to the naming / trusted-root bar the comparison gate holds all
+    // subject to the ignored-known principle the comparison gate holds all
     // frame evidence to — a wider READING of the same tier, not a new licence.
     // Containment is excluded for the same reason the generator excludes it:
     // a context that contains the other establishes nothing independent.
@@ -1081,54 +1071,17 @@ export async function counterfactualTransfer(
       ? `best analog with strength ${bestSim.toFixed(4)}`
       : `no analog candidate passed (${analogs.length} checked)`,
   );
-  // COMPARISON gate — analogical comparison seats the dominant against ONE
-  // analog, so it presupposes the query is ABOUT a single thing.  When the
-  // consensus climb instead committed to MULTIPLE independent points of
-  // attention (`roots.length > 1`), the query names independent topics to
-  // FUSE — the reasoner's fuseAttention already combines them — not analogs
-  // to compare.  Firing here would juxtapose two co-scaffolded but unrelated
-  // records (each sharing only the corpus preamble), out-accounting the
-  // honest thin multi-root grounding with a frame echo.  Derived from the
-  // climb's own forest, never tuned; substitution/redirection stay
-  // unaffected — they orient around a displaced seat, not a whole-topic
-  // analogy.
-  //
-  // roots.length <= 1 is a PROXY for "the query is about one thing" — it is
-  // only as good as the climb's own root-commitment, which depends on
-  // recognise() having found something to commit a root TO.  When the
-  // query's newest content genuinely isn't recognised (not boundary noise —
-  // real, uncommitted content; see the session's own investigation of the
-  // France→Spain live trace), the climb under-commits roots and this proxy
-  // is fooled: comparison looks licensed to treat the query as one topic
-  // when it is not.
-  //
-  // The direct check is the SAME accounted spans comparison is about to
-  // cite as its evidence: unexplainedSpans (rationale.ts, the same gap
-  // computation the trace's own `unexplained` diagnostic uses) names every
-  // stretch of the query NEITHER the dominant NOR the analog's evidence
-  // touches.  A short comparison query ("How is ice like steel?") legitimately
-  // accounts for only its two short entity spans — the surrounding "How is
-  // ... like ...?" framing is real but SHORT, split into several small gaps,
-  // none of them the bulk of the query.  The live bug's shape is different in
-  // kind, not degree: ONE contiguous, substantial gap — a whole second
-  // question the query added that comparison's two spans never touch at all.
-  //
-  // Two bars, both derived, neither tuned:
-  //   • the largest gap must not DOMINATE the whole query (the same
-  //     predicate CAST's own frame gate uses) — rules out a gap that is
-  //     most of the query outright;
-  //   • the largest gap must be SMALLER than the dominant's own established
-  //     context.  A gap can't be dismissed as mere connective framing once
-  //     it is at least as large as the topic being compared FROM — at that
-  //     scale it isn't glue between two named things, it's substantial
-  //     enough to be a second topic in its own right.  This is what
-  //     actually separates the live bug (a 47-byte gap against a 30-byte
-  //     dominant — the ignored content is bigger than the topic itself)
-  //     from ordinary short comparisons (a 9-byte gap against an 11-byte
-  //     dominant — the gap is smaller than what's being compared): the two
-  //     cases land on the same side of "half the query" often enough
-  //     (both can exceed or clear it) that the query-relative bar alone
-  //     does not reliably separate them — the topic-relative scale does.
+  // COMPARISON gate — a comparison cites the dominant and ONE analog, so the
+  // query must be about them.  The check is the accounted spans comparison
+  // is about to cite as its evidence: unexplainedSpans names every stretch
+  // of the query NEITHER the dominant NOR the analog's evidence touches.  A
+  // short comparison query ("How is ice like steel?") leaves its "How is ...
+  // like ...?" framing in several small gaps; the failure is different in
+  // kind — ONE contiguous gap at least as large as the topic compared FROM
+  // (the dominant's own established context), which is no glue between two
+  // named things but a second topic in its own right (measured live: a
+  // 47-byte gap against a 30-byte dominant, while ordinary comparisons leave
+  // a 9-byte gap against an 11-byte dominant).
   const cmpAccounted: Array<[number, number]> = bestAnalog !== null
     ? [...runSpans(dominant), ...runSpans(bestAnalog.point ?? bestAnalog.src)]
     : [];
@@ -1163,7 +1116,7 @@ export async function counterfactualTransfer(
     if (hit !== undefined) return hit;
     const W = ctx.space.maxGroup;
     const hub = hubWindows(ctx, query);
-    const cap = query.length * W;
+    const cap = phraseCap(query.length, W);
     const forms = [point, voiced].map((id) =>
       offsetCanon(ctx, read(ctx, id, cap))
     );
@@ -1178,21 +1131,21 @@ export async function counterfactualTransfer(
     }
     const asked = ctx._edgeAsked;
     if (asked !== null) {
-      const form = offsetCanon(ctx, read(ctx, voiced, asked.bytes.length * W));
+      const form = offsetCanon(
+        ctx,
+        read(ctx, voiced, phraseCap(asked.bytes.length, W)),
+      );
       for (let o = 0; o + W <= form.length; o++) {
         const at = asked.index.get(latin1(form.subarray(o, o + W)));
         if (at !== undefined && owns(at)) own.add(at);
       }
     }
-    const spans: Array<[number, number]> = [];
-    for (const o of [...own].sort((a, b) => a - b)) {
-      const last = spans.at(-1);
-      if (last !== undefined && o <= last[1] - W + 1) {
-        last[1] = Math.max(last[1], o + W);
-      } else spans.push([o, o + W]);
-    }
+    // A span is a run of consecutive owned windows.
+    const spans = unionSpans(windowSpans(own, W), 1 - W);
+    // Named apart only where the net was read to its end and held by no other
+    // context; a saturated net (commonness past the hub) abstains.
     const out = spans.some((sp) =>
-      !heldElsewhere(ctx, query, sp, point, voiced)
+      heldElsewhere(ctx, query, sp, point, voiced) === "apart"
     );
     namedMemo.set(key, out);
     return out;
@@ -1211,128 +1164,25 @@ export async function counterfactualTransfer(
       runSpans(dominant),
       runSpans(bestAnalog.point ?? bestAnalog.src),
     );
-  // An analog that is not itself a directly ALIGNED point (point !== null —
-  // its own runs are query bytes, the query NAMED it) was only reached
-  // through a continuation hop or the structural-hub fallback.  Voicing
-  // learnt content the query never named is the same act recallByResonance
-  // refuses to perform through a climb root whose consensus vote is below
-  // consensusFloor(N) = ln(N) + 1/2 (recall.ts's minVote), so comparison
-  // holds the climb to that SAME bar before citing a hop-reached analog:
-  // some committed root must clear the floor.  The climb's FIRST root is
-  // deliberately floor-free (attention.ts: "the dominant one always
-  // grounds") — fine for ORIENTING mechanisms, not for transferring
-  // unnamed content through.  The live bug this gates (real trained store,
-  // 325k edge sources, floor 13.2): the query's stopword scraps pooled a
-  // 1.92 vote that committed an unrelated haiku exemplar as the sole root,
-  // and comparison voiced that exemplar's continuation through a
-  // hop-reached analog while every other mechanism honestly refused.  A
-  // directly aligned analog needs no floor — the query's own bytes are its
-  // evidence (test/29 C1's "Steel is hard" for "How is ice like steel?").
-  // See test/50-cast-analog-consensus-floor.
-  // A HALO-tier best analog needs neither: its similarity already cleared
-  // significanceBar-gated distributional company (analogyStrength's
-  // `halo`) — genuine evidence in its own right, the very case the halo
-  // gate exists for (test/33 1b's nickname-corroborated analog).  Only a
-  // FRAME-tier or fallback analog — whose "similarity" is an unbarred
-  // coverage fraction or nothing — needs the query's naming or the climb's
-  // trust.
-  // A NAMING MUST NAME SOMETHING.  `analogNamed` licences comparison on the
-  // claim that the query's own bytes evidence the analog — but that claim is
-  // only worth what those bytes discriminate.  `edgeAncestors` already has the
-  // system's verdict for content that discriminates nothing: SATURATION, the
-  // √N parent-fan-out abstention `explainedSpan` (bridge.ts) and the climb
-  // both respect.  A window in too many places to discriminate cannot be
-  // evidence that the query meant THIS analog rather than any other.
+  // THE LICENCE IS WHAT THE QUESTION LEAVES UNSAID.  A comparison cites two
+  // structures, and what refuses a junk analog is what its evidence leaves
+  // out: the IGNORED-KNOWN principle (dismissedKnownContent, bridge.ts) — the
+  // two analogs' aligned runs must account for every STORED window of the
+  // query.  A legitimate comparison ("How is ice like steel?") leaves only
+  // UNATTESTED spans ("How ", " like ") unexplained, while a scrap-matched
+  // junk pair leaves the query's own trained content ("…songs…times…",
+  // "…planet…sun.") dismissed as gaps (test/50).  A halo-tier analog is
+  // exempt: halo-tier company is independent evidence in its own right
+  // (test/33 1b's nickname-corroborated analog).
   //
-  // So the naming must rest on at least ONE window that is not saturated —
-  // not every window, which would be far too strong: test/29 C1's naming is
-  // [" is "=SAT, "teel"=1, " is "=SAT], and the one discriminative run is
-  // exactly what makes it a naming.  Measured over the accounted runs of
-  // every `analogNamed` comparison in the suite (contextsReached per window):
-  //
-  //   C1  " cold"=1  "teel "=1                    N=4    → names
-  //   C2  "Leonardo da Vinci"=4  " Shakespeare"=5 N=22   → names
-  //   C3  " Leonardo da Vinci"=3 " Shakespeare"=4 N=13   → names
-  //       "what i"=2 " the capital of France"=2 "Lyon"=1 → names
-  //       " is "=SAT "teel"=1 " is "=SAT                 → names
-  //       "The "=3 " painted by "=3 "Michelangelo"=2     → names
-  //   50  " name"=SAT " the "=SAT "ing "=SAT
-  //       " the "=SAT "he b"=SAT  "ing "=SAT      N=205  → names NOTHING
-  //
-  // test/50's junk comparison is the only one in the suite whose naming is
-  // saturated end to end: it "names" its analog with " the " and "ing ".  The
-  // ignored-known principle cannot reach that case — the planet probe's gaps
-  // ("planet", "biggest", "sun") are genuinely untrained, so
-  // `dismissedKnownContent` correctly returns false and there is no ignored
-  // known content to find.  This is a different question: not "did the
-  // comparison ignore what the store knows" but "did the query name this
-  // analog at all".  Derived, never tuned — the saturation limit is
-  // `edgeAncestors`' own √N, computed nowhere new.
-  const namingDiscriminates = (): boolean => {
-    const N = corpusN(ctx);
-    const W = ctx.space.maxGroup;
-    const memo = sharedReachMemo(ctx);
-    for (const [from, to] of cmpAccounted) {
-      for (let o = from; o + W <= to; o++) {
-        const ids = leafIdRun(ctx, query, o, o + W);
-        if (ids === null) continue;
-        const wid = ctx.store.findBranch(ids);
-        if (wid === null) continue;
-        const r = edgeAncestors(ctx, wid, N, memo);
-        if (!r.saturated && r.roots.length > 0) return true;
-      }
-    }
-    return false;
-  };
-  const analogNamed = bestAnalog !== null && namedByQuery(bestAnalog) &&
-    namingDiscriminates();
-  // NOTE — two further gates were tried here and empirically REFUTED,
-  // recorded so they are not re-tried:
-  //   • dominant self-coverage (dominant's aligned runs must dominate its
-  //     own ctx): legitimate dominants sit at the same coverage as junk
-  //     ones ("The Mona Lisa was painted by…" 16/47 vs the live junk
-  //     haiku ~10/54) — no separation.
-  //   • denying the shared-frame similarity tier to hop-reached analogs:
-  //     semantically right in isolation, but it merely promoted the next
-  //     junk candidate — an ALIGNED scrap-matched point ("The affluence…",
-  //     frame 0.157) — into bestAnalog on the live store, and the aligned
-  //     configuration is byte-structurally IDENTICAL to test/29 C1's
-  //     legitimate one ("Steel is hard", frame 0.364): every derived
-  //     local separator measured (run length, site overlap, frame
-  //     query-containment, weave-usable classification) falls on the same
-  //     side for both.  Only corpus-scale consensus separates them, which
-  //     is exactly what `rootTrusted` prices.
-  // FRAME-tier evidence under an UNTRUSTED root is comparison's weakest
-  // licence (an unbarred coverage fraction, a climb the consensus floor
-  // does not trust).  There it is additionally held to the IGNORED-KNOWN
-  // principle (dismissedKnownContent, bridge.ts): the two analogs' aligned
-  // runs must account for every STORED window of the query.  This is the
-  // byte-structural separator the refuted-gates note below could not find
-  // locally: a legitimate small-corpus comparison ("How is ice like
-  // steel?") leaves only UNATTESTED spans ("How ", " like ") unexplained,
-  // while a scrap-matched junk pair leaves the query's own trained content
-  // ("…songs…times…", "…planet…sun.") dismissed as gaps.  Halo-tier and
-  // trusted-root comparisons are exempt — their evidence already stands.
-  // A TRUSTED ROOT IS NOT A LICENCE TO IGNORE WHAT THE STORE KNOWS.  This
-  // exemption used to read `!(bestHalo || rootTrusted)`, so a root clearing
-  // consensusFloor discarded the ignored-known verdict entirely — and that
-  // verdict is the one piece of evidence in this gate that actually sees the
-  // failure: measured on test/50's probes, `dismissedKnownContent` returns
-  // TRUE for both ("songs"/"times"/"planet"-class trained content left in the
-  // comparison's gaps) while `rootTrusted` is also true, so the gate read
-  // false and comparison fired on a junk analog.
-  //
-  // The root's trust says the CLIMB settled on something; it says nothing
-  // about whether THIS comparison's own evidence covers the query's known
-  // content, which is a different question about a different quantity.  Halo
-  // stays exempt — halo-tier company is independent evidence in its own right
-  // (test/33 1b's nickname-corroborated analog), which is exactly what a
-  // pooled consensus vote is not.
-  //
-  // Measured cost, and it is a candidate COUNT, not an answer: test/33 1b
-  // ("expected at least two CAST candidates") loses one of its two, because
-  // the comparison schema now honestly declines. The junk analogs it used to
-  // supply were never the ones that test is about.
+  // MEASURED REDUNDANT, and removed: an evidence bar (halo tier, a naming by
+  // the question that discriminates, or a root clearing consensusFloor), the
+  // analog's scale, a single committed root, and a largest gap that does not
+  // dominate the query.  Each was withdrawn alone and all four together over
+  // the suite and three 2Wiki fixtures (900 questions, a fresh Mind each):
+  // no answer moved — the ignored-known principle, the co-instance refusal,
+  // the gap against the dominant and the two namings below decide every case
+  // they did.
   const cmpDismisses = !bestHalo &&
     dismissedKnownContent(ctx, query, cmpAccounted);
   // …and both analogs must be something the question is ABOUT (`isCoInstance`):
@@ -1344,12 +1194,8 @@ export async function counterfactualTransfer(
     (bestAnalog !== null && isCoInstance(bestAnalog.anchor));
   if (
     bestAnalog !== null &&
-    (bestHalo || analogNamed || rootTrusted) &&
     !coInstanceAnalog &&
     !cmpDismisses &&
-    queryScale(dominant.ctx.length) &&
-    roots.length <= 1 &&
-    !dominates(cmpMaxGap, query.length) &&
     cmpMaxGap < dominant.ctx.length &&
     analogNamedApart() &&
     dominantNamedApart()
@@ -1467,11 +1313,7 @@ export async function counterfactualTransfer(
       // the hop rests on).
       cmpAccounted,
     );
-  } else if (
-    bestAnalog !== null &&
-    queryScale(dominant.ctx.length) &&
-    roots.length <= 1
-  ) {
+  } else if (bestAnalog !== null) {
     ctx.trace?.step(
       "validateAnalogy",
       [
@@ -1479,19 +1321,14 @@ export async function counterfactualTransfer(
         rNode(ctx, bestAnalog.anchor, "analog", bestSim),
       ],
       [],
-      !(bestHalo || analogNamed || rootTrusted)
-        ? `the best analog carries no halo-tier company evidence, was never ` +
-          `named by the query, and no committed root's consensus vote ` +
-          `clears the floor, so comparison refuses to voice it`
-        : coInstanceAnalog
+      coInstanceAnalog
         ? `an analog is another instance of the question's frame — its ` +
           `seat is another filler's answer, not what the question asks about`
         : cmpDismisses
         ? `a frame-tier analog under an untrusted root dismisses stored ` +
           `query content its alignment never accounted for — comparison ` +
           `refuses to ignore what the store knows`
-        : dominates(cmpMaxGap, query.length) ||
-            cmpMaxGap >= dominant.ctx.length
+        : cmpMaxGap >= dominant.ctx.length
         ? `comparison's own accounted evidence leaves a ${cmpMaxGap}-byte gap in ` +
           `a ${query.length}-byte query against a ${dominant.ctx.length}-byte ` +
           `dominant — too large to be mere framing — so it refuses rather ` +
@@ -1515,7 +1352,11 @@ export async function counterfactualTransfer(
 
 // ── Pipeline mechanism ──────────────────────────────────────────────────────
 
-import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
+import {
+  coveredOf,
+  type PipelineMechanism,
+  type Precomputed,
+} from "../pipeline-mechanism.js";
 
 export const castMechanism: PipelineMechanism = {
   name: "cast",
@@ -1523,7 +1364,9 @@ export const castMechanism: PipelineMechanism = {
   async floor(_ctx, query, pre, worthRunning) {
     const W = _ctx.space.maxGroup;
     // Cheap checks first — no pre-computation needed.
-    if (query.length < 2 * W || _ctx.store.edgeSourceCount() === 0) return null;
+    if (query.length < twoQuanta(W) || _ctx.store.edgeSourceCount() === 0) {
+      return null;
+    }
     // CAST's floor, when it exists, is ALWAYS exactly 2*STEP — the climb and
     // the weave only decide whether it exists (2*STEP) or not (null), they
     // never tighten the number itself.  So if 2*STEP already can't beat

@@ -50,6 +50,33 @@ again, until a cover asks for nothing. That final cover is the one resolving
 every key in advance would produce. Joins licensed by rounds that asked for
 nothing are kept across re-covers.
 
+## What the answer voices
+
+The cover answers what recall's argument binding answered (a question's sole
+edge-source constituent, its continuation followed), and four laws make it the
+same answer:
+
+- **The product does not voice the ask.** Around a dominating form, an edge run
+  of scaffolding a window long is the question's ask
+  (`Why did … 's wife
+  die?`): the answer is the form's replacement alone.
+  Shorter runs are glue, and the rewrite keeps them (`2+2.` → `4.`). A voiced
+  ask also reads to the walk as already said, and stops it (`liftAnswerParts`,
+  `types.ts`).
+- **Evidence travels.** The question spans that named a followed site's step
+  (`askedEvidence`) are accounted, with the site read as the question spells it
+  or under the response's equivalence.
+- **What it voices is declared.** `used` is the facts the cover composed. An
+  inferred set (every form of the answer the question witnesses, order-free)
+  took `John II` for the question's `John III` and consumed the walk's pivot.
+- **A chain's intermediate is not voiced.** A composed fact that voices the
+  subject of another composed fact is a step toward it
+  (`The performer of Heaven
+  is Namie Amuro.` before
+  `The place of birth of Namie Amuro is …`), and a fact already voiced is not
+  voiced again. A comparison's two facts hold neither one the other's subject,
+  and both stay.
+
 ## Provenance
 
 `cover`, including fusion and recomposition steps that name a deeper learnt

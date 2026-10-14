@@ -9,6 +9,7 @@ import {
   consensusFloor,
   dominates,
   identityBar,
+  phraseCap,
   reachThreshold,
   significanceBar,
 } from "../../geometry.js";
@@ -17,21 +18,11 @@ import { gistOf, read, resolve } from "../primitives.js";
 import { indexOf } from "../../bytes.js";
 import {
   allWindowsAreScaffolding,
-  answersOtherQuestions,
-  askedEvidence,
-  canonHeldPoints,
   corpusN,
-  guidedFirst,
   hubBound,
-  namedContinuations,
   otherInstance,
 } from "../traverse.js";
-import {
-  follow,
-  project,
-  reverseContext,
-  voicesDisplacedFiller,
-} from "../match.js";
+import { project, reverseContext, voicesDisplacedFiller } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
 import { restates as lawRestates } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
@@ -58,7 +49,6 @@ export async function recallByResonance(
   const t = ctx.trace?.enter("recallByResonance", [
     rItem(query, "query"),
   ]);
-  const whole_: Array<[number, number]> = [[0, query.length]];
   const nothing: Array<[number, number]> = [];
   const ground = (
     bytes: Uint8Array | null,
@@ -101,145 +91,13 @@ export async function recallByResonance(
     }
   }
 
-  // 0b. ARGUMENT BINDING (RC8): the query is not itself a stored form, but
-  // it CONTAINS a recognised constituent that is an edge SOURCE — a learnt
-  // pair's left side carried inside a wrapper ("How do you say 'thank you'
-  // in French?").  The wrapper is scaffolding; the argument is the span
-  // that LEADS somewhere, so its continuation — guided by the whole query's
-  // gist — is the answer.  Matching the wrapper while ignoring the argument
-  // (the observed "good morning" template failure) is worse than silence,
-  // so anything short of ONE unambiguous binding falls through: the
-  // constituent bar is the same two-quanta (2W) reading confluence binds
-  // under, nested recognitions collapse to their MAXIMAL span, and two
-  // distinct maximal arguments mean the query asks about neither alone.
-  // The argument binding, given its candidate arguments (`args`) and the
-  // recognised fragments that answer other questions (`strangerIds`).
-  const W2 = 2 * ctx.space.maxGroup;
-  const bindArgument = async (
-    args: Array<{ start: number; end: number; payload: number }>,
-    strangerIds: ReadonlySet<number>,
-  ) => {
-    // Maximal spans by one sorted sweep (starts ascending, ties longest
-    // first): every earlier span starts at or before s, so s is contained
-    // exactly when the running max end already covers it.  O(m log m) — a
-    // long input recognises O(|input|) sites, and a pairwise scan here was
-    // quadratic in the input.
-    args.sort((a, b) => a.start - b.start || b.end - a.end);
-    const maximal: typeof args = [];
-    let maxEnd = -1;
-    for (const s of args) {
-      if (s.end <= maxEnd) continue;
-      maximal.push(s);
-      maxEnd = s.end;
-    }
-    // The wrapper must actually BE scaffolding: RC8's own premise is "the
-    // wrapper is scaffolding; the argument is the span that leads
-    // somewhere" ("How do you say 'thank you' in French?" — everything
-    // outside the argument is a small fixed template).  When the query
-    // instead has ANOTHER substantial recognised form (≥ W2, the same
-    // constituent bar the argument itself must clear) sitting OUTSIDE the
-    // chosen argument, the query is not one argument in a wrapper — it is
-    // several complete, independently-meaningful pieces (a multi-turn
-    // conversation's own accumulated turns are exactly this shape), and
-    // binding to the argument's continuation would answer past content
-    // the query itself already carries forward.  Derived from the same W2
-    // bar the argument itself is held to, never a separate tuned number.
-    // A fragment that answers other questions is not such a piece.
-    const hasSubstantialOutside = maximal.length === 1 &&
-      pre.rec.sites.some((s) =>
-        s.end - s.start >= W2 && !strangerIds.has(s.payload) &&
-        (s.end <= maximal[0].start || s.start >= maximal[0].end)
-      );
-    if (maximal.length === 1 && !hasSubstantialOutside) {
-      const arg = maximal[0];
-      // An argument whose several continuations the question names none of
-      // outright would be followed by popularity.  Another instance of the
-      // question may name one (traverse.ts, `byCoInstance`), and its
-      // proposals are the consensus climb's points — so the climb is asked
-      // for first, exactly where the choice would otherwise be blind.
-      const asked = ctx._edgeAsked;
-      if (
-        asked !== null && asked.points === undefined &&
-        ctx.store.nextFirst(arg.payload, 2).length >= 2 &&
-        namedContinuations(ctx, arg.payload, asked) === null
-      ) await pre.attention();
-      const g = await follow(ctx, arg.payload, queryGist);
-      // The same "no restated fragment" guard tier 2 applies below (§ "the
-      // anchor cleared the consensus floor..."): a followed continuation
-      // that is itself a proper byte-subspan of the QUERY restates part of
-      // the question — never an answer.  A multi-turn query's own later
-      // turns are exact, content-addressed matches for exactly this reason
-      // (each turn is its own previously-learnt form), so without this
-      // guard the argument's OWN later restatement in the same
-      // conversation reads as if it were the next thing to say.
-      if (
-        g !== null && g.length > 0 &&
-        !lawRestates(query, g, 0, { proper: true })
-      ) {
-        // EVIDENCE TRAVELS: when the question NAMED the continuation followed
-        // (traverse.ts, the exact tier — `Who is the father of Frederick II?`
-        // witnesses the father fact's own question `Frederick II father`), the
-        // spans that named it are explained too, not only the argument.
-        const hop = guidedFirst(ctx, arg.payload);
-        const named = hop === undefined
-          ? []
-          : askedEvidence(ctx, arg.payload, hop);
-        return ground(
-          g,
-          "argument binding — the query's sole edge-source constituent, continuation followed",
-          [[arg.start, arg.end], ...named],
-          STEP,
-        );
-      }
-    }
-    return null;
-  };
-  let canonArgumentPending = false;
-  let strangers: ReadonlySet<number> = new Set();
-  if (qId === null) {
-    const recognised = pre.rec.sites.filter((s) =>
-      s.end - s.start >= W2 &&
-      s.end - s.start < query.length &&
-      ctx.store.hasNext(s.payload)
-    );
-    // An argument must lead somewhere FOR THIS QUESTION: a fragment whose
-    // continuations the question names none of answers other questions
-    // (traverse.ts) — `director`, inside `When was the director of film Jinpa
-    // born?`, bound the most-poured of fifty-five directors.  Such a fragment
-    // is no argument, and no independent piece of the query either.
-    const strangerIds = new Set<number>();
-    for (const s of recognised) {
-      if (
-        answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
-      ) strangerIds.add(s.payload);
-    }
-    const args = recognised.filter((s) => !strangerIds.has(s.payload));
-    if (args.length === 0 && strangerIds.size > 0) {
-      if (ctx.meter) ctx.meter.unaskedFragments += strangerIds.size;
-      ctx.trace?.step(
-        "unaskedFragments",
-        recognised.filter((s) => strangerIds.has(s.payload)).map((s) =>
-          rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
-            s.start,
-            s.end,
-          ])
-        ),
-        [],
-        "the only arguments are pieces of other forms whose continuations the question names none of — they answer other questions",
-      );
-    }
-    const bound = await bindArgument(args, strangerIds);
-    if (bound !== null) return bound;
-    // NO ARGUMENT BY BYTES IS NOT NO ARGUMENT.  Recognition matches bytes, so
-    // `Man At Bath` (2Wiki title-cases its questions) is no site of the stored
-    // `Man at Bath`.  When nothing recognised can bind, the points the
-    // consensus climb reaches that the question holds under the response's
-    // equivalence are arguments too (traverse.ts, `canonHeldPoints`) — read
-    // after the clean-resonance tier, which answers a near-identical question
-    // without any climb.
-    canonArgumentPending = ctx.canon !== null && args.length === 0;
-    strangers = strangerIds;
-  }
+  // (0b. ARGUMENT BINDING — the query's sole edge-source constituent, its
+  // continuation followed — is the cover's site + followed edge, answered by
+  // the cover under its output law and taken on by the walk: the product
+  // voices the form's replacement alone when the question has an ask, the
+  // cover accounts the evidence that named its step and declares what it
+  // voices, and a chain's intermediate fact is not voiced.  Measured on 900
+  // fresh questions: the 293 answers it won are the cover's.)
 
   // The response's ONE top-k read (Precomputed.resonance) — the same list the
   // frame inventory is assembled from, so a query that reaches both pays for a
@@ -256,12 +114,11 @@ export async function recallByResonance(
     `resonate the whole-query gist → ${whole.length} nearest learnt form(s)`,
   );
 
-  // 1. Clean resonance — the scale-aware identity claim.  The ANGLE
-  // (top.score) carries the shared fraction; the query's MAGNITUDE (√len,
-  // the linear fold's own norm) converts the tolerated foreign fraction
-  // into bytes — at most one river window (see {@link identityBar}).  A
-  // fixed cosine bar let long queries claim "near-identical" while whole
-  // windows — an answer word — differed.
+  // 1. Self-match.  The identity bar (`identityBar`, scale-aware: at most one
+  // river window of foreign bytes) PROPOSES the hits that may be the question
+  // itself; their bytes decide.  (A tier that grounded a near hit's
+  // continuation on the bar alone — the vector deciding — was measured to
+  // change no answer and removed, invariant 3.)
   // A hit RESTATES the query when its bytes are the query's own — exactly,
   // or under the response's equivalence (a case/width twin).  Restating
   // hits may only conclude through disciplined reverse recall: voicing
@@ -296,16 +153,6 @@ export async function recallByResonance(
             STEP,
           );
         }
-        continue;
-      }
-      const g = await project(ctx, h.id, queryGist);
-      if (g) {
-        return ground(
-          g,
-          "clean whole-query resonance — ground the nearest hit",
-          whole_,
-          STEP,
-        );
       }
     }
   }
@@ -334,20 +181,6 @@ export async function recallByResonance(
       Math.max(0, cos - sig) *
         Math.sqrt(otherLen / Math.max(1, query.length)),
     );
-
-  // The argument the question holds only under the response's equivalence
-  // (above).  Not gated on the whole-query resonance: a question whose only
-  // argument is a case variant (`… film Man At Bath work at?`) resonates
-  // below the significance bar as a whole.
-  if (canonArgumentPending) {
-    await pre.attention();
-    const held = canonHeldPoints(ctx, W2).filter((s) =>
-      ctx.store.hasNext(s.payload) &&
-      !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
-    );
-    const bound = await bindArgument(held, strangers);
-    if (bound !== null) return bound;
-  }
 
   // 2. Scaffolding-dominated.
   if (top.score >= sig) {
@@ -478,7 +311,7 @@ export async function recallByResonance(
       const anchorBytes = read(
         ctx,
         forest[0].anchor,
-        query.length * ctx.space.maxGroup + 1,
+        phraseCap(query.length, ctx.space.maxGroup) + 1,
       );
       // …and the same refusal read from the anchor's side: an anchor the query
       // witnesses in every byte but one filler of its own is ANOTHER INSTANCE
@@ -526,31 +359,15 @@ export async function recallByResonance(
   }
 
   // 3. Last resort — the nearest grounded whole-query hit, same gate.
-  for (const h of whole) {
-    const g = await project(ctx, h.id, queryGist);
-    if (g) {
-      if (
-        fracOfQuery(cosine(queryGist, gistOf(ctx, g)), g.length) >=
-          reach
-      ) {
-        return ground(
-          g,
-          "last resort: the nearest grounded whole-query hit",
-          [],
-          STEP,
-        );
-      }
-    }
-  }
+  // (A last-resort tier that grounded the first hit whose projection merely
+  // resembled the question — explaining no byte of it, the vector deciding —
+  // was measured to change no answer and removed, invariant 3.)
+
   // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts). The
-  // bridge's proposal source is the response's ONE top-k read — the same list
-  // recall already ranked above — never an exhaustive √N scan. The bridge's own
-  // candidate cap is 2·recallQueryK, so top-k proposals are exactly the budget
-  // it can consume, and every proposal is byte-verified downstream
-  // (exact-vs-approximate.md). Reuse the memoised `resonance()`; scanning every
-  // IVF cluster here once made every honest refusal cost hundreds of ms
-  // regardless of k.
-  const wideIds = async () => (await pre.resonance()).map((h) => h.id);
+  // bridge reads the response's ONE frame inventory (`Precomputed.frames`):
+  // the top-k resonance read, each hit already read against the query as
+  // `reference` reads it — never an exhaustive √N scan, and never a second
+  // reading of the same pairing.
 
   // Every gist-based tier has failed; before refusing, align the query
   // byte-for-byte against the trained contexts its own stored windows
@@ -572,21 +389,10 @@ export async function recallByResonance(
     // exact co-occurrence and bounded anchor ascent are the bridge's structural
     // proposal channels, while an exhaustive ANN call made every honest
     // refusal cost hundreds of milliseconds regardless of k.
-    const bridged = await substitutionBridge(ctx, query, wideIds);
+    const bridged = await substitutionBridge(ctx, query, () => pre.frames());
     if (bridged !== null) {
       const g = await project(ctx, bridged.id, queryGist);
-      // A projection contained in a substituted candidate-side span is the
-      // substitution RESTATED as if it were knowledge — the exact failure
-      // observed live: "Darwin was born in England." bridged to the
-      // Einstein fact through " England." → " Germany." and would have
-      // voiced "Germany", an answer the substitution itself manufactured.
-      // The same principle as the restated-fragment guards above, extended
-      // to the bridge's own substitutions.
       const cBytes = ctx.store.bytes(bridged.id);
-      const manufactured = g !== null &&
-        bridged.subs.some((s) =>
-          indexOf(cBytes.subarray(s.cs, s.ce), g!, 0) >= 0
-        );
       // THE PREFIX TRAP IS NOT THIS TIER'S TO SPRING.  With no substitutions
       // the claim is "a trained context IS this query, up to filler".  When
       // the query is a STRICT BYTE PREFIX of that context, the claim is false
@@ -615,7 +421,10 @@ export async function recallByResonance(
       // that is the question's frame around a different filler speaks of its
       // own, and substituting the question's into it asserts the two are one
       // — `… of Aldric Fenwick and Harriet Fenwick?` voiced its own
-      // grandfather for `… of Cedric Fenwick and Juliana Fenwick?`.  Both
+      // grandfather for `… of Cedric Fenwick and Juliana Fenwick?`, and
+      // `Darwin was born in England.` bridged to the Einstein fact would
+      // voice `Germany`, the substitution's own side restated as knowledge
+      // (a separate guard for that case was measured redundant with this one).  Both
       // slots hold a filler: where the question's holds no thing (`Hey,
       // buddy. What's up?` for `hey, what's up?`), the context only says more.
       const coInstance = g !== null && bridged.subs.length > 0 &&
@@ -630,10 +439,10 @@ export async function recallByResonance(
         );
       }
       if (
-        g !== null && g.length > 0 && !restates(g) && !manufactured &&
+        g !== null && g.length > 0 && !restates(g) &&
         !coInstance &&
         !(bridged.subs.length === 0 && strictPrefix) &&
-        !(g.length < query.length && indexOf(query, g, 0) >= 0)
+        !lawRestates(query, g, 0, { proper: true })
       ) {
         return ground(
           g,

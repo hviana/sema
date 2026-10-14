@@ -97,6 +97,9 @@ export class Meter {
   // ── Store: structure (parents / containment) ────────────────────────────
   /** `parents` + `parentsFirst` — materialising parent reads. */
   parentReads = 0;
+  /** Parent rows the near dedup read to PROPOSE a target by shared structure
+   *  (store.ts `nearDedupTarget`) — its own cost, apart from the climbs. */
+  nearDedupParentReads = 0;
   /** `hasParents` — indexed existence probe. */
   parentProbes = 0;
   /** `chainRun` — one bounded transparent-chain climb. */
@@ -123,8 +126,8 @@ export class Meter {
   haloProbes = 0;
   /** `learntWhole` — the point probe of the whole record. */
   wholeProbes = 0;
-  /** Steps the question named by a paraphrase (traverse.ts `byParaphrase`). */
-  paraphraseNamings = 0;
+  /** Steps the question named by the USE of a span (traverse.ts `byUse`). */
+  useNamings = 0;
 
   // ── Store: approximate search (the ANN indexes) ─────────────────────────
   /** `resonate` calls that descended the content index. */
@@ -160,12 +163,12 @@ export class Meter {
   recognisedBytes = 0;
   /** `recognise` calls served from the memo. */
   recogniseHits = 0;
-  /** Offsets the INTERIOR pass of `recognise` considered — the endpoints inside the gaps between consecutive
-   *  content-defined cuts. A zero says that pass found nothing to offer; a non-zero with no new site says they
-   *  were offered and refused. */
-  recogniseInteriorGaps = 0;
-  /** Interior pairs that were actually probed (the pairs that passed the span bound and spent the budget). */
-  recogniseInteriorPairs = 0;
+  /** Spans `recognise`'s exact sweep probed — every span within the reach of
+   *  every start, and the question's edges beyond it. */
+  recogniseSpans = 0;
+  /** Spans the canonical sweep asked the canon index for (exact misses whose
+   *  canonical bytes the sweep hashed). */
+  recogniseCanonSpans = 0;
   /** `resolve` — whole-span content-addressed identity requests. */
   resolves = 0;
 
@@ -392,17 +395,6 @@ export class Meter {
    *  walk to pay by carrying it.  Zero means the grounding's coverage is honest:
    *  everything it priced is either held by the answer or under the W floor. */
   groundingWithheldBytes = 0;
-  /** Branch-node probes the pivot sweep actually spent looking for the learnt
-   *  context an answer contains (one `resonate` per probe).  The untraced view
-   *  of what the multi-hop's shortlist costs. */
-  pivotProbes = 0;
-  /** Branch nodes the pivot's probe cap withheld (`branchCount − probeCap`, over
-   *  every call).  A capacity fact, not a verdict: the sweep is breadth-first,
-   *  so the probes it DOES spend are the largest regions, and recognition still
-   *  contributes every exact containment candidate regardless of the budget.
-   *  Read it with {@link pivotProbes} — one says the work, the other the
-   *  shortfall. */
-  pivotBranchesUnprobed = 0;
 
   // ── Mind: the cover's connector assembly (LIMIT) ────────────────────────
   //

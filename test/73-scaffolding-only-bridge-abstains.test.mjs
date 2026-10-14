@@ -43,6 +43,7 @@ import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { substitutionBridge } from "../dist/src/mind/bridge.js";
+import { instancesOf } from "../dist/src/mind/match.js";
 import { gistOf } from "../dist/src/mind/primitives.js";
 import {
   allWindowsAreScaffolding,
@@ -85,7 +86,11 @@ test("a bridge with only scaffolding anchors stays silent", async () => {
 
   const query = enc("case 7: what is the qty7 of item7?");
   const proposed = async () =>
-    (await m.store.resonate(gistOf(m, query), 256)).map((h) => h.id);
+    instancesOf(
+      m,
+      query,
+      (await m.store.resonate(gistOf(m, query), 256)).map((h) => h.id),
+    );
 
   // CONTROL — with real containment the query HAS discriminating anchors, so
   // the gate must not apply.  Establishing this first is what makes the

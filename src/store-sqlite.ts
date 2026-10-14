@@ -311,11 +311,11 @@ export class SQliteStore extends AbstractStore implements Store {
     const d = DEFAULT_CONFIG.store;
     // Resolve config from opts, falling back to defaults.
     const config: StoreConfig = {
-      minHaloMass: opts.minHaloMass ?? d.minHaloMass,
       efSearch: opts.efSearch ?? d.efSearch,
       compactEveryNWrites: opts.compactEveryNWrites ?? d.compactEveryNWrites,
       overfetch: opts.overfetch ?? d.overfetch,
       batchSize: opts.batchSize ?? d.batchSize,
+      nearDedup: opts.nearDedup ?? d.nearDedup,
       dedupCacheMax: opts.dedupCacheMax ?? d.dedupCacheMax,
       bytesCacheMax: opts.bytesCacheMax ?? d.bytesCacheMax,
       recCacheBytes: opts.recCacheBytes ?? d.recCacheBytes,

@@ -33,7 +33,7 @@ function climbStep(steps) {
 }
 
 const SATURATION_REASONS = new Set([
-  "byte-atom-commonality",
+  "byte-atom-unobservable",
   "predecessor-fan-in",
   "distinct-context-limit",
   "parent-fan-out",

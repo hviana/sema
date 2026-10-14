@@ -17,6 +17,7 @@ import {
 import { canonHash } from "../canon.js";
 import { bytesEqual, concatBytes, latin1 } from "../bytes.js";
 import { ALL } from "./types.js";
+import { flatId } from "./canonical.js";
 import type { Input, MindContext } from "./types.js";
 import type { ContentFold } from "../geometry.js";
 
@@ -311,7 +312,7 @@ export function exactNaming(
     (from, to) =>
       to - from === 1
         ? ctx.store.findLeaf(bytes.subarray(from, to))
-        : flatNode(ctx, bytes.subarray(from, to)),
+        : flatId(ctx, bytes.subarray(from, to)),
     (kids, from, to) => {
       const named = branchNaming(ctx, kids, bytes.subarray(from, to));
       if (from === 0 && to === bytes.length) byBytes = named.byBytes;
@@ -319,17 +320,6 @@ export function exactNaming(
     },
   );
   return { id, byBytes };
-}
-
-/** The flat node over a span's single-byte atoms — the node every deposit
- *  interns for its whole input and for each canonical window (learning.ts
- *  `deposit`, `indexSubSpans`).  The store's negative filter refuses most
- *  misses without a lookup. */
-function flatNode(ctx: MindContext, span: Uint8Array): number | null {
-  const store = ctx.store;
-  return store.findFlatBranch
-    ? store.findFlatBranch(span)
-    : store.findBranch(Array.from(span, (b) => -(b + 1)));
 }
 
 /** THE READ SIDE NAMES A BRANCH EXACTLY AS THE WRITE SIDE DID.  `intern`
@@ -353,7 +343,7 @@ function branchNaming(
     if (id !== null) return { id, byBytes: false };
   }
   if (kids.length < 2) return { id: null, byBytes: false };
-  const id = flatNode(ctx, span);
+  const id = flatId(ctx, span);
   if (id !== null && ctx.meter) ctx.meter.flatBranchNames++;
   return { id, byBytes: id !== null };
 }
@@ -419,9 +409,7 @@ export function canonResolve(
     // on exactly the node the canonical-case query would have found.
     const folded = exactNode(ctx, bytesOf);
     const use = folded ?? id;
-    // THE ADMISSION PREDICATE, asked of the store that owns it (edge or halo,
-    // the halo tier carrying the mass bar).  Asking `haloMass(use) > 0` instead
-    // would agree only while `minHaloMass <= 1`.
+    // THE ADMISSION PREDICATE, asked of the store that owns it (edge or halo).
     const leads = store.leadsSomewhere(use);
     if (
       best === null || (leads && !bestLeads) ||
