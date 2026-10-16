@@ -785,3 +785,139 @@ test("scaffolding names no redirection substitute", async () => {
   assert.ok(!answer.includes("The Hobbit"), answer);
   assert.ok(answer.includes("Michael Thornhill"), answer);
 });
+
+// C5 — NO ANALOG BY POPULARITY.  When no candidate passes the similarity
+// gates, the only warrant left for a comparison is the question naming its
+// analog.  A fallback once elected the best-supported structural hub (edge
+// support, then poured mass): on this corpus it elected `Michelangelo` for a
+// sentence about Pablo Picasso — a name the question never says.  The elected
+// analog must now be named by the question (two windows of its bytes).
+test("C5 — an analog without similarity is one the question names", async () => {
+  const m = mk(2);
+  await m.ingest([
+    ["The Mona Lisa was painted by Leonardo da Vinci.", "Leonardo da Vinci"],
+    ["The Starry Night was painted by Vincent van Gogh.", "Vincent van Gogh"],
+    [
+      "The Night Watch was painted by Rembrandt van Rijn.",
+      "Rembrandt van Rijn",
+    ],
+    ["Pablo Picasso", "Pablo Picasso co-founded the Cubist movement"],
+    ["Michelangelo", "Il Divino painted the Sistine Chapel ceiling"],
+    ["a nickname meaning the divine one", "Michelangelo"],
+    ["a nickname meaning the divine one", "Il Divino"],
+    ["also called", "Michelangelo"],
+    ["also called", "Il Divino"],
+    ["known as", "Michelangelo"],
+    ["known as", "Il Divino"],
+    ["Il Divino", "Il Divino was a nickname coined by his contemporaries"],
+  ]);
+  for (
+    const q of [
+      "The Weeping Woman was painted by Pablo Picasso.",
+      "How is Pablo Picasso like the Mona Lisa?",
+    ]
+  ) {
+    const elected = [];
+    await m.respond(q, (s) => {
+      if (s.mechanism.at(-1) !== "tryAnalog") return;
+      for (const o of s.outputs) {
+        if (o.role === "named" || o.role === "fallback") elected.push(o);
+      }
+    });
+    for (const o of elected) {
+      assert.notEqual(o.role, "fallback", `${q}: no analog by popularity`);
+      const named = [...Array(q.length).keys()].some((i) =>
+        o.text.includes(q.slice(i, i + 8))
+      );
+      assert.ok(named, `${q}: the elected "${o.text}" holds question bytes`);
+    }
+  }
+  await m.store.close();
+});
+
+// D2 — REDIRECTION REPLACES A DISPLACED ANSWER ONLY.  A question that already
+// restates the dominant's established continuation keeps it: `the capital of
+// France is and the capital of Japan is and Paris is in` restates France's
+// ` Paris`, and redirecting to `Paris is in` voiced ` Europe` alone, dropping
+// ` Tokyo` (once the displacement test was withdrawn).
+test("D2 — redirection does not replace an answer the question restates", async () => {
+  const m = mk(7);
+  await m.ingest([
+    ["the capital of France is", " Paris"],
+    ["the capital of Japan is", " Tokyo"],
+    ["Paris is in", " Europe"],
+  ]);
+  const got = await ask(
+    m,
+    "the capital of France is and the capital of Japan is and Paris is in",
+  );
+  assert.match(got, /Tokyo/, `got "${got}"`);
+  await m.store.close();
+});
+
+// A SUBSTITUTION VOICES A STRUCTURE THE QUESTION NAMES.  The displaced
+// structure is the one the answer speaks, so the question must name it with
+// material of its own, as a comparison must name both of its structures
+// (`namesApart`): `When did Orlan's mother die?` displaced `Where did Orlan
+// Vesk study at?` on ` did ` and `Orlan`, which other contexts hold too, and
+// voiced `When did Orlan Vesk study at?` with that question's answer (2Wiki:
+// `When did Prince John Konstantinovich Of Russia's mother die?` →
+// `When did Eunseong Kim study at?…`).
+test("a substitution does not voice a structure the question names only by shared windows", async () => {
+  const m = mk();
+  await m.ingest([
+    [
+      "Where did Orlan Vesk study at?",
+      "The employer of Orlan Vesk is Tarrow University.",
+    ],
+    [
+      "When Were You Born",
+      "The director of When Were You Born is Halden Prye.",
+    ],
+    [
+      "Where did Tamsin Holt work?",
+      "The employer of Tamsin Holt is Brack Institute.",
+    ],
+    ["Why did Ilse Varn leave?", "Ilse Varn left for Odo."],
+    ["Who is the father of Ilse Varn?", "The father of Ilse Varn is Odo Varn."],
+  ]);
+  const got = await ask(m, "When did Orlan's mother die?");
+  assert.ok(!got.includes("When did Orlan Vesk"), `got "${got}"`);
+});
+
+// …AND THE SUBJECT THE QUESTION NAMES TOO.  Both structures a substitution
+// transfers between are the question's, so the subject is named apart as the
+// displaced structure is: where `When` opens forty `When was … born?`
+// questions, the title `When Were You Born` is named by nothing of its own,
+// and its `When` filled the seat of `Where did Orlan Vesk study at?` for a
+// question about someone the store does not know.
+test("a substitution subject named only by a common opening fills no seat", async () => {
+  const SYL = ["ba", "ko", "ri", "ten", "mar", "lo", "vi", "sun", "del", "ga"];
+  const name = (n) =>
+    `${SYL[n % 10][0].toUpperCase()}${SYL[n % 10].slice(1)}${
+      SYL[(3 * n + 7) % 10]
+    } ${SYL[(7 * n + 1) % 10][0].toUpperCase()}${
+      SYL[(7 * n + 1) % 10].slice(1)
+    }${SYL[Math.floor(n / 10) % 10]}`;
+  const m = mk();
+  const items = [];
+  for (let i = 1; i <= 40; i++) {
+    const x = name(i);
+    items.push([
+      `When was ${x} born?`,
+      `The date of birth of ${x} is ${1800 + i}.`,
+    ]);
+    items.push([`Where did ${x} work?`, `The employer of ${x} is Firm ${i}.`]);
+  }
+  items.push([
+    "Where did Orlan Vesk study at?",
+    "The employer of Orlan Vesk is Tarrow University.",
+  ]);
+  items.push([
+    "When Were You Born",
+    "The director of When Were You Born is Halden Prye.",
+  ]);
+  await m.ingest(items);
+  const got = await ask(m, "When did Corin Maldove study at?");
+  assert.ok(!got.includes("Orlan Vesk"), `got "${got}"`);
+});

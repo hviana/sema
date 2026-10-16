@@ -29,8 +29,11 @@
 //   • GRADED IDENTITY — lexical geometry is tried first at
 //     conceptThreshold(D). Differently-spelled forms fall through to VSA
 //     company: their stored W-window occurrences ascend to learned episodes,
-//     whose bundled halos must clear significanceBar(D), the same
-//     distributional-evidence bar used by analogyStrength.
+//     whose bundled halos are read on the windows that touch the mismatch.
+//     The swap is decided by the corpus's minimal pairs
+//     (`licensedSubstitution`): refuted, it is refused; shown, company beyond
+//     chance (significanceBar) carries it; never made, company must clear the
+//     synonym tiers' conceptThreshold(D).
 //
 // A candidate context is accepted when every unexplained gap, and each of
 // its edges, stays within one perception window W (the same single-window
@@ -94,19 +97,20 @@ import {
   AGREEMENT,
   conceptThreshold,
   dominates,
-  significanceBar,
   twoQuanta,
 } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { exactNode, perceive } from "./primitives.js";
+import { exactNode } from "./primitives.js";
 import { chainReach, windowAt, windowIds } from "./canonical.js";
 import { unexplainedSpans } from "./derivation.js";
 import {
   allWindowsAreScaffolding,
   hubBound,
   hubWindows,
-  spanHalo,
+  identicalAt,
+  partingHalo,
+  substitutes,
   windowRarity,
 } from "./traverse.js";
 import { rItem, rNode } from "./trace.js";
@@ -180,7 +184,7 @@ async function bridgeImpl(
   if (query.length < twoQuanta(W)) return null;
   const bound = hubBound(ctx);
   const bar = conceptThreshold(ctx.store.D);
-  const synonymBar = significanceBar(ctx.store.D);
+
   const reachCap = chainReach(W);
   const diagnostics = ctx.trace
     ? {
@@ -541,13 +545,13 @@ async function bridgeImpl(
       // happen to share a few letters.  Uses the SAME dominates() bar
       // (part*2 > whole) applied throughout the codebase, symmetrically:
       // the smaller raw side must be more than half the larger.  Applies
-      // to the RAW gap for GEOMETRIC identity, before expansion — expansion
-      // only ever grows both sides by IDENTICAL absorbed bytes, so it cannot
-      // fix an imbalance that was already there. Distributional synonym
-      // evidence is exempt: two phrases may occupy the same role at very
-      // different lengths.
+      // to the RAW gap for identity (`identicalParts`, which holds it with
+      // the one-window tolerance and the raw geometry), before expansion —
+      // expansion only ever grows both sides by IDENTICAL absorbed bytes, so
+      // it cannot fix an imbalance that was already there. Distributional
+      // synonym evidence is exempt: two phrases may occupy the same role at
+      // very different lengths.
       let accepted = false;
-      const balanced = dominates(Math.min(uLen, cLen), Math.max(uLen, cLen));
       const maxExtra = reachCap - Math.max(uLen, cLen);
       outer:
       for (let extra = 0; extra <= maxExtra; extra++) {
@@ -571,17 +575,24 @@ async function bridgeImpl(
           if (!attestedQ(qs2, qe2)) continue;
           const u = query.subarray(qs2, qe2);
           const cSpan = cBytes.subarray(cs2, ce2);
-          const geometric = cosine(perceive(ctx, u).v, perceive(ctx, cSpan).v);
-          const qKey = `${qs2}:${qe2}`;
+          // THE COMPANY OF WHAT DIFFERS (`partingHalo`): absorbed bytes are
+          // the same on both sides, and so is the company of a window of them
+          // alone, so it is read from the windows that touch the raw mismatch.
+          const qKey = `${g.qs}:${g.qe}:${qs2}:${qe2}`;
           let qHalo = queryHaloMemo.get(qKey);
           if (qHalo === undefined) {
-            qHalo = spanHalo(ctx, query, qs2, qe2);
+            qHalo = partingHalo(
+              ctx,
+              query.subarray(qs2, qe2),
+              g.qs - qs2,
+              g.qe - qs2,
+            );
             queryHaloMemo.set(qKey, qHalo);
           }
-          const cKey = `${sid}:${cs2}:${ce2}`;
+          const cKey = `${sid}:${g.cs}:${g.ce}:${cs2}:${ce2}`;
           let cHalo = candidateHaloMemo.get(cKey);
           if (cHalo === undefined) {
-            cHalo = spanHalo(ctx, cBytes, cs2, ce2);
+            cHalo = partingHalo(ctx, cSpan, g.cs - cs2, g.ce - cs2);
             candidateHaloMemo.set(cKey, cHalo);
           }
           const distributional = qHalo !== null && cHalo !== null
@@ -597,10 +608,19 @@ async function bridgeImpl(
           // Graded identity: byte geometry remains the cheap first tier;
           // VSA company is the synonym tier when differently-spelled forms
           // occupy the same learnt distributional role.
-          if (
-            (!balanced || geometric < bar) &&
-            distributional < synonymBar
-          ) {
+          // IDENTITY is read on the RAW mismatch (`identicalParts`): the
+          // absorbed bytes are shared, and enough of them make `argest ocean `
+          // resemble `argest planet `.
+          const identical = identicalAt(
+            ctx,
+            cBytes,
+            g.cs,
+            g.ce,
+            query.subarray(g.qs, g.qe),
+            sid,
+            candidates.map((c) => c.use),
+          );
+          if (!identical && !substitutes(ctx, cSpan, u, distributional)) {
             continue;
           }
           if (

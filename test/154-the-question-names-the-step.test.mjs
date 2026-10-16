@@ -605,3 +605,138 @@ test("154.12 an argument held under the equivalence is read among all the climb'
   );
   await mind.store.close();
 });
+
+test("154.13 a step the walk reaches is named by a use the corpus licenses", async () => {
+  // `In which town did the father of Z pass away?`: `father` names the first
+  // hop by its bytes; the second — `F end`, from the father reached — no
+  // window of the question names, but `pass away` is used as ` end` is, and
+  // the corpus licenses that use (`substitutionGrade`).  The walk once named
+  // no step by use (the whole question only), and stopped at the father.
+  // Where nothing uses `pass away` like ` end`, nothing names it.
+  const SYL = ["ba", "ko", "ri", "ten", "mar", "lo", "vi", "sun", "del", "ga"];
+  const name = (n) =>
+    `${SYL[n % 10][0].toUpperCase()}${SYL[n % 10].slice(1)}${
+      SYL[(3 * n + 7) % 10]
+    } ${SYL[(7 * n + 1) % 10][0].toUpperCase()}${
+      SYL[(7 * n + 1) % 10].slice(1)
+    }${SYL[Math.floor(n / 10) % 10]}`;
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const origin = (x, t) => `${x} — origin: ${t}.`;
+  const end = (x, t) => `${x} — end: ${t}.`;
+  const father = (x, f) => `${x} — father: ${f}.`;
+  const ask = async (company) => {
+    const items = [];
+    for (let i = 1; i <= 40; i++) {
+      const x = name(i), o = towns[i % 5], e = towns[(3 * i + 1) % 5];
+      items.push([x, origin(x, o)], [x, end(x, e)]);
+      items.push([`${x} origin`, origin(x, o)], [`${x} end`, end(x, e)]);
+      items.push([`Where was ${x} born?`, origin(x, o)]);
+      if (company) {
+        items.push([`Where did ${x} die?`, end(x, e)]);
+        items.push([`Did ${x} pass away in ${e}?`, end(x, e)]);
+      } else items.push([`Where was ${x} buried?`, end(x, e)]);
+    }
+    const z = name(41), f = name(42);
+    items.push([z, origin(z, "Fenmoor")], [z, end(z, "Gladwick")]);
+    items.push([`${z} origin`, origin(z, "Fenmoor")]);
+    items.push([`${z} end`, end(z, "Gladwick")]);
+    items.push([z, father(z, f)], [`${z} father`, father(z, f)]);
+    items.push([f, origin(f, "Harrowgate")], [f, end(f, "Ivybridge")]);
+    items.push([`${f} origin`, origin(f, "Harrowgate")]);
+    items.push([`${f} end`, end(f, "Ivybridge")]);
+    const m = new Mind({ seed: 7 });
+    await m.ingest(items);
+    return await m.respondText(
+      `In which town did the father of ${z} pass away?`,
+    );
+  };
+  assert.match(await ask(true), /end: Ivybridge/);
+  assert.doesNotMatch(await ask(false), /Ivybridge/);
+});
+
+test("154.15 a sole continuation is named by a licensed use", async () => {
+  // 154.13's world with the father holding ONE fact.  One continuation has
+  // nothing to be told apart from, so the use once named nothing there and the
+  // walk stopped at the father; nothing to rank is no reason to refuse what the
+  // corpus licenses.  Where nothing uses `pass away` like ` end`, it names
+  // nothing still.  (The 2Wiki shape: `Where did the presenter of Tim Russert
+  // (Talk Show) die?` reaches `Tim Russert`, whose one fact `Tim Russert place
+  // of death` establishes — there the corpus never shows ` die` for ` place of
+  // death`, so the step stays unnamed.)
+  const SYL = ["ba", "ko", "ri", "ten", "mar", "lo", "vi", "sun", "del", "ga"];
+  const name = (n) =>
+    `${SYL[n % 10][0].toUpperCase()}${SYL[n % 10].slice(1)}${
+      SYL[(3 * n + 7) % 10]
+    } ${SYL[(7 * n + 1) % 10][0].toUpperCase()}${
+      SYL[(7 * n + 1) % 10].slice(1)
+    }${SYL[Math.floor(n / 10) % 10]}`;
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const origin = (x, t) => `${x} — origin: ${t}.`;
+  const end = (x, t) => `${x} — end: ${t}.`;
+  const father = (x, f) => `${x} — father: ${f}.`;
+  const ask = async (company) => {
+    const items = [];
+    for (let i = 1; i <= 40; i++) {
+      const x = name(i), o = towns[i % 5], e = towns[(3 * i + 1) % 5];
+      items.push([x, origin(x, o)], [x, end(x, e)]);
+      items.push([`${x} origin`, origin(x, o)], [`${x} end`, end(x, e)]);
+      items.push([`Where was ${x} born?`, origin(x, o)]);
+      if (company) {
+        items.push([`Where did ${x} die?`, end(x, e)]);
+        items.push([`Did ${x} pass away in ${e}?`, end(x, e)]);
+      } else items.push([`Where was ${x} buried?`, end(x, e)]);
+    }
+    const z = name(41), f = name(42);
+    items.push([z, origin(z, "Fenmoor")], [z, end(z, "Gladwick")]);
+    items.push([`${z} origin`, origin(z, "Fenmoor")]);
+    items.push([`${z} end`, end(z, "Gladwick")]);
+    items.push([z, father(z, f)], [`${z} father`, father(z, f)]);
+    items.push([f, end(f, "Ivybridge")], [`${f} end`, end(f, "Ivybridge")]);
+    const m = new Mind({ seed: 7 });
+    await m.ingest(items);
+    return await m.respondText(
+      `In which town did the father of ${z} pass away?`,
+    );
+  };
+  assert.match(await ask(true), /end: Ivybridge/);
+  assert.doesNotMatch(await ask(false), /Ivybridge/);
+});
+
+test("154.14 company alone names no step: a use the corpus never shows", async () => {
+  // `mother` and `father` keep the same company — each leads to `The … of X
+  // is Y.` — but no context with one leads where a context with the other
+  // does: the corpus never shows one standing for the other.  A use is itself
+  // a reading of company, so company cannot license it; the walk must not
+  // step from Z's father to HIS father for `Who is the mother of Z?`.
+  const SYL = ["ba", "ko", "ri", "ten", "mar", "lo", "vi", "sun", "del", "ga"];
+  const name = (n) =>
+    `${SYL[n % 10][0].toUpperCase()}${SYL[n % 10].slice(1)}${
+      SYL[(3 * n + 7) % 10]
+    } ${SYL[(7 * n + 1) % 10][0].toUpperCase()}${
+      SYL[(7 * n + 1) % 10].slice(1)
+    }${SYL[Math.floor(n / 10) % 10]}`;
+  const fact = (x, r, y) => `The ${r} of ${x} is ${y}.`;
+  const items = [];
+  for (let i = 1; i <= 30; i++) {
+    const x = name(i), f = name(i + 100), mo = name(i + 200);
+    items.push([`${x} father`, fact(x, "father", f)], [
+      x,
+      fact(x, "father", f),
+    ]);
+    items.push([`${x} mother`, fact(x, "mother", mo)], [
+      x,
+      fact(x, "mother", mo),
+    ]);
+    items.push([`Who is the father of ${x}?`, fact(x, "father", f)]);
+    items.push([`Who is the mother of ${x}?`, fact(x, "mother", mo)]);
+  }
+  const z = name(41), f = name(42), g = name(43);
+  items.push([`${z} father`, fact(z, "father", f)], [z, fact(z, "father", f)]);
+  items.push([`${f} father`, fact(f, "father", g)], [f, fact(f, "father", g)]);
+  items.push([`${f} spouse`, fact(f, "spouse", name(44))]);
+  items.push([f, fact(f, "spouse", name(44))]);
+  const m = new Mind({ seed: 7 });
+  await m.ingest(items);
+  const a = await m.respondText(`Who is the mother of ${z}?`);
+  assert.ok(!a.includes(`of ${f} is ${g}`), `stepped to the grandfather: ${a}`);
+});

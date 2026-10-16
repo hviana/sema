@@ -659,3 +659,28 @@ test("157.17 a description's forms are found on both surfaces of its rarest wind
     `answered "${a}"`,
   );
 });
+
+test("157.13 a description the corpus reads two ways names nothing", async () => {
+  // `'s dad` is agreed as `· father` by three forms and as `· mother` by three
+  // others: the readings part ways, so the description is ambiguous, and the
+  // shortest of them is no evidence for either.  It names nothing — no
+  // derivation passes through it to a birthplace of either parent.
+  const w = world();
+  const inst = [
+    ...instances(w, "Where was {X} born?", ["born"], 0),
+    ...instances(w, "Who is {X}'s dad?", ["father"], 1),
+    ...instances(w, "Who is {X}'s dad?", ["mother"], 1),
+  ];
+  const z = w.subject(1).name;
+  const [a] = await ask(
+    [...deposits(w.triples), ...inst],
+    [`Where was ${z}'s dad born?`],
+  );
+  for (const parent of ["father", "mother"]) {
+    assert.doesNotMatch(
+      a,
+      new RegExp(w.up(z, [parent, "born"])),
+      `answered "${a}" through one of two readings`,
+    );
+  }
+});

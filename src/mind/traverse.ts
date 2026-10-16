@@ -10,12 +10,15 @@ import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
 import {
   AGREEMENT,
   boundFor,
+  conceptThreshold,
+  dominates,
   instanceCap,
   phraseCap,
   significanceBar,
+  twoQuanta,
 } from "../geometry.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
-import { canonResolve, gistOf, read, resolve } from "./primitives.js";
+import { canonResolve, gistOf, perceive, read, resolve } from "./primitives.js";
 import { chainReach, flatId, windowAt, windowIds } from "./canonical.js";
 // Imported at the TOP, where every other import is.  They used to sit 800 lines
 // down under a note claiming the position mattered ("before trace module is
@@ -1006,9 +1009,9 @@ export function askedEvidence(
   if (asked === null) return [];
   const nx = ctx.store.nextFirst(id, hubBound(ctx));
   const entry = askedEntry(ctx, id, nx, asked);
-  // A pick named by its use is a proposal: the run that ranked it is not the
-  // question's evidence for it, and is not accounted as such.
-  if (entry.byUse) return [];
+  // A pick named by its use is a proposal: the run that ranked it is the
+  // question's evidence for it only when the corpus licenses the use.
+  if (entry.byUse && !entry.licensed) return [];
   return entry.named?.includes(pick) ? entry.spans.get(pick) ?? [] : [];
 }
 
@@ -1018,8 +1021,10 @@ interface AskedEntry {
   spans: Map<number, Array<[number, number]>>;
   /** Named by a USE (halo company, `byUse`) rather than by the question's
    *  bytes: an approximate reading, which may PROPOSE the pick but whose spans
-   *  are no exact evidence (`askedEvidence`). */
+   *  are evidence only when the corpus licenses the use (`licensed`). */
   byUse?: true;
+  /** The use is licensed as an equivalence (`substitutionGrade`). */
+  licensed?: true;
 }
 
 function askedEntry(
@@ -1136,6 +1141,23 @@ function useOf(
   return use;
 }
 
+/** The windows a span is READ by: at most W of them, evenly spaced from its
+ *  first to its last — the span's own sample, shared by every reader that
+ *  asks what a span is in the corpus (its company, its holders). */
+function sampledWindows(from: number, to: number, W: number): number[] {
+  const windows = to - from - W + 1;
+  if (windows <= 0) return [];
+  const samples = Math.min(W, windows);
+  const out: number[] = [];
+  for (let i = 0; i < samples; i++) {
+    out.push(
+      from +
+        (samples === 1 ? 0 : Math.floor((i * (windows - 1)) / (samples - 1))),
+    );
+  }
+  return out;
+}
+
 /** THE COMPANY OF A SPAN — the one reading of what a span of bytes is USED
  *  for: the halos of the learnt contexts holding its windows that lead on,
  *  bundled.  At most W windows, evenly spaced, each read by its
@@ -1154,23 +1176,35 @@ export function spanHalo(
   from = 0,
   to = bytes.length,
 ): Vec | null {
+  return ctx.meter
+    ? ctx.meter.timeSync("spanHalo", () => spanHaloOf(ctx, bytes, from, to))
+    : spanHaloOf(ctx, bytes, from, to);
+}
+
+function spanHaloOf(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  from: number,
+  to: number,
+): Vec | null {
   const W = ctx.space.maxGroup;
   if (to - from < W) return null;
   if (ctx.meter) ctx.meter.spanHalos++;
-  const windows = to - from - W + 1;
-  const samples = Math.min(W, windows);
   const out = zeros(ctx.store.D);
   const seen = new Set<number>();
   let found = false;
-  for (let i = 0; i < samples; i++) {
-    const o = from +
-      (samples === 1 ? 0 : Math.floor((i * (windows - 1)) / (samples - 1)));
+  for (const o of sampledWindows(from, to, W)) {
     if (ctx.meter) ctx.meter.spanHaloWindows++;
     const w = windowAt(ctx, bytes, o);
     if (w === null) continue;
+    // The climb PROPOSES holders — a window's containment rows are the chunks
+    // it overlaps, so a context reached that way may not hold it — and the
+    // context's bytes DECIDE: only a context that holds the window is its use.
+    const win = bytes.subarray(o, o + W);
     for (const c of oldestContexts(ctx, w, chainReach(W))) {
       if (seen.has(c) || !ctx.store.hasNext(c)) continue;
       seen.add(c);
+      if (indexOf(read(ctx, c), win, 0) < 0) continue;
       const h = ctx.store.halo(c);
       if (h === null) continue;
       const n = Math.sqrt(dot(h, h));
@@ -1182,6 +1216,393 @@ export function spanHalo(
   return found ? normalize(out) : null;
 }
 
+/** THE LICENCE OF A SUBSTITUTION.  Halo company PROPOSES that `asked` may
+ *  stand where the corpus holds `stored`; the corpus's relations DECIDE.  The
+ *  contexts holding `stored` — proposed by the climb from its first window,
+ *  decided by their bytes, contexts that lead on, at most `chainReach(W)` —
+ *  are each read with `asked` in `stored`'s place.  Where that swapped
+ *  context is itself a stored form leading on, the corpus has already said
+ *  what the swap does there (a MINIMAL PAIR):
+ *
+ *  - `refuted` — the two lead nowhere in common: `crimson circle` → `answer
+ *    alpha2` against `red circle` → `answer alpha`; crimson is not red where
+ *    a circle is concerned, however alike their company.  One refutation
+ *    refuses.
+ *  - `shown` — they share a continuation: `A doctor treats illness.` and `A
+ *    physician treats illness.` both lead to `A healer treats illness.` — the
+ *    equivalence in a context, which company beyond chance may then carry.
+ *  - `unread` — the corpus never made the swap: company alone stands, and it
+ *    must be company enough to claim equivalence (the synonym tiers' bar).
+ *
+ *  Exact decides: every read is the holders' own bytes, every pair a
+ *  content-addressed lookup.  Bounded: one climb, `chainReach(W)` holders. */
+export function licensedSubstitution(
+  ctx: MindContext,
+  stored: Uint8Array,
+  asked: Uint8Array,
+): "shown" | "refuted" | "unread" {
+  // One reading per pair per response: the store is read-only while a
+  // response is in flight and the equivalence is the response's, and the
+  // readers ask the same pair again (four times a pair, on the 900).  Keyed by
+  // the response's lifecycle object, as the sibling memo is.
+  const life = ctx.climbMemo;
+  let memo: Map<string, "shown" | "refuted" | "unread"> | undefined;
+  let key = "";
+  if (life !== null) {
+    memo = licenceMemo.get(life);
+    if (memo === undefined) licenceMemo.set(life, memo = new Map());
+    key = `${latin1(stored)}\u0000${latin1(asked)}`;
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+  }
+  const out = ctx.meter
+    ? ctx.meter.timeSync("licence", () => licenceOf(ctx, stored, asked))
+    : licenceOf(ctx, stored, asked);
+  memo?.set(key, out);
+  return out;
+}
+const licenceMemo = new WeakMap<
+  object,
+  Map<string, "shown" | "refuted" | "unread">
+>();
+
+function licenceOf(
+  ctx: MindContext,
+  stored: Uint8Array,
+  asked: Uint8Array,
+): "shown" | "refuted" | "unread" {
+  if (bytesEqual(stored, asked)) return "shown";
+  // A MINIMAL PAIR BELONGS TO BOTH SIDES, so it is looked for from the
+  // holders of each: a climb proposes holders, and one that reaches a pair
+  // from one side may miss it from the other (`circle` reached none of the
+  // `… circle` forms that `square` reached `… square` from).
+  const one = minimalPairs(ctx, stored, asked);
+  if (one === "refuted") return one;
+  const two = minimalPairs(ctx, asked, stored);
+  if (two === "refuted") return two;
+  if (one === "shown" || two === "shown") return "shown";
+  return convergent(ctx, asked, stored) ? "shown" : "unread";
+}
+
+/** CONVERGENCE — the equivalence shown across two frames: a context holding
+ *  `asked` and another holding `stored`, saying the same of the same thing
+ *  besides, lead to the SAME continuation.
+ *  `Did X pass away in E?` and `X end` both lead to `X — end: E.`: for X the
+ *  two phrasings say one thing.  (`Who is the mother of Y?` and `Y father`
+ *  never lead to one fact — co-hyponyms keep the same company, never the same
+ *  continuation.)  Holders of `asked` proposed by the climb from its rarest
+ *  window and decided by their bytes; each continuation's establishing
+ *  contexts read for `stored`, all at the hub bound; each a frame around its
+ *  span, as for minimal pairs. */
+function convergent(
+  ctx: MindContext,
+  asked: Uint8Array,
+  stored: Uint8Array,
+): boolean {
+  const W = ctx.space.maxGroup;
+  if (asked.length < W || stored.length < W) return false;
+  const bound = hubBound(ctx);
+  let win: number | null = null;
+  let fewest = Infinity;
+  for (const o of sampledWindows(0, asked.length, W)) {
+    const wid = windowAt(ctx, asked, o);
+    if (wid === null) continue;
+    const r = windowRarity(ctx, wid, bound + 1);
+    if (r > 0 && r < fewest) [fewest, win] = [r, wid];
+  }
+  if (win === null) return false;
+  // A context is a frame around its span — the bare form leading to its own
+  // fact (`blue`, `crimson` → `is a color`) shows a category, not a role.
+  for (const c of oldestContexts(ctx, win, chainReach(W))) {
+    if (!ctx.store.hasNext(c)) continue;
+    // …and each holds its own span WITHOUT the other's: a context holding
+    // both (`Who is the father of X?` holds `who is` and ` father`) shows
+    // nothing standing in for anything.
+    const cb = offsetCanon(ctx, read(ctx, c));
+    if (cb.length <= asked.length || indexOf(cb, asked, 0) < 0) continue;
+    if (indexOf(cb, stored, 0) >= 0) continue;
+    for (const n of ctx.store.nextFirst(c, bound)) {
+      for (const p of ctx.store.prevFirst(n, bound)) {
+        if (p === c) continue;
+        const pb = offsetCanon(ctx, read(ctx, p));
+        const at = indexOf(pb, stored, 0);
+        if (pb.length <= stored.length || at < 0) continue;
+        if (indexOf(pb, asked, 0) >= 0) continue;
+        // …about the SAME thing: what the stored context says besides its
+        // span is said by the other too (`X end` less ` end` is `X`, held by
+        // `Did X pass away in E?`); `F mother` and `Who is the paternal
+        // grandmother of X?` reach one fact about different people.
+        const rest = [pb.subarray(0, at), pb.subarray(at + stored.length)]
+          .filter((r) => r.length > 0);
+        if (rest.every((r) => indexOf(cb, r, 0) >= 0)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** One side of {@link licensedSubstitution}: the contexts holding `from`,
+ *  each read with `to` in its place. */
+function minimalPairs(
+  ctx: MindContext,
+  from: Uint8Array,
+  to: Uint8Array,
+): "shown" | "refuted" | "unread" {
+  const W = ctx.space.maxGroup;
+  // The climb proposes holders from `from` itself when it is a stored form,
+  // and from its RAREST sampled window (`windowRarity`) — a form's node reaches
+  // the holders whose fold reuses it, a window the ones holding its bytes
+  // under another cut.  A PAIR IS A FRAME AROUND THE SWAP: the two bare forms
+  // leading to the same fact (`blue` and `crimson` → `is a color`) share a
+  // category, and to different facts (a synonym's own definition) refute
+  // nothing — so a holder that is the span itself is no pair.
+  const bound = hubBound(ctx);
+  const rarest = (): number | null => {
+    let win: number | null = null;
+    let fewest = Infinity;
+    for (const o of sampledWindows(0, from.length, W)) {
+      const wid = windowAt(ctx, from, o);
+      if (wid === null) continue;
+      const r = windowRarity(ctx, wid, bound + 1);
+      if (r > 0 && r < fewest) [fewest, win] = [r, wid];
+    }
+    return win;
+  };
+  if (ctx.meter) ctx.meter.substitutionLicences++;
+  let shown = false;
+  const read_ = new Set<number>();
+  // One climb's holders, each read with `to` in `from`'s place.
+  const pairs = (start: number): "refuted" | undefined => {
+    for (const c of oldestContexts(ctx, start, chainReach(W))) {
+      if (read_.has(c)) continue;
+      read_.add(c);
+      if (pairOf(c) === "refuted") return "refuted";
+    }
+  };
+  const pairOf = (c: number): "refuted" | "shown" | undefined => {
+    if (!ctx.store.hasNext(c)) return;
+    const h = read(ctx, c);
+    if (h.length <= from.length) return;
+    const at = indexOf(h, from, 0);
+    if (at < 0) return;
+    // The swapped context is looked up as the response reads it — under its
+    // equivalence (an asker's `17Th Earl Of` is the corpus's `17th Earl of`).
+    const swapped = concatBytes([
+      h.subarray(0, at),
+      to,
+      h.subarray(at + from.length),
+    ]);
+    const twin = resolve(ctx, swapped) ?? canonResolve(ctx, swapped);
+    if (twin === null || twin === c || !ctx.store.hasNext(twin)) return;
+    const theirs = new Set(ctx.store.nextFirst(twin, bound));
+    if (!ctx.store.nextFirst(c, bound).some((n) => theirs.has(n))) {
+      if (ctx.meter) ctx.meter.substitutionsRefuted++;
+      return "refuted";
+    }
+    shown = true;
+    return "shown";
+  };
+  // From the form itself first; where that decides nothing, from its rarest
+  // window — a common first window (`John`) is held by more contexts than
+  // one climb reads.
+  const self = resolve(ctx, from);
+  if (self !== null && pairs(self) === "refuted") return "refuted";
+  if (!shown) {
+    const win = rarest();
+    if (win !== null && win !== self && pairs(win) === "refuted") {
+      return "refuted";
+    }
+  }
+  return shown ? "shown" : "unread";
+}
+
+/** The company of the bytes where two spellings PART: the span halo of the
+ *  windows that touch `[s, e)` — at least one window, inside `bytes`.  The
+ *  bytes the two share are left out, because so is their company: read in,
+ *  a shared `est ` lent `est ocean ` the company of `est planet `. */
+export function partingHalo(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  s: number,
+  e: number,
+): Vec | null {
+  const W = ctx.space.maxGroup;
+  const a = Math.max(0, s - W + 1);
+  const b = Math.min(bytes.length, Math.max(e + W - 1, a + W));
+  return spanHalo(ctx, bytes, a, b);
+}
+
+/** How far `asked` may stand where the corpus holds `stored`, given the
+ *  `company` the two keep (`partingHalo`'s cosine): 0 — never; 1 — on the
+ *  company alone; 2 — shown in context.  Company beyond chance PROPOSES, and
+ *  the corpus's minimal pairs decide (`licensedSubstitution`): refuted, 0;
+ *  shown, 2; never made, 1 when the company is enough to claim equivalence
+ *  (the synonym tiers' bar), else 0.  A graded ladder, strongest first: a
+ *  reader choosing among several replacements of one side keeps the shown
+ *  ones over those that stand on company alone. */
+export function substitutionGrade(
+  ctx: MindContext,
+  stored: Uint8Array,
+  asked: Uint8Array,
+  company: number,
+): 0 | 1 | 2 {
+  const D = ctx.store.D;
+  if (company < significanceBar(D)) return 0;
+  const licence = licensedSubstitution(ctx, stored, asked);
+  if (licence === "refuted") return 0;
+  if (licence === "shown") return 2;
+  return company >= conceptThreshold(D) ? 1 : 0;
+}
+
+/** Whether `asked` may stand where the corpus holds `stored` at all
+ *  ({@link substitutionGrade} above 0). */
+export function substitutes(
+  ctx: MindContext,
+  stored: Uint8Array,
+  asked: Uint8Array,
+  company: number,
+): boolean {
+  return substitutionGrade(ctx, stored, asked, company) > 0;
+}
+
+/** IDENTITY OF TWO PARTS: the bytes where two spellings part are the same
+ *  thing written differently — at most one window of foreign bytes
+ *  (`identityBar`'s tolerance), parts of like size (`dominates`), and their
+ *  own byte geometry at the concept bar.  Read on the RAW parts, never on bytes
+ *  the two share: a shared run makes any two spans look alike (`argest ocean `
+ *  against `argest planet `). */
+export function identicalParts(
+  ctx: MindContext,
+  a: Uint8Array,
+  b: Uint8Array,
+): boolean {
+  if (!withinTolerance(ctx, a, b)) return false;
+  return cosine(perceive(ctx, a).v, perceive(ctx, b).v) >=
+    conceptThreshold(ctx.store.D);
+}
+
+/** Parts within identity's tolerance: one window at most, of like size. */
+function withinTolerance(
+  ctx: MindContext,
+  a: Uint8Array,
+  b: Uint8Array,
+): boolean {
+  if (Math.max(a.length, b.length) > ctx.space.maxGroup) return false;
+  return dominates(Math.min(a.length, b.length), Math.max(a.length, b.length));
+}
+
+/** WHETHER A POSITION OF A STORED FORM DISCRIMINATES: another stored form among
+ *  `proposals` holds the same bytes around `[s, e)` of `form` — its whole
+ *  opening and close, under the response's equivalence — with something else
+ *  between, and leads elsewhere.  Then what stands at that position decides
+ *  what the form says (`What is the freezing point …` beside `… boiling point
+ *  …`), and a different part there asks another question, however few bytes
+ *  differ; where no such form exists the corpus never told the position's
+ *  variants apart, and a variant within one window is the same question
+ *  spelled differently (`sea-level`).  Bounded by the proposals given. */
+export function discriminates(
+  ctx: MindContext,
+  form: Uint8Array,
+  s: number,
+  e: number,
+  self: number | null,
+  proposals: readonly number[],
+): boolean {
+  const cap = instanceCap(form.length);
+  const own = offsetCanon(ctx, form);
+  const mine = self === null
+    ? new Set<number>()
+    : new Set(ctx.store.nextFirst(self, hubBound(ctx)));
+  for (const p of proposals) {
+    if (p === self || !ctx.store.hasNext(p)) continue;
+    const raw = read(ctx, p, cap + 1);
+    if (raw.length > cap) continue;
+    const [pa, pb] = sharedEnds(offsetCanon(ctx, raw), own);
+    if (pa < s || pb < form.length - e) continue;
+    if (raw.length - pb <= pa) continue; // nothing between: no other part
+    if (!ctx.store.nextFirst(p, hubBound(ctx)).some((n) => mine.has(n))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** THE ONE IDENTITY READING OF A PART: `form[s, e)` read where the asker
+ *  has `asked` is the same thing written differently when the two parts are
+ *  identical (`identicalParts`), or within one window at a position the
+ *  corpus never told apart (`discriminates`, over `proposals`). */
+export function identicalAt(
+  ctx: MindContext,
+  form: Uint8Array,
+  s: number,
+  e: number,
+  asked: Uint8Array,
+  self: number | null,
+  proposals: readonly number[],
+): boolean {
+  const part = form.subarray(s, e);
+  if (identicalParts(ctx, part, asked)) return true;
+  return withinTolerance(ctx, part, asked) &&
+    !discriminates(ctx, form, s, e, self, proposals);
+}
+
+/** A form that IS the question with one span swapped — same opening, same
+ *  close — answers it only when the swap is an equivalence the corpus
+ *  licenses (`substitutes`); otherwise it is another question, whatever
+ *  fills the slot (`What is the largest planet in our solar system?` for
+ *  `… largest ocean …`).  Identical parts (`identicalParts`) are no swap,
+ *  nor parts within one window at a position the corpus never told apart
+ *  (`discriminates`), nor parts of unlike size: a description in the slot
+ *  asks about the frame's own subject.  Returns the two parted spans when the swap is
+ *  unlicensed, else null. */
+export function unlicensedSwap(
+  ctx: MindContext,
+  raw: Uint8Array,
+): { stored: [number, number]; asked: [number, number] } | null {
+  return ctx.meter
+    ? ctx.meter.timeSync("swap", () => swapOf(ctx, raw))
+    : swapOf(ctx, raw);
+}
+
+function swapOf(
+  ctx: MindContext,
+  raw: Uint8Array,
+): { stored: [number, number]; asked: [number, number] } | null {
+  const q = ctx._edgeAsked;
+  if (q === null) return null;
+  const W = ctx.space.maxGroup;
+  const [a, b] = sharedEnds(offsetCanon(ctx, raw), q.bytes);
+  const fe = raw.length - b, qe = q.raw.length - b;
+  if (a + b < W || fe <= a || qe <= a) return null;
+  // Parts of unlike size are no swap of one piece for another (the bridge's
+  // balance, `dominates`) — a description in the slot is the frame's own
+  // subject asked about (`coInstanceFiller`) — and identical parts are the
+  // same thing written differently (`identicalParts`).
+  const [ls, la] = [fe - a, qe - a];
+  if (!dominates(Math.min(ls, la), Math.max(ls, la))) return null;
+  const storedPart = raw.subarray(a, fe), askedPart = q.raw.subarray(a, qe);
+  if (
+    identicalAt(ctx, raw, a, fe, askedPart, resolve(ctx, raw), [
+      ...(q.points ?? []),
+      ...(q.forms ?? []),
+    ])
+  ) return null;
+  // …and parts that share a window are a rewording around common content
+  // (several gaps — the substitution bridge's alignment), not one piece for
+  // another.
+  const parts = windowIndex(offsetCanon(ctx, storedPart), W);
+  const askedCanon = offsetCanon(ctx, askedPart);
+  for (let o = 0; o + W <= askedCanon.length; o++) {
+    if (parts.has(latin1(askedCanon.subarray(o, o + W)))) return null;
+  }
+  const hs = partingHalo(ctx, raw, a, fe);
+  const hq = partingHalo(ctx, q.raw, a, qe);
+  const company = hs !== null && hq !== null ? cosine(hs, hq) : 0;
+  return substitutes(ctx, storedPart, askedPart, company)
+    ? null
+    : { stored: [a, fe], asked: [a, qe] };
+}
+
 /** THE QUESTION NAMES A STEP BY ITS USE — the exact tier's third
  *  reading, asked only where neither witnessing nor another instance names a
  *  continuation of `id`.  `In which town did Z pass away?` holds no window of
@@ -1191,16 +1612,23 @@ export function spanHalo(
  *  The candidates are exact — `id`'s continuations, and the establishing
  *  contexts that hold `id`, whose remainder is the relation — and so is the
  *  answer; the use only RANKS them, below both exact readings:
- *  - the whole question only: a walk's material holds runs the derivation
- *    already stood on, and only the exact readings replay it;
+ *  - the question's own bytes, whole or as what no product has restated yet
+ *    (the walk's material) — and in the walk only a use the corpus licenses
+ *    (`substitutionGrade`) names a step;
  *  - `id` the question's own thing (`heldEntity`, learnt whole, once the climb
  *    has shown its points), so it stands as the filler of those contexts —
  *    never a shorter name inside it, nor a fragment it inherited from;
- *  - two continuations at least: one has nothing to be told apart from;
+ *  - a single continuation has nothing to be told apart from: the use names
+ *    it only where the corpus licenses it, whole question or walk alike;
  *  - the question's runs of unsaid windows, outside `id`, with no scaffolding;
- *    the run that best tells the continuations apart is the evidence, and its
- *    best is named only beyond chance and beyond the next by as much
- *    (`significanceBar`). */
+ *    the run that best tells the continuations apart ranks them, its best
+ *    ahead of the next by `significanceBar` — a RANKING floor, not a test of
+ *    chance: the bar's 3σ is the null of independent vectors, and uses are
+ *    bundles of halos that share the corpus's common company (measured on
+ *    two 300-question stores: of four continuations against a question run,
+ *    all unrelated, the best clears the floor and the margin on 3–4% for
+ *    single contexts and 11–15% for bundles of 4–16).  So the use is
+ *    evidence only where the corpus licenses it (`substitutionGrade` 2). */
 function byUse(
   ctx: MindContext,
   id: number,
@@ -1209,19 +1637,31 @@ function byUse(
   allowance: number,
 ): AskedEntry {
   const whole = ctx._edgeAsked;
-  if (whole === null || asked !== whole || nx.length < 2) return none();
-  // The node is the question's own thing — the longest the climb's points
-  // show it holding whole (`heldEntity`), never a shorter name inside it.
-  const held = heldEntity(ctx, whole.bytes, true);
-  if (held === null) return none();
+  // The question, whole or as what no product has restated yet (the walk's
+  // material): the same bytes, its index possibly narrowed.
+  if (whole === null || asked.bytes !== whole.bytes || nx.length === 0) {
+    return none();
+  }
   const W = ctx.space.maxGroup;
   const q = whole.bytes;
   const node = offsetCanon(ctx, read(ctx, id, phraseCap(q.length, W)));
+  // Asked with the whole question, the node is the question's own thing —
+  // the longest the climb's points show it holding whole (`heldEntity`),
+  // never a shorter name inside it — and its span is no evidence.  On the
+  // walk the node was REACHED, not written (as for witnessing, the node's
+  // bytes are material beside the question's): the unsaid runs are the
+  // evidence, wherever they stand.
+  let held: [number, number] = [q.length, q.length];
+  if (asked === whole) {
+    const h = heldEntity(ctx, whole.bytes, true);
+    if (h === null) return none();
+    if (
+      h[1] - h[0] !== node.length ||
+      !bytesEqual(offsetCanon(ctx, q.subarray(h[0], h[1])), node)
+    ) return none();
+    held = [h[0], h[1]];
+  }
   const at = held[0];
-  if (
-    held[1] - at !== node.length ||
-    !bytesEqual(offsetCanon(ctx, q.subarray(at, held[1])), node)
-  ) return none();
   const hub = hubWindows(ctx, q);
   const evidence: number[] = [];
   for (let o = 0; o + W <= q.length; o++) {
@@ -1240,6 +1680,9 @@ function byUse(
   // Per run, each continuation's best use over its establishing contexts.
   let budget = allowance;
   const perRun = uses.map(() => new Map<number, number>());
+  // The stored span behind each continuation's best use, per run — what the
+  // licence weighs the question's run against.
+  const spanOf = uses.map(() => new Map<number, Uint8Array>());
   for (const n of nx) {
     if (budget <= 0) break;
     for (const c of ctx.store.prevFirst(n, Math.min(budget, allowance))) {
@@ -1254,21 +1697,48 @@ function byUse(
         if (ru === null) continue;
         uses.forEach(({ u }, k) => {
           const s = cosine(u, ru);
-          if (s > (perRun[k].get(n) ?? -Infinity)) perRun[k].set(n, s);
+          if (s > (perRun[k].get(n) ?? -Infinity)) {
+            perRun[k].set(n, s);
+            spanOf[k].set(n, cb.subarray(a, b));
+          }
         });
       }
     }
   }
-  let best = -1, top = 0, next = 0, run = uses[0].r;
+  // ONE CONTINUATION IS NOTHING TO RANK.  The run that reads most like its
+  // establishing context is the evidence, and only the licence below can make
+  // it so: `Where did the presenter of Tim Russert (Talk Show) die?` reaches
+  // `Tim Russert`, whose one fact is established by `Tim Russert place of
+  // death` — ` die` used as ` place of death` is the step the walk owes.
+  const alone = nx.length === 1;
+  let best = -1, top = 0, next = 0, run = uses[0].r, bestRun = 0;
   uses.forEach(({ r }, k) => {
     const ranked = [...perRun[k].entries()].sort((x, y) => y[1] - x[1]);
-    if (ranked.length < 2) return;
-    if (best < 0 || ranked[0][1] - ranked[1][1] > top - next) {
-      [best, top, next, run] = [ranked[0][0], ranked[0][1], ranked[1][1], r];
+    if (ranked.length < (alone ? 1 : 2)) return;
+    const second = alone ? 0 : ranked[1][1];
+    if (best < 0 || ranked[0][1] - second > top - next) {
+      [best, top, next, run] = [ranked[0][0], ranked[0][1], second, r];
+      bestRun = k;
     }
   });
   const bar = significanceBar(ctx.store.D);
-  if (best < 0 || top < bar || top - next < bar) return none();
+  if (best < 0 || (!alone && (top < bar || top - next < bar))) return none();
+  // THE USE PROPOSES; THE CORPUS DECIDES.  Licensed, the run is the
+  // question's evidence for the step (`askedEvidence`, and the walk's
+  // naming); unlicensed, it only ranks the continuations, for the whole
+  // question alone — a walk names no step on a proposal.
+  // A use is a reading of COMPANY, so company cannot license it again: only
+  // the corpus's relations can — a minimal pair, or two contexts, one holding
+  // each, that lead to the same continuation (`substitutionGrade` 2).
+  const stored = spanOf[bestRun].get(best);
+  const licensed = stored !== undefined &&
+    substitutionGrade(
+        ctx,
+        stored,
+        offsetCanon(ctx, q.subarray(run[0], run[1])),
+        top,
+      ) === 2;
+  if (!licensed && (asked !== whole || alone)) return none();
   if (ctx.meter) ctx.meter.useNamings++;
   if (ctx.trace) {
     ctx.trace.step(
@@ -1289,7 +1759,12 @@ function byUse(
         })`,
     );
   }
-  return { named: [best], spans: new Map([[best, [run]]]), byUse: true };
+  return {
+    named: [best],
+    spans: new Map([[best, [run]]]),
+    byUse: true,
+    ...(licensed ? { licensed: true as const } : {}),
+  };
 }
 
 /** The witnessing reading alone: the continuations of `id` one of whose
@@ -1340,8 +1815,13 @@ function witnessedEntry(
   // are compared afterwards in the continuations' own order.
   const allowance = readAllowance(ctx);
   let budget = allowance;
+  // A continuation only `id` establishes (support 1) has no other context
+  // whose bytes could witness it, so it cannot score: it is not read.  The
+  // decision is the same either way; the allowance is not, since the reads
+  // go cheapest first and such facts would be read before any that can win.
   const order = nx
     .map((n, at) => ({ n, at, support: cachedPrevCount(ctx, n, cache) }))
+    .filter((c) => c.support >= 2)
     .sort((a, b) => a.support - b.support || a.at - b.at);
   const scored: Array<
     {
@@ -1784,10 +2264,18 @@ function describedSteps(
     }
   }
   // A description is applied first, nearest its entity: what it names is the
-  // shortest sequence two forms agree on.
+  // shortest sequence two forms agree on — when every other agreed sequence
+  // CONTINUES it.  Agreement is unanimity, as it is for reference's
+  // instances: two agreed readings that part ways make the description
+  // ambiguous, and "shortest" is no evidence for either; it names nothing.
   const agreed = bySeq.agreed().sort((a, b) => a.steps.length - b.steps.length);
   let out: Step[] | null = null;
-  if (agreed.length > 0) out = agreed[0].steps;
+  if (
+    agreed.length > 0 &&
+    agreed.every((a) =>
+      a.key === agreed[0].key || a.key.startsWith(agreed[0].key + "\u0001")
+    )
+  ) out = agreed[0].steps;
   memo?.described.set(key, out);
   return out;
 }
@@ -1981,8 +2469,70 @@ interface RelationFrame {
 export function readsOffInstances(ctx: MindContext): boolean {
   const whole = ctx._edgeAsked;
   if (whole === null || whole.points === undefined) return false;
-  return relationFrames(ctx, whole, readAllowance(ctx))
-    .length > 0;
+  return relationFrames(ctx, whole, readAllowance(ctx)).length > 0 ||
+    canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length > 0;
+}
+
+/** THE POINTS THE QUESTION HOLDS ONLY UNDER ITS EQUIVALENCE.  Recognition
+ *  matches bytes, so `Man At Bath` (2Wiki title-cases its questions) is no
+ *  site of the stored `Man at Bath`.  The consensus climb PROPOSES it (its
+ *  points), and the question's bytes DECIDE — under the response's
+ *  canonicalizer, which must keep offsets: a point whose canonical spelling
+ *  the canonical question contains is held there, at that span.  A point the
+ *  question spells byte for byte there is recognition's, not this reading's.
+ *  Only once the climb has run; at least `minLen` bytes, and never the whole
+ *  question. */
+export function canonHeldPoints(
+  ctx: MindContext,
+  minLen: number,
+): Array<{ start: number; end: number; payload: number }> {
+  return ctx.meter
+    ? ctx.meter.timeSync("canonHeld", () => canonHeldOf(ctx, minLen))
+    : canonHeldOf(ctx, minLen);
+}
+
+/** One reading per climb: the points are an array the climb hands over once
+ *  per response, and the cover, the instance reading and the pipeline ask the
+ *  same question of it (3.5 times per question on the 900). */
+const canonHeldMemo = new WeakMap<
+  readonly number[],
+  Map<
+    number,
+    {
+      canon: (b: Uint8Array) => Uint8Array;
+      raw: Uint8Array;
+      out: Array<{ start: number; end: number; payload: number }>;
+    }
+  >
+>();
+
+function canonHeldOf(
+  ctx: MindContext,
+  minLen: number,
+): Array<{ start: number; end: number; payload: number }> {
+  const asked = ctx._edgeAsked;
+  if (asked === null || asked.points === undefined || ctx.canon === null) {
+    return [];
+  }
+  let memo = canonHeldMemo.get(asked.points);
+  if (memo === undefined) canonHeldMemo.set(asked.points, memo = new Map());
+  const hit = memo.get(minLen);
+  if (hit !== undefined && hit.canon === ctx.canon && hit.raw === asked.raw) {
+    return hit.out;
+  }
+  const out: Array<{ start: number; end: number; payload: number }> = [];
+  memo.set(minLen, { canon: ctx.canon, raw: asked.raw, out });
+  for (const id of asked.points) {
+    const raw = read(ctx, id, asked.bytes.length);
+    if (raw.length < minLen || raw.length >= asked.bytes.length) continue;
+    const form = ctx.canon(raw);
+    if (form.length !== raw.length) continue;
+    const at = indexOf(asked.bytes, form, 0);
+    if (at < 0) continue;
+    if (bytesEqual(asked.raw.subarray(at, at + raw.length), raw)) continue;
+    out.push({ start: at, end: at + raw.length, payload: id });
+  }
+  return out;
 }
 
 /** ONE INVENTORY.  The forms proposed as instances of the question: the
@@ -2405,7 +2955,7 @@ function instanceSteps(
  *  father of Anne of Kiev is Yaroslav the Wise.`, never the `Yaroslav` inside
  *  it.  A span is probed by content hash first (its flat twin), so only a
  *  stored run pays the lookup. */
-function entitiesIn(
+export function entitiesIn(
   ctx: MindContext,
   factId: number,
 ): { fact: Uint8Array; held: Array<{ span: [number, number]; id: number }> } {

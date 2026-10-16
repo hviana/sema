@@ -101,9 +101,20 @@ test("1b. exact DAG junction: attention still composes the joint context", async
 
 // ── 2 & 3. both single-synonym DAG directions work ──────────────────────
 
-test("2/3. single-synonym junction: both directions (left-sibling and right-sibling)", async () => {
+// The same attributes where the corpus SHOWS crimson standing for red (`red
+// rose` / `crimson rose` and `red wine` / `crimson wine` lead to the same
+// continuations) and no `crimson …` form refutes it.
+const LICENSED_SYN_CORPUS = [
+  ...SYN_ATTR_CORPUS.filter(([c]) => c !== "crimson circle"),
+  ["red rose", "a flower of love"],
+  ["crimson rose", "a flower of love"],
+  ["red wine", "a dark drink"],
+  ["crimson wine", "a dark drink"],
+];
+
+test("2/3. single-synonym junction: both directions (left-sibling and right-sibling), where the corpus licenses the swap", async () => {
   const m = mk();
-  await m.ingest(SYN_ATTR_CORPUS);
+  await m.ingest(LICENSED_SYN_CORPUS);
   const redId = resolve(m, enc("red"));
   const crimsonId = resolve(m, enc("crimson"));
   assert.notEqual(redId, null);
@@ -112,7 +123,7 @@ test("2/3. single-synonym junction: both directions (left-sibling and right-sibl
   const sides = await loadJunctionSynonymSides(m, enc("red"), enc("square"));
   assert.ok(
     sides.leftSiblings.some((s) => s.id === crimsonId),
-    "'red' halo siblings must include the corroborated 'crimson'",
+    "'red' halo siblings must include 'crimson'",
   );
 
   // Left-sibling direction: "crimson"+"square" was NEVER trained together —
@@ -131,10 +142,9 @@ test("2/3. single-synonym junction: both directions (left-sibling and right-sibl
     "the left-sibling junction must resolve to the real container 'red square'",
   );
 
-  // Right-sibling direction: "crimson"+"circle" IS trained, so instead pair
-  // "square"+"crimson" (order-free) — exact "square" on the left, a
-  // right-side sibling relaxation ("crimson" for the trained "red") also
-  // recovers "red square", exercising the mirror-image loop.
+  // Right-sibling direction: "square"+"crimson" (order-free) — exact "square"
+  // on the left, a right-side sibling relaxation ("crimson" for the trained
+  // "red") recovers "red square", exercising the mirror-image loop.
   const synRight = await junctionSynonyms(
     m,
     enc("square"),
@@ -142,8 +152,28 @@ test("2/3. single-synonym junction: both directions (left-sibling and right-sibl
     64,
     true,
   );
-  assert.ok(synRight.length > 0, "right-sibling synonym junction must fire");
+  assert.ok(
+    synRight.some((j) => dec(m.store.bytes(j.id)).includes("red square")),
+    "right-sibling synonym junction must fire",
+  );
   assert.equal(synRight[0].tier, "single-synonym");
+  await m.store.close();
+});
+
+test("2/3b. a sibling the corpus refutes is no synonym junction", async () => {
+  // `crimson circle` → `answer alpha2` against `red circle` → `answer alpha`:
+  // swapping one for the other leads elsewhere, so crimson does not stand for
+  // red, however alike their company — and `red square` is not "crimson
+  // square" (traverse.ts, `licensedSubstitution`).
+  const m = mk();
+  await m.ingest(SYN_ATTR_CORPUS);
+  for (const [l, r] of [["crimson", "square"], ["square", "crimson"]]) {
+    const syn = await junctionSynonyms(m, enc(l), enc(r), 64, true);
+    assert.ok(
+      !syn.some((j) => dec(m.store.bytes(j.id)).includes("red square")),
+      `${l}+${r} must not reach 'red square'`,
+    );
+  }
   await m.store.close();
 });
 
@@ -323,9 +353,11 @@ function regionFor(m, text, start) {
   };
 }
 
-test("7/8/9. buildStructuralVariants always includes exact-exact, left-synonym, right-synonym and double-synonym", async () => {
+test("7/8/9. buildStructuralVariants includes exact-exact and every LICENSED synonym variant", async () => {
+  const q = enc("crimson then square");
   const m = mk();
-  await m.ingest(SYN_ATTR_CORPUS);
+  await m.ingest(LICENSED_SYN_CORPUS);
+  const redId = resolve(m, enc("red"));
   const ra = regionFor(m, "crimson", 0);
   const rb = regionFor(m, "square", 13);
   const sides = await loadJunctionSynonymSides(
@@ -341,21 +373,38 @@ test("7/8/9. buildStructuralVariants always includes exact-exact, left-synonym, 
     rb,
     sides,
     new Map(),
+    q,
   );
   assert.equal(variants[0].kind, "exact-exact");
   assert.equal(variants[0].semanticConfidence, 1);
   assert.equal(variants[0].left, exactLeft);
   assert.equal(variants[0].right, exactRight);
-
   assert.ok(
-    variants.some((v) => v.kind === "left-synonym"),
-    "a left-synonym variant must be generated whenever the left side has siblings",
+    variants.some((v) =>
+      v.kind === "left-synonym" && v.leftSiblingId === redId
+    ),
+    "crimson → red, a swap the corpus licenses, composes a variant",
   );
-  if (sides.rightSiblings.length > 0) {
-    assert.ok(variants.some((v) => v.kind === "right-synonym"));
-    assert.ok(variants.some((v) => v.kind === "double-synonym"));
-  }
   await m.store.close();
+
+  // Where the corpus refutes the swap (`crimson circle` and `red circle` lead
+  // to different answers), red is no spelling of crimson.
+  const r = mk();
+  await r.ingest(SYN_ATTR_CORPUS);
+  const refuted = buildStructuralVariants(
+    r,
+    regionFor(r, "crimson", 0),
+    regionFor(r, "square", 13),
+    await loadJunctionSynonymSides(r, enc("crimson"), enc("square")),
+    new Map(),
+    q,
+  ).variants;
+  const red = resolve(r, enc("red"));
+  assert.ok(
+    !refuted.some((v) => v.leftSiblingId === red),
+    "a refuted sibling composes no variant",
+  );
+  await r.store.close();
 });
 
 // ── 11. bounded to ctx.cfg.haloQueryK synonym variants beyond exact-exact ─
@@ -370,7 +419,14 @@ test("11. synonym variants are bounded to haloQueryK, in addition to the always-
     enc("crimson"),
     enc("square"),
   );
-  const { variants } = buildStructuralVariants(m, ra, rb, sides, new Map());
+  const { variants } = buildStructuralVariants(
+    m,
+    ra,
+    rb,
+    sides,
+    new Map(),
+    enc("crimson then square"),
+  );
   assert.ok(variants.length <= 1 + m.cfg.haloQueryK);
   await m.store.close();
 });
@@ -388,7 +444,14 @@ test("12. a sibling's structural part keeps the ORIGINAL query-region slot lengt
     enc("crimson"),
     enc("square"),
   );
-  const { variants } = buildStructuralVariants(m, ra, rb, sides, new Map());
+  const { variants } = buildStructuralVariants(
+    m,
+    ra,
+    rb,
+    sides,
+    new Map(),
+    enc("crimson then square"),
+  );
   for (const v of variants) {
     assert.equal(
       v.left.len,
@@ -481,7 +544,14 @@ test("15. two variants proposing the SAME candidate keep only the higher-effecti
     enc("crimson"),
     enc("square"),
   );
-  const { variants } = buildStructuralVariants(m, ra, rb, sides, new Map());
+  const { variants } = buildStructuralVariants(
+    m,
+    ra,
+    rb,
+    sides,
+    new Map(),
+    enc("crimson then square"),
+  );
   // Directly exercise the merge logic's contract: build two synthetic
   // proposals for the SAME id with different effectiveScore and confirm the
   // higher one is what a caller keeps (mirrors betterProposal's tie-break,
@@ -512,3 +582,48 @@ test("15. two variants proposing the SAME candidate keep only the higher-effecti
 
 // ── 22. all existing tests pass — enforced by running the full suite
 //    (`npm test`), not re-asserted here; this file only adds coverage. ──
+
+// ── double-synonym, under the licence ────────────────────────────────────
+
+const DOUBLE_CORPUS = [
+  ...LICENSED_SYN_CORPUS,
+  ["quadrangle", "is a shape"],
+  ["a square room", "a room with four equal walls"],
+  ["a quadrangle room", "a room with four equal walls"],
+  ["a square table", "a table for four"],
+  ["a quadrangle table", "a table for four"],
+];
+
+test("13. double-synonym: both sides replaced, each by an equivalent the corpus shows", async () => {
+  // crimson stands for red (`… rose`, `… wine` lead alike) and quadrangle for
+  // square (`a … room`, `a … table`), so `red square` holds "crimson" and
+  // "quadrangle" with both replaced.  `circle` keeps quadrangle's company too
+  // ("is a shape") but no context shows it standing for quadrangle: a shown
+  // equivalent outranks one standing on company alone, so `red circle` is not
+  // offered.  The tier once was removed as finding nothing the fixtures used.
+  const m = mk();
+  await m.ingest(DOUBLE_CORPUS);
+  const got = (await junctionSynonyms(
+    m,
+    enc("crimson"),
+    enc("quadrangle"),
+    64,
+    true,
+  )).map((j) => [dec(m.store.bytes(j.id)), j.tier]);
+  assert.deepEqual(got, [["red square", "double-synonym"]]);
+  // One side replaced is still the single tier, and a small store's budget
+  // still reaches it past a first variant that finds nothing (the read
+  // allowance's floor, readAllowance).
+  const single = await junctionSynonyms(
+    m,
+    enc("red"),
+    enc("quadrangle"),
+    64,
+    true,
+  );
+  assert.deepEqual(
+    single.map((j) => dec(m.store.bytes(j.id))),
+    ["red square"],
+  );
+  await m.store.close();
+});

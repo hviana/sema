@@ -10,7 +10,8 @@
 **Match: where the question sits in a learnt form.**
 
 - `locate` — the graded ladder, exact bytes → halo role → gist
-  (`exact-vs-approximate.md`).
+  (`exact-vs-approximate.md`); it returns the span found and whether it is the
+  needle's bytes (`Located`).
 - `alignRuns` — literal `W`-gram runs, the weave.
 - `alignGraded` — literal runs plus halo-matched sites and climb proposals.
 - `alignAround` / `frameSlots` — one monotone chain from the origin, its gaps
@@ -48,7 +49,8 @@ Every threshold behind a gate is derived in `geometry.ts`.
   referents through its own answer, and the instances of one frame must all
   propose the same bytes (`docs/mechanisms/reference.md`).
 - **`Precomputed.frames` is the inventory.** It enumerates every pairing and
-  elects nothing.
+  elects nothing. Its supply is the resonance list and the climb's points
+  together — the one inventory of forms proposed as instances of the question.
 
 ## Why gates belong to the consumer
 

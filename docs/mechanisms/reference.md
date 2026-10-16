@@ -17,18 +17,25 @@ it has never seen.
 question's own frame, through `frameSlots`, which reports and elects nothing
 (`match-project.md`).
 
-Its supply is the shared top-`k` resonance, so a frame the corpus instantiates
-only once within `k` is out of reach. Measured on the trained store,
-`How do you say 'flurbish' in French?` finds one instance of its frame in the
-top 24, so `reference` abstains. Widening the supply is not the fix: abstaining
-on thin evidence is.
+Its supply is the one inventory of forms proposed as instances of the question —
+the shared top-`k` resonance and the consensus climb's points, taken alternately
+(the same sources the exact tier reads co-instances from) — so a frame the
+corpus instantiates only once there is out of reach. Measured on the trained
+store, `How do you say 'flurbish' in French?` finds one instance of its frame in
+the top 24, so `reference` abstains. Widening the supply is not the fix:
+abstaining on thin evidence is.
 
 ## The reading — instances agree on the outcome
 
 An instance must lead somewhere (an answer that aligns with the question is no
 instance of what it asks), read as one structure whose slots are all
-substitutions (an insertion or deletion has no occupant to carry), and share at
-least one window with the question (a frame with no window in common is chance).
+substitutions (an insertion or deletion has no occupant to carry), share at
+least one window with the question (a frame with no window in common is chance),
+and cover most of it: a frame the question does not dominate is a different
+sentence that happens to align somewhere (`test/76`:
+`… the language of Nepal
+and in the language of Oman` is no instance of
+`The capital of X is …`).
 
 **One frame is one set of positions.** Instances belong to the same frame when
 they have the same number of slots, each overlapping its counterpart. A slot's

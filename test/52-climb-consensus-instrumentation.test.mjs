@@ -204,7 +204,11 @@ test("5. commit decisions on the anchor trace match the roots actually returned"
       );
       for (const reason of a.commit.rejectionReasons) {
         assert.ok(
-          ["below-natural-break", "below-consensus-floor", "leading-saturation"]
+          [
+            "below-natural-break",
+            "below-consensus-floor",
+            "leading-scaffolding",
+          ]
             .includes(reason),
         );
       }
@@ -321,4 +325,22 @@ test("7. a repeated query within one response emits the abbreviated cache trace"
   assert.equal(second.data.pooling, undefined);
   assert.equal(second.data.anchors, undefined);
   assert.ok(second.data.result, "abbreviated payload must still carry result");
+});
+
+test("a region's vote does not die with an orphan top hit", async () => {
+  // The resonance order is an estimate.  `ice`'s nearest hit climbs to no
+  // context; the next hit that climbs votes instead (`anchorFallback`), and
+  // the region still elects `ice`.  Withdrawn once as changing no answer —
+  // the region then abstained.
+  const { Mind } = await import("../dist/src/index.js");
+  const { SQliteStore } = await import("../dist/src/store-sqlite.js");
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([["ice", "frozen water"]]);
+  const steps = [];
+  const r = await m.respond("what is ice", (s) => steps.push(s));
+  assert.equal(new TextDecoder().decode(r.bytes), "frozen water");
+  const fb = steps.find((s) => s.mechanism.at(-1) === "anchorFallback");
+  assert.ok(fb, "the orphan top hit hands the vote on");
+  assert.equal(fb.inputs[0].role, "orphan-anchor");
+  await m.store.close();
 });

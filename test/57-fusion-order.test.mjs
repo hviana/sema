@@ -167,3 +167,22 @@ test("4. determinism", async () => {
   await a.store.close();
   await b.store.close();
 });
+
+test("a part another part already voices is not voiced again", async () => {
+  // The first topic's answer leads on to a continuation that already holds
+  // the second topic's answer; composing both voiced "The largest planet is
+  // Jupiter." twice.
+  const mind = mk();
+  await mind.ingest([
+    ...TRAIN,
+    [
+      " The capital of France is Paris.",
+      " Seen from Paris at night, The largest planet is Jupiter.",
+    ],
+  ]);
+  const a = await mind.respondText(
+    "What is the capital of France? And what is the largest planet?",
+  );
+  assert.equal(a.split("The largest planet is Jupiter.").length - 1, 1, a);
+  await mind.store.close();
+});

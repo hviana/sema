@@ -248,3 +248,74 @@ test("bridge finds a connector via a halo-sibling synonym", async () => {
   assert.equal(r, "cold or hot");
   await m.store.close();
 });
+
+// AN EDGE IS NOT A CONTAINMENT.  A continuation of the left side that holds
+// the right one carries the glue between them (its prefix before the right
+// side), and a context of the right side that holds the left one carries it
+// as its suffix — with NO learnt whole holding both, so the containment
+// ascent cannot read it.  The tier reading edges was once removed as finding
+// "nothing the tiers around it missed"; these pairs are exactly what only it
+// finds.
+test("bridge reads a junction learnt as an edge, in both directions", async () => {
+  const { bridge } = await import("../dist/src/mind/resonance.js");
+  const enc = (s) => new TextEncoder().encode(s);
+  const dec = (b) => b === null ? null : new TextDecoder().decode(b);
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["Marrowby", "the old market town of Glenhollow county"],
+    ["Tessaly Brook rises near Quillon", "the Quillon headwaters"],
+    ["Harwick", "Harwick sits on the river Dunmere"],
+    ["Glenhollow", "a county of hills"],
+    ["Quillon", "a mountain"],
+    ["Dunmere", "a slow river"],
+  ]);
+  // A continuation of `Marrowby` holds `Glenhollow`: its prefix is the glue.
+  assert.equal(
+    dec(await bridge(m, enc("Marrowby"), enc("Glenhollow"))),
+    "the old market town of ",
+  );
+  // A context of `the Quillon headwaters` holds `Tessaly Brook`: its suffix.
+  assert.equal(
+    dec(await bridge(m, enc("Tessaly Brook"), enc("the Quillon headwaters"))),
+    " rises near Quillon",
+  );
+  // A learnt whole holding both is still the container tier's.
+  assert.equal(
+    dec(await bridge(m, enc("Harwick"), enc("Dunmere"))),
+    " sits on the river ",
+  );
+  // No edge and no whole ran the two together: nothing is invented.
+  assert.equal(await bridge(m, enc("Marrowby"), enc("Dunmere")), null);
+  await m.store.close();
+});
+
+// END TO END: the edge junction reaches a composed answer.  A context of the
+// right answer that holds the left one ends in the glue between them
+// (` Meanwhile, far above,`): no learnt whole holds both answers, so the
+// containment ascent cannot read it, and neither the cover nor the walk reads
+// it either (the context is no continuation of the left answer).  The join of
+// two answers reads it — 829015a, without the tier, joined them bare.
+test("a composed answer joins its parts with a junction learnt as an edge", async () => {
+  const m = new Mind({ seed: 1, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["What is the capital of France?", " The capital of France is Paris."],
+    ["What is the capital of Spain?", " The capital of Spain is Madrid."],
+    ["What is the capital of Italy?", " The capital of Italy is Rome."],
+    ["What is the largest planet?", " The largest planet is Jupiter."],
+    ["What is the largest ocean?", " The largest ocean is the Pacific."],
+    [
+      " The capital of France is Paris. Meanwhile, far above,",
+      " The largest planet is Jupiter.",
+    ],
+  ]);
+  const joins = [];
+  await m.respond(
+    "What is the capital of France? And what is the largest planet?",
+    (st) => {
+      if (st.mechanism.at(-1) === "bridge" && /edge junction/.test(st.note)) {
+        joins.push(st.outputs[0].text);
+      }
+    },
+  );
+  assert.deepEqual([...new Set(joins)], [" Meanwhile, far above,"]);
+});

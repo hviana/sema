@@ -22,8 +22,12 @@ answer embeds in its context in order:
 
 For each piece, the bytes just before it (and just after it, or before the next
 piece), bounded at `W`, are located in the question (`locate`). The located
-frames fix the read's start and end. Multi-piece skills concatenate their reads
-in order. Results shorter than one quantum are skipped.
+frames fix the read's start and end. `locate` returns the span it found, with
+its own start and end, and whether its bytes ARE the frame's: a relaxed tier (a
+query form with the frame's halo role, a segment with its gist) finds a span
+that plays the frame's part, so the border is that span's end, never the frame's
+length (`test/68` 4). Multi-piece skills concatenate their reads in order.
+Results shorter than one quantum are skipped.
 
 ## Gate and accounting — both borders, or nothing
 
@@ -36,8 +40,10 @@ in order. Results shorter than one quantum are skipped.
 
 ## Cost
 
-`moves = CONCEPT + STEP · accounted.length`, with a floor of `CONCEPT + STEP`.
-The floor checks `worthRunning` before touching the climb.
+`moves = CONCEPT + STEP · accounted.length + CONCEPT · equivalences`, with a
+floor of `CONCEPT + STEP`: a frame located by an equivalence is explained at a
+concept step, as a concept hop is, never as identity. The floor checks
+`worthRunning` before touching the climb.
 
 ## Provenance
 

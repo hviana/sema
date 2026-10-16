@@ -132,3 +132,134 @@ test("CAST comparison: refuses to fire when its own accounted evidence leaves an
   );
   await m.store.close();
 });
+
+test("a comparison does not seat the question with one piece swapped as an analog", async () => {
+  // `What is the largest planet in our solar system?` is the question `… the
+  // largest country in our solar system?` with `planet` for `country` — a swap
+  // the corpus licenses no equivalence for, so it is another question, not
+  // something this one is about.  Seated against `The largest country is
+  // Russia.` it voiced "The largest planet is Jupiter.The largest country is
+  // Russia." in every earlier version.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    [
+      "What is the largest planet in our solar system?",
+      "The largest planet is Jupiter.",
+    ],
+    [
+      "What is the biggest ocean on Earth?",
+      "The biggest ocean is the Pacific.",
+    ],
+    ["What is the largest country by area?", "The largest country is Russia."],
+    [
+      "What is the biggest mammal on Earth?",
+      "The biggest mammal is the blue whale.",
+    ],
+    [
+      "What is the largest desert in the world?",
+      "The largest desert is the Sahara.",
+    ],
+    ["What is the biggest city in Japan?", "The biggest city is Tokyo."],
+  ]);
+  const got = new TextDecoder().decode(
+    (await m.respond("What is the largest country in our solar system?")).bytes,
+  );
+  assert.ok(!got.includes("Jupiter"), `got "${got}"`);
+  await m.store.close();
+});
+
+test("a comparison does not seat the question itself", async () => {
+  // `Who painted The Gleaners?` is `Who painted the gleaners?` under the
+  // response's equivalence: the question restated, not a structure it weaves.
+  // Seated as the dominant it voiced two stored questions as the answer
+  // ("Who painted The Gleaners?Where did the director of film The Gleaners
+  // work?"), and outweighed the fact because a restatement accounts the whole
+  // question.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["Man at Bath", "Man at Bath is a painting by Gustave Caillebotte."],
+    ["The Gleaners", "The Gleaners is a painting by Jean-François Millet."],
+    ["Where did the director of film The Gleaners work?", "Barbizon"],
+    ["Who painted The Gleaners?", "Jean-François Millet"],
+  ]);
+  const r = await m.respond("Who painted the gleaners?");
+  assert.notEqual(r.provenance, "cast");
+  assert.match(new TextDecoder().decode(r.bytes), /Millet/);
+  await m.store.close();
+});
+
+// THE HALO TIER STANDS ALONE ONLY AT THE BAR THAT CLAIMS COMPANY.  CAST
+// exempts halo-tier analogy evidence from the ignored-known principle, so the
+// tier is held to the concept threshold — the bar every other halo claim is
+// held to — not significanceBar, whose 3σ is the null of independent vectors
+// (halos share the corpus's common company: on two 300-question stores
+// unrelated node pairs cleared significanceBar on 2–5% of draws).  Company in
+// the band between the two is a proposal: the pair is read by the
+// shared-frame tier, under the comparison's own gates.
+test("CAST analogy: halo company stands alone only at the concept threshold", async () => {
+  const { significanceBar, conceptThreshold, cosine } = await import(
+    "../dist/src/index.js"
+  );
+  const { analogyStrength } = await import("../dist/src/mind/match.js");
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["What is the capital of France?", "The capital of France is Paris."],
+    ["What is the capital of Italy?", "The capital of Italy is Rome."],
+    ["What is the capital of Spain?", "The capital of Spain is Madrid."],
+    ["Who wrote Hamlet?", "Hamlet was written by William Shakespeare."],
+    ["Who wrote the Iliad?", "The Iliad was written by Homer."],
+  ]);
+  const sig = significanceBar(m.store.D), ct = conceptThreshold(m.store.D);
+  const id = (s) => resolve(m, enc(s));
+  const pair = async (a, b) => {
+    const [x, y] = [id(a), id(b)];
+    assert.ok(x !== null && y !== null, `${a} / ${b} learnt whole`);
+    return {
+      company: cosine(m.store.halo(x), m.store.halo(y)),
+      ev: await analogyStrength(m, x, y),
+    };
+  };
+  // Company beyond the concept threshold: the halo tier stands.
+  const shared = await pair(
+    "The capital of France is Paris.",
+    "The capital of Italy is Rome.",
+  );
+  assert.ok(shared.company >= ct, `company ${shared.company}`);
+  assert.equal(shared.ev.halo, true);
+  // Company beyond chance for independent vectors, short of the concept
+  // threshold: a proposal — the frame tier reads the pair.
+  const band = await pair(
+    "Hamlet was written by William Shakespeare.",
+    "The Iliad was written by Homer.",
+  );
+  assert.ok(
+    band.company >= sig && band.company < ct,
+    `company ${band.company} in [${sig}, ${ct})`,
+  );
+  assert.equal(band.ev.halo, false);
+  assert.ok(band.ev.score > 0, "the shared frame still reads the analogs");
+});
+
+// A SEAT THE QUESTION HOLDS WINDOW FOR WINDOW ECHOES IT.  A conjunction elides
+// what its parts share: `What is the capital of France and the largest
+// planet?` holds every window of the stored `What is the largest planet?`,
+// none of it in one run, so the contiguous echo test missed it and the
+// comparison voiced the stored question as the analog's role (every version
+// measured).  An echoing seat gives way to its continuation, the answer the
+// question asked for.
+test("a comparison seat the question holds window for window is not voiced", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["What is the capital of France?", " The capital of France is Paris."],
+    ["What is the capital of Spain?", " The capital of Spain is Madrid."],
+    ["What is the capital of Italy?", " The capital of Italy is Rome."],
+    ["What is the largest planet?", " The largest planet is Jupiter."],
+    ["What is the largest ocean?", " The largest ocean is the Pacific."],
+  ]);
+  const got = await m.respondText(
+    "What is the capital of France and the largest planet?",
+  );
+  assert.ok(!got.includes("What is the largest planet?"), `got "${got}"`);
+  assert.match(got, /Paris/);
+  assert.match(got, /Jupiter/);
+});

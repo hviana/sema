@@ -45,6 +45,8 @@ export async function extractBySkill(
   {
     bytes: Uint8Array;
     accounted: Array<[number, number]>;
+    /** Frames located by an equivalence, not by their bytes. */
+    equivalences: number;
   } | null
 > {
   const t = ctx.trace?.enter("extractBySkill", [
@@ -175,6 +177,7 @@ export async function extractBySkill(
     return {
       bytes: built.bytes,
       accounted: built.accounted,
+      equivalences: built.equivalences,
     };
   }
   if (shapeMisses === searched.length) {
@@ -203,7 +206,12 @@ function buildFromExemplar(
   pre: Precomputed,
   exemplar: SkillInfo,
 ):
-  | { bytes: Uint8Array; accounted: Array<[number, number]>; pieces: number }
+  | {
+    bytes: Uint8Array;
+    accounted: Array<[number, number]>;
+    pieces: number;
+    equivalences: number;
+  }
   | null {
   const { contextBytes, answerBytes } = exemplar;
 
@@ -228,6 +236,9 @@ function buildFromExemplar(
 
   const pieces: Uint8Array[] = [];
   const accounted: Array<[number, number]> = [];
+  // Frames located by an EQUIVALENCE (`Located.exact` false): each is a span
+  // of the query that plays the frame's part, explained at a concept step.
+  let equivalences = 0;
   for (let ri = 0; ri < ansCtxRuns.length; ri++) {
     const run = ansCtxRuns[ri];
     const isLast = ri === ansCtxRuns.length - 1;
@@ -240,10 +251,11 @@ function buildFromExemplar(
     const frames: Array<[number, number]> = [];
     let start = 0;
     if (framePre) {
-      const prePos = locate(ctx, query, framePre, 0, pre.rec.sites);
-      if (prePos < 0) continue;
-      start = prePos + framePre.length;
-      frames.push([prePos, start]); // the located frame IS matched evidence
+      const pre_ = locate(ctx, query, framePre, 0, pre.rec.sites);
+      if (pre_ === null) continue;
+      start = pre_.end;
+      frames.push([pre_.start, pre_.end]); // the located frame IS matched evidence
+      if (!pre_.exact) equivalences++;
     }
 
     let end: number;
@@ -257,16 +269,11 @@ function buildFromExemplar(
           run.end,
           run.end + framePostLen,
         );
-        const postPos = locate(
-          ctx,
-          query.subarray(start),
-          framePost,
-          0,
-          pre.rec.sites,
-        );
-        if (postPos < 0) continue;
-        end = start + postPos;
-        frames.push([end, end + framePost.length]); // matched post-frame
+        const post = locate(ctx, query, framePost, start, pre.rec.sites);
+        if (post === null) continue;
+        end = post.start;
+        frames.push([post.start, post.end]); // matched post-frame
+        if (!post.exact) equivalences++;
       } else {
         end = query.length;
       }
@@ -277,18 +284,13 @@ function buildFromExemplar(
         nextRun.start - nextPreLen,
         nextRun.start,
       );
-      const nextPos = locate(
-        ctx,
-        query.subarray(start),
-        nextPre,
-        0,
-        pre.rec.sites,
-      );
-      if (nextPos < 0) {
+      const next = locate(ctx, query, nextPre, start, pre.rec.sites);
+      if (next === null) {
         end = start + run.ansLen;
       } else {
-        end = start + nextPos;
-        frames.push([end, end + nextPre.length]); // matched next-frame
+        end = next.start;
+        frames.push([next.start, next.end]); // matched next-frame
+        if (!next.exact) equivalences++;
       }
     }
     if (start >= end) continue;
@@ -307,7 +309,7 @@ function buildFromExemplar(
   }
 
   const out = pieces.length === 1 ? pieces[0] : concatBytes(pieces);
-  return { bytes: out, accounted, pieces: pieces.length };
+  return { bytes: out, accounted, pieces: pieces.length, equivalences };
 }
 
 // ── The two span-shape readings: OPEN acceptance vs. STRONG decomposition ──
@@ -406,7 +408,10 @@ export const extractionMechanism: PipelineMechanism = {
     return [{
       bytes: ex.bytes,
       accounted: ex.accounted,
-      moves: CONCEPT + STEP * ex.accounted.length,
+      // A frame located by an equivalence is a concept step, as a concept hop
+      // is: explained, at the ladder's concept price, never as identity.
+      moves: CONCEPT + STEP * ex.accounted.length +
+        CONCEPT * ex.equivalences,
     }];
   },
 };

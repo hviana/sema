@@ -74,12 +74,22 @@ export async function bindReference(
   // question is no instance of what it asks), read as one structure whose
   // slots are all substitutions (an insertion or deletion has no occupant to
   // carry), sharing at least one window with the question (a frame with no
-  // window in common is chance).  The largest frame is the question's.
+  // window in common is chance), and covering most of it (a frame the
+  // question does not dominate is another sentence).  The largest frame is the
+  // question's.
   const classes: FrameInstance[][] = [];
   for (const inst of await pre.frames()) {
     if (inst.slots.length === 0 || !ctx.store.hasNext(inst.id)) continue;
     if (inst.slots.some((s) => s.kind !== "substitution")) continue;
     if (!inst.matched.some(([a, b]) => b - a >= W)) continue;
+    // THE FRAME MUST DOMINATE THE QUESTION, or this is a different sentence
+    // that happens to align somewhere: `The capital of Peru is the city of …`
+    // aligned with `how do you say thank you in the language of Nepal and …`
+    // carried the slot `Nepal and in the language of Oman` into `The …town
+    // parliament sits by the river`.  (The redesign around agreement on the
+    // outcome dropped this gate; agreement says the instances agree, not that
+    // they are instances of THIS question.)
+    if (!dominates(inst.covered, query.length)) continue;
     const cls = classes.find((c) => sameFrame(c[0], inst));
     if (cls === undefined) classes.push([inst]);
     else cls.push(inst);

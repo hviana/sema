@@ -76,16 +76,17 @@ another seed than its store's; gist comparisons do not (`determinism.md`).
 
 ## Where halos are read
 
-| Use                                                                                            | Gate               |
-| ---------------------------------------------------------------------------------------------- | ------------------ |
-| admission: a form _leads somewhere_ if `hasNext \|\| hasHalo` (`store.md`)                     | existence probe    |
-| `locate`'s second tier (halo role), `alignGraded`'s halo-matched sites                         | best halo mate     |
-| synonym tiers: junction bridge, `crossRegionVotes`, substitution bridge, the walk's said set   | `conceptThreshold` |
-| concept hops in `cover`: an edge-less form borrows a halo sibling's continuation, at `CONCEPT` | `conceptThreshold` |
-| CAST's analogy strength                                                                        | `significanceBar`  |
-| `chooseNext`: halo mass breaks ties after `prevCount`                                          | ordering only      |
-| the question names a step by use: contexts' halos rank continuations (`evidence.md`)           | `significanceBar`  |
-| articulation: an answer form is voiced in the asker's halo synonym, never the whole answer     | `conceptThreshold` |
+| Use                                                                                                                                                                                                                                                                                                  | Gate                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| admission: a form _leads somewhere_ if `hasNext \|\| hasHalo` (`store.md`)                                                                                                                                                                                                                           | existence probe                 |
+| `locate`'s second tier (halo role), `alignGraded`'s halo-matched sites                                                                                                                                                                                                                               | best halo mate                  |
+| synonym tiers: junction bridge, `crossRegionVotes`, substitution bridge, the walk's said set                                                                                                                                                                                                         | `conceptThreshold`              |
+| every substitution (synonym junctions — single and double —, structural variants, concept hops, locate's halo tier, articulation, substitution bridge, recall's anchor): the corpus's minimal pairs grade it (`substitutionGrade`: refused / company / shown), each side keeping its strongest grade | refuted / shown / unread        |
+| concept hops in `cover`: an edge-less form borrows a halo sibling's continuation, at `CONCEPT`                                                                                                                                                                                                       | `conceptThreshold`              |
+| CAST's analogy strength                                                                                                                                                                                                                                                                              | `conceptThreshold`              |
+| `chooseNext`: halo mass breaks ties after `prevCount`                                                                                                                                                                                                                                                | ordering only                   |
+| the question names a step by use: contexts' halos rank continuations, evidence only by licence (`evidence.md`)                                                                                                                                                                                       | ranking floor `significanceBar` |
+| articulation: an answer form is voiced in the asker's halo synonym, never the whole answer                                                                                                                                                                                                           | `conceptThreshold`              |
 
 The bars are derived in `geometry.ts` (`thresholds.md`).
 

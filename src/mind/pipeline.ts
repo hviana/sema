@@ -202,6 +202,7 @@ export async function think(
   {
     const asked = offsetCanon(ctx, query);
     ctx._edgeAsked = {
+      raw: query,
       bytes: asked,
       index: windowIndex(asked, ctx.space.maxGroup),
     };

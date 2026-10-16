@@ -92,3 +92,28 @@ Two tightenings were refuted:
   identity layer alone keeps it past the opening (a separate drop of saturated
   intervals was measured redundant and removed).
 - `test/49` — refutes treating container fan-out as a hub.
+
+## A shared opening is nobody's evidence
+
+A preamble every deposit carries (a system prompt) is hash-consed into one
+structure, so no structural count sees it as common: its windows have few
+containers. The climb's own proposals do: the bytes the question begins with
+that every ranked anchor begins with too distinguish none of them. A further
+point of attention whose focus starts inside that opening is refused as a root
+(`leading-scaffolding`); the dominant is exempt, as it is from the vote gates
+(`commitVotes`, `test/17`). The votes of regions lying in it are dropped before
+pooling.
+
+Fusion does not fuse a point whose strongest evidence is shorter than a window,
+however many places it is read in. If the strongest place is under a window,
+every place is. Two 3-byte scraps of a preamble name no further topic
+(`reasoning.ts`, `test/17`).
+
+## The ranking is an estimate
+
+A region votes through its nearest resonance hit, and that order is an estimate.
+A top hit that climbs to no context (an orphan) hands the vote to the nearest
+hit that climbs; a saturated top hit claims the region's abstention only when it
+is distinguishably nearest — within the estimator's noise (`estimatorNoise`) the
+nearest tied hit that climbs somewhere unsaturated votes instead. Both are
+traced as `anchorFallback` (`test/52`).

@@ -17,7 +17,14 @@ indicts a law, never a parameter.
 unit is `1/√D`.
 
 - `estimatorNoise = 1/√D`
-- `significanceBar = 3/√D`, three noise units above chance
+- `significanceBar = 3/√D`, three noise units above chance. The null is that of
+  INDEPENDENT vectors. Halos are not independent: each carries the corpus's
+  common company, and bundles carry more of it. So on halos the bar only
+  proposes or ranks (the substitution grade's floor, `byUse`'s ranking), and
+  halo company that stands as evidence is held to `conceptThreshold`. On two
+  300-question stores, unrelated node pairs cleared `significanceBar` 2–5% of
+  the time (CAST's analogy tiers), and bundles of 16 cleared it 24–61%;
+  `conceptThreshold` was cleared 0–0.5% of the time.
 - `conceptThreshold = 0.5 + 0.5/√D`, for halo concept sharing: the structural
   midpoint plus half a noise unit
 - `mergeThreshold = 1 − 1/√D`

@@ -40,7 +40,15 @@ the thing it holds (`thingIn`), and holding none is no answer. What two facts of
 one relation share is its frame (`The date of birth of`), whose windows can read
 rarer than an entity. Where the question names nothing learnt whole
 (`Which material is translucent and featherlight?`), the bytes are all the
-evidence spells.
+evidence spells. One exception: a run the question's spelling cut is the thing
+it cuts. The run is what the facts share minus the windows the question wrote.
+Where the question spelled part of a thing the fact learnt whole, the run is
+that thing with the spelled part removed. In
+`Which country Thomas Lyon-Bowes,
+Lord Glamis's father is from?` the son's name
+shares the father's, and the meet `s, 11th Earl of Strathmore and Kinghorne`
+voices the father whole (`entitiesIn`). The walk then goes on to his
+citizenship.
 
 Read off the anchors alone, the meet of two subject-deposited facts is the
 relation they share, voiced as the answer (`date of birth` for

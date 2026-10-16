@@ -9,12 +9,14 @@ import { cosine, Vec } from "../vec.js";
 import { mergeThreshold } from "../geometry.js";
 import { concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { MindContext } from "./types.js";
-import { gistOf, read } from "./primitives.js";
-import { argmaxCosine, candidateGist } from "./traverse.js";
+import { gistOf, read, resolve } from "./primitives.js";
+import { argmaxCosine, candidateGist, hubBound } from "./traverse.js";
 import {
+  cachedRead,
   type Junction,
   junctionContainers,
   junctionSynonyms,
+  walkCache,
 } from "./junction.js";
 import { recognise, thingsIn } from "./recognition.js";
 
@@ -68,6 +70,57 @@ function pickJunction(
     a.id - b.id
   );
   return scored[0];
+}
+
+/** Tier 2: junctions learnt as EDGES.  A continuation of left that contains
+ *  right carries the glue as its prefix; a context of right that contains
+ *  left carries it as its suffix.  Fan-outs read through the store's LIMITed
+ *  edge reads at the hub bound, like every edge walk. */
+function junctionEdges(
+  ctx: MindContext,
+  left: Uint8Array,
+  right: Uint8Array,
+  maxContainer: number,
+): Junction[] {
+  const bound = hubBound(ctx);
+  const out: Junction[] = [];
+  const lId = resolve(ctx, left);
+  if (lId !== null) {
+    // A FULL √N page of continuations means the side is an edge hub: its
+    // fan-out is non-discriminative for a junction (the same common-content
+    // abstention as tier 1's containment gate), and reading √N capped
+    // continuations per pair is exactly the cost a miss must not pay.
+    // Below the page the list IS the full fan — read exactly.
+    const nexts = ctx.store.nextFirst(lId, bound);
+    if (nexts.length < bound) {
+      const cache = walkCache(ctx);
+      for (const n of nexts) {
+        // Prefix-capped read (same phrase-scale discipline as tier 1): a
+        // continuation longer than any admissible container cannot carry a
+        // junction-sized glue — skipped without reconstructing it.
+        const b = cachedRead(ctx, cache, n, maxContainer);
+        if (b.length > maxContainer) continue;
+        const ri = indexOf(b, right, 0);
+        if (ri >= 0) out.push({ id: n, interior: b.subarray(0, ri) });
+      }
+    }
+  }
+  const rId = resolve(ctx, right);
+  if (rId !== null) {
+    const prevs = ctx.store.prevFirst(rId, bound);
+    if (prevs.length < bound) {
+      const cache = walkCache(ctx);
+      for (const p of prevs) {
+        const b = cachedRead(ctx, cache, p, maxContainer);
+        if (b.length > maxContainer) continue;
+        const li = indexOf(b, left, 0);
+        if (li >= 0) {
+          out.push({ id: p, interior: b.subarray(li + left.length) });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /** Per-response memo of bridge results, keyed by the response's lifecycle
@@ -151,7 +204,24 @@ async function bridgeUncached(
     return container.interior;
   }
 
-  // Tier 2 — synonym junctions: the content-addressed container search
+  // Tier 2 — junctions learnt as edges.  An edge is not a containment: a
+  // continuation of left holding right runs the two together with no learnt
+  // whole holding both, so the containment ascent above cannot read it.
+  const edge = pickJunction(
+    ctx,
+    junctionEdges(ctx, left, right, maxContainer),
+  );
+  if (edge !== null) {
+    ctx.trace?.step(
+      "bridge",
+      [rItem(left, "left"), rItem(right, "right")],
+      [rItem(edge.interior, "connector", edge.id)],
+      "edge junction — a learnt continuation/context carries the glue between the two",
+    );
+    return edge.interior;
+  }
+
+  // Tier 3 — synonym junctions: the content-addressed container search
   // applied to halo siblings of left/right.  Container evidence is exact
   // (same DAG ascent as tier 1, with window-id-enhanced seeds); the
   // relaxation is only in which form occupies one side.
@@ -169,9 +239,7 @@ async function bridgeUncached(
     return synonym.interior;
   }
 
-  // Tier 3 — the legacy resonance path (approximate, last resort).  (A tier
-  // reading junctions learnt as EDGES — a continuation of left holding right —
-  // was measured to find nothing the tiers around it missed, and removed.)
+  // Tier 4 — the legacy resonance path (approximate, last resort).
   const hits = await ctx.store.resonate(
     gistOf(ctx, joined),
     ctx.cfg.recallQueryK * 2,

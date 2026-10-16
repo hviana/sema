@@ -63,6 +63,10 @@ same answer:
   Shorter runs are glue, and the rewrite keeps them (`2+2.` → `4.`). A voiced
   ask also reads to the walk as already said, and stops it (`liftAnswerParts`,
   `types.ts`).
+- **A form held under the equivalence is a site.** Recognition matches bytes, so
+  `Man At Bath` is no site of the stored `Man at Bath`; the climb proposes it
+  and the canonical question's bytes decide (`canonHeldPoints`). The cover reads
+  it once the climb has run, and is read again then (`readsOffInstances`).
 - **Evidence travels.** The question spans that named a followed site's step
   (`askedEvidence`) are accounted, with the site read as the question spells it
   or under the response's equivalence.

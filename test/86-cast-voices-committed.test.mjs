@@ -49,8 +49,18 @@ const TWO_HOP = "What is the capital of the country of Eiffel Tower?";
 // The SHAPE matters: this filler family reproduces the defect at every N from
 // 50 up, across seeds 7/42/99 and D 512/1024, and survives a full entity
 // rename — so it is a structural fixture, not a byte-pattern one.
+//
+// ONE deposit opens with the question's `What is the`.  The fixture once gave
+// all fifty that opening, and the substitution then took its subject from a
+// filler deposit the question names by nothing of its own (`What is the` opens
+// fifty contexts) — the separate defect a substitution subject named apart
+// closes (test/29).  With the opening the subject's alone, the substitution
+// still fires, and the displaced structure it would voice without the gate is
+// still `France capital`, uncommitted.
 const filler = (i) => [
-  `What is the status of my request ${i}?`,
+  i === 0
+    ? `What is the status of my request ${i}?`
+    : `Status of request ${i}?`,
   `I have token number ${i} waiting.`,
 ];
 

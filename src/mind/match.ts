@@ -14,7 +14,7 @@
 //                       gist) on the exemplar's frames
 //   CAST substitution   alignGraded() (graded ladder:  insert        frame shapes
 //                       literal W-grams → halo sites)
-//   CAST comparison     analogyStrength() (halo,       juxtapose     significanceBar
+//   CAST comparison     analogyStrength() (halo,       juxtapose     conceptThreshold
 //                       direct or mutual-sibling)
 //   multi-hop pivot     byte containment               forward       —
 //   articulation        halo sibling                   substitute    conceptThreshold
@@ -36,7 +36,6 @@ import {
   dominates,
   identityBar,
   phraseCap,
-  significanceBar,
 } from "../geometry.js";
 import { bytesEqual, indexOf, latin1, sharedEnds } from "../bytes.js";
 import type { MindContext } from "./types.js";
@@ -49,7 +48,10 @@ import {
   guidedFirst,
   hubBound,
   hubCap,
+  identicalParts,
   spanHalo,
+  substitutes,
+  substitutionGrade,
 } from "./traverse.js";
 import { recognise, segment } from "./recognition.js";
 import type { Site } from "./graph-search.js";
@@ -58,28 +60,44 @@ import type { Site } from "./graph-search.js";
 // MATCHERS — locating learned structure in/against bytes, by graded strictness
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** The graded LOCATE ladder: find `needle` in `haystack` starting at
+/** Where {@link locate} found a needle: the span the HAYSTACK holds there,
+ *  with its own start and end, and whether its bytes ARE the needle's.  A
+ *  relaxed tier finds a span that plays the needle's part — a query form
+ *  whose distributional role matches it, or a segment whose gist does — not
+ *  the needle's bytes, so its length is the span's, never the needle's, and
+ *  `exact: false` says an equivalence, not identity, made it correspond. */
+export interface Located {
+  start: number;
+  end: number;
+  exact: boolean;
+}
+
+/** The graded LOCATE ladder: find `needle` in `haystack` at or after
  *  `fromPos`, strictest matcher first, relaxing only when the stricter one
  *  fails.  This is the read-out matcher skill extraction locates exemplar
  *  frames with.
  *
  *  1. exact    — literal byte match (the fast path).
  *  2. halo     — the needle's distributional role matches a recognised query
- *                form (gate: conceptThreshold).
- *  3. gist     — the needle's perceived gist matches a query segment
- *                (gate: identityBar — scale-aware).
+ *                form (`sites`, in the haystack's own positions).
+ *  3. gist     — the needle's perceived gist proposes a haystack segment
+ *                (gate: identityBar — scale-aware), and the segment's bytes
+ *                decide: the parts where it and the needle differ must be
+ *                identical (`identicalParts`).
  *
- *  Returns the absolute byte position, or −1. */
+ *  Returns the span found, in the haystack's positions, or null. */
 export function locate(
   ctx: MindContext,
   haystack: Uint8Array,
   needle: Uint8Array,
   fromPos: number,
   sites?: ReadonlyArray<Site>,
-): number {
-  // 1. Exact match — fast, preserves backward compatibility.
-  const exact = indexOf(haystack.subarray(fromPos), needle, 0);
-  if (exact >= 0) return fromPos + exact;
+): Located | null {
+  // 1. Exact match.
+  const exact = indexOf(haystack, needle, fromPos);
+  if (exact >= 0) {
+    return { start: exact, end: exact + needle.length, exact: true };
+  }
 
   // 2. Halo-based: the frame bytes' distributional role matches a query form.
   if (sites && sites.length > 0) {
@@ -93,20 +111,36 @@ export function locate(
           sites.filter((s) => s.start >= fromPos),
           (s) => ctx.store.halo(s.payload),
         );
-        if (bestSite !== null) return bestSite.item.start;
+        // The site PLAYS the frame's part by its company; the corpus's minimal
+        // pairs decide whether it may stand for the frame (`substitutes`).
+        if (
+          bestSite !== null &&
+          substitutes(
+            ctx,
+            needle,
+            haystack.subarray(bestSite.item.start, bestSite.item.end),
+            bestSite.score,
+          )
+        ) {
+          return {
+            start: bestSite.item.start,
+            end: bestSite.item.end,
+            exact: false,
+          };
+        }
       }
     }
   }
 
-  // 3. Gist resonance: the frame's perceived gist against query segments.
+  // 3. Gist resonance: the frame's perceived gist against haystack segments.
   const frameGist = gistOf(ctx, needle);
   const segments = segment(ctx, haystack.subarray(fromPos));
-  // The gist tier claims the WHOLE needle appears as a segment — an
-  // identity claim over `needle.length` bytes, so its bar is the
-  // scale-aware {@link identityBar} (one river window of tolerated foreign
-  // bytes), not the fixed estimator floor.  For quantum-sized frames the
-  // two coincide; for long needles the fixed bar accepted segments that
-  // differed by whole windows.
+  // The gist tier claims the WHOLE needle corresponds to a segment — an
+  // identity claim over `needle.length` bytes, so its bar is the scale-aware
+  // {@link identityBar} (one river window of tolerated foreign bytes), not
+  // the fixed estimator floor.  For quantum-sized frames the two coincide;
+  // for long needles the fixed bar accepted segments that differed by whole
+  // windows.
   const bestSeg = argmaxCosine(
     frameGist,
     segments,
@@ -114,9 +148,26 @@ export function locate(
     identityBar(ctx.store.D, ctx.space.maxGroup, needle.length),
     true,
   );
-  if (bestSeg !== null) return fromPos + bestSeg.item.start;
+  // The gist PROPOSES the segment; its bytes decide.  The segment is the
+  // frame written differently only where the two part (`sharedEnds`) and the
+  // parts are identical by the one identity reading (`identicalParts`: one
+  // window at most, like size, raw geometry at the concept bar) — the vector
+  // alone never fixes a border.
+  if (bestSeg !== null) {
+    const start = fromPos + bestSeg.item.start;
+    const end = fromPos + bestSeg.item.end;
+    const seg = haystack.subarray(start, end);
+    const [p, q] = sharedEnds(seg, needle);
+    if (
+      identicalParts(
+        ctx,
+        seg.subarray(p, seg.length - q),
+        needle.subarray(p, needle.length - q),
+      )
+    ) return { start, end, exact: false };
+  }
 
-  return -1;
+  return null;
 }
 
 /** The ALIGNED matcher: maximal literal matching runs between `query` and
@@ -942,10 +993,10 @@ export function spanSynonymStrength(
  *  strength, not a pick.  Returns the direct halo cosine, or failing that the
  *  highest mutual-halo-sibling min-score (second-order analogy), or failing
  *  that the SHARED-FRAME strength (below) — the gate CAST's comparison
- *  schema validates genuine analogs with (bar: significanceBar).
+ *  schema validates genuine analogs with (bar: conceptThreshold).
  *
  *  The result names its TIER alongside the score: `halo: true` means the
- *  score cleared a significanceBar-gated HALO tier (direct company cosine
+ *  score cleared a conceptThreshold-gated HALO tier (direct company cosine
  *  or mutual-sibling) — genuine distributional evidence; `halo: false`
  *  means only the structural shared-frame fallback matched, a coverage
  *  fraction with no bar of its own.  CAST's comparison gate treats the two
@@ -965,11 +1016,22 @@ export async function analogyStrength(
   const ha = ctx.store.halo(a);
   const hb = ctx.store.halo(b);
   if (ha && hb) {
-    const bar = significanceBar(ctx.store.D);
+    // COMPANY STANDS ALONE AT THE BAR THAT CLAIMS IT.  The halo tier is
+    // evidence on its own (CAST exempts it from the ignored-known principle),
+    // so its bar is the one every other halo claim is held to — the concept
+    // threshold — not significanceBar, whose 3σ is the null of INDEPENDENT
+    // vectors.  Halos are not independent: every one carries the corpus's
+    // common company.  Measured on two 300-question stores, random node pairs
+    // (unrelated by construction): the tier cleared significanceBar on 2–5%
+    // of them (direct 1–1.3%, mutual-sibling — a best over two sibling lists
+    // — 1–4%), 20–40× the 0.13% the bar claims; the concept threshold on
+    // 0–0.2%.  Below it the company is a proposal, and the shared-frame tier
+    // reads the pair under the comparison's own gates.
+    const bar = conceptThreshold(ctx.store.D);
     const direct = cosine(ha, hb);
     if (direct >= bar) return { score: direct, halo: true };
-    const sibsA = await haloSiblings(ctx, a, ha, bar);
-    const sibsB = await haloSiblings(ctx, b, hb, bar);
+    const sibsA = await haloSiblings(ctx, a, ha);
+    const sibsB = await haloSiblings(ctx, b, hb);
     let best = 0;
     for (const x of sibsA) {
       if (x.id === b) continue;
@@ -1047,11 +1109,20 @@ export async function conceptHop(
   ctx: MindContext,
   id: number,
 ): Promise<number | null> {
+  // The siblings' company proposes; the corpus's minimal pairs decide
+  // (`substitutionGrade`): a refuted sibling is no synonym, and one the corpus
+  // SHOWS standing for the form outranks one standing on company alone.
+  let own: Uint8Array | null = null;
+  let best: { hop: number; grade: number } | null = null;
   for (const sib of await haloSiblings(ctx, id)) {
     const hop = guidedFirst(ctx, sib.id);
-    if (hop !== undefined) return hop;
+    if (hop === undefined) continue;
+    own ??= read(ctx, id);
+    const grade = substitutionGrade(ctx, read(ctx, sib.id), own, sib.score);
+    if (grade > (best?.grade ?? 0)) best = { hop, grade };
+    if (grade === 2) break;
   }
-  return null;
+  return best?.hop ?? null;
 }
 
 /** FORWARD projection: follow continuation edges from a node to its fixpoint.

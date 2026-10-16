@@ -190,6 +190,17 @@ test("the inventory is shared, lazy, and elects no frame", async () => {
     );
     // Computed once and shared, not per-consumer.
     assert.equal(await pre.frames(), inventory);
+    // ONE inventory: what the resonance ranks and what the climb reaches are
+    // both proposals of instances — every form that reads as an instance,
+    // from either source, is in it.
+    const { instancesOf } = await import("../dist/src/mind/match.js");
+    const climbed = (await pre.attention()).ranked.slice(0, pre.k)
+      .map((a) => a.anchor);
+    const ranked = (await pre.resonance()).map((h) => h.id);
+    const ids = new Set(inventory.map((i) => i.id));
+    for (const inst of instancesOf(m, q, [...ranked, ...climbed])) {
+      assert.ok(ids.has(inst.id), `instance ${inst.id} missing`);
+    }
   } finally {
     m.endResponse(q.length);
   }
@@ -578,4 +589,40 @@ test("a fact filed under its filler is not a carriage", async () => {
     /gcc main\.c/,
   );
   await carried.store.close();
+});
+
+test("a frame the question does not dominate carries nothing", async () => {
+  // `The capital of X is the city of Xtown` → `The Xtown parliament sits by the
+  // river` carries its filler, and agrees across twelve instances.  But
+  // `how do you say thank you in the language of Nepal and in the language of
+  // Oman` is not an instance of it: the frame aligns with a sliver of the
+  // question, and carrying the slot `Nepal and in the language of Oman` voiced
+  // "The Nepal and in the language of Oman parliament sits by the river" once
+  // the gate that the frame must dominate the question was dropped.
+  const { Mind } = await import("../dist/src/index.js");
+  const { SQliteStore } = await import("../dist/src/store-sqlite.js");
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  const C = [];
+  for (
+    const p of ["France", "Sweden", "Japan", "Peru", "Kenya", "Nepal", "Chile"]
+  ) {
+    C.push([
+      `What is the capital of ${p}`,
+      `The capital of ${p} is the city of ${p}town`,
+    ]);
+    C.push([
+      `The capital of ${p} is the city of ${p}town`,
+      `The ${p}town parliament sits by the river`,
+    ]);
+  }
+  await m.ingest(C);
+  const r = await m.respond(
+    "how do you say thank you in the language of Nepal and in the language of Oman",
+  );
+  assert.notEqual(r.provenance, "reference");
+  assert.ok(
+    !new TextDecoder().decode(r.bytes).includes("parliament"),
+    "no frame the question does not dominate is carried",
+  );
+  await m.store.close();
 });

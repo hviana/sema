@@ -208,6 +208,12 @@ export class Meter {
   spanHalos = 0;
   /** Canonical W-windows examined while composing those span halos. */
   spanHaloWindows = 0;
+  /** Substitution licences read (`licensedSubstitution`): a halo proposal
+   *  put to the corpus's relations. */
+  substitutionLicences = 0;
+  /** …of which a minimal pair refuted: the swapped context is stored and
+   *  leads elsewhere. */
+  substitutionsRefuted = 0;
 
   /** `lightestDerivation` searches started. */
   searches = 0;

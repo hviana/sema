@@ -238,3 +238,34 @@ test("a distinctive paraphrase resolves to its own record, not a frame neighbour
       `expected the gender-equality record`,
   );
 });
+
+test("a shared opening is nobody's evidence — no other fact is fused into the answer", async () => {
+  // Every deposit and every probe carries SYS.  A point of attention whose
+  // focus starts inside it is an anchor the preamble reached, not one the
+  // question asked about; committing it fused an unrelated stored answer (the
+  // guitar advice) into the Dream Team summary once the gate on the shared
+  // opening was withdrawn.
+  //
+  // The `photosynthesis` distractor fused the time-management advice in every
+  // version measured: its point's strongest evidence is a 3-byte scrap of `I
+  // was chatting with a friend and…` (`h a`), and a point whose strongest
+  // evidence is under a window names no further topic, however many places it
+  // is read in (fusion read that only for a point confined to one place).
+  const { store, mind } = await build();
+  for (
+    const q of [
+      "Give me an overview of the 1992 Dream Team basketball squad.",
+      "I was chatting with a friend and wondered, how does photosynthesis convert sunlight into energy?",
+    ]
+  ) {
+    const idx = PROBES.find(([, p]) => p === q)[2];
+    const ans = (await mind.respondText(SYS + q)).replace(/\s+/g, " ").trim();
+    assert.ok(hits(ans, FACTS[idx][1]), `got "${ans}"`);
+    for (const [j, [, a]] of FACTS.entries()) {
+      if (j !== idx) {
+        assert.ok(!hits(ans, a), `fused fact ${j} — got "${ans}"`);
+      }
+    }
+  }
+  await store.close();
+});

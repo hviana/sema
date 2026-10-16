@@ -140,7 +140,6 @@ import {
   invalidateStructuralCaches,
   leadsSomewhere,
 } from "./traverse.js";
-import type { WindowIndex } from "./evidence.js";
 import { follow } from "./match.js";
 import { recognise, segment, thingsIn } from "./recognition.js";
 import { meaningOf } from "./resonance.js";
@@ -332,9 +331,7 @@ export class Mind implements MindContext {
    *  reverse-recall disambiguation via `chooseAmong`. */
   _edgeGuide: Vec | null = null;
   /** See {@link MindContext._edgeAsked}. */
-  _edgeAsked:
-    | { bytes: Uint8Array; index: WindowIndex; points?: readonly number[] }
-    | null = null;
+  _edgeAsked: MindContext["_edgeAsked"] = null;
   /** Per-response memo of {@link chooseNext} picks — ensures every mechanism
    *  of a single response follows the SAME continuation for each ambiguous
    *  context node. */

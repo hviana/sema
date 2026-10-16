@@ -47,12 +47,33 @@ const SYN_ATTR_CORPUS = [
   ["blue square", "answer delta"],
 ];
 
+// The same attributes where the corpus SHOWS crimson standing for red: two
+// contexts with one in the other's place lead to the same continuation (`red
+// rose` / `crimson rose`, `red wine` / `crimson wine`), and no `crimson …`
+// form leads elsewhere than its `red …` twin.  In SYN_ATTR_CORPUS, `crimson
+// circle` → `answer alpha2` against `red circle` → `answer alpha` refutes the
+// swap (traverse.ts, `licensedSubstitution`).
+const LICENSED_SYN_CORPUS = [
+  ["red", "is a color"],
+  ["crimson", "is a color"],
+  ["blue", "is a color"],
+  ["circle", "is a shape"],
+  ["square", "is a shape"],
+  ["red circle", "answer alpha"],
+  ["red square", "answer beta"],
+  ["blue circle", "answer gamma"],
+  ["blue square", "answer delta"],
+  ["red rose", "a flower of love"],
+  ["crimson rose", "a flower of love"],
+  ["red wine", "a dark drink"],
+  ["crimson wine", "a dark drink"],
+];
+
 // Structural-resonance is the LAST rung: it runs only when every DAG tier —
 // exact junction and single-synonym — found no container at all.
-// SYN_ATTR_CORPUS cannot reach it, and no longer pretends to: every attribute
-// there shares a context ("is a color" / "is a shape") with its neighbours, so
-// the single-synonym tier always finds a bridge and accepts before the ladder
-// gets this far.  (It once did reach resonance, when the junction search was
+// SYN_ATTR_CORPUS does not test it: every attribute there shares a context
+// ("is a color" / "is a shape") with its neighbours, so the junction tiers
+// settle each pair before the ladder gets this far.  (It once did reach resonance, when the junction search was
 // phase-dependent and missed containers it should have found; asserting the
 // weaker rung still fires would now be asserting a defect.)
 //
@@ -172,9 +193,9 @@ test("3. exact junction: probe.exact attempted with candidates, accepted structu
 
 test("4. single-synonym junction: exact returns zero, single attempted and returns candidates, selected single-synonym tier", async () => {
   const m = mk(1);
-  await m.ingest(SYN_ATTR_CORPUS);
+  await m.ingest(LICENSED_SYN_CORPUS);
   // "square then crimson" — order-free single-sibling substitution recovers
-  // 'red square' via crimson's sibling 'red' (mirrors test/51's synRight).
+  // 'red square' via crimson's sibling 'red', a swap the corpus licenses.
   const { steps } = await trace(m, "square then crimson");
   await m.store.close();
 
@@ -189,6 +210,26 @@ test("4. single-synonym junction: exact returns zero, single attempted and retur
   assert.ok(probe.singleSynonym.candidatesReturned > 0);
   assert.equal(probe.structural.tier, "single-synonym");
   assert.equal(probe.structural.outcome, "accepted");
+});
+
+test("4b. a synonym junction the corpus refutes casts no vote", async () => {
+  // Halo company proposes crimson for red (both "is a color", both with a
+  // circle), but `crimson circle` and `red circle` lead to different answers:
+  // where a circle is concerned the two are not interchangeable, and the
+  // junction `red square` for "square then crimson" would be a binding the
+  // corpus never licensed.
+  const m = mk(1);
+  await m.ingest(SYN_ATTR_CORPUS);
+  const { steps } = await trace(m, "square then crimson");
+  await m.store.close();
+  const cr = climbStep(steps).data.crossRegion;
+  assert.ok(
+    !cr.junctionVotes.some((v) => v.tier === "single-synonym"),
+    "no single-synonym vote",
+  );
+  for (const p of cr.probes) {
+    assert.equal(p.singleSynonym.candidatesReturned, 0);
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

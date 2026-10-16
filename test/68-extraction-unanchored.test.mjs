@@ -77,3 +77,40 @@ test("3. gibberish stays silent — the gate adds refusal, never licence", async
   }
   await m.store.close();
 });
+
+// THE SPAN FOUND, NOT THE NEEDLE'S LENGTH.  A relaxed tier finds a query span
+// that PLAYS the frame's part — here `é o autor de`, whose company is the
+// exemplar frame `escreveu`'s — not the frame's bytes, so the border is that
+// span's end.  The ladder once returned only a start, and extraction read the
+// needle's length from it (`é o aut`, mid-word); it also handed the later
+// frames a sliced haystack while the halo tier answered in the whole query's
+// positions.  And what made the span correspond travels with it: an
+// equivalence, priced as one (`exact: false`).
+test("4. locate returns the span it found and whether its bytes are the needle's", async () => {
+  const { locate } = await import("../dist/src/mind/match.js");
+  const { recognise } = await import("../dist/src/mind/recognition.js");
+  const enc = (s) => new TextEncoder().encode(s);
+  const dec = (b) => new TextDecoder().decode(b);
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["Quem escreveu Dom Casmurro?", "Machado de Assis"],
+    ["Quem é o autor de Iracema?", "José de Alencar"],
+    ["escreveu", "relação de autoria"],
+    ["é o autor de", "relação de autoria"],
+    ["escreveu", "autoria de uma obra"],
+    ["é o autor de", "autoria de uma obra"],
+  ]);
+  const hay = enc("Hoje: quem é o autor de Dom Casmurro?");
+  const sites = recognise(m, hay).sites;
+  const found = locate(m, hay, enc("escreveu"), 7, sites);
+  assert.ok(found !== null);
+  assert.equal(dec(hay.subarray(found.start, found.end)), "é o autor de");
+  assert.equal(found.exact, false);
+  // Past the span, nothing plays the part: no position is made up.
+  assert.equal(locate(m, hay, enc("escreveu"), found.end, sites), null);
+  // The exact tier is the needle's own bytes.
+  const at = dec(hay).indexOf("Dom ") + 1; // one 2-byte letter before it
+  const lit = locate(m, hay, enc("Dom "), 0, sites);
+  assert.deepEqual(lit, { start: at, end: at + 4, exact: true });
+  await m.store.close();
+});

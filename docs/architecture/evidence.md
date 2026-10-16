@@ -206,8 +206,9 @@ description. The rest of the slot is read in order:
   `Where was Z's dad born?` (`· father → · place of birth`). A description is
   applied first, nearest its entity, so it reads as the beginning those
   derivations share: the shortest sequence two forms spell alike, if every other
-  sequence two forms spell begins with it. The forms come from the description's
-  rarest window.
+  sequence two forms spell begins with it — two readings that part ways name
+  nothing (`test/157` 157.13). The forms come from the description's rarest
+  window.
 - **Else, one fact the slot witnesses** is that step
   (`Eleanor of Aquitaine's
   father`).
@@ -336,7 +337,16 @@ each by its `chainReach(W)` oldest contexts). The candidates are exact: the
 node's continuations, and the establishing contexts holding it, whose rest is
 the relation. On the whole question, for its own thing (`heldEntity`) with two
 continuations, the unsaid run free of scaffolding telling them apart best ranks
-them, beyond chance and beyond the next by `significanceBar`.
+them, its best ahead of the next by `significanceBar`. That bar is a ranking
+floor, not a test of chance: its 3σ is the null of independent vectors, and uses
+are bundles of halos that share the corpus's common company, so unrelated runs
+clear it often (3–4% for single contexts, 11–15% for bundles of 4–16, on two
+300-question stores). The use is evidence only where the corpus licenses it
+(`substitutionGrade` 2). On the walk, a node reached rather than written is read
+the same way, and only a licensed use names its step. A single continuation has
+nothing to be told apart from, so there is no ranking and no margin. The use
+names it only under the licence, on the whole question as on the walk (test/154
+15).
 
 A fragment that answers other questions is set aside before the cover takes it
 as a site (`answersOtherQuestions`). The same predicate refuses CAST's

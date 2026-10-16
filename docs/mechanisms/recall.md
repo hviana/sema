@@ -25,13 +25,21 @@ questions the 293 answers it won are the cover's.
 | 2    | scaffolding-dominated | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding | `project` the anchor at `CONCEPT`                            |
 | 3b   | substitution bridge   | only after every gist tier failed (below)                                                                                                                | align and substitute                                         |
 
-**Tier 2 refuses three things.** Each would voice the anchor's own occupant as
+**Tier 2 refuses four things.** Each would voice the anchor's own occupant as
 the asker's:
 
 - a continuation that voices the anchor's displaced filler
   (`voicesDisplacedFiller`);
 - a continuation that is a subspan of the question;
-- an anchor that is a co-instance of the question (`evidence.md`).
+- an anchor that is a co-instance of the question (`evidence.md`);
+- an anchor that is the question with one piece swapped for another of like
+  size, sharing no window with it, when the corpus licenses no equivalence
+  between the two (`unlicensedSwap`, below): `… largest planet …` is no answer
+  to `… largest ocean …`. A part within one window is the same question written
+  differently (`identicalAt`) when its raw geometry clears the concept bar, or
+  when no instance the response read shares the frame around that position and
+  leads elsewhere (`discriminates`): `sea-level` is `sea level`, but `melting`
+  is not `boiling` beside a stored `freezing point …`.
 
 Putting the asker's referent there is `reference`'s job: it needs the corpus's
 evidence of carriage.
@@ -58,7 +66,14 @@ rarest stored windows as `reference` reads a frame instance (`frameSlots`). A
 mismatch is a corroborated substitution only when:
 
 - the question's span is attested in the corpus;
-- the geometry clears `conceptThreshold`, or the halo clears `significanceBar`;
+- the two are identical — a mismatch within one window whose geometry clears
+  `conceptThreshold` — or the swap is an equivalence the corpus licenses
+  (`substitutes`): the company of the bytes where the two spans part
+  (`partingHalo`, never the absorbed bytes they share) proposes it beyond chance
+  (`significanceBar`), and the corpus's minimal pairs decide — refuted by a
+  stored context that, with one in the other's place, leads elsewhere; shown by
+  one that leads to the same continuation; and where the corpus never made the
+  swap, the company must clear the synonym tiers' `conceptThreshold`;
 - the frame is unanimous;
 - the gap is balanced in length.
 

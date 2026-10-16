@@ -19,10 +19,12 @@ import type {
   Site,
 } from "../graph-search.js";
 import { canonResolve, read, resolve } from "../primitives.js";
+import { twoQuanta } from "../../geometry.js";
 import { indexOf } from "../../bytes.js";
 import {
   answersOtherQuestions,
   askedEvidence,
+  canonHeldPoints,
   guidedFirst,
   hubBound,
   offsetCanon,
@@ -284,6 +286,24 @@ export const coverMechanism: PipelineMechanism = {
         "a piece of other forms whose continuations the question names none of — it answers other questions",
       );
       sites = leading;
+    }
+
+    // A FORM THE QUESTION HOLDS UNDER ITS EQUIVALENCE IS A SITE TOO
+    // (traverse.ts, `canonHeldPoints`): the climb proposed it, the canonical
+    // question's bytes decided it — `Man At Bath` holds the stored `Man at
+    // Bath`.  Read once the climb has run (the pipeline reads the cover again
+    // then); where recognition already read bytes, its site stands.  The same
+    // bar an argument clears (two quanta), leading somewhere, and not a piece
+    // that answers other questions.
+    for (
+      const p of canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup))
+    ) {
+      if (!ctx.store.hasNext(p.payload)) continue;
+      if (sites.some((s) => s.start < p.end && p.start < s.end)) continue;
+      if (
+        answersOtherQuestions(ctx, p.payload, query.length, p.end - p.start)
+      ) continue;
+      sites = [...sites, p];
     }
 
     if (sites.length === 0 && computed.length === 0) return [];

@@ -183,15 +183,30 @@ export class Precomputed {
    *  a different and much stronger claim, gated by the consumer that voices
    *  (reference.ts), which needs projections this must not perform. */
   frames(): Promise<ReadonlyArray<FrameInstance>> {
-    return this._frames ??= this.shared(
-      "frames",
-      async () =>
-        instancesOf(
-          this.ctx,
-          this.query,
-          (await this.resonance()).map((h) => h.id),
-        ),
-    );
+    return this._frames ??= this.shared("frames", async () => {
+      // THE ONE INVENTORY of forms proposed as instances of the question —
+      // the same two sources the exact tier reads co-instances from
+      // (traverse.ts, `instanceProposals`): the resonance list, ranked by
+      // gist, and the consensus climb's points, reached by structure from the
+      // question's own windows.  The gist ranking alone misses a form whose
+      // gist a crowd of nearer forms outranks; the climb reaches it from the
+      // windows they share.  Taken alternately, each source at the evidence
+      // breadth `k`, and read by ONE reading (`instancesOf`).
+      const gist = (await this.resonance()).map((h) => h.id);
+      const climb = (await this.attention()).ranked
+        .slice(0, this.k)
+        .map((a) => a.anchor);
+      const ids: number[] = [];
+      const taken = new Set<number>();
+      for (let i = 0; i < Math.max(gist.length, climb.length); i++) {
+        for (const id of [gist[i], climb[i]]) {
+          if (id === undefined || taken.has(id)) continue;
+          taken.add(id);
+          ids.push(id);
+        }
+      }
+      return instancesOf(this.ctx, this.query, ids);
+    });
   }
 
   private _attention?: Promise<AttentionRead>;

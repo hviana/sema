@@ -8,7 +8,7 @@ import { indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { spliceAll } from "./types.js";
 import { recognise } from "./recognition.js";
-import { answers, contains } from "./traverse.js";
+import { answers, contains, substitutes } from "./traverse.js";
 import { bestHaloMate } from "./match.js";
 import { noLicence } from "./graph-search.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
@@ -92,6 +92,18 @@ export async function articulate(
     // of it, and "where is it kept now" comes back in place of "it hangs in
     // madrid".  The contract is re-voicing, never replacement.
     if (s.start === 0 && s.end === answer.length) continue;
+    // A REVOICING IS A SUBSTITUTION, and a halo mate is only a proposal: a
+    // father and his son keep the same company, and splicing the asker's
+    // `Edward de Vere` over the answer's `John de Vere` made the father his own
+    // son.  The corpus's minimal pairs decide (`substitutes`, traverse.ts).
+    if (
+      !substitutes(
+        ctx,
+        answer.subarray(s.start, s.end),
+        voice.bytes,
+        found.score,
+      )
+    ) continue;
     substitutions.set(s.payload, voice.bytes);
   }
   if (substitutions.size === 0) {

@@ -27,6 +27,7 @@ import type {
   SaturationStop,
 } from "./types.js";
 import {
+  AGREEMENT,
   atomIsHub,
   composeStructuralGist,
   consensusFloor,
@@ -52,13 +53,13 @@ import {
   junctionSeeds,
   junctionSynonyms,
   type JunctionSynonymSides,
+  licensedVariants,
   loadJunctionSynonymSides,
-  pairVariants,
   type SynonymJunction,
   walkCache,
 } from "./junction.js";
 import type { Vec } from "../vec.js";
-import { indexOf, latin1 } from "../bytes.js";
+import { indexOf, latin1, sharedEnds } from "../bytes.js";
 import { restates, unionSpans, windowSpans } from "./derivation.js";
 import type { RationaleItem } from "./rationale.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
@@ -86,6 +87,7 @@ import { rItem, rNode, traceDerivation } from "./trace.js";
  *  two tiers ("exact" | "synonym"); with the richer `CrossRegionTier` now
  *  the real shape of a junction vote's provenance, `junctionVotes[].tier`
  *  reports it DIRECTLY (the tier as-is: "exact" | "single-synonym" |
+ *  "double-synonym" |
  *  "structural-resonance") rather than collapsing every
  *  non-exact tier into a lossy "synonym" bucket — the whole point of
  *  exposing `tier` here is to let a debugger tell a halo-sibling
@@ -165,7 +167,8 @@ export interface ConsensusReachTrace {
 
 export type AnchorRejectionReason =
   | "below-natural-break"
-  | "below-consensus-floor";
+  | "below-consensus-floor"
+  | "leading-scaffolding";
 
 export interface ConsensusAnchorTrace {
   anchor: number;
@@ -231,7 +234,7 @@ export interface CrossRegionTierAttemptTrace {
  *  that returned at least one container.  Only aggregate counts
  *  and the final outcome are recorded, never every candidate. */
 export interface CrossRegionStructuralTrace {
-  tier: "exact" | "single-synonym";
+  tier: "exact" | "single-synonym" | "double-synonym";
   selfEvidenceRejected: number;
   contradictionRejected: number;
   passedGuards: number;
@@ -643,8 +646,39 @@ export async function computeAttention(
     return { roots: [], ranked: [] };
   }
 
-  const pooled = poolVotes(ctx, allVotes);
-  return commitVotes(ctx, pooled, regions, rvs.voters, N, td, cfg);
+  // A SHARED OPENING IS NOBODY'S EVIDENCE (`sharedOpening`): the votes of
+  // regions lying in it are dropped and the rest pooled again, and a further
+  // point whose focus starts in it is no root (commitVotes).  Measured on
+  // test/17: the preamble's regions alone carried an unrelated stored answer
+  // (time-management advice) to a root beside the photosynthesis fact.
+  let pooled = poolVotes(ctx, allVotes);
+  const opening = sharedOpening(ctx, query, [...pooled.votes.keys()]);
+  if (opening > 0) {
+    const kept = allVotes.filter((v) => v.end > opening);
+    if (kept.length < allVotes.length) pooled = poolVotes(ctx, kept);
+  }
+  return commitVotes(ctx, pooled, regions, rvs.voters, N, td, cfg, opening);
+}
+
+/** THE SHARED OPENING: the bytes the question begins with that EVERY anchor
+ *  the climb ranked begins with too.  What all the proposals share
+ *  distinguishes none of them — a system preamble every deposit carries — so
+ *  it is nobody's evidence.  Read on the proposals themselves: hash-consing
+ *  interns such a preamble once, so its windows look rare to every structural
+ *  count.  0 when fewer than `AGREEMENT` anchors, or the shared run is under a
+ *  window or the whole question. */
+function sharedOpening(
+  ctx: MindContext,
+  query: Uint8Array,
+  anchors: readonly number[],
+): number {
+  if (anchors.length < AGREEMENT) return 0;
+  let opening = query.length;
+  for (const a of anchors) {
+    opening = Math.min(opening, sharedEnds(read(ctx, a, opening), query)[0]);
+    if (opening < ctx.space.maxGroup) return 0;
+  }
+  return opening >= query.length ? 0 : opening;
 }
 
 export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
@@ -1052,7 +1086,65 @@ export async function voteRegions(
       examinedIds?.add(voterId);
     }
 
-    const reach = edgeAncestors(ctx, voterId, N, reachMemo);
+    let reach = edgeAncestors(ctx, voterId, N, reachMemo);
+    // THE RANKING IS AN ESTIMATE, NOT EVIDENCE.  A region's vote must not die
+    // with its TOP hit: the hits below it are already fetched, and a top
+    // anchor that climbs to no context (an orphan) is an accident of the
+    // approximate order, not a sign the region relates to nothing — so the
+    // nearest hit that climbs votes instead.  And a SATURATED top hit (a hub,
+    // whose reach concludes nothing) may claim the region's abstention only
+    // when it is DISTINGUISHABLY nearest: within the estimator's noise of it
+    // (√2× the per-score error, ≈ 1/√D, `estimatorNoise`) two hits are the
+    // same rank, and the nearest tied hit that climbs somewhere unsaturated
+    // votes.  A known region's anchor is exact, not an estimate: only the
+    // orphan reading applies to it.
+    if (reach.roots.length === 0 && !reach.saturated) {
+      for (const h of await ensureHits()) {
+        if (h.id === voterId) continue;
+        const r2 = edgeAncestors(ctx, h.id, N, reachMemo);
+        examinedIds?.add(h.id);
+        if (r2.saturated || r2.roots.length > 0) {
+          ctx.trace?.step(
+            "anchorFallback",
+            [rNode(ctx, voterId, "orphan-anchor", score)],
+            [rNode(ctx, h.id, "anchor", h.score)],
+            "the top-ranked anchor climbs to no context — a lower-ranked hit votes instead",
+          );
+          [reach, voterId, score, scoreId, selectedSource] = [
+            r2,
+            h.id,
+            h.score,
+            h.id,
+            "ann",
+          ];
+          break;
+        }
+      }
+    } else if (!canonicalUsable && reach.saturated) {
+      const band = estimatorNoise(ctx.store.D);
+      for (const h of await ensureHits()) {
+        if (h.id === voterId) continue;
+        if (h.score < score - band) break; // hits are nearest-first
+        const r2 = edgeAncestors(ctx, h.id, N, reachMemo);
+        examinedIds?.add(h.id);
+        if (!r2.saturated && r2.roots.length > 0) {
+          ctx.trace?.step(
+            "anchorFallback",
+            [rNode(ctx, voterId, "saturated-anchor", score)],
+            [rNode(ctx, h.id, "anchor", h.score)],
+            "the top-ranked anchor is a saturated hub tied within estimator noise — the tied hit votes instead",
+          );
+          [reach, voterId, score, scoreId, selectedSource] = [
+            r2,
+            h.id,
+            h.score,
+            h.id,
+            "ann",
+          ];
+          break;
+        }
+      }
+    }
     const selected: ConsensusRegionTrace["selected"] | undefined = !td
       ? undefined
       : (() => {
@@ -1475,6 +1567,7 @@ export function commitVotes(
   N: number,
   td?: TraceDraft,
   cfg?: ClimbConsensusCfg,
+  opening = 0,
 ): AttentionRead {
   const {
     votes,
@@ -1752,7 +1845,18 @@ export function commitVotes(
         ) * estimatorNoise(ctx.store.D);
         const dominantVote = votesIdf.get(roots[0].anchor) ?? 0;
         tiedWithDominant = dominantVote - vote < tieBand;
-        if ((passesNaturalBreak && passesConsensusFloor) || tiedWithDominant) {
+        // A SHARED OPENING IS NOBODY'S EVIDENCE.  A further point whose focus
+        // starts inside the question's shared opening (above: a system
+        // preamble every deposit carries) is an anchor that preamble
+        // reached, not one the question asked about — measured on test/17,
+        // where it fused an unrelated stored answer (guitar advice) into the
+        // Dream Team summary.  The dominant is exempt, as it is from the vote
+        // gates: it is the question's own reading.
+        const inOpening = point.start < opening;
+        if (
+          ((passesNaturalBreak && passesConsensusFloor) || tiedWithDominant) &&
+          !inOpening
+        ) {
           status = "root";
         } else {
           status = "rejected";
@@ -1760,6 +1864,7 @@ export function commitVotes(
           if (!passesConsensusFloor) {
             rejectionReasons.push("below-consensus-floor");
           }
+          if (inOpening) rejectionReasons.push("leading-scaffolding");
         }
       }
       if (status === "root") {
@@ -2067,6 +2172,7 @@ export function naturalBreak(votes: number[]): number {
 export type CrossRegionTier =
   | "exact"
   | "single-synonym"
+  | "double-synonym"
   | "structural-resonance";
 
 export interface StructuralVariant {
@@ -2160,8 +2266,8 @@ function loadBoundedSiblingGist(
  *  exact/exact composition is always kept; up to `ctx.cfg.haloQueryK`
  *  synonym variants (single- and double-synonym combined, one shared
  *  budget) are appended, ordered by confidence, then kind, then sibling id.
- *  Variant selection is entirely lightweight (see {@link
- *  pairVariants}); a sibling's bytes are read and perceived
+ *  Only licensed replacements are variants ({@link licensedVariants}); a
+ *  sibling's gist is perceived
  *  only for specs actually retained, and at most once per sibling id per
  *  climb via `siblingGistMemo`. */
 export function buildStructuralVariants(
@@ -2170,6 +2276,7 @@ export function buildStructuralVariants(
   rb: Region,
   sides: JunctionSynonymSides,
   siblingGistMemo: Map<number, CachedSiblingGist>,
+  query: Uint8Array,
 ): {
   variants: StructuralVariant[];
   exactLeft: StructuralPart;
@@ -2197,7 +2304,16 @@ export function buildStructuralVariants(
   // root that merely appeared in a halo result.
   const maxSiblingBytes = (leftLen + rightLen) * ctx.space.maxGroup;
 
-  const specs = pairVariants(sides, true);
+  // Only LICENSED replacements compose a variant (junction.ts,
+  // `licensedVariants`): a sibling the corpus refutes is no spelling of the side.
+  const specs = licensedVariants(
+    ctx,
+    sides,
+    query.subarray(ra.start, ra.end),
+    query.subarray(rb.start, rb.end),
+    true,
+    maxSiblingBytes,
+  );
   const localGistMemo = new Map<number, Vec | null>();
   let retainedSynonyms = 0;
 
@@ -2320,6 +2436,7 @@ export async function structuralResonance(
     rb,
     sides,
     siblingGistMemo,
+    query,
   );
   if (trace) trace.variantBudget = ctx.cfg.haloQueryK;
 
@@ -2862,7 +2979,7 @@ async function crossRegionVotes(
         // recorded, never every candidate.
         const structuralTrace: CrossRegionStructuralTrace | undefined = probe
           ? {
-            tier: tier as "exact" | "single-synonym",
+            tier: tier as "exact" | "single-synonym" | "double-synonym",
             selfEvidenceRejected: 0,
             contradictionRejected: 0,
             passedGuards: 0,

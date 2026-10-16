@@ -16,7 +16,7 @@ import type { Hit } from "../store.js";
 import type { MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
 import { windowIds } from "./canonical.js";
-import { hubBound } from "./traverse.js";
+import { hubBound, readAllowance, substitutionGrade } from "./traverse.js";
 import { haloSiblings } from "./match.js";
 import { indexOf } from "../bytes.js";
 
@@ -31,7 +31,7 @@ export interface Junction {
 /** Which relaxation produced a {@link SynonymJunction}: one side replaced by
  *  a distributional halo sibling — the rung of the graded ladder below exact
  *  DAG containment (see {@link junctionSynonyms}). */
-export type SynonymJunctionTier = "single-synonym";
+export type SynonymJunctionTier = "single-synonym" | "double-synonym";
 
 export interface SynonymJunction extends Junction {
   tier: SynonymJunctionTier;
@@ -119,6 +119,45 @@ export function pairVariants(
     VARIANT_ORDER[a.kind] - VARIANT_ORDER[b.kind] ||
     (a.leftId ?? -1) - (b.leftId ?? -1) ||
     (a.rightId ?? -1) - (b.rightId ?? -1)
+  );
+}
+
+/** THE PAIR UP TO LICENSED EQUIVALENCES — {@link pairVariants} with every
+ *  replaced side put to the corpus (`substitutes`, traverse.ts): a sibling's
+ *  company proposes it, and a stored minimal pair that leads elsewhere refuses
+ *  it, and of a side's licensed siblings only those of the strongest grade
+ *  stand (`substitutionGrade`: shown in context before company alone).  A
+ *  sibling whose bytes exceed `maxBytes` is not phrase-sized and is dropped. */
+export function licensedVariants(
+  ctx: MindContext,
+  sides: JunctionSynonymSides,
+  left: Uint8Array,
+  right: Uint8Array,
+  double: boolean,
+  maxBytes: number,
+): PairVariant[] {
+  // One grade per sibling and side; each side keeps its strongest grade only
+  // (a sibling the corpus SHOWS outranks one standing on company alone).
+  const grades = (hits: Hit[], side: Uint8Array): Map<number, number> => {
+    const g = new Map<number, number>();
+    for (const h of hits) {
+      const b = read(ctx, h.id, maxBytes + 1);
+      g.set(
+        h.id,
+        b.length > 0 && b.length <= maxBytes
+          ? substitutionGrade(ctx, b, side, h.score)
+          : 0,
+      );
+    }
+    const top = Math.max(0, ...g.values());
+    for (const [id, v] of g) if (v < top || v === 0) g.delete(id);
+    return g;
+  };
+  const L = grades(sides.leftSiblings, left);
+  const R = grades(sides.rightSiblings, right);
+  return pairVariants(sides, double).filter((v) =>
+    (v.leftId === undefined || L.has(v.leftId)) &&
+    (v.rightId === undefined || R.has(v.rightId))
   );
 }
 
@@ -482,7 +521,7 @@ export async function junctionSynonyms(
   // ── Tier 2.5a: single-synonym — one side replaced by a halo sibling ──────
   // ONE shared expansion budget across BOTH directions.
   const singleBudget = sharedBudget ??
-    { n: hubBound(ctx) * ctx.space.maxGroup };
+    { n: readAllowance(ctx) * ctx.space.maxGroup };
   const singleOut = new Map<number, SynonymJunction>();
   const keepBest = (
     map: Map<number, SynonymJunction>,
@@ -506,10 +545,11 @@ export async function junctionSynonyms(
     }
     return v;
   };
-  for (const v of pairVariants(s, false)) {
+  const variants = licensedVariants(ctx, s, left, right, true, maxInterior);
+  for (const v of variants) {
+    if (v.kind === "double-synonym") continue;
     const sib = v.leftId ?? v.rightId!;
     const sibBytes = read(ctx, sib, maxInterior + 1);
-    if (sibBytes.length === 0 || sibBytes.length > maxInterior) continue;
     const onLeft = v.leftId !== undefined;
     const [l, r] = onLeft ? [sibBytes, right] : [left, sibBytes];
     const containers = junctionContainersFrom(
@@ -527,8 +567,34 @@ export async function junctionSynonyms(
     }
   }
 
-  // (A double-synonym tier — BOTH sides replaced by halo siblings, tried when
-  // no single replacement found a container — was measured to find nothing
-  // the suite or three 2Wiki fixtures used, and removed.)
-  return [...singleOut.values()];
+  if (singleOut.size > 0) return [...singleOut.values()];
+
+  // ── Double-synonym — BOTH sides replaced, each by a licensed equivalent,
+  // tried only when no single replacement found a container: two
+  // substitutions, so it ranks below one (its confidence is the weaker side's).
+  // At most haloQueryK pairs, one fresh shared budget for the tier.
+  const doubleOut = new Map<number, SynonymJunction>();
+  const budget = sharedBudget ??
+    { n: readAllowance(ctx) * ctx.space.maxGroup };
+  let tries = 0;
+  for (const v of variants) {
+    if (v.kind !== "double-synonym") continue;
+    if (tries++ >= ctx.cfg.haloQueryK) break;
+    const l = read(ctx, v.leftId!, maxInterior + 1);
+    const r = read(ctx, v.rightId!, maxInterior + 1);
+    const containers = junctionContainersFrom(
+      ctx,
+      l,
+      r,
+      l.length + r.length + maxInterior,
+      junctionSeeds(ctx, l),
+      junctionSeeds(ctx, r),
+      budget,
+      unordered,
+    );
+    for (const c of containers) {
+      keepBest(doubleOut, c, "double-synonym", v.confidence);
+    }
+  }
+  return [...doubleOut.values()];
 }

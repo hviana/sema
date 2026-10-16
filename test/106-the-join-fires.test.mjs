@@ -113,3 +113,48 @@ test("the asker's wording that already holds the answer's form is not spliced in
   assert.equal(text(await mind.respond("eva director")).trim(), lower);
   await mind.store.close();
 });
+
+test("a halo mate the corpus tells apart is not spliced into the answer", async () => {
+  // A father and his son keep the same company — each leads to `The father of
+  // … is …` and `The place of birth of … is …` — so the son's name is a halo
+  // mate of the father's.  Articulation once revoiced the answer's `John de
+  // Vere, 16th Earl of Oxford` as the asker's `Edward De Vere, 17Th Earl Of
+  // Oxford` (measured on the 2Wiki fixture): "The father of Edward … is Edward
+  // …", and the grandfather voiced as the father.  The corpus refutes the
+  // swap: `… father` with one name in the other's place is a stored context
+  // leading to another fact (traverse.ts, `licensedSubstitution`).
+  const name = (n) => `${n} Earl of Oxford`;
+  const [ed, j16, j15] = [
+    name("Edward de Vere, 17th"),
+    name("John de Vere, 16th"),
+    name("John de Vere, 15th"),
+  ];
+  const father = (x, y) => `The father of ${x} is ${y}.`;
+  const born = (x) => `The place of birth of ${x} is Castle Hedingham.`;
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store });
+  await mind.ingest([
+    [`${ed} father`, father(ed, j16)],
+    [`${j16} father`, father(j16, j15)],
+    [ed, father(ed, j16)],
+    [j16, father(j16, j15)],
+    [`${ed} place of birth`, born(ed)],
+    [`${j16} place of birth`, born(j16)],
+  ]);
+  await mind.buildCanonIndex();
+  const asked = "Edward De Vere, 17Th Earl Of Oxford";
+  for (
+    const q of [`${asked} father`, `Who is ${asked}'s paternal grandfather?`]
+  ) {
+    const got = text(await mind.respond(q));
+    assert.ok(
+      !got.includes(`of ${asked} is`) && !got.includes(`is ${asked}`),
+      `${q}: the asker's name spliced over another person — got "${got}"`,
+    );
+  }
+  assert.equal(
+    text(await mind.respond(`${asked} father`)).trim(),
+    father(ed, j16),
+  );
+  await mind.store.close();
+});

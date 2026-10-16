@@ -21,6 +21,7 @@ import {
   corpusN,
   hubBound,
   otherInstance,
+  unlicensedSwap,
 } from "../traverse.js";
 import { project, reverseContext, voicesDisplacedFiller } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
@@ -321,6 +322,12 @@ export async function recallByResonance(
       // Song) born?` elected `Where was Nicki Minaj (Nicki Minaj Song) born?`
       // and answered Nicki Minaj's birthplace.
       const co = otherInstance(ctx, anchorBytes);
+      // …and whatever fills the slot: an anchor that is the question with one
+      // span swapped answers it only when the corpus licenses the swap as an
+      // equivalence (traverse.ts, `unlicensedSwap`) — `… largest planet …`
+      // grounded `… largest ocean …` with Jupiter, `planet` being no learnt
+      // thing for the instance reading above to name.
+      const swap = co === null ? unlicensedSwap(ctx, anchorBytes) : null;
       if (co !== null) {
         ctx.trace?.step(
           "coInstanceAnchor",
@@ -328,6 +335,20 @@ export async function recallByResonance(
           [rItem(anchorBytes.subarray(co.span[0], co.span[1]), "filler")],
           "refused — the anchor is another instance of the question's frame, " +
             "and its continuation speaks of its own filler",
+        );
+      } else if (swap !== null) {
+        ctx.trace?.step(
+          "unlicensedSwap",
+          [rItem(query, "query"), rNode(ctx, forest[0].anchor, "anchor")],
+          [
+            rItem(
+              anchorBytes.subarray(swap.stored[0], swap.stored[1]),
+              "stored",
+            ),
+            rItem(query.subarray(swap.asked[0], swap.asked[1]), "asked"),
+          ],
+          "refused — the anchor is the question with one span swapped, and " +
+            "the corpus licenses no equivalence between the two",
         );
       } else if (
         g !== null && voicesDisplacedFiller(ctx, query, anchorBytes, g)
@@ -365,9 +386,9 @@ export async function recallByResonance(
 
   // 3b. Corroborated-substitution bridge — refusal-path only (bridge.ts). The
   // bridge reads the response's ONE frame inventory (`Precomputed.frames`):
-  // the top-k resonance read, each hit already read against the query as
-  // `reference` reads it — never an exhaustive √N scan, and never a second
-  // reading of the same pairing.
+  // the top-k resonance read and the climb's points, each already read
+  // against the query as `reference` reads it — never an exhaustive √N scan,
+  // and never a second reading of the same pairing.
 
   // Every gist-based tier has failed; before refusing, align the query
   // byte-for-byte against the trained contexts its own stored windows

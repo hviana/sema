@@ -26,7 +26,7 @@ export interface DepositCacheEntry {
   /** The plain content fold's reusable segment state. */
   content: ContentFold;
 }
-import { bytesEqual, concatBytes } from "../bytes.js";
+import { bytesEqual, concatBytes, indexOf } from "../bytes.js";
 import { restates } from "./derivation.js";
 import { dominates } from "../geometry.js";
 
@@ -413,6 +413,8 @@ export interface MindContext extends GraphSearchHost {
    *  reads co-instances from. */
   _edgeAsked:
     | {
+      /** The question's own bytes, as asked. */
+      raw: Uint8Array;
       bytes: Uint8Array;
       index: WindowIndex;
       points?: readonly number[];
@@ -528,10 +530,25 @@ export function liftAnswerParts(
   W: number,
 ): Seg[] {
   const restated = segs.map((s) => segRestatesQuery(s, query, queryLen, W));
-  const recognised: number[] = [];
+  const candidates: number[] = [];
   for (let k = 0; k < segs.length; k++) {
-    if (segs[k].rec && !restated[k]) recognised.push(k);
+    if (segs[k].rec && !restated[k]) candidates.push(k);
   }
+  // WHAT ONE PART ALREADY SAYS IS NOT SAID AGAIN.  A recognised part whose
+  // bytes another part of the same answer holds — a longer one, or the first
+  // of two alike — was said there: `… Seen from Paris at night, The largest
+  // planet is Jupiter.` already voices the second topic's ` The largest planet
+  // is Jupiter.`, and composing both voiced it twice.  Below one window
+  // nothing is said (the evidence floor), so short parts stay.
+  const recognised = candidates.filter((k) =>
+    segs[k].bytes.length < W ||
+    !candidates.some((o) =>
+      o !== k &&
+      (segs[o].bytes.length > segs[k].bytes.length ||
+        (segs[o].bytes.length === segs[k].bytes.length && o < k)) &&
+      indexOf(segs[o].bytes, segs[k].bytes, 0) >= 0
+    )
+  );
   if (recognised.length === 0) return [];
 
   if (recognised.length === 1) {

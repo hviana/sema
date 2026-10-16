@@ -45,6 +45,7 @@ import {
   convergenceMeets,
   convergenceOf,
   corpusN,
+  entitiesIn,
   heldEntity,
   hubBound,
   reachOf,
@@ -370,10 +371,29 @@ export async function confluenceJoin(
           // run takes whatever bytes of the facts the question did not write
           // (`On? is George Gershwin`, the tail of a title the question
           // spelled `On??`), and a walk goes on from the thing alone.
+          // A RUN THE QUESTION'S SPELLING CUT IS THE THING IT CUTS.  The run
+          // is what the facts share minus the windows the question wrote, so
+          // where the question spelled part of a thing the facts hold whole,
+          // the run is that thing with the spelled part cut away: `Which
+          // country Thomas Lyon-Bowes, Lord Glamis's father is from?` met at
+          // `s, 11th Earl of Strathmore and Kinghorne` — the father,
+          // `Thomas Lyon-Bowes, 11th Earl of Strathmore and Kinghorne`, whose
+          // name the son's shares — and voiced the cut.  The meet is the
+          // thing the fact learnt whole around the run (`entitiesIn`).
           const raw = aBytes.subarray(s, e);
-          const thing = asksAThing() ? thingIn(ctx, raw) : null;
-          if (asksAThing() && thing === null) continue;
-          const piece = thing?.bytes ?? raw;
+          let piece: Uint8Array;
+          if (asksAThing()) {
+            const thing = thingIn(ctx, raw);
+            if (thing === null) continue;
+            piece = thing.bytes;
+          } else {
+            const cut = entitiesIn(ctx, text).held.find(({ span: [hs, he] }) =>
+              hs <= s && he >= e && (hs < s || he > e)
+            );
+            piece = cut === undefined
+              ? raw
+              : aBytes.subarray(cut.span[0], cut.span[1]);
+          }
           let reach = Infinity;
           for (let off = s; off + W <= e; off++) {
             const wid = wa.get(off);

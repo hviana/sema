@@ -734,14 +734,19 @@ export function fusionLayer(
       // synchronous — checked before the async already-answered walk below.
       //
       // BELOW ONE WINDOW, BYTE IDENTITY IS NOT EVIDENCE (attention.ts): a
-      // confined, narrow point whose strongest evidence is shorter than a
-      // window — the `)?` closing `… (1971 Film)?`, which also closes a stored
-      // `Who is the uncle of Auberon Herbert (Landowner)?` — is no further topic
-      // however many scaffolding windows (`the `, ` of `) it also shares.
+      // narrow point whose strongest evidence is shorter than a window — the
+      // `)?` closing `… (1971 Film)?`, which also closes a stored `Who is the
+      // uncle of Auberon Herbert (Landowner)?` — is no further topic however
+      // many scaffolding windows (`the `, ` of `) it also shares, and however
+      // many places it is read in: where the strongest place is under a
+      // window, every place is.  test/17's photosynthesis distractor fused the
+      // time-management advice on two 3-byte scraps of `I was chatting with a
+      // friend and…` (`h a`, `d a`), two places by count.
       if (
-        root.clusters < 2 && root.breadth <= 0.5 &&
+        root.breadth <= 0.5 &&
         (root.end - root.start < quantum ||
-          sharedPlaces(read(ctx, root.anchor), query, quantum) < 2)
+          (root.clusters < 2 &&
+            sharedPlaces(read(ctx, root.anchor), query, quantum) < 2))
       ) {
         ctx.trace?.step(
           "singleCluster",

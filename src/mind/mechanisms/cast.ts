@@ -17,13 +17,13 @@ import { read } from "../primitives.js";
 import {
   answersOtherQuestions,
   argmaxBy,
-  corpusN,
   heldElsewhere,
   hubBound,
   hubWindows,
   offsetCanon,
   otherInstance,
   thingIn,
+  unlicensedSwap,
 } from "../traverse.js";
 import {
   analogyStrength,
@@ -35,10 +35,9 @@ import {
 } from "../match.js";
 import { joinWithBridge } from "../resonance.js";
 import { CONCEPT, STEP } from "../graph-search.js";
-import { indexOf, latin1, sharedEnds } from "../../bytes.js";
+import { bytesEqual, indexOf, latin1, sharedEnds } from "../../bytes.js";
 import {
   AGREEMENT,
-  consensusFloor,
   dominates,
   instanceCap,
   phraseCap,
@@ -52,6 +51,7 @@ import {
 } from "../derivation.js";
 import { rItem, rNode } from "../trace.js";
 import { dismissedKnownContent } from "../bridge.js";
+import { witness } from "../evidence.js";
 
 // ── CAST gates ────────────────────────────────────────────────────────────
 //
@@ -482,12 +482,81 @@ export async function counterfactualTransfer(
   const isCoInstance = (anchor: number): boolean => {
     let v = coInstances.get(anchor);
     if (v === undefined) {
-      v =
-        otherInstance(ctx, read(ctx, anchor, instanceCap(query.length) + 1)) !==
-          null;
+      // ANOTHER QUESTION, either way the law reads it: the question's frame
+      // around another thing (`otherInstance`), or the question with one
+      // piece swapped for another the corpus licenses no equivalence with
+      // (`unlicensedSwap`) — `What is the largest planet in our solar
+      // system?` is no analog of `… largest country …`, it is another
+      // question (recall's anchor reads the same).
+      const raw = read(ctx, anchor, instanceCap(query.length) + 1);
+      v = otherInstance(ctx, raw) !== null || unlicensedSwap(ctx, raw) !== null;
       coInstances.set(anchor, v);
     }
     return v;
+  };
+
+  // TWO THINGS NAMED.  A comparison voices two structures, so the question
+  // must name EACH with material of its own: W-windows of the question the
+  // structure holds — on its aligned runs, or anywhere in its own form under
+  // the response's equivalence (the witness reading, evidence.md) — neither
+  // inside the other's runs nor corpus scaffolding (`hubWindows`), and a run of
+  // them no other context holds (`heldElsewhere`).  Exact decides which
+  // structure is meant; the halo only ranks.  `father of Frederick II?`
+  // reached `Peter III of Aragon father` through ` father`, which the dominant
+  // `Frederick II father` already holds, and ` of `, which every fact holds —
+  // and the comparison glued the analog's bare question onto the answer.
+  // `When was the director of film Reykjavík-Rotterdam born?` named `David
+  // Eady (film director) date of birth` by `ctor` and `film `, which its
+  // `date of death` holds too; `In which town did Z come into the world?`
+  // named the dominant `Did W come into the world in X?` by what every `Did …
+  // come into the world in …?` holds.  `How is ice like steel?` names `Ice is
+  // cold` with `ice `, which no run aligns (the case differs) and no other
+  // context holds.
+  const namedMemo = new Map<string, boolean>();
+  const namesApart = (
+    point: number,
+    voiced: number,
+    runs: Array<[number, number]>,
+    other: Array<[number, number]>,
+  ): boolean => {
+    const key = `${point}:${voiced}`;
+    const hit = namedMemo.get(key);
+    if (hit !== undefined) return hit;
+    const W = ctx.space.maxGroup;
+    const hub = hubWindows(ctx, query);
+    const cap = phraseCap(query.length, W);
+    const forms = [point, voiced].map((id) =>
+      offsetCanon(ctx, read(ctx, id, cap))
+    );
+    const owns = (o: number): boolean =>
+      !hub[o] && !other.some(([ms, me]) => o >= ms && o + W <= me);
+    const own = new Set<number>();
+    for (const [s, e] of runs) {
+      for (let o = s; o + W <= e; o++) {
+        const w = offsetCanon(ctx, query.subarray(o, o + W));
+        if (owns(o) && forms.some((f) => indexOf(f, w, 0) >= 0)) own.add(o);
+      }
+    }
+    const asked = ctx._edgeAsked;
+    if (asked !== null) {
+      const form = offsetCanon(
+        ctx,
+        read(ctx, voiced, phraseCap(asked.bytes.length, W)),
+      );
+      for (let o = 0; o + W <= form.length; o++) {
+        const at = asked.index.get(latin1(form.subarray(o, o + W)));
+        if (at !== undefined && owns(at)) own.add(at);
+      }
+    }
+    // A span is a run of consecutive owned windows.
+    const spans = unionSpans(windowSpans(own, W), 1 - W);
+    // Named apart only where the net was read to its end and held by no other
+    // context; a saturated net (commonness past the hub) abstains.
+    const out = spans.some((sp) =>
+      heldElsewhere(ctx, query, sp, point, voiced) === "apart"
+    );
+    namedMemo.set(key, out);
+    return out;
   };
 
   // ── SUBSTITUTION ──────────────────────────────────────────────────
@@ -568,6 +637,23 @@ export async function counterfactualTransfer(
       if (!voiceable(p) || isCoInstance(p.anchor)) return null;
       const before = beforeOf(p, r);
       if (before === undefined) return null;
+      // …and the question NAMES the displaced structure, as a comparison must
+      // name both of its structures (`namesApart`): material of its own, apart
+      // from the subject's, no scaffolding, held by no other context.  `When
+      // did Prince John Konstantinovich Of Russia's mother die?` displaced
+      // `Where did Eunseong Kim study at?` on ` did ` alone and voiced `When
+      // did Eunseong Kim study at?` with that question's answer.
+      if (
+        !namesApart(p.anchor, p.anchor, runSpans(p), runSpans(before.point)) ||
+        !namesApart(
+          before.point.anchor,
+          before.point.anchor,
+          runSpans(before.point),
+          runSpans(p),
+        )
+      ) {
+        return null;
+      }
       if (r.cs > fillerOf(before.point, before.run).length + quantum) {
         return null;
       }
@@ -734,9 +820,20 @@ export async function counterfactualTransfer(
       query.length,
       last.run.qe - last.run.qs,
     );
+  // …and the dominant must be DISPLACED: redirection replaces the dominant's
+  // answer, so a question that already restates one of the dominant's
+  // established continuations keeps it (`the capital of France is … and Paris
+  // is in` restates France's answer; redirecting to `Paris is in` voiced
+  // ` Europe` and dropped ` Tokyo`).  Capped at the hub bound like every
+  // fan-out: past it the test reads "none of the established continuations
+  // appears".
+  const displaced = last !== undefined &&
+    ctx.store.nextFirst(dominant.anchor, hubBound(ctx)).every((n) =>
+      !restates(query, read(ctx, n, phraseCap(query.length, quantum)), 0)
+    );
   if (
     last !== undefined && last.point !== dominant &&
-    voiceable(last.point) && !stranger
+    voiceable(last.point) && !stranger && displaced
   ) {
     const g = await project(ctx, last.point.anchor, qv);
     if (g !== null && !(await enumerates(dominant, g))) {
@@ -863,46 +960,40 @@ export async function counterfactualTransfer(
   //
   // It proposes nothing.  Measured on A2's own 13-pair corpus: `Michelangelo`
   // HAS a halo, and `haloSiblings` returns not one sibling above
-  // significanceBar — the distributional company that would make Shakespeare a
+  // significanceBar (let alone the concept threshold the tier is held to
+  // now) — the distributional company that would make Shakespeare a
   // cross-domain analog was never trained.  The asymmetry is real but it is not
   // what stops A2; the corpus is.
   let bestAnalog: AnalogCandidate | null = null;
   let bestSim = 0;
   let bestHalo = false;
-  // Whether the query itself NAMES a candidate.  A directly aligned point
-  // is named by construction — its runs ARE query bytes.  A hop-reached
-  // candidate is named when its own bytes contain the query text of an
-  // aligned run of the point whose continuation edge reached it (that
-  // alignment IS the query evidence the hop rests on — the same reading
-  // cmpAccounted already prices): "William Shakespeare", reached off
-  // "Macbeth was written by William Shakespeare.", contains the src's
-  // 12-byte aligned run " Shakespeare" — test/29 C2/C3.  The run must span
-  // at least TWO perception windows (2·W, the same two-quantum floor
-  // CAST's own entry gate holds the whole query to): a single shared
-  // W-window is exactly the frame tier's own evidence quantum — the level
-  // "half the corpus" shares — and stopword scraps (" the ", "he b",
-  // 4–5 bytes) never reach two windows, while a genuinely named entity
-  // does.  NOT the weave's usable()/frame filter: weave depth counts every
-  // ranked exemplar, so a query's own named entity recurring across
-  // exemplars ("Shakespeare" in Hamlet+Macbeth+…) is wrongly classified as
-  // frame — measured live, it silently disqualified C3's genuine analog.
-  const namedByQuery = (c: AnalogCandidate): boolean => {
-    if (c.point !== null) return true;
+  // How many question bytes a candidate's own bytes HOLD — the query NAMING
+  // it.  A run counts when it spans at least TWO perception windows (2·W, the
+  // same two-quantum floor CAST's own entry gate holds the whole query to): a
+  // single shared W-window is exactly the frame tier's own evidence quantum —
+  // the level "half the corpus" shares — and stopword scraps (" the ", "he b",
+  // 4–5 bytes) never reach two windows, while a genuinely named entity does.
+  // The runs are the candidate's own for an aligned point, and for a
+  // hop-reached candidate those of the point whose continuation edge reached
+  // it (that alignment IS the query evidence the hop rests on — the same
+  // reading cmpAccounted already prices): "William Shakespeare", reached off
+  // "Macbeth was written by William Shakespeare.", holds the src's 12-byte
+  // aligned run " Shakespeare" — test/29 C2/C3.  NOT the weave's
+  // usable()/frame filter: weave depth counts every ranked exemplar, so a
+  // query's own named entity recurring across exemplars ("Shakespeare" in
+  // Hamlet+Macbeth+…) is wrongly classified as frame — measured live, it
+  // silently disqualified C3's genuine analog.
+  const namedBytes = (c: AnalogCandidate): number => {
     const bytes = read(ctx, c.anchor);
-    return c.src.runs.some((r) =>
-      r.qe - r.qs >= twoQuanta(quantum) &&
-      indexOf(bytes, query.subarray(r.qs, r.qe), 0) >= 0
-    );
+    let named = 0;
+    for (const r of (c.point ?? c.src).runs) {
+      if (r.qe - r.qs < twoQuanta(quantum)) continue;
+      if (indexOf(bytes, query.subarray(r.qs, r.qe), 0) >= 0) {
+        named += r.qe - r.qs;
+      }
+    }
+    return named;
   };
-  // Whether any committed root's consensus vote clears the SAME trust bar
-  // recallByResonance applies before grounding through a climb root:
-  // consensusFloor(N) = ln(N) + 1/2.  The climb's FIRST root is
-  // deliberately floor-free (attention.ts: "the dominant one always
-  // grounds") — fine for ORIENTING mechanisms, not for voicing learnt
-  // content the query never asked about.  The hub fallback below reads it.
-  const rootTrusted = roots.some((r) =>
-    r.idfVote >= consensusFloor(corpusN(ctx))
-  ); // the IDF sum: the bar's own quantity
   // The context that ESTABLISHES a filler — the same reverse context, under
   // the same naming test, `seatOfNode` uses to VOICE an analog (a predecessor
   // whose bytes CONTAIN the node's: it names or describes it, rather than
@@ -973,7 +1064,7 @@ export async function counterfactualTransfer(
       // was named and "The Iliad was written by Homer." establishes it,
       // while the hop's own destination ("Homer was an ancient Greek poet")
       // has no establishing predecessor at all.  The same reading
-      // `namedByQuery` and `cmpAccounted` already take of a hop.
+      // `namedBytes` and `cmpAccounted` already take of a hop.
       const da = establishing(dominant.anchor);
       const ca = establishing(c.point !== null ? c.anchor : c.src.anchor);
       if (indexOf(da, ca, 0) < 0 && indexOf(ca, da, 0) < 0) {
@@ -996,72 +1087,43 @@ export async function counterfactualTransfer(
       bestHalo = halo;
     }
   }
-  // When every candidate fails the similarity gates (halo company — now
-  // deterministic signatures, see sema.ts — and the shared-frame tier),
-  // fall back to a candidate that is a genuine structural hub (edges in
-  // BOTH directions).  A hub node — a person, concept, or category — is
-  // the kind of thing that makes sense to compare across domains.  A leaf
-  // value (extracted span, terminal answer) has edges in at most one
-  // direction and comparing it would preempt the extraction pipeline,
-  // which is the right mechanism for those.  A fallback comparison carries
-  // NO similarity evidence — it stays honest only because the grounding
-  // decider weighs it against mechanisms that explain more of the query
-  // (extraction accounts its whole located envelope; see extraction.ts).
-  //
-  // WHICH hub: not the first in `analogs` order — that order flows from the
-  // vote ranking, which flows from approximate resonance, which is seed-
-  // dependent.  Pick by evidence instead: combined edge support (prevCount +
-  // fan-out), tie-broken by poured halo MASS (episode corroboration — the
-  // direct distributional evidence), then by LOWEST node id.  The id order
-  // is a property of the corpus, not of the seed — but note ids are SIGNED:
-  // byte leaves occupy −256…−1, so "lowest id" is creation order only among
-  // multi-byte nodes and byte-value order among leaves.  Either way it is
-  // deterministic, which is all the final tie-break must be.
+  // WHEN NO CANDIDATE PASSES THE SIMILARITY GATES, THE QUERY MAY STILL NAME
+  // ITS ANALOG.  Similarity is not the only warrant for a comparison: a
+  // candidate whose bytes hold a run of the question two windows long (the
+  // naming test, `namedBytes`) was asked about outright —
+  // test/29 C2/C3's "William Shakespeare".  The election is the query's own
+  // evidence: the candidate whose bytes hold the most question bytes, and no
+  // election when two tie — the question names both alike.  Popularity is no
+  // warrant: a fallback once elected the best-supported structural hub (edge
+  // support, then poured mass), which carries no information about which
+  // analogy the question asks for (Michelangelo for a Mona Lisa question).
   if (bestAnalog === null && analogs.length > 0) {
-    let hubSupport = -1;
-    let hubMass = -1;
-    const fanClamp = hubBound(ctx) + 1;
+    let bestNamed = 0;
+    let tied = false;
     for (const c of analogs) {
-      // A fallback comparison carries NO similarity evidence at all.  Its
-      // honesty rests on the grounding decider discounting it against
-      // richer candidates (the design note below) — an assumption that
-      // holds only when the climb itself settled on this query with real
-      // evidence.  Under a root the consensus floor does not trust, an
-      // unnamed, hop-reached hub is pure corpus adjacency: refusing it is
-      // what kept the live wrong echo silent.  A hub the query itself
-      // NAMED stays eligible either way (test/29 C2/C3's "William
-      // Shakespeare"); an unnamed one under a TRUSTED root stays eligible
-      // too (test/33 1b's deliberately weak second candidate).
-      if (!rootTrusted && !namedByQuery(c)) continue;
-      // Evidence clamped at the hub bound: beyond √N + 1 the exact fan-out
-      // no longer discriminates (every mega-hub ties at the clamp), and
-      // counting it exactly would require the corpus-sized read.
-      const fanOut = ctx.store.nextFirst(c.anchor, fanClamp).length;
-      if (fanOut === 0) continue;
-      const support = ctx.store.prevCount(c.anchor);
-      if (support === 0) continue;
-      const total = support + fanOut;
-      if (total < hubSupport) continue;
-      const mass = ctx.store.haloMass(c.anchor);
-      if (
-        total > hubSupport ||
-        mass > hubMass ||
-        (mass === hubMass && bestAnalog !== null &&
-          c.anchor < bestAnalog.anchor)
-      ) {
-        hubSupport = total;
-        hubMass = mass;
-        bestAnalog = c;
+      const named = namedBytes(c);
+      if (named === 0 || named < bestNamed) continue;
+      if (named === bestNamed) {
+        tied = true;
+        continue;
       }
+      bestNamed = named;
+      bestAnalog = c;
+      tied = false;
     }
-    if (bestAnalog !== null) {
-      ctx.trace?.step(
-        "tryAnalog",
-        [],
-        [rNode(ctx, bestAnalog.anchor, "fallback", hubSupport)],
-        "no candidate passed the similarity gates — using the best-supported structural hub",
-      );
-    }
+    if (tied) bestAnalog = null;
+    ctx.trace?.step(
+      "tryAnalog",
+      [],
+      bestAnalog !== null
+        ? [rNode(ctx, bestAnalog.anchor, "named", bestNamed)]
+        : [],
+      bestAnalog !== null
+        ? "no candidate passed the similarity gates — the question names this one outright"
+        : tied
+        ? "no candidate passed the similarity gates — the question names two alike, so neither is elected"
+        : "no candidate passed the similarity gates and the question names none",
+    );
   }
   ctx.trace?.step(
     "tryAnalog",
@@ -1087,69 +1149,6 @@ export async function counterfactualTransfer(
     : [];
   const cmpGaps = unexplainedSpans(query.length, cmpAccounted);
   const cmpMaxGap = cmpGaps.reduce((n, [s, e]) => Math.max(n, e - s), 0);
-  // TWO THINGS NAMED.  A comparison voices two structures, so the question
-  // must name EACH with material of its own: W-windows of the question the
-  // structure holds — on its aligned runs, or anywhere in its own form under
-  // the response's equivalence (the witness reading, evidence.md) — neither
-  // inside the other's runs nor corpus scaffolding (`hubWindows`), and a run of
-  // them no other context holds (`heldElsewhere`).  Exact decides which
-  // structure is meant; the halo only ranks.  `father of Frederick II?`
-  // reached `Peter III of Aragon father` through ` father`, which the dominant
-  // `Frederick II father` already holds, and ` of `, which every fact holds —
-  // and the comparison glued the analog's bare question onto the answer.
-  // `When was the director of film Reykjavík-Rotterdam born?` named `David
-  // Eady (film director) date of birth` by `ctor` and `film `, which its
-  // `date of death` holds too; `In which town did Z come into the world?`
-  // named the dominant `Did W come into the world in X?` by what every `Did …
-  // come into the world in …?` holds.  `How is ice like steel?` names `Ice is
-  // cold` with `ice `, which no run aligns (the case differs) and no other
-  // context holds.
-  const namedMemo = new Map<string, boolean>();
-  const namesApart = (
-    point: number,
-    voiced: number,
-    runs: Array<[number, number]>,
-    other: Array<[number, number]>,
-  ): boolean => {
-    const key = `${point}:${voiced}`;
-    const hit = namedMemo.get(key);
-    if (hit !== undefined) return hit;
-    const W = ctx.space.maxGroup;
-    const hub = hubWindows(ctx, query);
-    const cap = phraseCap(query.length, W);
-    const forms = [point, voiced].map((id) =>
-      offsetCanon(ctx, read(ctx, id, cap))
-    );
-    const owns = (o: number): boolean =>
-      !hub[o] && !other.some(([ms, me]) => o >= ms && o + W <= me);
-    const own = new Set<number>();
-    for (const [s, e] of runs) {
-      for (let o = s; o + W <= e; o++) {
-        const w = offsetCanon(ctx, query.subarray(o, o + W));
-        if (owns(o) && forms.some((f) => indexOf(f, w, 0) >= 0)) own.add(o);
-      }
-    }
-    const asked = ctx._edgeAsked;
-    if (asked !== null) {
-      const form = offsetCanon(
-        ctx,
-        read(ctx, voiced, phraseCap(asked.bytes.length, W)),
-      );
-      for (let o = 0; o + W <= form.length; o++) {
-        const at = asked.index.get(latin1(form.subarray(o, o + W)));
-        if (at !== undefined && owns(at)) own.add(at);
-      }
-    }
-    // A span is a run of consecutive owned windows.
-    const spans = unionSpans(windowSpans(own, W), 1 - W);
-    // Named apart only where the net was read to its end and held by no other
-    // context; a saturated net (commonness past the hub) abstains.
-    const out = spans.some((sp) =>
-      heldElsewhere(ctx, query, sp, point, voiced) === "apart"
-    );
-    namedMemo.set(key, out);
-    return out;
-  };
   const analogNamedApart = (): boolean =>
     bestAnalog !== null && namesApart(
       (bestAnalog.point ?? bestAnalog.src).anchor,
@@ -1172,17 +1171,30 @@ export async function counterfactualTransfer(
   // UNATTESTED spans ("How ", " like ") unexplained, while a scrap-matched
   // junk pair leaves the query's own trained content ("…songs…times…",
   // "…planet…sun.") dismissed as gaps (test/50).  A halo-tier analog is
-  // exempt: halo-tier company is independent evidence in its own right
-  // (test/33 1b's nickname-corroborated analog).
+  // exempt: company at the concept threshold is independent evidence in its
+  // own right (test/33 1b's nickname-corroborated analog; below it, company
+  // is a proposal — `analogyStrength`).
   //
   // MEASURED REDUNDANT, and removed: an evidence bar (halo tier, a naming by
   // the question that discriminates, or a root clearing consensusFloor), the
-  // analog's scale, a single committed root, and a largest gap that does not
-  // dominate the query.  Each was withdrawn alone and all four together over
-  // the suite and three 2Wiki fixtures (900 questions, a fresh Mind each):
-  // no answer moved — the ignored-known principle, the co-instance refusal,
-  // the gap against the dominant and the two namings below decide every case
-  // they did.
+  // analog's scale, and a largest gap that does not dominate the query.  Each
+  // was withdrawn alone and all together over the suite and three 2Wiki
+  // fixtures (900 questions, a fresh Mind each): no answer moved — the
+  // ignored-known principle, the co-instance refusal, the gap against the
+  // dominant and the two namings below decide every case they did; where the
+  // evidence bar refused on the 900 (80 questions), every one is refused by
+  // these.
+  //
+  // ONE COMMITTED ROOT.  A comparison seats ONE structure the question is
+  // about against an analog.  Where the climb commits several, the question
+  // asks about each in its own right — a conjunction or several topics, the
+  // meet's and fusion's to answer — and seating one against another voices
+  // two facts as analogs: `Who painted the Mona Lisa and designed flying
+  // machines?` compared Leonardo's two facts ("Leonardo painted the Mona
+  // Lisaflying machines") over the meet's "Leonardo" (test/32 C1).  Withdrawn
+  // once as redundant with the co-instance refusal; that reading does not see
+  // two facts of one subject.
+  const oneRoot = roots.length <= 1;
   const cmpDismisses = !bestHalo &&
     dismissedKnownContent(ctx, query, cmpAccounted);
   // …and both analogs must be something the question is ABOUT (`isCoInstance`):
@@ -1192,8 +1204,24 @@ export async function counterfactualTransfer(
   // was voiced whole beside the first hop of `Where was the father of …?`.
   const coInstanceAnalog = isCoInstance(dominant.anchor) ||
     (bestAnalog !== null && isCoInstance(bestAnalog.anchor));
+  // …and neither is the question ITSELF: a structure whose bytes are the
+  // question's under the response's equivalence (`Who painted The Gleaners?`
+  // for `Who painted the gleaners?`) is the question restated, not something
+  // it weaves — seated as an analog it voiced stored questions as the answer,
+  // and accounted the whole question doing so.
+  const asked = ctx._edgeAsked;
+  const isTheQuestion = (anchor: number): boolean =>
+    asked !== null &&
+    bytesEqual(
+      offsetCanon(ctx, read(ctx, anchor, asked.bytes.length + 1)),
+      asked.bytes,
+    );
+  const questionItself = isTheQuestion(dominant.anchor) ||
+    (bestAnalog !== null && isTheQuestion(bestAnalog.anchor));
   if (
     bestAnalog !== null &&
+    oneRoot &&
+    !questionItself &&
     !coInstanceAnalog &&
     !cmpDismisses &&
     cmpMaxGap < dominant.ctx.length &&
@@ -1207,7 +1235,11 @@ export async function counterfactualTransfer(
         rNode(ctx, bestAnalog.anchor, "analog", bestSim),
       ],
       [],
-      "the two structures keep distributional company beyond chance — genuine analogs",
+      bestHalo
+        ? "the two structures keep the company the concept threshold claims — genuine analogs"
+        : bestSim > 0
+        ? "the two structures share a learnt frame, and the question's stored content is all accounted — analogs by role"
+        : "no similarity read — the question names both analogs, and that is the comparison's warrant",
     );
     const seats = frameSeats.get(bestAnalog);
     const a = seats !== undefined ? seats[0] : await seatOf(dominant);
@@ -1268,10 +1300,19 @@ export async function counterfactualTransfer(
     // injected canonicalizer (a substring-monotone function is the usual case,
     // not a guarantee), and the two readings are OR-ed here exactly as they were
     // before this became one definition.
+    // …and a seat the question holds WINDOW FOR WINDOW echoes it as surely
+    // as one it holds contiguously: a conjunction elides what its parts share
+    // (`What is the capital of France and the largest planet?` holds every
+    // window of `What is the largest planet?`, none of it in one run), and
+    // the comparison voiced the stored question as the analog's role
+    // (`…Paris.What is the largest planet?`, every version).  The witness
+    // reading, under the response's equivalence (evidence.md).
     const echoesQuery = (x: Uint8Array): boolean =>
       restates(query, x, 0, { proper: true }) ||
       (ctx.canon !== null &&
-        restates(query, x, 0, { equate: ctx.canon, proper: true }));
+        restates(query, x, 0, { equate: ctx.canon, proper: true })) ||
+      (asked !== null && x.length < asked.bytes.length &&
+        witness(offsetCanon(ctx, x), [asked.index], quantum).complete);
     if (echoesQuery(b)) {
       const fwd = await follow(ctx, bestAnalog.anchor, qv);
       if (fwd !== null && fwd.length > 0 && !echoesQuery(fwd)) b = fwd;
@@ -1321,7 +1362,12 @@ export async function counterfactualTransfer(
         rNode(ctx, bestAnalog.anchor, "analog", bestSim),
       ],
       [],
-      coInstanceAnalog
+      !oneRoot
+        ? `the climb committed ${roots.length} structures — the question asks ` +
+          `about each, so seating one against another as analogs is refused`
+        : questionItself
+        ? `an analog is the question itself, restated — not a structure it weaves`
+        : coInstanceAnalog
         ? `an analog is another instance of the question's frame — its ` +
           `seat is another filler's answer, not what the question asks about`
         : cmpDismisses

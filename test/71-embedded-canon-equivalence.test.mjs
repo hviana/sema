@@ -120,3 +120,41 @@ test("an embedded trained form is recognised under canonical equivalence", async
 
   await m.store.close();
 });
+
+// A FORM THE QUESTION HOLDS ONLY UNDER ITS EQUIVALENCE IS AN ARGUMENT.  The
+// climb proposes `Man at Bath` and the canonical question's bytes decide it:
+// `Man At Bath` holds the stored form at that span.  Recall's argument binding
+// once read it; when that binding was folded into the cover, this reading was
+// dropped with it, and the question was answered by another work's fact
+// (`Barbizon`, through the scaffolding tier).  The cover now takes the held
+// form as a site — the same answer the exact spelling gets.
+test("a form held only under the response's equivalence is the cover's site", async () => {
+  const pairs = [
+    ["Man at Bath", "Man at Bath is a painting by Gustave Caillebotte."],
+    [
+      "Man at Bath director",
+      "The director of Man at Bath is Gustave Caillebotte.",
+    ],
+    ["The Gleaners", "The Gleaners is a painting by Jean-François Millet."],
+    ["Where did the director of film The Gleaners work?", "Barbizon"],
+    ["Who painted The Gleaners?", "Jean-François Millet"],
+  ];
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(pairs);
+  const exact = await m.respond("Who is the director of Man at Bath?");
+  const steps = [];
+  const held = await m.respond(
+    "Who is the director of Man At Bath?",
+    (s) => steps.push(s),
+  );
+  const dec = (b) => new TextDecoder().decode(b);
+  assert.equal(held.provenance, "cover");
+  assert.equal(dec(held.bytes), dec(exact.bytes));
+  assert.ok(!dec(held.bytes).includes("Barbizon"));
+  const cover = steps.find((s) => s.mechanism.at(-1) === "cover");
+  assert.ok(
+    cover.inputs.some((i) => i.role === "form" && i.span?.[0] === 23),
+    "the held form enters the cover as a site at its own span",
+  );
+  await m.store.close();
+});

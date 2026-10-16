@@ -216,3 +216,72 @@ test("VSA company grounds a differently-spelled synonym without a lexical unit i
   assert.ok(hit?.subs.length > 0);
   await m.store.close();
 });
+
+// A SPAN'S USE IS THE CONTEXTS THAT HOLD IT.  The climb from a window proposes
+// holders — its containment rows are the chunks it OVERLAPS, so a context
+// reached that way may not hold it — and the context's bytes decide.  Read
+// without that decision, `biggest` and `largest` (no context holds both)
+// bundled the SAME company: every superlative question reached through the
+// shared chunks, a synonym strength of exactly 1 — vicinity counted as use,
+// and the substitution licence vacuous.
+test("a span's distributional use reads only the contexts that hold it", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(TRAIN);
+  const s = spanSynonymStrength(m, enc("biggest"), enc("largest"));
+  assert.ok(s > 0, `the two do share company (got ${s})`);
+  assert.ok(s < 0.99, `but not the same company (got ${s})`);
+  await m.store.close();
+});
+
+// A CO-HYPONYM IS NO SUBSTITUTE.  `ocean` keeps `planet`'s kind of company —
+// each leads to a `The … is …` fact — and that is categorial, not
+// equivalence: the ocean question is another question, not a paraphrase of
+// the planet one.  Two readings let it through: the company was read over the
+// bytes the two spans share (`est ocean ` against `est planet `), and the bar
+// was the analogy bar ("beyond chance") where the synonym tiers' is
+// conceptThreshold.  The company is now read where the spans part, the swap is
+// decided by the corpus's minimal pairs (`substitutes`), and the recall tier
+// that grounds a climb anchor holds the same law (`unlicensedSwap`) — while
+// `biggest` for `largest` still reaches its fact.
+test("a co-hyponym is no substitute; an equivalence still is", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(TRAIN);
+  const ocean = dec(
+    (await m.respond("What is the largest ocean in our solar system?")).bytes,
+  );
+  assert.ok(!ocean.includes("Jupiter"), `got ${JSON.stringify(ocean)}`);
+  const biggest = dec(
+    (await m.respond("What is the biggest planet in our solar system?")).bytes,
+  );
+  assert.ok(biggest.includes("Jupiter"), `got ${JSON.stringify(biggest)}`);
+  await m.store.close();
+});
+
+// IDENTITY TOLERATES ONE WINDOW WHERE THE CORPUS NEVER TOLD THE POSITION
+// APART.  `sea-level` for `sea level` is the same question spelled otherwise;
+// `melting` for `boiling` is another question, though the parts are a window
+// each — because the corpus holds `What is the freezing point …` beside `…
+// boiling point …`: that position decides what the form says.  A part within
+// one window used to pass as identity wherever it stood (`identityBar`'s
+// tolerance read alone), and the melting point was answered with the boiling
+// point's degrees.
+test("one window of difference is identity only where the corpus never told the position apart", async () => {
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["Who wrote Romeo and Juliet?", "William Shakespeare"],
+    ["What is the boiling point of water at sea level?", "100 degrees Celsius"],
+    ["What is the freezing point of water at sea level?", "0 degrees Celsius"],
+  ]);
+  const ask = async (q) => dec((await m.respond(q)).bytes);
+  assert.equal(
+    await ask("What is the boiling point of water at sea-level?"),
+    "100 degrees Celsius",
+  );
+  assert.ok(
+    !(await ask("What is the melting point of water at sea level?")).includes(
+      "100 degrees",
+    ),
+    "melting is not boiling where the corpus tells the position apart",
+  );
+  await m.store.close();
+});

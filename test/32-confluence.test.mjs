@@ -133,6 +133,14 @@ test("C1 — who did BOTH things: conjunctive resolution over biographical facts
     !/Raphael|Brunelleschi/i.test(got),
     `a one-constraint distractor leaked: "${got}"`,
   );
+  // Two facts of one subject are no analogs: the climb commits both, and the
+  // question asks about each — CAST's comparison seated one against the other
+  // ("Leonardo painted the Mona Lisaflying machines") once its single-root
+  // condition was withdrawn.
+  assert.ok(
+    !/Mona Lisa.*flying machines/.test(got),
+    `two facts voiced as a comparison: "${got}"`,
+  );
   await m.store.close();
 });
 
@@ -401,5 +409,53 @@ test("a meet voices the thing it holds, so the walk goes on from it", async () =
       "Where was the place of death of the composer of song How Long Has This Been Going On??",
     ),
     "The place of death of George Gershwin is Hollywood.",
+  );
+});
+
+// A RUN THE QUESTION'S SPELLING CUT IS THE THING IT CUTS.  The meet is what
+// both streams' evidence holds minus the windows the question wrote; where
+// the question spelled part of a thing the facts hold whole — the son's name
+// shares the father's — the run is that thing with the spelled part cut
+// away, and the join voiced `e, 4th Baron of Tressick` (dc2564c and 829015a
+// alike; minimised from the 2Wiki `Which country Thomas Lyon-Bowes, Lord
+// Glamis's father is from?`).  Voiced as the thing, the walk goes on to its
+// citizenship.
+test("a meet the question's spelling cut voices the thing it cuts", async () => {
+  const m = new Mind({ seed: 7 });
+  await m.ingest([
+    [
+      "Lord Pellam father",
+      "The father of Lord Pellam is Corwin Ashdale, 4th Baron of Tressick.",
+    ],
+    [
+      "Corwin Ashdale, 4th Baron of Tressick",
+      "The country of citizenship of Corwin Ashdale, 4th Baron of Tressick is Norvane.",
+    ],
+    ["Maribel Quorn father", "The father of Maribel Quorn is Edric Vantor."],
+    [
+      "Edric Vantor country of citizenship",
+      "The country of citizenship of Edric Vantor is Lusk.",
+    ],
+    [
+      "Tobias Wrenfield father",
+      "The father of Tobias Wrenfield is Halvard Moss.",
+    ],
+    [
+      "Halvard Moss country of citizenship",
+      "The country of citizenship of Halvard Moss is Brevia.",
+    ],
+    ["Ysolde Carrow mother", "The mother of Ysolde Carrow is Petra Linden."],
+  ]);
+  const steps = [];
+  const answer = await m.respondText(
+    "Which country Corwin Ashdale, Lord Pellam's father is from?",
+    (st) => steps.push(st),
+  );
+  const meet = steps.find((s) => s.mechanism.at(-1) === "intersectEvidence");
+  assert.ok(meet, "the join met the two streams");
+  assert.equal(meet.outputs[0].text, "Corwin Ashdale, 4th Baron of Tressick");
+  assert.equal(
+    answer,
+    "The country of citizenship of Corwin Ashdale, 4th Baron of Tressick is Norvane.",
   );
 });
