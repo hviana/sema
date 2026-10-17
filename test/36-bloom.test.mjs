@@ -20,6 +20,9 @@
 // and is pinned the same way: across reopen, across rows added after a
 // persisted filter exists, and against a writer that adds rows without
 // touching the filter (its stamp disagrees with the meta, so it is rebuilt).
+//
+// Its cost is the false positive: the positions read the whole hash, so a
+// stored hash sharing only the bits below the mask does not answer for another.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
