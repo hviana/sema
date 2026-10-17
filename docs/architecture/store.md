@@ -122,5 +122,6 @@ Maintenance is incremental:
   the `haloMass`/`hasHalo` contract, survival across a reopen, what a deposit
   learnt whole, and near dedup (onto a whole form, kept apart by the bar, alike
   at every batch size, off with `nearDedup: false`).
-- `test/36-bloom` — the filters' exactness and persistence.
+- `test/36-bloom` — the filters' exactness and persistence; their positions read
+  the whole hash.
 - `test/153.4` — the span prober answers exactly what `findFlatBranch` answers.

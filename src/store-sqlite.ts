@@ -188,7 +188,10 @@ CREATE TABLE IF NOT EXISTS meta (
 
 /** Blocked Bloom filter over 32-bit content hashes.  k=4 bit positions per
  *  key via double hashing; at the maintained ≥12 bits/key the false-positive
- *  rate stays under ~1%, so ≥99% of miss-probes skip SQLite entirely.
+ *  rate stays under ~1%, so ≥99% of miss-probes skip SQLite entirely.  The
+ *  step mixes the hash's high bits in: positions read off `h` alone below the
+ *  mask would make every stored hash sharing those bits a match (≈ n/2^log2,
+ *  1 in 16 at 16 bits/key; measured 5.3% of probes on 31.7M nodes).
  *  No deletions (nodes are never deleted), so growth is a rebuild. */
 class NodeBloom {
   bits: Uint8Array;
@@ -199,7 +202,7 @@ class NodeBloom {
     this.mask = (1 << log2bits) - 1 >>> 0;
   }
   add(h: number): void {
-    const h2 = (Math.imul(h, 0x9e3779b1) | 1) >>> 0;
+    const h2 = (Math.imul(h ^ (h >>> 16), 0x9e3779b1) | 1) >>> 0;
     let x = h >>> 0;
     const bits = this.bits;
     const mask = this.mask;
@@ -211,7 +214,7 @@ class NodeBloom {
     this.n++;
   }
   mightContain(h: number): boolean {
-    const h2 = (Math.imul(h, 0x9e3779b1) | 1) >>> 0;
+    const h2 = (Math.imul(h ^ (h >>> 16), 0x9e3779b1) | 1) >>> 0;
     let x = h >>> 0;
     const bits = this.bits;
     const mask = this.mask;

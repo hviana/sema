@@ -174,3 +174,26 @@ test("canon filter: persisted with its rows, rebuilt when its stamp is stale", a
   assert.deepEqual(s.canonFind(H(9999)), [], "an absent key is not proposed");
   await s.close();
 });
+
+test("the filter reads every bit of the hash, not only those below its mask", async () => {
+  // A stored hash sharing a probe's bits below the mask must not answer for
+  // it: positions read off those bits alone made one probe in 16 a false
+  // positive on the 31.7M-node store, whatever the bits per key.
+  const s = new SQliteStore({ path: ":memory:", D: 64 });
+  await s.size();
+  const b = new s._bloom.constructor(17);
+  let h = 2166136261;
+  const keys = [];
+  for (let i = 0; i < 2000; i++) {
+    h = Math.imul(h ^ i, 16777619) >>> 0;
+    keys.push(h);
+    b.add(h);
+  }
+  for (const k of keys) assert.ok(b.mightContain(k), "no false negative");
+  const twins = keys.filter((k) => b.mightContain((k ^ 0x80000000) >>> 0));
+  assert.ok(
+    twins.length < keys.length / 20,
+    `${twins.length} of ${keys.length} high-bit twins pass the filter`,
+  );
+  await s.close();
+});
