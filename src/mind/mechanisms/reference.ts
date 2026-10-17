@@ -17,11 +17,19 @@
 // same variable positions, wherever chance shared bytes move a slot's border
 // (`Darwin`/`Einstein` both end in `in`; `Poland` read against `England` keeps
 // `land` in the template and still says `England`) — must ALL propose the same
-// bytes, and at least AGREEMENT of them must exist: one instance agrees with
-// nothing, and one breaking the pattern refuses all.  An answer that is a fact
-// filed under its filler (`The place of birth of Peter Jackson is Wellington.`)
-// is knowledge ABOUT that filler, a derivation, not a carriage: two such facts
-// can agree by chance (test/76-reference-binding, Goodman 1955).
+// bytes, and at least AGREEMENT of them must exist: one instance cannot tell a
+// carriage from a fact about its filler, and one breaking the pattern refuses
+// all.  An answer that is a fact filed under its filler (`The place of birth of
+// Peter Jackson is Wellington.`) is knowledge ABOUT that filler, a derivation,
+// not a carriage: two such facts can agree by chance (test/76-reference-binding,
+// Goodman 1955).
+//
+// THE PRECEDENTS, WHEN NO FRAME LICENSES.  The stored forms covering most of
+// the question's discriminating bytes vote for their own continuations, said
+// verbatim and only when they hold nothing the precedent varies in — nothing is
+// carried, so the frame's positions do not matter.  A majority of AGREEMENT or
+// more is a derivation; a lone precedent is the nearest stored form and is said
+// as that, under recall's provenance; no majority is silence (`bindPrecedent`).
 //
 // WHAT KIND OF ACT THIS IS.  bridge.ts refuses this shape and is right to:
 // `attestedQ` demands the query-side span be corpus-attested, because a
@@ -35,7 +43,7 @@ import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
 import { distinct, follow, substituteAll } from "../match.js";
 import { resolve } from "../primitives.js";
-import { hubBound } from "../traverse.js";
+import { hubBound, scaffoldSpans } from "../traverse.js";
 import { AGREEMENT, dominates, twoQuanta } from "../../geometry.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
 import { restates } from "../derivation.js";
@@ -46,6 +54,7 @@ import type {
   Precomputed,
 } from "../pipeline-mechanism.js";
 import { rItem, rNode, traceFail } from "../trace.js";
+import type { Scope } from "../rationale.js";
 
 /** One frame is one set of variable positions: the same number of slots, each
  *  overlapping its counterpart.  Where a slot's borders fall is decided by
@@ -67,7 +76,29 @@ export async function bindReference(
   pre: Precomputed,
 ): Promise<MechanismResult | null> {
   const t = ctx.trace?.enter("bindReference", [rItem(query, "query")]);
-  const fail = traceFail(t);
+  const framed = await bindFrame(ctx, query, pre, t);
+  if (typeof framed !== "string") return framed;
+  // The frame licenses nothing; the precedents may still.  They voice no
+  // referent, so no frame refusal — all about voicing — bears on them.
+  const precedent = await bindPrecedent(ctx, query, pre);
+  if (precedent === null) return traceFail(t)(framed);
+  t?.done(
+    [rItem(precedent.bytes, "answer")],
+    "reference — the precedents covering the question carry this answer, " +
+      "which holds nothing they vary in",
+  );
+  return precedent;
+}
+
+/** The frame reading (see the file header): the answer, or why the frame
+ *  licenses none. */
+async function bindFrame(
+  ctx: MindContext,
+  query: Uint8Array,
+  pre: Precomputed,
+  t: Scope | undefined,
+): Promise<MechanismResult | string> {
+  const fail = (why: string): string => why;
   const W = ctx.space.maxGroup;
 
   // THE INSTANCES: forms that lead somewhere (an answer that aligns with the
@@ -196,6 +227,121 @@ export async function bindReference(
     // on to `then execute ./a.out`).  The asker's own referent read back is not
     // constructed, and reasoning may go on from it (`Rome` → its fact).
     complete: !identity,
+  };
+}
+
+/** THE PRECEDENT READING (see the file header).
+ *
+ *  THE PRECEDENTS are the proposed forms that lead somewhere, share a window
+ *  with the question and cover most of its DISCRIMINATING bytes.  Scaffolding
+ *  is nobody's evidence (commonality.md): `LEITE DE COCO FRASCO 500ML` shares
+ *  `FRASCO … 500ML` with `CRISTAL FRASCO C/500ML` and none of what tells them
+ *  apart, so coverage is read past the bytes `scaffoldSpans` claims.  An
+ *  insertion or deletion is a difference like any other: nothing is carried.
+ *
+ *  WHAT IS SAID is one precedent's continuation, verbatim, and only while no
+ *  precedent's continuation holds what it varies in (`Run gcc hello.c`, `the
+ *  way to say hello is "Bonjour"`): that is a carriage or a fact about the
+ *  filler, and stays with the frame licence.  Below one window, a filler turning
+ *  up in a continuation is chance — the floor a voiced referent clears.
+ *
+ *  THE VOTE.  Each precedent — a distinct deposit — is one vote; the answer is
+ *  the one a majority leads to (`dominates`).  Without one, what varies
+ *  evidently decides the answer: silence.  AGREEMENT or more votes is the
+ *  corpus showing that what varies does not decide it, and is a derivation; a
+ *  lone precedent shows nothing of the kind (`What is the capital of France?`
+ *  says nothing about Peru), and is said as the nearest stored form: recall's
+ *  provenance, near, not derived.
+ *
+ *  THE PRICE is the floor's shape, one binding and one edge followed; what no
+ *  winning precedent matched stays unexplained and pays PASS per byte.  It
+ *  reads the inventory this mechanism already holds and the scaffolding the
+ *  cover already read: no new search. */
+async function bindPrecedent(
+  ctx: MindContext,
+  query: Uint8Array,
+  pre: Precomputed,
+): Promise<MechanismResult | null> {
+  const W = ctx.space.maxGroup;
+  const scaffold = scaffoldSpans(ctx, query);
+  const inScaffold = (a: number, b: number): number => {
+    let n = 0;
+    for (const [s0, e0] of scaffold) {
+      n += Math.max(0, Math.min(b, e0) - Math.max(a, s0));
+    }
+    return n;
+  };
+  const discriminating = query.length - inScaffold(0, query.length);
+  if (discriminating < W) return null; // the question is all frame
+  const precedents: FrameInstance[] = [];
+  for (const inst of await pre.frames()) {
+    if (inst.slots.length === 0 || !ctx.store.hasNext(inst.id)) continue;
+    if (!inst.matched.some(([a, b]) => b - a >= W)) continue;
+    const shared = inst.matched.reduce(
+      (n, [a, b]) => n + (b - a) - inScaffold(a, b),
+      0,
+    );
+    if (dominates(shared, discriminating)) precedents.push(inst);
+  }
+  if (precedents.length === 0) return null;
+
+  const votes: Array<{ bytes: Uint8Array; by: FrameInstance[] }> = [];
+  for (const inst of precedents) {
+    const cont = await follow(ctx, inst.id, pre.guide);
+    if (cont === null || cont.length === 0) return null;
+    const c = resolve(ctx, cont);
+    for (const sl of inst.slots) {
+      if (sl.filler.length < W) continue;
+      if (indexOf(cont, sl.filler, 0) >= 0) return null;
+      const f = resolve(ctx, sl.filler);
+      if (
+        c !== null && f !== null &&
+        ctx.store.nextFirst(f, hubBound(ctx)).includes(c)
+      ) return null;
+    }
+    const v = votes.find((x) => bytesEqual(x.bytes, cont));
+    if (v === undefined) votes.push({ bytes: cont, by: [inst] });
+    else v.by.push(inst);
+  }
+  // Ties keep the first, in inventory order (determinism.md) — and a tie is no
+  // majority.
+  let winner = votes[0];
+  for (const v of votes) if (v.by.length > winner.by.length) winner = v;
+  if (!dominates(winner.by.length, precedents.length)) {
+    ctx.trace?.step(
+      "precedentLicence",
+      votes.map((v) => rItem(v.bytes, `proposed by ${v.by.length}`)),
+      [],
+      "refused — no answer is carried by a majority of the precedents",
+    );
+    return null;
+  }
+  if (restates(query, winner.bytes, 0, { proper: true })) return null;
+  ctx.trace?.step(
+    "bindPrecedent",
+    [
+      ...winner.by.map((p) => rNode(ctx, p.id, "precedent")),
+      ...votes.filter((v) => v !== winner)
+        .flatMap((v) => v.by.map((p) => rNode(ctx, p.id, "dissent"))),
+    ],
+    [rItem(winner.bytes, "bound")],
+    `${winner.by.length} of ${precedents.length} precedent(s) carry this answer`,
+    undefined,
+    {
+      version: 1,
+      votes: winner.by.length,
+      precedents: precedents.length,
+      dissent: precedents.length - winner.by.length,
+    },
+  );
+  return {
+    bytes: winner.bytes,
+    accounted: winner.by.flatMap((p) => p.matched.filter(([a, b]) => b > a)),
+    ...(winner.by.length >= AGREEMENT ? {} : { provenance: "recall" }),
+    moves: STEP + STEP,
+    // A stored continuation, but the question is not its context: nothing is
+    // walked on from it as though it were.
+    complete: true,
   };
 }
 

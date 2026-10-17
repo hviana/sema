@@ -219,8 +219,8 @@ differently:
 - `confluence` intersects what independent anchors establish, or where two
   things' derivations meet.
 - `extraction` reads out a located frame.
-- `reference` learns a frame from worked examples and voices its slot with the
-  asker's own bytes.
+- `reference` voices a frame's slot with the asker's bytes, or the answer its
+  precedents carry.
 - `recall` takes the nearest stored form by gist.
 - `prefix-completion` completes a known beginning.
 - The ALU computes, and what it computes is authoritative.

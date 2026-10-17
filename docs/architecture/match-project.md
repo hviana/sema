@@ -44,8 +44,7 @@ Every threshold behind a gate is derived in `geometry.ts`.
   (`contractGap`), tags it as a `substitution`, `insertion` or `deletion`, keeps
   its uncontracted position (`gq`), and attaches `covered`, the bytes the frame
   accounts for. It applies no gate.
-- **`reference` judges, byte for byte:** the instances of one frame must all
-  propose the same bytes (`reference.md`).
+- **`reference` judges, byte for byte** (`reference.md`).
 - **`Precomputed.frames` is the inventory.** It enumerates every pairing and
   elects nothing. Its supply is the one inventory of proposed instances
   (`evidence.md`).
@@ -58,9 +57,9 @@ shaped like `reference`, and it hid three of four real pairings from every other
 consumer, including a definite description standing where a noun stands. So each
 consumer owns its own refusal:
 
-- `reference` requires dominance, substitutions only, a shared window, agreement
-  on the outcome, and voiced referents of at least `W` that are a minority of
-  the question.
+- `reference`'s frame reading requires dominance, substitutions only, a shared
+  window, agreement on the outcome, and voiced referents of at least `W` that
+  are a minority of the question; its precedents, a majority.
 - `recall`'s substitution bridge applies its own gates to the same reading
   (`recall.md`).
 

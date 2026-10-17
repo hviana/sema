@@ -60,7 +60,7 @@ consumers).
 | `cast`              | carrying structure between woven forms: substitution, redirection, comparison |
 | `confluence`        | intersecting conditions or two things' derivations                            |
 | `extraction`        | reading a span between frames located in the question                         |
-| `reference`         | voicing a learnt frame's slot with the asker's own bytes                      |
+| `reference`         | voicing a frame's slot in the asker's bytes, or its precedents' majority      |
 | `recall`            | the nearest stored form, or honest silence                                    |
 | `prefix-completion` | completing a known beginning of exactly one form                              |
 | `alu`               | computation, which is authoritative                                           |

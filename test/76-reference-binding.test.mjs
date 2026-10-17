@@ -626,3 +626,100 @@ test("a frame the question does not dominate carries nothing", async () => {
   );
   await m.store.close();
 });
+
+// ── THE PRECEDENT READING ──────────────────────────────────────────────────
+//
+// When no frame has AGREEMENT instances, the stored forms that cover most of
+// the question's discriminating bytes are read as PRECEDENTS: each is one vote
+// for its own continuation, said verbatim and only when it holds nothing the
+// precedent varies in.  A majority of distinct precedents is a derivation; a
+// lone precedent is offered as what it is — the nearest stored form, under
+// recall's provenance — and dissent without a majority is silence.
+//
+// The fixtures vary the precedents in DIFFERENT places (one the colour, one the
+// volume), so no frame holds two instances and only this reading can answer.
+
+const PAINT_Q = "TINTA ACRILICA AZUL 18L SUVINIL";
+const COLOUR = ["TINTA ACRILICA BRANCA 18L SUVINIL", "32091010"];
+const VOLUME = ["TINTA ACRILICA AZUL 3600ML SUVINIL", "32091010"];
+const CAPITAL = ["What is the capital of France?", "Paris"];
+
+const precedentStep = async (m, q) => {
+  let step = null;
+  const r = await m.respond(q, (s) => {
+    if (s.mechanism.at(-1) === "bindPrecedent") step = s;
+  });
+  return { r, step };
+};
+
+test("PRECEDENT: agreeing precedents carry an answer that holds nothing they vary in", async () => {
+  const m = await mindWith([COLOUR, VOLUME, CAPITAL]);
+  const { r, step } = await precedentStep(m, PAINT_Q);
+  assert.equal(clean(r.bytes).trim(), "32091010");
+  assert.equal(r.provenance, "reference");
+  assert.ok(step !== null, "answered by another reading");
+  assert.equal(step.data.votes, 2);
+  assert.equal(step.data.dissent, 0);
+  assert.equal(step.inputs.filter((i) => i.role === "precedent").length, 2);
+  await m.store.close();
+});
+
+test("PRECEDENT: a majority of distinct precedents carries the answer, dissent named", async () => {
+  const m = await mindWith([
+    COLOUR,
+    VOLUME,
+    ["TINTA ACRILICA AZUL 18L CORAL", "32089010"],
+    CAPITAL,
+  ]);
+  const { r, step } = await precedentStep(m, PAINT_Q);
+  assert.equal(clean(r.bytes).trim(), "32091010");
+  assert.equal(r.provenance, "reference");
+  assert.equal(step?.data?.votes, 2);
+  assert.equal(step?.data?.dissent, 1);
+  assert.equal(step.inputs.filter((i) => i.role === "dissent").length, 1);
+  await m.store.close();
+});
+
+test("PRECEDENT: precedents that disagree without a majority say nothing", async () => {
+  const m = await mindWith([COLOUR, [VOLUME[0], "32089010"], CAPITAL]);
+  const r = await m.respond(PAINT_Q);
+  assert.equal(clean(r.bytes).trim(), "", "a tie was broken into an answer");
+  await m.store.close();
+});
+
+test("PRECEDENT: a lone precedent is nearness, never a derivation", async () => {
+  const m = await mindWith([COLOUR, CAPITAL]);
+  const { r, step } = await precedentStep(m, PAINT_Q);
+  assert.equal(clean(r.bytes).trim(), "32091010");
+  assert.equal(r.provenance, "recall", "one precedent is said as near");
+  assert.equal(step?.data?.votes, 1);
+  await m.store.close();
+});
+
+test("PRECEDENT: one fact about France says nothing derived about Peru", async () => {
+  const m = await mindWith([CAPITAL, [
+    "Do you like thrillers?",
+    "Yes, I love them.",
+  ]]);
+  const r = await m.respond("What is the capital of Peru?");
+  assert.notEqual(r.provenance, "reference");
+  await m.store.close();
+});
+
+test("PRECEDENT: an answer holding the precedent's own filler is never voiced", async () => {
+  // The carriage-or-fact ambiguity stays with the frame licence: precedents
+  // saying `Run gcc <their file>` do not let this reading voice their file for
+  // the asker's.
+  const m = await mindWith([
+    ["How do I compile hello.c?", "Run gcc hello.c"],
+    ["How do I compile server.c now?", "Run gcc server.c"],
+  ]);
+  const out = clean((await m.respond("How do I compile main.c?")).bytes);
+  for (const foreign of ["hello", "server"]) {
+    assert.ok(
+      !out.includes(foreign),
+      `voiced ${foreign}: ${JSON.stringify(out)}`,
+    );
+  }
+  await m.store.close();
+});
