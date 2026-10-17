@@ -204,10 +204,13 @@ export function windowOf(
   product: Uint8Array,
   query: Uint8Array,
   W: number,
+  said: Uint8Array | null = null,
 ): Span | null {
   const [a, b] = span;
   for (let i = a; i + W <= b; i++) {
-    if (indexOf(product, query.subarray(i, i + W), 0) >= 0) return [i, i + W];
+    const w = query.subarray(i, i + W);
+    if (said !== null && indexOf(said, w, 0) >= 0) continue;
+    if (indexOf(product, w, 0) >= 0) return [i, i + W];
   }
   return null;
 }
@@ -226,9 +229,10 @@ export function carries(
   product: Uint8Array,
   query: Uint8Array,
   W: number,
+  said: Uint8Array | null = null,
 ): Array<Witness> | null {
   for (const span of remainder) {
-    const window = windowOf(span, product, query, W);
+    const window = windowOf(span, product, query, W, said);
     if (window !== null) return [{ span, window }];
   }
   return null;
@@ -437,7 +441,14 @@ export function admissible(
     if (carried !== null) return carried;
     return (t.explains ?? []).map((span) => ({ span }));
   }
-  return carries(d.remainder, t.product, query, W);
+  // WHAT THE DERIVATION ALREADY SAID IS NOT CARRIED AGAIN.  A step admitted
+  // by carrying holds a window of the remainder its predecessor did not: the
+  // remainder never drains on carrying, so a window the product already held
+  // admitted every next fact that repeats it — ` of `, round a cycle of
+  // `The father of …` facts back to the asker's own entity (the drift
+  // test/110's brake exists for).  A declared move is its own ground and is
+  // read as before.
+  return carries(d.remainder, t.product, query, W, d.product);
 }
 
 /** ADVANCE — the transition itself: the state that results from consuming `t`

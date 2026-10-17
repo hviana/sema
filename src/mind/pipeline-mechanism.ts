@@ -753,4 +753,15 @@ export interface PipelineMechanism {
     query: Uint8Array,
     pre: Precomputed,
   ): Promise<MechanismResult[]>;
+
+  /** Whether a run made BEFORE the consensus climb's points were shown would
+   *  read differently now, beyond the relations other instances of the
+   *  question carry (traverse.ts, `readsOffInstances`), which every
+   *  mechanism's picks read.  The pipeline runs such a mechanism again after
+   *  the climb when either holds.  Absent: only those relations. */
+  readsPoints?(
+    ctx: MindContext,
+    query: Uint8Array,
+    pre: Precomputed,
+  ): boolean;
 }

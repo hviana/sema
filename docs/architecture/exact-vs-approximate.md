@@ -49,8 +49,13 @@ Three relations are kept apart, and no reader may stand one in for another:
   - **Convergence** (`convergent`): a context holding one span and another
     holding the other, each without the other's span, lead to the same
     continuation. What the stored context says besides its span must be said by
-    the asked one too. `Did X pass away in E?` and `X end` converge;
-    `Who is the mother of Y?` and `Y father` never do. Convergence is **shown**.
+    the asked one too, and the asked span stands where the stored one stands:
+    after what the stored context says before its span, and before what it says
+    after it. `Did X pass away in E?` and `X end` converge;
+    `Who is the mother of Y?` and `Y father` never do. Without the position, one
+    pair is evidence for every span it does not share: `Where was W born?` and
+    `W place of birth` licensed `Where was` for `place of birth` as well as
+    `born?` (`test/154` 16). Convergence is **shown**.
   - Otherwise the licence is **unread**.
 
 `substitutionGrade` combines the two: 0 is refused (refuted, or company below

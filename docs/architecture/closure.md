@@ -37,6 +37,12 @@ No state is built by hand anywhere else (`test/137.7`).
   consumes, and only the material its window proves. Both shortcuts were
   refuted: draining whole spans (`test/110`) and trusting the window alone
   (`test/138`).
+- **What the derivation already said is not carried again.** A step admitted by
+  carrying holds an owed window that its predecessor's product does not hold.
+  The remainder never drains on carrying, so a window the answer already held
+  admitted every next fact that repeats it. `of` walked a cycle of
+  `The father of …` facts back to the asker's own entity. A declared move is
+  read as before (`test/110`, `test/134`, `test/135`).
 - **A step the question did not name pays from what it still owes.** Naming is
   the evidence law (`evidence.md`).
 - **The law owns no search, so it cannot prevent a cycle.** That belongs to the

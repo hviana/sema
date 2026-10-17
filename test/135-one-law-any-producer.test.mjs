@@ -233,8 +233,28 @@ test("135. the law decides real states the same way, whoever produced them", asy
         );
         continue;
       }
-      if (cn === "carries" || cn === "moves") {
+      // Carrying is progress only where the step holds an owed window the
+      // state's product does not: what the derivation already said is not
+      // carried again (the brake's own fixture owes ` famous for`, which its
+      // answer already holds).
+      const fresh = state.remainder.some(([a, b]) => {
+        for (let i = a; i + o.W <= b; i++) {
+          const w = query.subarray(i, i + o.W);
+          if (
+            !Buffer.from(state.product).includes(Buffer.from(w)) &&
+            Buffer.from(t.product).includes(Buffer.from(w))
+          ) return true;
+        }
+        return false;
+      });
+      if (cn === "moves" || (cn === "carries" && fresh)) {
         assert.notEqual(verdict, null, `${o.name}: ${cn} is progress`);
+      } else if (cn === "carries") {
+        assert.equal(
+          verdict,
+          null,
+          `${o.name}: carrying what the answer already said is no progress`,
+        );
       } else {
         assert.equal(
           verdict,

@@ -98,7 +98,12 @@ declared turn (`mechanismReruns`). On the 2Wiki fixture, recall's
 birth of John Lennon is Liverpool.` owed 49 bytes ahead of the
 climb and 28 after it. Rerunning whenever the climb has run costs 26% more bytes
 read on the 31.7M-node store and changes no answer, so the rerun waits for that
-evidence.
+evidence. A mechanism that reads more off the climb's points declares it
+(`readsPoints`), and is run again only when that reading would differ. The cover
+admits a site the question holds under its equivalence (`Man At Bath`), and it
+is run again only when it would admit one on its own sites. Rerunning whenever
+such a point existed reran the cover and recall on 52 of 100 2Wiki questions,
+and added nothing to any of them.
 
 The same holds for a mechanism at the head of the declared order: the cover runs
 before any climb, so a result read without the climb's points is read again once

@@ -485,6 +485,12 @@ export async function think(
   // 49 bytes ahead of the climb and 27 after it, and the lighter reading was the
   // declared order's answer.
   const pointsShown = () => ctx._edgeAsked?.points !== undefined;
+  // What a run made before the points would read differently now: the
+  // instances' relations, which every pick reads, and whatever else the
+  // mechanism declares it reads off the points (`readsPoints`).
+  const staleBefore = (i: number): boolean =>
+    readsOffInstances(ctx) ||
+    (mechanisms[i].readsPoints?.(ctx, query, pre) ?? false);
   const runOf = async (
     i: number,
     rerunWorth?: () => boolean,
@@ -584,7 +590,7 @@ export async function think(
       );
       continue;
     }
-    const results = await runOf(mi, () => readsOffInstances(ctx));
+    const results = await runOf(mi, () => staleBefore(mi));
     for (const r of results) {
       // ONE FORMULA, EVERY CANDIDATE: the chart's derivation reports how many
       // discrete moves it made and which bytes it could not recognise; the
@@ -607,10 +613,10 @@ export async function think(
   // before any climb, so the evidence that names its pick through another
   // instance was not there either; once a later mechanism has run the climb and
   // instances carry a relation, it is read again, as a run-ahead result is.
-  if (pointsShown() && readsOffInstances(ctx)) {
+  if (pointsShown()) {
     for (let mi = 0; mi < mechanisms.length; mi++) {
       const held = runs.get(mi);
-      if (held === undefined || held.points) continue;
+      if (held === undefined || held.points || !staleBefore(mi)) continue;
       const mech = mechanisms[mi];
       for (const r of await runOf(mi, () => true)) {
         consider({

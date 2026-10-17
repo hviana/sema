@@ -79,9 +79,13 @@ where two co-instances spell it alike, the same bar `reference` holds
 (`AGREEMENT`).
 
 `byCoInstance` puts the node into each frame and looks the result up by content.
-If `Edmond T. Gréville place of birth` exists, its continuation is named.
-Neither the frame nor the equivalence is stored, and nothing in the reading is
-approximate.
+If `Edmond T. Gréville place of birth` exists, its continuation is named. Where
+no context spells the frame around the node, because the node's fact is
+established by its bare name alone, the fact states the relation instead. The
+co-instance's fact spells it before the entity (`The place of birth of`), and
+the node's continuation that opens with those bytes followed by the node is
+named (`test/154` 17). Neither the frame nor the equivalence is stored, and
+nothing in the reading is approximate.
 
 **One measure ranks the two readings:** the question material that evidences a
 continuation. Witnessing counts the question bytes an establishing context

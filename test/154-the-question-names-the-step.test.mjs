@@ -740,3 +740,75 @@ test("154.14 company alone names no step: a use the corpus never shows", async (
   const a = await m.respondText(`Who is the mother of ${z}?`);
   assert.ok(!a.includes(`of ${f} is ${g}`), `stepped to the grandfather: ${a}`);
 });
+
+test("154.16 a convergent pair licenses the span that stands where the stored one stands", async () => {
+  // `Where was W born?` and `W place of birth` lead to one fact: the corpus
+  // shows ` born?` standing where ` place of birth` stands — after W, as the
+  // stored span is.  The same pair once licensed `Where was ` too, which
+  // stands before W: one pair was every unshared span's evidence, and a use
+  // could name a step by the question's frame.
+  const { licensedSubstitution } = await import(
+    "../dist/src/mind/traverse.js"
+  );
+  const people = [
+    "Odalric Venn",
+    "Mireille Sarkany",
+    "Tobiah Quell",
+    "Ysolde Harrowgate",
+    "Casimir Blau",
+  ];
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const items = [];
+  people.forEach((p, i) => {
+    const fact = `The place of birth of ${p} is ${towns[i]}.`;
+    items.push([`Where was ${p} born?`, fact], [`${p} place of birth`, fact]);
+    items.push([p, fact]);
+  });
+  const mind = new Mind({ seed: 7 });
+  await mind.ingest(items);
+  await mind.respondText("Where was Odalric Venn born?");
+  mind.beginResponse(undefined, null);
+  const enc = (s) => new TextEncoder().encode(s);
+  const licence = (a, b) => licensedSubstitution(mind, enc(a), enc(b));
+  assert.equal(licence(" place of birth", " born?"), "shown");
+  assert.notEqual(licence(" place of birth", "Where was "), "shown");
+});
+
+test("154.17 a relation no context states of an entity is read off the fact itself", async () => {
+  // The director `Hesper Valcourt` is established by the bare name alone, so
+  // no context spells `Hesper Valcourt place of birth`: the co-instance frame
+  // `· place of birth` looks it up and finds nothing, and the second hop of
+  // `Where was the director of film Lantern Tide born?` was taken unnamed,
+  // carrying only ` of ` (the drift's own warrant).  The co-instance's FACT
+  // states the relation too — `The place of birth of ` before the entity — and
+  // the director's one continuation opens with it: the hop is named.
+  const fact = (r, x, y) => `The ${r} of ${x} is ${y}.`;
+  const people = [
+    ["Odalric Venn", "Ashgrove"],
+    ["Mireille Sarkany", "Brindle"],
+    ["Tobiah Quell", "Coldmere"],
+  ];
+  const items = [];
+  for (const [p, t] of people) {
+    const f = fact("place of birth", p, t);
+    items.push([`Where was ${p} born?`, f], [`${p} place of birth`, f], [p, f]);
+  }
+  const film = "Lantern Tide", dir = "Hesper Valcourt";
+  const d = fact("director", film, dir);
+  items.push([`${film} director`, d], [film, d]);
+  items.push([dir, fact("place of birth", dir, "Dunmarsh")]);
+  const mind = new Mind({ seed: 7 });
+  await mind.ingest(items);
+  const named = [];
+  const got = await mind.respondText(
+    `Where was the director of film ${film} born?`,
+    (s) => {
+      const k = s.mechanism.at(-1);
+      if (k === "askedByCoInstance" || k === "askedContinuation") {
+        named.push(s.inputs?.[0]?.text);
+      }
+    },
+  );
+  assert.equal(got, fact("place of birth", dir, "Dunmarsh"));
+  assert.ok(named.includes(dir), `the hop from ${dir} was not named`);
+});

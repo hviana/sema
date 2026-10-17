@@ -37,7 +37,7 @@ import { decodeText } from "../rationale.js";
 import { insideAnsweredTurn, restates } from "../derivation.js";
 import type { RationaleItem } from "../rationale.js";
 import { rItem, rNode, traceDerivation } from "../trace.js";
-import type { PipelineMechanism } from "../pipeline-mechanism.js";
+import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 
 // ── Concept / connector pre-resolution ──────────────────────────────────────
 
@@ -227,6 +227,97 @@ export function offerConnectors(
   };
 }
 
+/** The sites the cover stands on before the climb's points: recognition's,
+ *  masked by computed spans and rid of fragments that answer other
+ *  questions.  One reading for the run and for `readsPoints`; only the run
+ *  traces and meters it. */
+function coverSites(
+  ctx: MindContext,
+  query: Uint8Array,
+  pre: Precomputed,
+  run: boolean,
+): Array<{ start: number; end: number; payload: number }> {
+  const { rec, computed } = pre;
+  const traced = run ? ctx.trace : null;
+
+  // Masking: computed spans are authoritative.  Remove recognised sites
+  // that overlap any computed span before building the cover search.
+  let sites = computed.length === 0
+    ? rec.sites
+    : rec.sites.filter((s) =>
+      !computed.some((u) => s.start < u.j && u.i < s.end)
+    );
+
+  if (computed.length > 0 && sites.length < rec.sites.length) {
+    traced?.step(
+      "maskByComputation",
+      rec.sites.map((s) =>
+        rItem(query.subarray(s.start, s.end), "form", s.payload, [
+          s.start,
+          s.end,
+        ])
+      ),
+      sites.map((s) =>
+        rItem(query.subarray(s.start, s.end), "form", s.payload, [
+          s.start,
+          s.end,
+        ])
+      ),
+      "a computation always wins: recognised forms overlapping a computed span are dropped",
+    );
+  }
+
+  // A FRAGMENT ANSWERS OTHER QUESTIONS (traverse.ts) — and the cover used to
+  // account the fragment's bytes as explained by the stranger's answer.
+  const leading = sites.filter((s) =>
+    !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+  );
+  if (leading.length < sites.length) {
+    if (ctx.meter && run) {
+      ctx.meter.unaskedFragments += sites.length - leading.length;
+    }
+    traced?.step(
+      "unaskedFragments",
+      sites.filter((s) => !leading.includes(s)).map((s) =>
+        rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
+          s.start,
+          s.end,
+        ])
+      ),
+      [],
+      "a piece of other forms whose continuations the question names none of — it answers other questions",
+    );
+    sites = leading;
+  }
+  return sites;
+}
+
+/** A FORM THE QUESTION HOLDS UNDER ITS EQUIVALENCE IS A SITE TOO
+ *  (traverse.ts, `canonHeldPoints`): the climb proposed it, the canonical
+ *  question's bytes decided it — `Man At Bath` holds the stored `Man at Bath`.
+ *  Read once the climb has run (the pipeline reads the cover again then, when
+ *  this admits one: `readsPoints`); where recognition already read bytes, its
+ *  site stands.  The same bar an argument clears (two quanta), leading
+ *  somewhere, and not a piece that answers other questions. */
+function canonSites(
+  ctx: MindContext,
+  query: Uint8Array,
+  sites: ReadonlyArray<{ start: number; end: number }>,
+): Array<{ start: number; end: number; payload: number }> {
+  const out: Array<{ start: number; end: number; payload: number }> = [];
+  for (const p of canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup))) {
+    if (!ctx.store.hasNext(p.payload)) continue;
+    if (
+      [...sites, ...out].some((s) => s.start < p.end && p.start < s.end)
+    ) continue;
+    if (
+      answersOtherQuestions(ctx, p.payload, query.length, p.end - p.start)
+    ) continue;
+    out.push(p);
+  }
+  return out;
+}
+
 // ── Pipeline mechanism ──────────────────────────────────────────────────────
 
 export const coverMechanism: PipelineMechanism = {
@@ -235,76 +326,21 @@ export const coverMechanism: PipelineMechanism = {
   async floor(_ctx, _query, _pre, _worthRunning) {
     return 0;
   },
+  // What the climb's points add to a cover read before them, beyond the
+  // instances' relations every pick reads: a site the question holds under
+  // its equivalence (`canonSites`), on the sites the run itself stands on.
+  readsPoints(ctx, query, pre) {
+    if (canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length === 0) {
+      return false;
+    }
+    return canonSites(ctx, query, coverSites(ctx, query, pre, false)).length >
+      0;
+  },
   async run(ctx, query, pre) {
     const { rec, computed } = pre;
+    let sites = coverSites(ctx, query, pre, true);
 
-    // Masking: computed spans are authoritative.  Remove recognised sites
-    // that overlap any computed span before building the cover search.
-    let sites = computed.length === 0
-      ? rec.sites
-      : rec.sites.filter((s) =>
-        !computed.some((u) => s.start < u.j && u.i < s.end)
-      );
-
-    if (computed.length > 0 && sites.length < rec.sites.length) {
-      ctx.trace?.step(
-        "maskByComputation",
-        rec.sites.map((s) =>
-          rItem(query.subarray(s.start, s.end), "form", s.payload, [
-            s.start,
-            s.end,
-          ])
-        ),
-        sites.map((s) =>
-          rItem(query.subarray(s.start, s.end), "form", s.payload, [
-            s.start,
-            s.end,
-          ])
-        ),
-        "a computation always wins: recognised forms overlapping a computed span are dropped",
-      );
-    }
-
-    // A FRAGMENT ANSWERS OTHER QUESTIONS (traverse.ts) — and the cover used to
-    // account the fragment's bytes as explained by the stranger's answer.
-    const leading = sites.filter((s) =>
-      !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
-    );
-    if (leading.length < sites.length) {
-      if (ctx.meter) {
-        ctx.meter.unaskedFragments += sites.length - leading.length;
-      }
-      ctx.trace?.step(
-        "unaskedFragments",
-        sites.filter((s) => !leading.includes(s)).map((s) =>
-          rItem(query.subarray(s.start, s.end), "fragment", s.payload, [
-            s.start,
-            s.end,
-          ])
-        ),
-        [],
-        "a piece of other forms whose continuations the question names none of — it answers other questions",
-      );
-      sites = leading;
-    }
-
-    // A FORM THE QUESTION HOLDS UNDER ITS EQUIVALENCE IS A SITE TOO
-    // (traverse.ts, `canonHeldPoints`): the climb proposed it, the canonical
-    // question's bytes decided it — `Man At Bath` holds the stored `Man at
-    // Bath`.  Read once the climb has run (the pipeline reads the cover again
-    // then); where recognition already read bytes, its site stands.  The same
-    // bar an argument clears (two quanta), leading somewhere, and not a piece
-    // that answers other questions.
-    for (
-      const p of canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup))
-    ) {
-      if (!ctx.store.hasNext(p.payload)) continue;
-      if (sites.some((s) => s.start < p.end && p.start < s.end)) continue;
-      if (
-        answersOtherQuestions(ctx, p.payload, query.length, p.end - p.start)
-      ) continue;
-      sites = [...sites, p];
-    }
+    sites = [...sites, ...canonSites(ctx, query, sites)];
 
     if (sites.length === 0 && computed.length === 0) return [];
 

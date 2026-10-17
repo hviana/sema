@@ -1284,6 +1284,56 @@ function licenceOf(
   return convergent(ctx, asked, stored) ? "shown" : "unread";
 }
 
+/** A holder's bytes as the licence reads them — raw, or under the response's
+ *  offset-keeping equivalence — once per response: every pair the licence
+ *  weighs climbs to the same holders (`oldestContexts`, memoised alike). */
+function licenceBytes(
+  ctx: MindContext,
+  id: number,
+  canon: boolean,
+): Uint8Array {
+  const life = ctx.climbMemo;
+  const key = `${canon ? "c" : "r"}${id}`;
+  let memo: Map<string, Uint8Array> | undefined;
+  if (life !== null) {
+    memo = licenceBytesMemo.get(life);
+    if (memo === undefined) licenceBytesMemo.set(life, memo = new Map());
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+  }
+  const raw = read(ctx, id);
+  const out = canon ? offsetCanon(ctx, raw) : raw;
+  memo?.set(key, out);
+  return out;
+}
+const licenceBytesMemo = new WeakMap<object, Map<string, Uint8Array>>();
+
+/** A node's first continuations (`n`) or establishing contexts (`p`), as the
+ *  licence reads them — once per response, like its holders and their bytes:
+ *  a run weighed against several stored spans walks the same edges. */
+function licenceEdges(
+  ctx: MindContext,
+  side: "n" | "p",
+  id: number,
+  limit: number,
+): number[] {
+  const life = ctx.climbMemo;
+  const key = `${side}${id}:${limit}`;
+  let memo: Map<string, number[]> | undefined;
+  if (life !== null) {
+    memo = licenceEdgeMemo.get(life);
+    if (memo === undefined) licenceEdgeMemo.set(life, memo = new Map());
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+  }
+  const out = side === "n"
+    ? ctx.store.nextFirst(id, limit)
+    : ctx.store.prevFirst(id, limit);
+  memo?.set(key, out);
+  return out;
+}
+const licenceEdgeMemo = new WeakMap<object, Map<string, number[]>>();
+
 /** CONVERGENCE — the equivalence shown across two frames: a context holding
  *  `asked` and another holding `stored`, saying the same of the same thing
  *  besides, lead to the SAME continuation.
@@ -1318,13 +1368,13 @@ function convergent(
     // …and each holds its own span WITHOUT the other's: a context holding
     // both (`Who is the father of X?` holds `who is` and ` father`) shows
     // nothing standing in for anything.
-    const cb = offsetCanon(ctx, read(ctx, c));
+    const cb = licenceBytes(ctx, c, true);
     if (cb.length <= asked.length || indexOf(cb, asked, 0) < 0) continue;
     if (indexOf(cb, stored, 0) >= 0) continue;
-    for (const n of ctx.store.nextFirst(c, bound)) {
-      for (const p of ctx.store.prevFirst(n, bound)) {
+    for (const n of licenceEdges(ctx, "n", c, bound)) {
+      for (const p of licenceEdges(ctx, "p", n, bound)) {
         if (p === c) continue;
-        const pb = offsetCanon(ctx, read(ctx, p));
+        const pb = licenceBytes(ctx, p, true);
         const at = indexOf(pb, stored, 0);
         if (pb.length <= stored.length || at < 0) continue;
         if (indexOf(pb, asked, 0) >= 0) continue;
@@ -1334,7 +1384,25 @@ function convergent(
         // grandmother of X?` reach one fact about different people.
         const rest = [pb.subarray(0, at), pb.subarray(at + stored.length)]
           .filter((r) => r.length > 0);
-        if (rest.every((r) => indexOf(cb, r, 0) >= 0)) return true;
+        if (!rest.every((r) => indexOf(cb, r, 0) >= 0)) continue;
+        // …and the asked span STANDS WHERE the stored one stands: after what
+        // the stored context says before its span, before what it says after.
+        // One pair is several spans' evidence otherwise — `Where was W born?`
+        // and `W place of birth` licensed `Where was ` as much as ` born?`
+        // for ` place of birth`.
+        const before = pb.subarray(0, at);
+        const after = pb.subarray(at + stored.length);
+        const from = before.length === 0
+          ? 0
+          : indexOf(cb, before, 0) + before.length;
+        const to = after.length === 0 ? cb.length : indexOf(cb, after, from);
+        for (
+          let x = indexOf(cb, asked, from);
+          x >= 0;
+          x = indexOf(cb, asked, x + 1)
+        ) {
+          if (x + asked.length <= to) return true;
+        }
       }
     }
   }
@@ -1381,7 +1449,7 @@ function minimalPairs(
   };
   const pairOf = (c: number): "refuted" | "shown" | undefined => {
     if (!ctx.store.hasNext(c)) return;
-    const h = read(ctx, c);
+    const h = licenceBytes(ctx, c, false);
     if (h.length <= from.length) return;
     const at = indexOf(h, from, 0);
     if (at < 0) return;
@@ -1394,8 +1462,8 @@ function minimalPairs(
     ]);
     const twin = resolve(ctx, swapped) ?? canonResolve(ctx, swapped);
     if (twin === null || twin === c || !ctx.store.hasNext(twin)) return;
-    const theirs = new Set(ctx.store.nextFirst(twin, bound));
-    if (!ctx.store.nextFirst(c, bound).some((n) => theirs.has(n))) {
+    const theirs = new Set(licenceEdges(ctx, "n", twin, bound));
+    if (!licenceEdges(ctx, "n", c, bound).some((n) => theirs.has(n))) {
       if (ctx.meter) ctx.meter.substitutionsRefuted++;
       return "refuted";
     }
@@ -1670,19 +1738,17 @@ function byUse(
       asked.index.has(latin1(offsetCanon(ctx, q.subarray(o, o + W))))
     ) evidence.push(o);
   }
-  // A run is consecutive evidence windows.
-  const runs = unionSpans(windowSpans(evidence, W), 1 - W);
-  const uses = runs.flatMap((r) => {
-    const u = useOf(ctx, q, r[0], r[1], { question: whole });
-    return u === null ? [] : [{ r, u }];
-  });
-  if (uses.length === 0) return none();
-  // Per run, each continuation's best use over its establishing contexts.
+  // THE BYTES BEFORE THE COMPANY.  What each continuation's establishing
+  // contexts say beside the node, and the question's evidence runs, are read
+  // first: where too few continuations have a span to rank (one alone, two
+  // otherwise) or the question has no run, nothing is compared and no
+  // company is read — the same verdict, for the reads of the bytes alone
+  // (`Gaston Roudès`, established by its bare name: nothing beside the node).
+  const alone = nx.length === 1;
   let budget = allowance;
-  const perRun = uses.map(() => new Map<number, number>());
-  // The stored span behind each continuation's best use, per run — what the
-  // licence weighs the question's run against.
-  const spanOf = uses.map(() => new Map<number, Uint8Array>());
+  const sides: Array<
+    { n: number; c: number; cb: Uint8Array; a: number; b: number }
+  > = [];
   for (const n of nx) {
     if (budget <= 0) break;
     for (const c of ctx.store.prevFirst(n, Math.min(budget, allowance))) {
@@ -1692,25 +1758,61 @@ function byUse(
       const i = indexOf(cb, node, 0);
       if (i < 0) continue;
       for (const [a, b] of [[0, i], [i + node.length, cb.length]]) {
-        if (b - a < W) continue;
-        const ru = useOf(ctx, cb, a, b, { context: c });
-        if (ru === null) continue;
-        uses.forEach(({ u }, k) => {
-          const s = cosine(u, ru);
-          if (s > (perRun[k].get(n) ?? -Infinity)) {
-            perRun[k].set(n, s);
-            spanOf[k].set(n, cb.subarray(a, b));
-          }
-        });
+        if (b - a >= W) sides.push({ n, c, cb, a, b });
       }
     }
+  }
+  if (new Set(sides.map((x) => x.n)).size < (alone ? 1 : 2)) return none();
+  // A run is consecutive evidence windows.
+  const runs = unionSpans(windowSpans(evidence, W), 1 - W);
+  if (runs.length === 0) return none();
+  // THE LICENCE BEFORE THE COMPANY.  Where only a licensed use names (the
+  // walk, or one continuation), the pair the company would choose must be
+  // one the corpus shows; the licence reads no company, so where it shows no
+  // pair of a question run and a stored span, nothing the company chose could
+  // name, and it is not read (measured: the licence refused 77 of 81 uses on
+  // 100 questions, after their company was read).  The same pair asked later
+  // is the response's memo.
+  if (asked !== whole || alone) {
+    const spans = new Map<string, Uint8Array>();
+    for (const { cb, a, b } of sides) {
+      spans.set(latin1(cb.subarray(a, b)), cb.subarray(a, b));
+    }
+    const shown = runs.some((r) => {
+      const A = offsetCanon(ctx, q.subarray(r[0], r[1]));
+      for (const S of spans.values()) {
+        if (licensedSubstitution(ctx, S, A) === "shown") return true;
+      }
+      return false;
+    });
+    if (!shown) return none();
+  }
+  const uses = runs.flatMap((r) => {
+    const u = useOf(ctx, q, r[0], r[1], { question: whole });
+    return u === null ? [] : [{ r, u }];
+  });
+  if (uses.length === 0) return none();
+  // Per run, each continuation's best use over its establishing contexts,
+  // and the stored span behind it — what the licence weighs the question's
+  // run against.
+  const perRun = uses.map(() => new Map<number, number>());
+  const spanOf = uses.map(() => new Map<number, Uint8Array>());
+  for (const { n, c, cb, a, b } of sides) {
+    const ru = useOf(ctx, cb, a, b, { context: c });
+    if (ru === null) continue;
+    uses.forEach(({ u }, k) => {
+      const sc = cosine(u, ru);
+      if (sc > (perRun[k].get(n) ?? -Infinity)) {
+        perRun[k].set(n, sc);
+        spanOf[k].set(n, cb.subarray(a, b));
+      }
+    });
   }
   // ONE CONTINUATION IS NOTHING TO RANK.  The run that reads most like its
   // establishing context is the evidence, and only the licence below can make
   // it so: `Where did the presenter of Tim Russert (Talk Show) die?` reaches
   // `Tim Russert`, whose one fact is established by `Tim Russert place of
   // death` — ` die` used as ` place of death` is the step the walk owes.
-  const alone = nx.length === 1;
   let best = -1, top = 0, next = 0, run = uses[0].r, bestRun = 0;
   uses.forEach(({ r }, k) => {
     const ranked = [...perRun[k].entries()].sort((x, y) => y[1] - x[1]);
@@ -2343,9 +2445,10 @@ function byCoInstance(
     t: number,
     chain: boolean,
     cond?: Map<string, Step>,
+    direct = false,
   ): void => {
     const bytes = spanBytes(fr.spans);
-    for (const n of capped(ctx, t, allowance)) {
+    for (const n of direct ? [t] : capped(ctx, t, allowance)) {
       if (!nx.includes(n)) continue;
       // A step the derivation says more of names only a fact holding an
       // entity that is what every instance's was.
@@ -2373,10 +2476,28 @@ function byCoInstance(
     const t = resolve(ctx, filled({ prefix, suffix }, node));
     return t === null || t === id ? null : t;
   };
+  // THE FACT STATES THE RELATION TOO.  Where no context spells the frame
+  // around this node (`Gaston Roudès` is established by its bare name alone,
+  // so `Gaston Roudès place of birth` is nowhere), the continuation whose bytes
+  // open with the frame's FACT around the node (`The place of birth of ` +
+  // `Gaston Roudès`) is the one the instances' relation reaches — exact bytes
+  // of the node's own continuations, as the frame's lookup is.
+  const byFact = (step: Step): number | null => {
+    if (step.fact === undefined) return null;
+    const want = concatBytes([step.fact, node]);
+    for (const n of nx) {
+      if (bytesEqual(read(ctx, n, want.length), want)) return n;
+    }
+    return null;
+  };
   for (const fr of frames) {
     if (fr.not === id) continue;
     const t = at(fr.prefix, fr.suffix);
     if (t !== null) credit(fr, t, false);
+    else {
+      const n = byFact(fr);
+      if (n !== null) credit(fr, n, false, undefined, true);
+    }
   }
   for (const fr of chains) {
     // The FIRST step applies to the thing the question names — its own filler,
@@ -2394,6 +2515,10 @@ function byCoInstance(
     }
     const t = at(all[i].prefix, all[i].suffix);
     if (t !== null) credit(fr, t, true, fr.cond?.[i]);
+    else {
+      const n = byFact(all[i]);
+      if (n !== null) credit(fr, n, true, fr.cond?.[i], true);
+    }
   }
   // ONE MEASURE.  The frames naming a continuation rank by the question
   // material they share — the measure witnessing is ranked by — so `· father`,
@@ -2469,8 +2594,7 @@ interface RelationFrame {
 export function readsOffInstances(ctx: MindContext): boolean {
   const whole = ctx._edgeAsked;
   if (whole === null || whole.points === undefined) return false;
-  return relationFrames(ctx, whole, readAllowance(ctx)).length > 0 ||
-    canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length > 0;
+  return relationFrames(ctx, whole, readAllowance(ctx)).length > 0;
 }
 
 /** THE POINTS THE QUESTION HOLDS ONLY UNDER ITS EQUIVALENCE.  Recognition
@@ -2523,6 +2647,11 @@ function canonHeldOf(
   const out: Array<{ start: number; end: number; payload: number }> = [];
   memo.set(minLen, { canon: ctx.canon, raw: asked.raw, out });
   for (const id of asked.points) {
+    // The length decides most points, and the store reads it from its index
+    // (exact below the cap): no bytes are rebuilt for a point too short or not
+    // shorter than the question.
+    const len = ctx.store.contentLen(id, asked.bytes.length);
+    if (len < minLen || len >= asked.bytes.length) continue;
     const raw = read(ctx, id, asked.bytes.length);
     if (raw.length < minLen || raw.length >= asked.bytes.length) continue;
     const form = ctx.canon(raw);
@@ -2835,6 +2964,10 @@ type Step = {
   prefix: Uint8Array;
   suffix: Uint8Array;
   to?: { id: number; bytes: Uint8Array };
+  /** What the step's FACT spells before the entity (`The place of birth of `),
+   *  at least one window: the relation as the fact itself states it, for an
+   *  entity no context states it of (`byCoInstance`). */
+  fact?: Uint8Array;
 };
 
 /** The STEP the bytes `cb` of a context are around `x`: `cb` with its first
@@ -3200,10 +3333,19 @@ function stepsInto(
   except?: number,
 ): Step[] {
   const steps: Step[] = [];
+  let fact: Uint8Array | undefined;
   for (const c of ctx.store.prevFirst(g, allowance)) {
     if (heldWithin(ctx, c) || c === except) continue;
     const step = stepAround(read(ctx, c, formCap + 1), bytes);
-    if (step !== null && !emptyStep(step)) steps.push(step);
+    if (step === null || emptyStep(step)) continue;
+    if (fact === undefined) {
+      const at = indexOf(read(ctx, g, formCap + 1), bytes, 0);
+      fact = at >= ctx.space.maxGroup
+        ? read(ctx, g, formCap + 1).subarray(0, at)
+        : new Uint8Array(0);
+    }
+    if (fact.length > 0) step.fact = fact;
+    steps.push(step);
   }
   return steps;
 }
@@ -3994,6 +4136,30 @@ const pastHub = new WeakSet<number[]>();
  *  an ENUMERATOR of candidates that are then checked exactly reads what the
  *  bound allows. */
 function oldestContexts(
+  ctx: MindContext,
+  id: number,
+  allowance: number,
+): number[] {
+  // One climb per node per response: the store is read-only while a response
+  // is in flight, and the licence asks the same holders once per stored span
+  // it weighs a run against.  Keyed by the response's lifecycle object, as the
+  // licence's own memo is.  Callers only read the list.
+  const life = ctx.climbMemo;
+  let memo: Map<string, number[]> | undefined;
+  const key = `${id}:${allowance}`;
+  if (life !== null) {
+    memo = oldestMemo.get(life);
+    if (memo === undefined) oldestMemo.set(life, memo = new Map());
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+  }
+  const out = oldestContextsOf(ctx, id, allowance);
+  memo?.set(key, out);
+  return out;
+}
+const oldestMemo = new WeakMap<object, Map<string, number[]>>();
+
+function oldestContextsOf(
   ctx: MindContext,
   id: number,
   allowance: number,

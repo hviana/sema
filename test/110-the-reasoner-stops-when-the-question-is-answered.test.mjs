@@ -89,3 +89,38 @@ test("a question the first link already answers still takes no hop", async () =>
   assert.equal(mind.lastCost?.counters.pivotSteps ?? 0, 0);
   await mind.store.close();
 });
+
+test("a cycle of facts repeating the answer's own scaffolding is not walked", async () => {
+  // Six people, each the father of the next and the last of the first.  The
+  // cover answers `The father of Aldric Fenwick is Beatrix Holloway.`, and the
+  // walk once pivoted five times round the cycle back to Aldric: every next
+  // fact holds ` of `, a window the question still owed, so each step was
+  // admitted for CARRYING it — though the answer in hand already held it.
+  // What the derivation already said is not carried again (derivation.ts).
+  const fact = (s, r, o) => `The ${r} of ${s} is ${o}.`;
+  const people = [
+    "Aldric Fenwick",
+    "Beatrix Holloway",
+    "Cedric Ashcombe",
+    "Delphine Marlowe",
+    "Edmund Thornbury",
+    "Felicity Wetherby",
+  ];
+  const pairs = [];
+  people.forEach((p, i) => {
+    const f = people[(i + 1) % people.length];
+    const c = ["Ravenmoor", "Glenhollow", "Marrowby"][i % 3];
+    pairs.push([`${p} father`, fact(p, "father", f)], [
+      p,
+      fact(p, "father", f),
+    ]);
+    pairs.push([`${p} place of birth`, fact(p, "place of birth", c)]);
+    pairs.push([`Where was ${p} born?`, fact(p, "place of birth", c)]);
+  });
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(pairs);
+  assert.equal(
+    await m.respondText("Who is the father of Aldric Fenwick?"),
+    fact("Aldric Fenwick", "father", "Beatrix Holloway"),
+  );
+});

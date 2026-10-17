@@ -65,8 +65,11 @@ test("134.1 the law is total, and every clause holds over the matrix", async () 
     owed.length > 0,
     "the fixture must owe material, else this pins nothing",
   );
+  // The open state's product holds none of the question: a product that
+  // already held the owed windows would be carried past by every restatement
+  // (the drift; see the last clause below).
   const states = {
-    open: { product: query, accounted: [], remainder: owed, cost: 0 },
+    open: { product: none, accounted: [], remainder: owed, cost: 0 },
     closed: {
       product: none,
       accounted: [[0, query.length]],
@@ -127,13 +130,23 @@ test("134.1 the law is total, and every clause holds over the matrix", async () 
     null,
     "a step that neither carries the remainder nor moves is refused",
   );
+  // WHAT THE DERIVATION ALREADY SAID IS NOT CARRIED AGAIN: a state whose
+  // product holds every owed window refuses a step that only repeats them,
+  // and still admits a move.
+  const said = { ...states.open, product: query };
+  assert.equal(
+    law.admissible(said, conts.carries, query, W),
+    null,
+    "carrying what the product already holds is no progress",
+  );
+  assert.notEqual(law.admissible(said, conts.moves, query, W), null);
 });
 
 test("134.2 advance is the transition it says it is", async () => {
   const query = enc(QUERY);
   const W = 4;
   const before = {
-    product: query,
+    product: enc("qqqqqqqqqqqqqqqq"),
     accounted: [],
     remainder: law.remainderOf(query.length, [], W),
     cost: 2,
@@ -181,7 +194,7 @@ test("134.2 advance is the transition it says it is", async () => {
   );
   // and the state it came from is untouched (the law is pure)
   assert.deepEqual(before.accounted, []);
-  assert.equal(before.product, query);
+  assert.equal(before.product.length, 16);
 });
 
 test("134.3 the engine's own refusal is the law's refusal", async () => {
