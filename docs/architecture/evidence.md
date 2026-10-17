@@ -101,8 +101,8 @@ is not made.
 The same measure ranks the frames among themselves, not their number of
 instances. Three instances of `Who is Y's dad?` share only `Who is` and `?` with
 a grandparent question (9 bytes), yet spell `· father` at the father as often as
-the derivation (36 bytes) spells `· mother` there. Frames within one window of
-the strongest are evidence perception cannot tell apart, and name together.
+the derivation (36 bytes) spells `· mother` there. Only the strongest frames
+name, and frames equally strong name together.
 
 Instances that contradict one another (two of `elder grandmother` reading
 `· father → · mother`, two `· mother → · mother`) name both continuations.

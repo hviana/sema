@@ -14,9 +14,12 @@ keeps all of them and lets the evidence choose.
 
 ```ts
 interface PipelineMechanism {
+  name;
+  provenance;
   parse?(query): Promise<ComputedSpan[]>; // authoritative spans, collected before any floor
   floor(ctx, query, pre, worthRunning): Promise<number | null>; // admissible bound, or null
   run(ctx, query, pre): Promise<MechanismResult[]>;
+  readsPoints?(ctx, query, pre): boolean; // what a rerun would read off the climb's points
 }
 interface MechanismResult {
   bytes;

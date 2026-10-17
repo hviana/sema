@@ -46,7 +46,7 @@ are content-keyed across turns.
 | `perceiveMemo`                                         | bytes + boundary set  | response or conversation                       |
 | `recogniseMemo`, `climbMemo`                           | bytes                 | response or conversation                       |
 | `canonMemo`                                            | bytes                 | response, when a `canon` is set                |
-| `_resolvedSubtrees`                                    | tree node (`WeakMap`) | response or conversation                       |
+| `_resolvedSubtrees`                                    | tree node (`WeakMap`) | conversation                                   |
 | `_edgeChoice` (the pick memo), `_edgeAsked`            | node / question       | response; cleared at the end                   |
 | `sharedReachMemo`, probes, derivations (`traverse.ts`) | node / form           | on write, or whole at its budget (`caches.md`) |
 

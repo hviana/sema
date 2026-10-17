@@ -772,9 +772,9 @@ export function guidedNext(
   node: number,
 ): number | undefined {
   if (ctx._edgeGuide === null) return undefined;
-  // The pick memo is BYPASSED while a rationale trace is attached — the same
-  // policy climbMemo and recogniseMemo follow (every mechanism must emit its
-  // own steps; a memo hit would swallow the repeat's `disambiguate` step).
+  // The pick memo is BYPASSED while a rationale trace is attached (every
+  // mechanism must emit its own steps; a memo hit would swallow the repeat's
+  // `disambiguate` step).
   // Consistency does not need the memo: chooseNext is a pure function of the
   // (read-only) store, the guide and the consensus climb's points once they
   // exist (the memo is cleared when they arrive), so recomputation yields the

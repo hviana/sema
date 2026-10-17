@@ -55,6 +55,10 @@ asked for nothing are kept across re-covers.
   window-long edge run of scaffolding is the ask (`Why did … 's wife die?`), and
   the answer is the form's replacement alone; shorter runs are glue (`2+2.` →
   `4.`).
+- **What the question already says is no answer**: a chosen span whose followed
+  bytes the question holds elsewhere (a prior turn's continuation, said later in
+  the same question) is trimmed and not accounted, and the other spans stay
+  (`segRestatesQuery`).
 - **Evidence travels**: the spans that named a followed site's step are
   accounted (`askedEvidence`).
 - **`used` is declared**, the facts composed, never inferred (`John II` is not
@@ -72,6 +76,7 @@ form. `join` belongs to `confluence`, not to `cover`.
 
 - `test/09` — edge following and hop semantics.
 - `test/22` — a partial result is the pivot into the next fact.
+- `test/45` — a restated span is trimmed; the other spans stay.
 - `test/151` — connectors and concept hops resolved where the search reaches
   them; dominance.
 - `test/154` — an unasked fragment voices nothing; a site held only under the

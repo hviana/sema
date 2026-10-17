@@ -58,9 +58,10 @@ O(1) over a persistent cursor. It has two settings:
   exceeds 64.
 - **`_internIds`** (a `WeakMap` from tree node to id): skips re-interning a
   shared subtree. The ids it holds are permanent.
-- **Structural memos** (`traverse.ts`): the climb's reach (32 MB) and what is
-  read off instances (16 MB) charge an entry when set and drop whole at the
-  budget; a hit costs a plain `Map`'s. A probe entry is one number: 100K.
+- **Structural memos** (`traverse.ts`, `junction.ts`): the climb's reach (32 MB)
+  and what is read off instances (16 MB) charge an entry when set and drop whole
+  at the budget; a hit costs a plain `Map`'s. Probe entries (one number each)
+  and the junction walk's reads (`walkCache`) drop whole at 100K entries.
 
 Per-response memos are in `memoization.md`.
 

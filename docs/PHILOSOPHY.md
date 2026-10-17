@@ -158,8 +158,8 @@ The sites say what the question contains. They do not say what the question is
 _about_, meaning which stored contexts its parts point to together. That is
 attention's job, the consensus climb (`attention.ts`).
 
-1. **Regions.** Every node of the question's tree, and every recognised site, is
-   a region.
+1. **Regions.** Every node of the question's tree is a region, and so, as
+   corroborating evidence, is every stored window its cut split.
 2. **Lookup.** A region that is a stored form looks itself up exactly. Any other
    region searches by gist, and pays a margin: it must beat the best rival
    conclusion by the noise floor, scaled by how much of it is not stored.
