@@ -50,13 +50,14 @@ abstains).
 ## `pivotInto` — the longest wins (`mind/resonance.ts`)
 
 Candidates are the things the answer holds (`thingsIn`, `mind/recognition.ts`),
-exact or canonical, learnt whole and leading on: the set the cover's
-derive-through reads (`entityProposals`). They rank by span length, descending,
-recognition's order breaking ties, so the first one passing the filters wins. A
-thing is a learnt whole (`s=70`, learnt only inside `latency_ms=70`, is none),
-not a structural top: the fold reuses a name's subtree inside its own contexts
-(`William Henry Fellowes`: parents 2), and refusing it stops the walk a hop
-short (`test/157`).
+exact or canonical, learnt whole and leading on (past the sweep's reach, the
+contexts each stretch's rarest window climbs to that the bytes hold): the set
+the cover's derive-through reads (`entityProposals`). They rank by span length,
+descending, recognition's order breaking ties, so the first one passing the
+filters wins. A thing is a learnt whole (`s=70`, learnt only inside
+`latency_ms=70`, is none), not a structural top: the fold reuses a name's
+subtree inside its own contexts (`William Henry Fellowes`: parents 2), and
+refusing it stops the walk a hop short (`test/157`).
 
 ## Junction ascent — guards against a budget (`mind/junction.ts`)
 
@@ -100,3 +101,4 @@ only when nearest beyond `estimatorNoise` (`anchorFallback`, `test/52`).
 - `test/27` — a shared saturated opening does not take the climb's focus; the
   identity layer alone keeps it past the opening.
 - `test/49` — refutes treating container fan-out as a hub.
+- `test/22` — a pivot longer than the sweep's reach, held mid-answer, is found.

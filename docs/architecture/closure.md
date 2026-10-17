@@ -71,7 +71,8 @@ phases: each runs to its own end, in order, and is never revisited.
 - **A gap's reach is not a consequence everywhere.** In alignment it is: the
   walk goes outward with no cap. Recognition's sweep reaches `W⁴ + 2r` bytes
   from every start, because unbounded reach would need a whole-stream index the
-  store does not have.
+  store does not have; a longer thing inside the bytes is found by structure
+  (`thingsIn`).
 
 Three limits were proved and deliberately left out:
 

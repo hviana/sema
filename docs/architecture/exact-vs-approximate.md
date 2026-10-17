@@ -26,20 +26,22 @@ Three relations, never standing in for one another:
   (`discriminates`): `sea-level` is `sea level`; `melting point` is not a stored
   `boiling point`.
 - **Company**: halo similarity on the windows touching the mismatch
-  (`partingHalo`). It proposes, never decides.
+  (`partingHalo`). It proposes; alone it is a hypothesis (grade 1), never
+  testimony.
 - **Contextual equivalence** (`licensedSubstitution`): **shown** by a minimal
   pair (a frame holding one span whose twin with the other, found by content
-  address, leads to the same continuation; **refuted** if elsewhere) or by
-  convergence (contexts each holding one span, the asked one where the stored
-  one stands, lead to the same continuation: `Did X pass away in E?` and
-  `X end`); else **unread**.
+  address, leads to the same continuation; **refuted** if elsewhere, both read
+  whole) or by convergence (contexts each holding one span, the asked one where
+  the stored one stands, lead to the same continuation: `Did X pass away in E?`
+  and `X end`); else **unread**.
 
 `substitutionGrade`: 0 refuted or below the proposal floor, 1 unread with
-company at `conceptThreshold`, 2 shown. Every substitution reads it, each side
-keeping its strongest grade (`licensedVariants`). A use, being company, names a
-step only at grade 2 (`evidence.md`), and the question with one span swapped
-answers it only under the licence (`unlicensedSwap`). Halo bars:
-`thresholds.md`.
+company at `conceptThreshold` (counted, `substitutionsOnCompany`), 2 shown. A
+grade-1 swap transfers only where the corpus refutes nothing, and yields to a
+shown one. Every substitution reads it, each side keeping its strongest grade
+(`licensedVariants`). A use, being company, names a step only at grade 2
+(`evidence.md`), and the question with one span swapped answers it only under
+the licence (`unlicensedSwap`). Halo bars: `thresholds.md`.
 
 ## Graded ladders — exact first, never reordered
 
@@ -76,4 +78,5 @@ Two rules in `attention.ts` encode the law, and they must not be flattened:
 - `test/42` — recognition is idempotent: identity is byte-determined.
 - `test/47`, `test/49`, `test/51`, `test/53`, `test/154` — the licence: refuted
   pairs refuse, shown pairs transfer, company stands alone only at
-  `conceptThreshold`, identity within one window, a use named only when shown.
+  `conceptThreshold`, identity within one window, a use named only when shown, a
+  pair read past its bound refutes nothing (`test/154.19`).

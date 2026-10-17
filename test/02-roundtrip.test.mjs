@@ -81,3 +81,17 @@ test("empty input is graceful silence", async () => {
   assert.equal(r.v, null);
   assert.equal(r.bytes.length, 0);
 });
+
+test("content keys are injective for arbitrary bytes", async () => {
+  // A separator byte between parts is not injective: with `\0` between them,
+  // (`A\0`, `B`) and (`A`, `\0B`) share a key, and two different
+  // substitutions would share one licence.  Every multi-part content key is
+  // length-prefixed (`bytesKey`), and the perceive memo tags its two shapes.
+  const { bytesKey } = await import("../dist/src/bytes.js");
+  const { perceiveKey } = await import("../dist/src/mind/primitives.js");
+  const b = (...xs) => new Uint8Array(xs);
+  assert.notEqual(bytesKey(b(65, 0), b(66)), bytesKey(b(65), b(0, 66)));
+  assert.notEqual(bytesKey(b(49), b()), bytesKey(b(), b(49)));
+  assert.notEqual(perceiveKey(b(65, 0, 49)), perceiveKey(b(65), [1]));
+  assert.notEqual(perceiveKey(b(49, 58, 65)), perceiveKey(b(65), [1]));
+});

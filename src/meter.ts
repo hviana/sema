@@ -214,6 +214,13 @@ export class Meter {
   /** …of which a minimal pair refuted: the swapped context is stored and
    *  leads elsewhere. */
   substitutionsRefuted = 0;
+  /** Minimal pairs left undecided: no shared continuation was read, but one
+   *  side's continuations came back at the read bound, so absence proves
+   *  nothing. */
+  licenceReadsSaturated = 0;
+  /** Substitutions granted on company alone (grade 1): the corpus neither
+   *  showed nor refuted the swap — a hypothesis, ranked below a shown one. */
+  substitutionsOnCompany = 0;
 
   /** `lightestDerivation` searches started. */
   searches = 0;

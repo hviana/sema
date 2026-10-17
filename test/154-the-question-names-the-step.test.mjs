@@ -812,3 +812,78 @@ test("154.17 a relation no context states of an entity is read off the fact itse
   assert.equal(got, fact("place of birth", dir, "Dunmarsh"));
   assert.ok(named.includes(dir), `the hop from ${dir} was not named`);
 });
+
+test("154.18 a window the other structure holds names no thing beside it", async () => {
+  // On a store too small for ` of ` to be scaffolding, `Who is the father of
+  // Frederick II?` reached his citizenship fact too, and ` of ` (held by no
+  // other context) named it apart: the comparison glued `Frederick II country`
+  // onto the father fact.  ` of ` is the father fact's own, as it spells the
+  // relation the question asks, so it names nothing beside it.
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  await mind.ingest([
+    ["thank you", "merci"],
+    ["good morning", "bonjour"],
+    ["Hello there.", "Hi! How can I help you?"],
+    ...deposits([
+      ["Frederick II", "father", "Peter III of Aragon"],
+      ["Frederick II", "country of citizenship", "Kingdom of Sicily"],
+    ]),
+  ]);
+  const schemas = [];
+  const answer = await mind.respondText(
+    "Who is the father of Frederick II?",
+    (st) => {
+      if (st.mechanism.at(-1) === "castSchema") schemas.push(st.note ?? "");
+    },
+  );
+  assert.equal(answer, "The father of Frederick II is Peter III of Aragon.");
+  assert.ok(
+    !schemas.some((n) => /comparison/.test(n)),
+    "no comparison is cast",
+  );
+  await mind.store.close();
+});
+
+test("154.19 a minimal pair read past its bound refutes nothing", async () => {
+  // `red circle` and its twin `crimson circle` share one continuation, but
+  // each holds more continuations than the read bound, and the shared one
+  // lies past both pages.  Absence inside a cut read is no evidence the corpus
+  // holds none: the pair is unread, never refuted.  With nothing else the two
+  // lead to, it is shown.
+  const { licensedSubstitution } = await import(
+    "../dist/src/mind/traverse.js"
+  );
+  const enc = (s) => new TextEncoder().encode(s);
+  const licence = async (n) => {
+    const mind = new Mind({ seed: 7 });
+    const items = [
+      ["red", "is a color"],
+      ["crimson", "is a color"],
+      ["blue", "is a color"],
+      ["circle", "is a shape"],
+      ["square", "is a shape"],
+      ["red square", "answer beta"],
+      ["blue circle", "answer gamma"],
+      ["blue square", "answer delta"],
+    ];
+    for (let i = 0; i < n; i++) {
+      items.push(
+        ["red circle", `answer alpha ${i}`],
+        ["crimson circle", `answer crimson ${i}`],
+      );
+    }
+    items.push(["red circle", "answer shared"], [
+      "crimson circle",
+      "answer shared",
+    ]);
+    await mind.ingest(items);
+    await mind.respondText("square then crimson");
+    mind.beginResponse(undefined, null);
+    return licensedSubstitution(mind, enc("red"), enc("crimson"));
+  };
+  assert.equal(await licence(0), "shown");
+  assert.equal(await licence(6), "unread");
+});

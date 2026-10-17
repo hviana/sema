@@ -53,6 +53,15 @@ export function latin1(b: Uint8Array): string {
   return s;
 }
 
+/** One key for a SEQUENCE of byte strings: each part prefixed by its length,
+ *  so the key is injective for arbitrary bytes.  A separator byte is not: with
+ *  `\0` between parts, (`A\0`, `B`) and (`A`, `\0B`) share a key. */
+export function bytesKey(...parts: Uint8Array[]): string {
+  let s = "";
+  for (const p of parts) s += `${p.length}:` + latin1(p);
+  return s;
+}
+
 /** First index ≥ `from` at which `needle` occurs in `hay`, or -1.  A short naive
  *  scan — used only to locate a result span inside a learnt framing form. */
 export function indexOf(

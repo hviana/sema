@@ -28,6 +28,7 @@ import { chainReach, flatId, windowAt, windowIds } from "./canonical.js";
 import { decodeText } from "./rationale.js";
 import {
   bytesEqual,
+  bytesKey,
   concatBytes,
   indexOf,
   latin1,
@@ -1250,7 +1251,7 @@ export function licensedSubstitution(
   if (life !== null) {
     memo = licenceMemo.get(life);
     if (memo === undefined) licenceMemo.set(life, memo = new Map());
-    key = `${latin1(stored)}\u0000${latin1(asked)}`;
+    key = bytesKey(stored, asked);
     const hit = memo.get(key);
     if (hit !== undefined) return hit;
   }
@@ -1461,13 +1462,23 @@ function minimalPairs(
     ]);
     const twin = resolve(ctx, swapped) ?? canonResolve(ctx, swapped);
     if (twin === null || twin === c || !ctx.store.hasNext(twin)) return;
-    const theirs = new Set(licenceEdges(ctx, "n", twin, bound));
-    if (!licenceEdges(ctx, "n", c, bound).some((n) => theirs.has(n))) {
-      if (ctx.meter) ctx.meter.substitutionsRefuted++;
-      return "refuted";
+    // Read one past the bound, so a page that came back full is known to be
+    // one: two complete lists that share nothing refute; a shared
+    // continuation shows, wherever it was read; but absence inside a cut read
+    // is no evidence that the corpus holds none (saturation.md).
+    const mine = licenceEdges(ctx, "n", c, bound + 1);
+    const yours = licenceEdges(ctx, "n", twin, bound + 1);
+    const theirs = new Set(yours);
+    if (mine.some((n) => theirs.has(n))) {
+      shown = true;
+      return "shown";
     }
-    shown = true;
-    return "shown";
+    if (mine.length > bound || yours.length > bound) {
+      if (ctx.meter) ctx.meter.licenceReadsSaturated++;
+      return;
+    }
+    if (ctx.meter) ctx.meter.substitutionsRefuted++;
+    return "refuted";
   };
   // From the form itself first; where that decides nothing, from its rarest
   // window — a common first window (`John`) is held by more contexts than
@@ -1518,7 +1529,11 @@ export function substitutionGrade(
   const licence = licensedSubstitution(ctx, stored, asked);
   if (licence === "refuted") return 0;
   if (licence === "shown") return 2;
-  return company >= conceptThreshold(D) ? 1 : 0;
+  if (company < conceptThreshold(D)) return 0;
+  // A HYPOTHESIS, not testimony: the corpus never made the swap, and company
+  // alone carries it.  Counted, so what stands on company alone is visible.
+  if (ctx.meter) ctx.meter.substitutionsOnCompany++;
+  return 1;
 }
 
 /** Whether `asked` may stand where the corpus holds `stored` at all
@@ -1635,25 +1650,11 @@ function swapOf(
   ctx: MindContext,
   raw: Uint8Array,
 ): { stored: [number, number]; asked: [number, number] } | null {
-  const q = ctx._edgeAsked;
-  if (q === null) return null;
+  const part = partedFrom(ctx, raw);
+  if (part === null || part.identical) return null;
+  const { a, fe, qe, storedPart, askedPart } = part;
   const W = ctx.space.maxGroup;
-  const [a, b] = sharedEnds(offsetCanon(ctx, raw), q.bytes);
-  const fe = raw.length - b, qe = q.raw.length - b;
-  if (a + b < W || fe <= a || qe <= a) return null;
-  // Parts of unlike size are no swap of one piece for another (the bridge's
-  // balance, `dominates`) — a description in the slot is the frame's own
-  // subject asked about (`coInstanceFiller`) — and identical parts are the
-  // same thing written differently (`identicalParts`).
-  const [ls, la] = [fe - a, qe - a];
-  if (!dominates(Math.min(ls, la), Math.max(ls, la))) return null;
-  const storedPart = raw.subarray(a, fe), askedPart = q.raw.subarray(a, qe);
-  if (
-    identicalAt(ctx, raw, a, fe, askedPart, resolve(ctx, raw), [
-      ...(q.points ?? []),
-      ...(q.forms ?? []),
-    ])
-  ) return null;
+  const q = ctx._edgeAsked!;
   // …and parts that share a window are a rewording around common content
   // (several gaps — the substitution bridge's alignment), not one piece for
   // another.
@@ -1668,6 +1669,56 @@ function swapOf(
   return substitutes(ctx, storedPart, askedPart, company)
     ? null
     : { stored: [a, fe], asked: [a, qe] };
+}
+
+/** THE FORM AND THE QUESTION, PARTED: the same opening and close (at least one
+ *  window together, under the response's equivalence) around one part each, of
+ *  like size (the bridge's balance, `dominates` — a description in the slot is
+ *  the frame's own subject asked about, `coInstanceFiller`), and whether the
+ *  two parts are the same thing written differently (`identicalAt`).  null
+ *  when the form is not the question with one part apart.  Read once for both
+ *  sides of the law: an identical part is the question itself (`writesTheQuestion`),
+ *  any other part a swap that needs the licence (`unlicensedSwap`). */
+function partedFrom(
+  ctx: MindContext,
+  raw: Uint8Array,
+  read: readonly number[] = [],
+): {
+  a: number;
+  fe: number;
+  qe: number;
+  storedPart: Uint8Array;
+  askedPart: Uint8Array;
+  identical: boolean;
+} | null {
+  const q = ctx._edgeAsked;
+  if (q === null) return null;
+  const W = ctx.space.maxGroup;
+  const [a, b] = sharedEnds(offsetCanon(ctx, raw), q.bytes);
+  const fe = raw.length - b, qe = q.raw.length - b;
+  if (a + b < W || fe <= a || qe <= a) return null;
+  const [ls, la] = [fe - a, qe - a];
+  if (!dominates(Math.min(ls, la), Math.max(ls, la))) return null;
+  const storedPart = raw.subarray(a, fe), askedPart = q.raw.subarray(a, qe);
+  const identical = identicalAt(ctx, raw, a, fe, askedPart, resolve(ctx, raw), [
+    ...(q.points ?? []),
+    ...(q.forms ?? []),
+    ...read,
+  ]);
+  return { a, fe, qe, storedPart, askedPart, identical };
+}
+
+/** Whether a stored form IS the question written differently: one part apart,
+ *  and that part identical (`identicalAt`) — `What is the capitol of France?`
+ *  for the stored `… capital …`.  The positive side of the parse
+ *  {@link unlicensedSwap} reads.  `read` adds the forms the caller has read
+ *  beyond the climb's: what tells the position apart is among them. */
+export function writesTheQuestion(
+  ctx: MindContext,
+  raw: Uint8Array,
+  read: readonly number[] = [],
+): boolean {
+  return partedFrom(ctx, raw, read)?.identical ?? false;
 }
 
 /** THE QUESTION NAMES A STEP BY ITS USE — the exact tier's third
@@ -2330,7 +2381,7 @@ function describedSteps(
   const after = offsetCanon(ctx, bytes.subarray(e0, end));
   if (before.length + after.length < W) return null;
   const memo = derivationCache(ctx);
-  const key = `d${x.id}:` + latin1(before) + "\u0000" + latin1(after);
+  const key = `d${x.id}:` + bytesKey(before, after);
   if (memo?.described.has(key)) return memo.described.get(key)!;
   const allowance = readAllowance(ctx);
   const cache = getStructCache(ctx);
@@ -2357,9 +2408,7 @@ function describedSteps(
         )
       ) {
         const steps = [one, ...(rest ?? [])];
-        const k = steps.map((st) =>
-          latin1(st.prefix) + "\u0000" + latin1(st.suffix)
-        ).join("\u0001");
+        const k = bytesKey(...steps.flatMap((st) => [st.prefix, st.suffix]));
         bySeq.spell(k, f, () => ({ by: [], steps, key: k }));
       }
     }
@@ -2374,7 +2423,9 @@ function describedSteps(
   if (
     agreed.length > 0 &&
     agreed.every((a) =>
-      a.key === agreed[0].key || a.key.startsWith(agreed[0].key + "\u0001")
+      // The key is a prefix-free code of the steps, so one sequence
+      // continues another exactly when its key opens with the other's.
+      a.key.startsWith(agreed[0].key)
     )
   ) out = agreed[0].steps;
   memo?.described.set(key, out);
@@ -2770,10 +2821,7 @@ function relationFrames(
     const said = read_ === null || "undetermined" in read_ ? null : read_;
     if (said === null && then !== undefined) return;
     const all = [...(said?.steps ?? []), step, ...(then ?? [])];
-    let key = "";
-    for (const t of all) {
-      key += latin1(t.prefix) + "\u0000" + latin1(t.suffix) + "\u0001";
-    }
+    let key = bytesKey(...all.flatMap((t) => [t.prefix, t.suffix]));
     if (not !== undefined) key += `|not:${not}`;
     // WHAT THE DERIVATION SAYS OF THE ENTITIES IT STANDS ON (`HeldByAll`):
     // the entity after each step, where the instance stood on it.
@@ -3173,7 +3221,7 @@ function factFrames(
     for (const g of facts) {
       const step = stepAround(read(ctx, g), to.bytes);
       if (step === null) continue;
-      out.set(latin1(step.prefix) + "\u0000" + latin1(step.suffix), step);
+      out.set(bytesKey(step.prefix, step.suffix), step);
     }
   }
   memo?.facts.set(to.id, out);
@@ -3585,9 +3633,7 @@ function answerIn(
 }
 
 const frameKey = (fr: AnswerFrame): string =>
-  `${fr.answerFirst ? 1 : 0}\u0000${latin1(fr.head)}\u0000${
-    latin1(fr.mid)
-  }\u0000${latin1(fr.tail)}`;
+  `${fr.answerFirst ? 1 : 0}` + bytesKey(fr.head, fr.mid, fr.tail);
 
 /** One CONVERGENCE read off instances of a question about TWO things: the
  *  derivation each thing takes, both ending at the entity the instance is
@@ -3765,9 +3811,8 @@ function readConvergence(
         p,
       ) => p.length >= W);
     }
-    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${formCap}:${
-      [answer, ...pieces].map(latin1).join("\u0000")
-    }`;
+    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${formCap}:` +
+      bytesKey(answer, ...pieces);
     let shown = memo?.converges.get(ik);
     if (shown === undefined) {
       if (ctx.meter) ctx.meter.convergenceReads++;
@@ -3798,8 +3843,8 @@ function readConvergence(
     for (const [a, b] of shown) {
       const k = about + "|" +
         [a, b].map(({ steps, frame }) =>
-          steps.map((t) => latin1(t.prefix) + "\u0000" + latin1(t.suffix))
-            .join("\u0001") + "\u0003" + frameKey(frame)
+          bytesKey(...steps.flatMap((t) => [t.prefix, t.suffix])) + "\u0003" +
+          frameKey(frame)
         ).join("\u0002");
       const [o, cl, qa, len] = c.key.split(":").map(Number);
       const mask = new Uint8Array(Q.length);

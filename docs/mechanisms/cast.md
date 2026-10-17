@@ -56,14 +56,15 @@ Further competence checks:
 - **Comparison.** The dominant is seated against one analog (`seatOfNode`),
   corroborated by `analogyStrength`: halo company at `conceptThreshold`, else
   the frame tier (`test/47`). The question names each with a run it holds apart
-  from the other's, not scaffolding, held by no other context (`heldElsewhere`),
-  or a stranger's fact is glued to the answer. A frame-tier analog dismisses no
-  stored content (`dismissedKnownContent`), the largest gap is smaller than the
-  dominant's context, and the climb committed one root: several roots are
-  several things asked (`test/32` C1). Past the similarity gates, the analog is
-  the candidate holding the most question bytes (`namedBytes`), none on a tie
-  (`test/29` C5). A seat echoing the question gives way to its continuation, as
-  a conjunction holds its parts (`test/47`).
+  from the other's (its runs, its form, the fact it voices), not scaffolding,
+  held by no other context (`heldElsewhere`), or a stranger's fact is glued to
+  the answer. A frame-tier analog dismisses no stored content
+  (`dismissedKnownContent`), the largest gap is smaller than the dominant's
+  context, and the climb committed one root: several roots are several things
+  asked (`test/32` C1). Past the similarity gates, the analog is the candidate
+  holding the most question bytes (`namedBytes`), none on a tie (`test/29` C5).
+  A seat echoing the question gives way to its continuation, as a conjunction
+  holds its parts (`test/47`).
 
 ## Cost
 
@@ -85,5 +86,5 @@ weave (`mechanism-market.md`).
 - `test/43` — the direction of `seatOfNode`.
 - `test/47`, `test/50` — comparison coverage, the junk analog refused by the
   ignored-known principle, and the shared guards.
-- `test/154.7`, `test/154.11`, `test/155.9`, `test/155.12` — a comparison names
-  two things apart; no schema transfers through a co-instance.
+- `test/154.7`, `test/154.11`, `test/154.18`, `test/155.9`, `test/155.12` — a
+  comparison names two things apart; no schema transfers through a co-instance.

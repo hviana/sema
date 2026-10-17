@@ -17,6 +17,7 @@ import { read } from "../primitives.js";
 import {
   answersOtherQuestions,
   argmaxBy,
+  guidedFirst,
   heldElsewhere,
   hubBound,
   hubWindows,
@@ -499,8 +500,11 @@ export async function counterfactualTransfer(
   // must name EACH with material of its own: W-windows of the question the
   // structure holds — on its aligned runs, or anywhere in its own form under
   // the response's equivalence (the witness reading, evidence.md) — neither
-  // inside the other's runs nor corpus scaffolding (`hubWindows`), and a run of
-  // them no other context holds (`heldElsewhere`).  Exact decides which
+  // inside the other's runs nor held by the other structure (its form, or the
+  // fact it voices) nor corpus scaffolding (`hubWindows`), and a run of them no
+  // other context holds (`heldElsewhere`).  `Who is the father of Frederick
+  // II?` holds ` of ` only as the father fact spells it, so it names no
+  // citizenship fact of the same man beside it.  Exact decides which
   // structure is meant; the halo only ranks.  `father of Frederick II?`
   // reached `Peter III of Aragon father` through ` father`, which the dominant
   // `Frederick II father` already holds, and ` of `, which every fact holds —
@@ -518,8 +522,9 @@ export async function counterfactualTransfer(
     voiced: number,
     runs: Array<[number, number]>,
     other: Array<[number, number]>,
+    otherAnchor: number,
   ): boolean => {
-    const key = `${point}:${voiced}`;
+    const key = `${point}:${voiced}:${otherAnchor}`;
     const hit = namedMemo.get(key);
     if (hit !== undefined) return hit;
     const W = ctx.space.maxGroup;
@@ -528,8 +533,17 @@ export async function counterfactualTransfer(
     const forms = [point, voiced].map((id) =>
       offsetCanon(ctx, read(ctx, id, cap))
     );
-    const owns = (o: number): boolean =>
-      !hub[o] && !other.some(([ms, me]) => o >= ms && o + W <= me);
+    const next = guidedFirst(ctx, otherAnchor);
+    const theirs = [otherAnchor, ...(next === undefined ? [] : [next])].map((
+      id,
+    ) => offsetCanon(ctx, read(ctx, id, cap)));
+    const owns = (o: number): boolean => {
+      if (hub[o] || other.some(([ms, me]) => o >= ms && o + W <= me)) {
+        return false;
+      }
+      const w = offsetCanon(ctx, query.subarray(o, o + W));
+      return !theirs.some((f) => indexOf(f, w, 0) >= 0);
+    };
     const own = new Set<number>();
     for (const [s, e] of runs) {
       for (let o = s; o + W <= e; o++) {
@@ -644,12 +658,19 @@ export async function counterfactualTransfer(
       // `Where did Eunseong Kim study at?` on ` did ` alone and voiced `When
       // did Eunseong Kim study at?` with that question's answer.
       if (
-        !namesApart(p.anchor, p.anchor, runSpans(p), runSpans(before.point)) ||
+        !namesApart(
+          p.anchor,
+          p.anchor,
+          runSpans(p),
+          runSpans(before.point),
+          before.point.anchor,
+        ) ||
         !namesApart(
           before.point.anchor,
           before.point.anchor,
           runSpans(before.point),
           runSpans(p),
+          p.anchor,
         )
       ) {
         return null;
@@ -1155,6 +1176,7 @@ export async function counterfactualTransfer(
       bestAnalog.anchor,
       runSpans(bestAnalog.point ?? bestAnalog.src),
       runSpans(dominant),
+      dominant.anchor,
     );
   const dominantNamedApart = (): boolean =>
     bestAnalog !== null && namesApart(
@@ -1162,6 +1184,7 @@ export async function counterfactualTransfer(
       dominant.anchor,
       runSpans(dominant),
       runSpans(bestAnalog.point ?? bestAnalog.src),
+      bestAnalog.anchor,
     );
   // THE LICENCE IS WHAT THE QUESTION LEAVES UNSAID.  A comparison cites two
   // structures, and what refuses a junk analog is what its evidence leaves

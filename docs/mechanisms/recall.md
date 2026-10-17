@@ -19,7 +19,7 @@ cover's site, not a recall tier (`cover.md`).
 | Tier | Name                  | Gate                                                                                                                                                     | Action                                                       |
 | ---- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | 0    | exact identity        | the question resolves                                                                                                                                    | reverse-recall to its best-resonating predecessor, at `STEP` |
-| 1    | self-match            | per hit, `score ≥ identityBar(D, W, len)` proposes; the hit's bytes restate the question                                                                 | reverse-recall to its best-resonating predecessor            |
+| 1    | self-match            | per hit, `score ≥ identityBar(D, W, len)` proposes; its bytes restate the question, or write it with one identical part (`writesTheQuestion`)            | reverse-recall; a hit written differently is `project`ed     |
 | 2    | scaffolding-dominated | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding | `project` the anchor at `CONCEPT`                            |
 | 3b   | substitution bridge   | only after every gist tier failed (below)                                                                                                                | align and substitute                                         |
 
@@ -73,7 +73,8 @@ or scaffolding step. The floor is `STEP`.
 
 ## Pins
 
-- `test/03` — exact identity and reverse-recall.
+- `test/03` — exact identity and reverse-recall; a stored question written
+  differently answers by its continuation, a told-apart neighbour does not.
 - `test/16`, `test/56` — corroborated substitutions, the bridge's admission by
   identity; `test/159.11` — no co-instance is bridged.
 - `test/73` — a question made only of scaffolding stays silent.

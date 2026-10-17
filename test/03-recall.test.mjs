@@ -96,3 +96,65 @@ test("seat symmetry: an episode completes from either seat (whole-level)", async
     assert.ok(r.v !== undefined, "respond returns a valid response");
   }
 });
+
+test("a stored question written differently is answered by its own continuation", async () => {
+  // One part apart, and that part the same thing (`identicalAt`): the hit IS
+  // the question.  Recognition reads bytes, so no cover site holds the typo;
+  // recall's self-match does, the bytes deciding what the vector proposed.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["What is the capital of France?", "Paris"],
+    ["What is the capital of Spain?", "Madrid"],
+  ]);
+  const notes = [];
+  const answer = await m.respondText(
+    "What is the capitol of France?",
+    (st) => notes.push(st.note ?? ""),
+  );
+  assert.equal(answer, "Paris");
+  assert.ok(
+    notes.some((n) => /the question written differently/.test(n)),
+    "the self-match reads the hit as the question",
+  );
+  await m.store.close();
+
+  // A position the corpus tells apart is another question, not a variant
+  // spelling: the stored names one byte from the asked one each lead
+  // elsewhere (the resonance read them), so none is taken for the question.
+  const n = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  const names = [
+    "Zarnovice",
+    "Zarnovicz",
+    "Zarnowice",
+    "Zernovica",
+    "Zarnavica",
+    "Sarnovica",
+    "Zarnovika",
+    "Zarnoviza",
+    "Tarnovica",
+    "Zarmovica",
+    "Zarnovida",
+    "Zarbovica",
+    "Zornovica",
+    "Zarnovuca",
+    "Zarnevica",
+    "Zarnovaca",
+    "Zirnovica",
+    "Zurnovica",
+    "Zarnobica",
+    "Zarnowica",
+  ];
+  await n.ingest([
+    ["What flows through Paris?", "The Seine."],
+    ["What flows across Paris?", "The Seine."],
+    ["What flows through Rome?", "The Tiber."],
+    ["What flows across Rome?", "The Tiber."],
+    ["Which river flows through Zarnovica?", "The Hron river."],
+    ...names.map((z, i) => [`Which river flows across ${z}?`, `River ${i}.`]),
+  ]);
+  assert.equal(
+    await n.respondText("Which river flows across Zarnovica?"),
+    "The Hron river.",
+  );
+  await n.store.close();
+});

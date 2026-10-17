@@ -16,13 +16,15 @@ import {
 import {
   bearsEdge,
   corpusN,
+  edgeAncestors,
   heldWithin,
   leadsSomewhere,
   offsetCanon,
+  windowRarity,
 } from "./traverse.js";
-import { atomIsHub } from "../geometry.js";
-import { chainReach, flatId } from "./canonical.js";
-import { bytesEqual, latin1 } from "../bytes.js";
+import { atomIsHub, boundFor } from "../geometry.js";
+import { chainReach, flatId, windowIds } from "./canonical.js";
+import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import { isChunk, type Sema } from "../sema.js";
 import type { Leaf, Site } from "./graph-search.js";
 
@@ -244,7 +246,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   const flatAt = store.flatSpans?.(bytes) ??
     ((start: number, end: number) => flatId(ctx, bytes.subarray(start, end)));
   const n = bytes.length;
-  const reach = chainReach(W) * W * W + 2 * ctx.space.seats.length;
+  const reach = sweepReach(ctx);
   // Spans the exact probe did not name — what the canonical sweep asks.
   const missed = new Set<number>();
   const exact = (p: number, e: number, chained: boolean): boolean => {
@@ -405,6 +407,13 @@ export function segment(ctx: MindContext, bytes: Uint8Array): Segment[] {
  *  forms at O(L²) probes).  Each thing with its span in the bytes and whether
  *  the canonical spelling held it; first occurrence per node, exact spelling
  *  first, in recognition's order. */
+/** How far recognition's exact sweep reaches from every start: `W⁴ + 2r`.
+ *  A stored form longer than this is read only at the stream's edges. */
+export function sweepReach(ctx: MindContext): number {
+  const W = ctx.space.maxGroup;
+  return chainReach(W) * W * W + 2 * ctx.space.seats.length;
+}
+
 export function thingsIn(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -425,5 +434,41 @@ export function thingsIn(
   take(bytes, false);
   const c = offsetCanon(ctx, bytes);
   if (!bytesEqual(c, bytes)) take(c, true);
+  // A THING LONGER THAN THE SWEEP'S REACH, inside the bytes: recognition reads
+  // such a form only at the stream's edges, so one held in the interior (a
+  // deposited paragraph quoted mid-answer) is found by structure instead.
+  // Every stretch of half the reach lies whole inside such a thing, so its
+  // rarest stored window is the thing's own; the contexts that window climbs
+  // to are proposed, and the bytes decide (the answer holds the thing).
+  const reach = sweepReach(ctx);
+  const n = bytes.length;
+  if (n > reach) {
+    const W = ctx.space.maxGroup;
+    const half = Math.ceil(reach / 2);
+    const windows = windowIds(ctx, bytes);
+    const N = corpusN(ctx);
+    const cap = boundFor(N) + 1;
+    for (let p = 0; p + half <= n; p += half) {
+      let best: number | null = null, rarest = Infinity;
+      for (let o = p; o + W <= p + half; o++) {
+        const id = windows.get(o);
+        if (id === undefined) continue;
+        const r = windowRarity(ctx, id, cap);
+        if (r > 0 && r < rarest) [best, rarest] = [id, r];
+      }
+      if (best === null) continue;
+      const climb = edgeAncestors(ctx, best, N, undefined, true);
+      if (climb.saturated) continue;
+      for (const root of climb.roots) {
+        if (seen.has(root)) continue;
+        const len = ctx.store.contentLen(root, n + 1);
+        if (len <= reach || len > n || !ctx.store.learntWhole(root)) continue;
+        const at = indexOf(bytes, ctx.store.bytes(root), 0);
+        if (at < 0) continue;
+        seen.add(root);
+        out.push({ id: root, span: [at, at + len], canonical: false });
+      }
+    }
+  }
   return out;
 }

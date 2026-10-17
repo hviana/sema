@@ -53,6 +53,8 @@ Each row is a contract that broke at least once when it existed twice:
   content-addressed ascent of the bridge and attention.
 - `joinWithBridge` (`mind/resonance.ts`): joining two results outside the
   search: `bridge(left, right)`, or a bare join traced as `bridgeMiss`.
+- `bytesKey` (`bytes.ts`): the content key of a sequence of byte strings,
+  length-prefixed, so injective for arbitrary bytes (`test/02`).
 - `dismissedKnownContent` (`mind/bridge.ts`): the gap guard shared by
   substitution and CAST: no dismissed window may resolve as known content.
 - `locate` / `alignGraded` / `frameSlots` / `project` (`mind/match.ts`): the

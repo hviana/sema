@@ -37,10 +37,12 @@ export function perceiveKey(
   bytes: Uint8Array,
   boundaries?: readonly number[],
 ): string {
+  // Tagged so the two shapes never meet: a bare key opens with `-`, a
+  // boundaried one with its digit list, closed by the first `:`.
   const k = latin1(bytes);
   return boundaries === undefined || boundaries.length === 0
-    ? k
-    : k + "\u0000" + boundaries.join(",");
+    ? "-" + k
+    : boundaries.join(",") + ":" + k;
 }
 
 /** Perceive input into a content-defined tree (the river fold).

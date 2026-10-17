@@ -22,6 +22,7 @@ import {
   hubBound,
   otherInstance,
   unlicensedSwap,
+  writesTheQuestion,
 } from "../traverse.js";
 import { project, reverseContext, voicesDisplacedFiller } from "../match.js";
 import { CONCEPT, STEP } from "../graph-search.js";
@@ -117,9 +118,7 @@ export async function recallByResonance(
 
   // 1. Self-match.  The identity bar (`identityBar`, scale-aware: at most one
   // river window of foreign bytes) PROPOSES the hits that may be the question
-  // itself; their bytes decide.  (A tier that grounded a near hit's
-  // continuation on the bar alone — the vector deciding — was measured to
-  // change no answer and removed, invariant 3.)
+  // itself; their bytes decide — never the bar alone (invariant 3).
   // A hit RESTATES the query when its bytes are the query's own — exactly,
   // or under the response's equivalence (a case/width twin).  Restating
   // hits may only conclude through disciplined reverse recall: voicing
@@ -141,6 +140,24 @@ export async function recallByResonance(
       // "merci" projecting through the unrelated near hit "meraih").
       if (h.score < idBar) break;
       const own = read(ctx, h.id);
+      // THE QUESTION WRITTEN DIFFERENTLY: one part apart, and that part the
+      // same thing (`identicalAt`) — a typo, a variant spelling.  Recognition
+      // reads bytes, so no cover site holds it; its continuation is this
+      // question's answer.  The vector proposed the hit; the bytes decide.
+      if (
+        h.id !== qId && !restates(own) &&
+        writesTheQuestion(ctx, own, whole.map((x) => x.id))
+      ) {
+        const g = await project(ctx, h.id, queryGist);
+        if (g !== null) {
+          return ground(
+            g,
+            "self-match — the hit is the question written differently (an identical part)",
+            [[0, query.length]],
+            STEP,
+          );
+        }
+      }
       if (h.id === qId || restates(own)) {
         const rev = ctx.store.prevFirst(h.id, hubBound(ctx));
         const g = reverseContext(ctx, h.id, queryGist, rev);

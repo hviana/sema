@@ -128,3 +128,29 @@ test("the multi-hop answer is deterministic", async () => {
   }
   assert.equal(runs[0], runs[1], "multi-hop reasoning must be deterministic");
 });
+
+test("a pivot longer than recognition's sweep, held mid-answer, is still a pivot", async () => {
+  // Recognition's exact sweep reaches `W⁴ + 2r` bytes from every start and
+  // reads longer forms only at the stream's edges.  A deposited paragraph
+  // quoted in the middle of an answer is still a thing the answer holds: its
+  // rarest window climbs to it, and the answer's bytes decide.
+  const { pivotInto } = await import("../dist/src/mind/resonance.js");
+  const enc = (s) => new TextEncoder().encode(s);
+  const long =
+    "The old lighthouse keeper of Marrowby kept a ledger of every ship that " +
+    "passed the northern cape, noting the weather, the colour of the sails, " +
+    "the hour of the tide and the names the sailors shouted across the " +
+    "water, until the ledger filled forty volumes and the town archive " +
+    "asked to keep them all.";
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    [long, "The ledger is now in the Marrowby town archive."],
+    ["Paris", "Paris is famous for the Eiffel Tower."],
+  ]);
+  const answer = "Here is what the archive says about it. " + long +
+    " That is the whole story as it was told.";
+  const id = await pivotInto(m, enc(answer), new Set());
+  assert.notEqual(id, null, "the paragraph is a pivot");
+  assert.equal(new TextDecoder().decode(m.store.bytes(id)), long);
+  await m.store.close();
+});
