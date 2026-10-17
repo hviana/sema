@@ -15,7 +15,7 @@
 // content two deposits share IS the same node id, interned once at write
 // time (hash-consing) — so "what do these two facts have in common?" is a
 // SET INTERSECTION OF IDENTITIES the write side already computed, asked
-// through the canonical window read (leafIdRun/findBranch — the same
+// through the canonical window read (windowIds/flatId — the same
 // write/read contract recognition runs on).  Three identity/structure tests
 // make the whole mechanism:
 //

@@ -34,7 +34,7 @@ Sema is one system, stated four ways:
 | -- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 1  | `determinism.md`          | the same seed, deposits and question give the same bytes; ties are broken by the corpus, never by chance           |
 | 2  | `thresholds.md`           | every cutoff is a formula over `D`, `W`, `N`; `config.ts` holds budgets only                                       |
-| 3  | `exact-vs-approximate.md` | scores propose, bytes dispose; every graded ladder is exact first                                                  |
+| 3  | `exact-vs-approximate.md` | scores propose, bytes dispose; ladders are exact first; a transfer needs a licence                                 |
 | 4  | `cost-model.md`           | one currency: `MICRO < STEP < CONCEPT < PASS`, and the price is the unexplained question                           |
 | 5  | `match-project.md`        | a mechanism is `(matcher, direction, gate)` over one family; the gate belongs to the consumer                      |
 | 6  | `mechanism-market.md`     | one interface, one price; never compute what cannot change the decision                                            |

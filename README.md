@@ -201,7 +201,7 @@ Ask for the receipt instead of the text, and each answer says how it was reached
 the route, and, on request, the complete replayable trace behind it:
 
 ```text
-"The Weeping Woman was painted by Pablo Picasso."  →  provenance: cover
+"The Weeping Woman was painted by Pablo Picasso."  →  provenance: cast 
     ( structure carried across the three worked examples )
 
 "a museum charges 12*4 for a family ticket"        →  provenance: cover
@@ -215,7 +215,7 @@ the route, and, on request, the complete replayable trace behind it:
 > a question overlapping nothing is answered with a note saying so, never with
 > an invention. The first answer names a painting Sema was never shown and still
 > returns a fact about Cubism that appears **nowhere** in it; the second is
-> computed. Every step traces back to the five notes above.
+> computed. Every step traces back to the four notes.
 
 ---
 

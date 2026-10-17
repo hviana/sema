@@ -17,14 +17,10 @@ indicts a law, never a parameter.
 unit is `1/√D`.
 
 - `estimatorNoise = 1/√D`
-- `significanceBar = 3/√D`, three noise units above chance. The null is that of
-  INDEPENDENT vectors. Halos are not independent: each carries the corpus's
-  common company, and bundles carry more of it. So on halos the bar only
-  proposes or ranks (the substitution grade's floor, `byUse`'s ranking), and
-  halo company that stands as evidence is held to `conceptThreshold`. On two
-  300-question stores, unrelated node pairs cleared `significanceBar` 2–5% of
-  the time (CAST's analogy tiers), and bundles of 16 cleared it 24–61%;
-  `conceptThreshold` was cleared 0–0.5% of the time.
+- `significanceBar = 3/√D`, three noise units above chance, the null of
+  independent vectors. Halos share the corpus's common company, so on halos it
+  only proposes or ranks; company standing as evidence is held to
+  `conceptThreshold`.
 - `conceptThreshold = 0.5 + 0.5/√D`, for halo concept sharing: the structural
   midpoint plus half a noise unit
 - `mergeThreshold = 1 − 1/√D`
@@ -41,23 +37,18 @@ unit is `1/√D`.
 
 - `hubBound = ⌈√N⌉`, the bound on every `LIMIT` read (`hubCap` on lists)
 - `consensusFloor = ln N + ½`, for pooled climb votes
-- `atomReach = max(1, ⌈N·W/256⌉)`; the corpus is past the atom-hub scale when
-  `atomReach > hubBound` — a COST regime only (what recognition probes off the
-  fold's cuts, the chart's atom handling, the cross-region budget); an atom's
-  VOTE never depends on it: an atom never votes (`saturation.md`)
+- `atomReach = max(1, ⌈N·W/256⌉)`; past `hubBound` it sets a cost regime only
+  (recognition, the chart, the cross-region budget), since an atom never votes
+  (`saturation.md`)
 
-`dominates(part, whole) = 2·part > whole` is one scale-free bar: a strict
-majority. `AGREEMENT = 2` is the other: the fewest independent instances that
-make a pattern rather than an accident (two instances of a frame, a weave's
-pair, a window in two places, a second establishing context).
+Two bars are scale-free: `dominates(part, whole) = 2·part > whole`, a strict
+majority, and `AGREEMENT = 2`, the fewest instances that make a pattern rather
+than an accident.
 
-Two length scales are named once in `geometry.ts`: `phraseCap(len, W) = len·W`,
-the longest form that can still be a span of `len` bytes with a slot replaced
-(the cap on reading a candidate against a question), and `twoQuanta(W) = 2W`,
-the least a composition, a meet or a carried slot stands on. A third,
-`instanceCap(len) = 2·len`, is the longest form that can be the question's frame
-around one other filler: the cap on reading a form as another instance of the
-question.
+Three length scales live in `geometry.ts`: `phraseCap(len, W) = len·W` (a
+`len`-byte span with a slot replaced), `instanceCap(len) = 2·len` (the
+question's frame around another filler) and `twoQuanta(W) = 2W` (the least a
+composition, a meet or a carried slot stands on).
 
 The vector bars are compared against RaBitQ estimates, not exact cosines. That
 is benign for inequality gates over broad regions, and it is why no bar ever
@@ -89,4 +80,4 @@ answer falls back to a noisy concept hop.
   scale-aware floor.
 - `test/40` — `consensusFloor` must not gate `chooseNext`'s support counts.
 - `test/78` — `atomReach`/`atomIsHub`: the scale regime recognition reads.
-- `test/35` — a byte atom never votes, at any corpus size.
+- `test/35-attention-confidence` — a byte atom never votes, at any corpus size.

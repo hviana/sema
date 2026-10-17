@@ -23,8 +23,8 @@ speaks of what the anchor bound: one holding a constituent of it, by the rule
 the anchor binds by (`bindsAConstituent`, a run of at least `2W`). Another
 instance of the question binds its frame. Its answer (`The answer is Ashgrove.`,
 or `The place of birth of Liu Yuan is Ashgrove.`) holds none of that frame, at
-most a shard (`birt` of `birthplace`). A hub's continuations come back at the
-read bound and add nothing.
+most a shard (`birt` of `birthplace`). A hub's continuations, read at the bound,
+add nothing.
 
 ## Gate — corpus-global commonality
 
@@ -39,16 +39,13 @@ own, read under the equivalence), what it asks for is a thing too: a meet voices
 the thing it holds (`thingIn`), and holding none is no answer. What two facts of
 one relation share is its frame (`The date of birth of`), whose windows can read
 rarer than an entity. Where the question names nothing learnt whole
-(`Which material is translucent and featherlight?`), the bytes are all the
-evidence spells. One exception: a run the question's spelling cut is the thing
-it cuts. The run is what the facts share minus the windows the question wrote.
-Where the question spelled part of a thing the fact learnt whole, the run is
-that thing with the spelled part removed. In
-`Which country Thomas Lyon-Bowes,
-Lord Glamis's father is from?` the son's name
-shares the father's, and the meet `s, 11th Earl of Strathmore and Kinghorne`
-voices the father whole (`entitiesIn`). The walk then goes on to his
-citizenship.
+(`Which material is translucent and featherlight?`), bytes are the evidence. One
+exception: where the question spelled part of a thing a fact learnt whole, the
+run (what the facts share minus the windows the question wrote) voices that
+whole thing (`entitiesIn`). In
+`Which country Thomas Lyon-Bowes, Lord Glamis's father is from?` the meet
+`s, 11th Earl of Strathmore and Kinghorne` voices the father, and the walk goes
+on to his citizenship.
 
 Read off the anchors alone, the meet of two subject-deposited facts is the
 relation they share, voiced as the answer (`date of birth` for
@@ -75,8 +72,8 @@ parts it into pieces, as a shared run parts the slot. Where both things reach
 the whole answer, it is the instance's; else each piece both reach is a reading,
 and agreement between instances decides. The bytes around the entity stood on
 and the answer are that last fact's ANSWER FRAME (`The father of`, the entity,
-the answer). Two instances that spell the same pair of derivations and frames
-agree, keyed by the question's things, whichever parting read them.
+the answer). Two instances spelling the same pair of derivations and frames
+agree, whichever parting read them.
 
 At the question, each derivation is replayed from its own thing, the answer is
 read off each last fact by its frame, and the two are compared byte for byte
@@ -84,8 +81,7 @@ read off each last fact by its frame, and the two are compared byte for byte
 two grandfathers that share a first name do not meet. The entity met at holds
 what every instance's meeting entity holds, as a path's entities do
 (`evidence.md`), whichever route each instance took. The instances' things and
-derivations do not depend on the question and are read once per session, each
-form's in its own spelling.
+derivations do not depend on the question and are read once per session.
 
 On the constructed world, every same-phrasing two-thing question (mother∧spouse,
 shared birthplace, shared grandfather) is answered in either deposit order, the
@@ -99,10 +95,9 @@ two things, and the two things. A condition the instances never asked
 unexplained byte.
 
 Where the two derivations meet nowhere, nothing is concluded. The meet may lie
-on a route the instances did not show, or past the read bound, or a premise may
-be missing. An empty meet is the absence of a proof, not a refutation, and other
-mechanisms answer as they would without it (`failures/tempting-but-wrong.md`,
-trap 14).
+on a route no instance showed, past the read bound, or behind a missing premise.
+An empty meet is the absence of a proof, not a refutation, and other mechanisms
+answer as they would without it (`failures/tempting-but-wrong.md`, trap 14).
 
 ## Cost
 
@@ -121,11 +116,7 @@ touched unless `worthRunning(3·STEP)` holds (`mechanism-market.md`).
   across domains. Section G: under facts deposited by subject, the meet is read
   off what the anchors establish; the relation two facts share is no seat; a
   continuation is evidence only of what its anchor bound.
-- `test/159` — a question about two things: a two-step convergence meets at the
-  shared grandfather in either deposit order; the answer is met whole; instances
-  parting the slot differently still agree, names sharing letters part none; an
-  empty meet refutes nothing, a read past the bound metered; instances answered
-  with a fact teach the part both sides reach; a frame word is not a thing; the
-  meet explains the frame, the parting and the two things only; the meet holds
-  what every instance's meeting entity holds, even by accident; scrambled
-  answers meet nothing.
+- `test/159` — a question about two things: the convergence meets in either
+  deposit order, whole; partings agree; an empty meet refutes nothing; a fact
+  answer teaches the part both sides reach; a frame word is no thing; what the
+  meet explains; the meeting entity's condition; scrambled answers meet nothing.

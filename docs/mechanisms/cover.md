@@ -9,19 +9,21 @@ cost, and prunes the rest of the market through the ordinary floor check
 
 ## Matcher — recognition sites
 
-Sites are the spans of the question that name a stored form (`recognition.ts`).
-Any site overlapping a computed span is masked: computation always wins,
-enforced by masking rather than by price (`cost-model.md`).
+Sites are the spans of the question that name a stored form (`recognition.ts`),
+and the climb's points it holds under the equivalence (`Man At Bath` for a
+stored `Man at Bath`; `canonHeldPoints`), which the cover declares it reads
+(`readsPoints`, `mechanism-market.md`). Any site overlapping a computed span is
+masked: computation always wins, enforced by masking rather than by price
+(`cost-model.md`).
 
 ## Gates
 
 - **The site must lead somewhere.** It has a continuation or a halo
   (`leadsSomewhere`).
 - **A fragment needs to be asked.** A site that answers other questions
-  (`answersOtherQuestions`: inside other forms, several continuations or one
-  only inherited, a window of the question outside it) is dropped unless the
-  question names one of its continuations. Otherwise the cover accounts the
-  fragment's bytes as explained by a stranger's answer (`unaskedFragments`).
+  (`answersOtherQuestions`, `evidence.md`) is dropped unless the question names
+  one of its continuations. Otherwise the cover accounts the fragment's bytes as
+  explained by a stranger's answer (`unaskedFragments`).
 - **Scaffolding accounts for nothing.** A span made only of hub windows
   (`scaffoldSpans`) is not accounted (`evidence.md`).
 
@@ -38,48 +40,28 @@ enforced by masking rather than by price (`cost-model.md`).
 
 ## Premises resolved where the search reaches them
 
-The synchronous search cannot run the async reads that two of its rules need: a
-concept target, which is a halo lookup, and a learnt connector between two
-answers, which is a `bridge`. So `offerConcepts` and `offerConnectors` offer the
-keys up front. The search then asks for a key only when it reaches it: a
-connector when a splice's two premises meet, and a concept target when the form
-asking for it is popped.
-
-A cover that asked is provisional. `cover.run` grants the asked keys and covers
-again, until a cover asks for nothing. That final cover is the one resolving
-every key in advance would produce. Joins licensed by rounds that asked for
-nothing are kept across re-covers.
+The synchronous search cannot run the async reads two of its rules need (a
+concept target's halo lookup, a connector's `bridge`), so `offerConcepts` and
+`offerConnectors` offer the keys up front, and the search asks for one only when
+it reaches it: a connector when a splice's premises meet, a concept target when
+its asking form is popped. A cover that asked is provisional: `cover.run` grants
+the asked keys and covers again until a cover asks for nothing, the cover that
+resolving every key in advance would produce. Joins licensed by rounds that
+asked for nothing are kept across re-covers.
 
 ## What the answer voices
 
-The cover answers what recall's argument binding answered (a question's sole
-edge-source constituent, its continuation followed), and four laws make it the
-same answer:
-
-- **The product does not voice the ask.** Around a dominating form, an edge run
-  of scaffolding a window long is the question's ask
-  (`Why did … 's wife
-  die?`): the answer is the form's replacement alone.
-  Shorter runs are glue, and the rewrite keeps them (`2+2.` → `4.`). A voiced
-  ask also reads to the walk as already said, and stops it (`liftAnswerParts`,
-  `types.ts`).
-- **A form held under the equivalence is a site.** Recognition matches bytes, so
-  `Man At Bath` is no site of the stored `Man at Bath`; the climb proposes it
-  and the canonical question's bytes decide (`canonHeldPoints`). The cover reads
-  it once the climb has run, and is read again then (`readsOffInstances`).
-- **Evidence travels.** The question spans that named a followed site's step
-  (`askedEvidence`) are accounted, with the site read as the question spells it
-  or under the response's equivalence.
-- **What it voices is declared.** `used` is the facts the cover composed. An
-  inferred set (every form of the answer the question witnesses, order-free)
-  took `John II` for the question's `John III` and consumed the walk's pivot.
-- **A chain's intermediate is not voiced.** A composed fact that voices the
-  subject of another composed fact is a step toward it
-  (`The performer of Heaven
-  is Namie Amuro.` before
-  `The place of birth of Namie Amuro is …`), and a fact already voiced is not
-  voiced again. A comparison's two facts hold neither one the other's subject,
-  and both stay.
+- **The product does not voice the ask**: around a dominating form, a
+  window-long edge run of scaffolding is the ask (`Why did … 's wife die?`), and
+  the answer is the form's replacement alone; shorter runs are glue (`2+2.` →
+  `4.`).
+- **Evidence travels**: the spans that named a followed site's step are
+  accounted (`askedEvidence`).
+- **`used` is declared**, the facts composed, never inferred (`John II` is not
+  the question's `John III`).
+- **A chain's intermediate is not voiced**: a fact voicing another composed
+  fact's subject is a step toward it, and none is voiced twice. A comparison's
+  two facts both stay.
 
 ## Provenance
 
@@ -92,5 +74,5 @@ form. `join` belongs to `confluence`, not to `cover`.
 - `test/19` — form rules and multi-hop chains.
 - `test/151` — connectors and concept hops resolved where the search reaches
   them; dominance.
-- `test/154` — a fragment voices none of its continuations unless the question
-  names one.
+- `test/154` — an unasked fragment voices nothing; a site held only under the
+  equivalence binds, from any climb point (`test/154.8`, `test/154.12`).

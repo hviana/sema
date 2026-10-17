@@ -17,6 +17,7 @@ corpusN(ctx)     = max(2, store.edgeSourceCount())   // distinct learnt contexts
 hubBound(ctx)    = ⌈√corpusN⌉                        // the store cap
 hubCap(ctx, ids) = ids.slice(0, hubBound(ctx))       // the list-side reading
 boundFor(n)      = ⌈√max(2, n)⌉                      // geometry.ts, any n
+readAllowance    = max(hubBound, chainReach(W))      // hub bar and read allowance
 ```
 
 Import these, and never re-derive them inline: no `edgeSourceCount()` or
@@ -24,12 +25,12 @@ Import these, and never re-derive them inline: no `edgeSourceCount()` or
 
 ## Enforcement — the store, not the caller
 
-| Kind                | Methods                                                              | Contract                                                                                                                                                                                                                   |
-| ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| LIMITed reads       | `nextFirst`, `prevFirst`, `parentsFirst`, `containersSlice`          | A real `LIMIT ?`, with the same `ORDER BY` as the full read, never a materialise-then-slice. Reading `bound + 1` decides "hub or not" exactly.                                                                             |
-| existence probes    | `hasNext`, `hasParents`, `parentsExceed`, `hasContainers`, `hasHalo` | One indexed `EXISTS`/`COUNT` (`prevCount` too), no vector decode or blob unpack. Never `next(id).length > 0`.                                                                                                              |
-| prefix-capped reads | `bytesPrefix(id, cap)`, `contentLen(id, cap)`                        | They stop at the cap: `contentLen` is exact below it, `≥ cap` otherwise, so an oversized candidate is rejected on the length alone. Uncapped, the weave, junction walks or bridge cost seconds per query on a large store. |
-| transparent runs    | `chainRun(id)`                                                       | One recursive CTE climbs a run of single-parent, edge-less nodes. It is cached for the store's lifetime and dropped on writes that break transparency.                                                                     |
+| Kind                | Methods                                                              | Contract                                                                                                                                               |
+| ------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| LIMITed reads       | `nextFirst`, `prevFirst`, `parentsFirst`, `containersSlice`          | A real `LIMIT ?`, with the same `ORDER BY` as the full read, never a materialise-then-slice. Reading `bound + 1` decides "hub or not" exactly.         |
+| existence probes    | `hasNext`, `hasParents`, `parentsExceed`, `hasContainers`, `hasHalo` | One indexed `EXISTS`/`COUNT` (`prevCount` too), no vector decode or blob unpack. Never `next(id).length > 0`.                                          |
+| prefix-capped reads | `bytesPrefix(id, cap)`, `contentLen(id, cap)`                        | They stop at the cap: `contentLen` is exact below it, `≥ cap` otherwise, so an oversized candidate is rejected on its length alone.                    |
+| transparent runs    | `chainRun(id)`                                                       | One recursive CTE climbs a run of single-parent, edge-less nodes. It is cached for the store's lifetime and dropped on writes that break transparency. |
 
 The full reads (`next`, `prev`, `parents`, `containers`) exist for inspection
 and maintenance only (`compactContentIndex`, `repairContentIndex`).

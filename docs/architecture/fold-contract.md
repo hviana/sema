@@ -92,9 +92,9 @@ Besides its tree, every deposit interns flat nodes:
 - each window of `W−1` and `W` bytes, contained by the chunks it overlaps
   (`canonicalWindows`, `indexSubSpans`).
 
-Recognition's canonical reading chains these windows up to `chainReach = W²`
-leaf ids from a position. This write/read pair finds a form embedded at an
-offset where the question's own cuts do not line up with it (`canonical.ts`).
+Recognition's sweep probes every span within `W⁴ + 2r` of every start as a flat
+branch (`flatId`). This write/read pair finds a form embedded at an offset where
+the question's own cuts do not line up with it (`canonical.ts`).
 
 ## Incremental folds — reuse is not boundaries
 

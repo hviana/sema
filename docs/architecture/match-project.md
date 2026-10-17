@@ -10,13 +10,12 @@
 **Match: where the question sits in a learnt form.**
 
 - `locate` — the graded ladder, exact bytes → halo role → gist
-  (`exact-vs-approximate.md`); it returns the span found and whether it is the
-  needle's bytes (`Located`).
+  (`exact-vs-approximate.md`), returning the span found and whether it is the
+  needle's (`Located`).
 - `alignRuns` — literal `W`-gram runs, the weave.
 - `alignGraded` — literal runs plus halo-matched sites and climb proposals.
-- `alignAround` / `frameSlots` — one monotone chain from the origin, its gaps
-  contracted to their varying core (raw borders kept): the one reading
-  `reference` and the substitution bridge both judge.
+- `alignAround` / `frameSlots` — one monotone chain from the origin, gaps
+  contracted to their varying core: what `reference` and the bridge judge.
 - `bestHaloMate` — the best halo match within a list.
 - `analogyStrength` / `sharedFrameStrength` — distributional and structural
   analogy.
@@ -43,14 +42,13 @@ Every threshold behind a gate is derived in `geometry.ts`.
 
 - **`frameSlots` reports.** It contracts every gap to its varying core
   (`contractGap`), tags it as a `substitution`, `insertion` or `deletion`, keeps
-  the gap's position before contraction (`gq`), and attaches `covered`, the
-  bytes the frame accounts for. It applies no gate.
-- **`reference` judges, byte for byte:** each instance carries the asker's
-  referents through its own answer, and the instances of one frame must all
-  propose the same bytes (`docs/mechanisms/reference.md`).
+  its uncontracted position (`gq`), and attaches `covered`, the bytes the frame
+  accounts for. It applies no gate.
+- **`reference` judges, byte for byte:** the instances of one frame must all
+  propose the same bytes (`reference.md`).
 - **`Precomputed.frames` is the inventory.** It enumerates every pairing and
-  elects nothing. Its supply is the resonance list and the climb's points
-  together — the one inventory of forms proposed as instances of the question.
+  elects nothing. Its supply is the one inventory of proposed instances
+  (`evidence.md`).
 
 ## Why gates belong to the consumer
 
@@ -60,9 +58,9 @@ shaped like `reference`, and it hid three of four real pairings from every other
 consumer, including a definite description standing where a noun stands. So each
 consumer owns its own refusal:
 
-- `reference` requires substitutions only, a window in common, agreement of the
-  frame's instances on the outcome, and voiced referents of at least `W` that
-  are a minority of the question.
+- `reference` requires dominance, substitutions only, a shared window, agreement
+  on the outcome, and voiced referents of at least `W` that are a minority of
+  the question.
 - CAST, `recall` and `cover` apply their own gates to the same inventory.
 
 ## Pins

@@ -4,11 +4,11 @@
 > to structure the derivation has not consumed, or **carries** material the
 > asker left unaccounted.
 
-**Why.** Every tier that decides whether to continue asks this one law, and none
-re-spells a condition it owns. Those tiers are the chart's frontier, the market,
-the walk after grounding, fusion, and the mechanisms' own gates. Without the law
-a derivation could wander: restate what it already said, cycle, or extend into
-facts nobody asked for.
+**Why.** Every tier that decides whether to continue (the chart's frontier, the
+market, the walk after grounding, fusion, the mechanisms' own gates) asks this
+one law, and none re-spells a condition it owns. Without the law a derivation
+could wander: restate what it already said, cycle, or extend into facts nobody
+asked for.
 
 ## The unit — `DerivationState` (`src/mind/derivation.ts`)
 
@@ -33,21 +33,17 @@ in, or `null`. `advance(state, continuation, witnesses)` is the only transition.
 No state is built by hand anywhere else (`test/137.7`).
 
 - **A state is born owing** everything its product does not carry.
-- **`carries` admits by engagement and consumes nothing.** Only a declared move
-  consumes, and only the material its window proves. Both shortcuts were
-  refuted: draining whole spans (`test/110`) and trusting the window alone
-  (`test/138`).
-- **What the derivation already said is not carried again.** A step admitted by
-  carrying holds an owed window that its predecessor's product does not hold.
-  The remainder never drains on carrying, so a window the answer already held
-  admitted every next fact that repeats it. `of` walked a cycle of
-  `The father of …` facts back to the asker's own entity. A declared move is
-  read as before (`test/110`, `test/134`, `test/135`).
+- **`carries` admits by engagement and consumes nothing.** The owed window it
+  holds is one its predecessor's product does not, or every fact repeating a
+  held window is admitted (`The father of …` back to the asker's entity;
+  `test/134`, `test/135`). Only a declared move consumes, and only the material
+  its window proves. Both shortcuts fail: draining whole spans (`test/110`) and
+  trusting the window alone (`test/138`).
 - **A step the question did not name pays from what it still owes.** Naming is
   the evidence law (`evidence.md`).
 - **The law owns no search, so it cannot prevent a cycle.** That belongs to the
-  layer, which holds the structure. A fusion the law refuses is simply not
-  taken, and there is no hand-built fallback.
+  layer, which holds the structure. A fusion the law refuses is not taken, and
+  there is no hand-built fallback.
 
 ## The engine — `closeOver`
 
@@ -74,23 +70,21 @@ phases: each runs to its own end, in order, and is never revisited.
   stands on, never for everything the exploration reached (`test/150`).
 - **A gap's reach is not a consequence everywhere.** In alignment it is: the
   walk goes outward with no cap. Recognition's sweep reaches `W⁴ + 2r` bytes
-  from every start (and the stream's edges beyond), because exact unbounded
-  reach would need a whole-stream index the store does not have.
+  from every start, because unbounded reach would need a whole-stream index the
+  store does not have.
 
 Three limits were proved and deliberately left out:
 
-1. **The chart cannot evaluate accounting.** Carrying it per item was measured
-   and rejected, so the chart reads the law off its items: identity is the key,
-   continuation is a rule existing, closure is the goal test.
+1. **The chart cannot evaluate accounting.** Carrying it per item does not pay,
+   so the chart reads the law off its items: identity is the key, continuation
+   is a rule existing, closure is the goal test.
 2. **Closure by the query's position in the graph is the layer's, not the
    unit's.** The echo guards stop with the remainder non-empty, and recall's
    reverse tiers close with nothing accounted.
 3. **The extension is not priced into the market.** Only the winner is closed
-   (`test/136.2`). Measured on the 2Wiki fixtures, closing the second or third
-   distinct candidate instead of the winner answered 3–4 of 170 derivation
-   questions the winner missed, and far fewer overall. The early choice rarely
-   costs the better derivation, and the gain did not pay for closing every
-   candidate.
+   (`test/136.2`). Closing the second or third distinct candidate instead
+   answered 3–4 of 170 2Wiki derivation questions the winner missed, and far
+   fewer overall.
 
 ## Layering
 

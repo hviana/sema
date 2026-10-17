@@ -33,36 +33,30 @@ saturations, each exact below its threshold (`bound = √N`):
    UNKNOWN, and unknown is neither rare nor common: an atom never votes, at any
    corpus size (`byte-atom-unobservable`), though its edges remain traversable.
    A query whose only regions are single bytes commits no point of attention
-   through them (`test/35`). (It used to abstain only past
-   `atomReach(N, W) = ⌈N·W/256⌉ > bound` — a uniform expectation that called a
-   byte occurring nowhere common and let the same byte vote on a smaller store.)
+   through them (`test/35-attention-confidence`).
 
 Below every stop, the walk equals the unbounded climb, and its work is
 `O(bound)` contexts, seeds streamed in `bound`-sized pages. A stop ends a VOTE;
 an enumerator whose members are checked exactly reads a sample past it (a
 frame's instances, `evidence.md`).
 
-**Refuted:** treating container fan-out as a hub. It confuses the _places_ a
+**Refuted:** treating container fan-out as a hub, which confuses the _places_ a
 window occurs with the _contexts_ it reaches (`test/49`: `fran`, 4 containers, 2
-contexts). So is counting holders only: it lost answers on every 2Wiki fixture,
-held-out too, as the neighbourhood silences frame windows; holders are read by
-bytes (`heldElsewhere`). It answers `held`, `apart` or `saturated`: a net the
-budget cut off is not a holder found, and its caller abstains on it explicitly.
+contexts); and counting holders only, which loses answers on every 2Wiki fixture
+as the neighbourhood silences frame windows. Holders are read by bytes
+(`heldElsewhere`: `held`, `apart`, or `saturated`, on which the caller
+abstains).
 
 ## `pivotInto` — the longest wins (`mind/resonance.ts`)
 
-Candidates are the THINGS the answer holds (`thingsIn`, `mind/recognition.ts`):
-the stored forms recognition reads in the answer and in its canonical spelling
-(the canonical class without an index), each learnt whole and leading on — the
-same set the cover's derive-through reads (`entityProposals`). A resonance sweep
-of the answer's sub-regions and a `canonResolve` scan of every span proposed
-nothing more (suite, 900 fresh queries). Candidates rank by span length,
-descending, recognition's order breaking ties, so the first one passing the
-filters wins; containment is the span itself. A thing is a learnt whole: `s=70`
-was learnt only as a piece of `latency_ms=70`. Structure is not the test: the
-content-defined cuts reuse a name's subtree inside its own contexts
-(`William Henry Fellowes`: parents 2), and refusing such a name stopped the walk
-a hop short (`test/157`).
+Candidates are the things the answer holds (`thingsIn`, `mind/recognition.ts`),
+exact or canonical, learnt whole and leading on: the set the cover's
+derive-through reads (`entityProposals`). They rank by span length, descending,
+recognition's order breaking ties, so the first one passing the filters wins. A
+thing is a learnt whole (`s=70`, learnt only inside `latency_ms=70`, is none),
+not a structural top: the fold reuses a name's subtree inside its own contexts
+(`William Henry Fellowes`: parents 2), and refusing it stops the walk a hop
+short (`test/157`).
 
 ## Junction ascent — guards against a budget (`mind/junction.ts`)
 
@@ -80,40 +74,28 @@ Two tightenings were refuted:
 
 - **The lateral-cone limit from `edgeAncestors`** would discard half the
   successful junctions (lateral 1425 of 1426 at `bound` ≈ 570).
-- **Stopping when one side's cone is exhausted.** A junction can be reachable
-  from one side only, when that seed is a fold sub-node of the container: in
-  `test/16`, `cold or hot` is reached from `cold` while `hot`'s cone is empty.
+- **Stopping when one side's cone is exhausted**, since a seed that is a fold
+  sub-node of the container reaches it alone (`cold or hot` from `cold`).
+
+## A shared opening is nobody's evidence
+
+A preamble every deposit carries (a system prompt) is hash-consed into one
+structure, so structural counts miss it, but the climb sees it: bytes every
+ranked anchor begins with distinguish none. A further point focused there is no
+root (`leading-scaffolding`; the dominant is exempt, `test/17`), the votes of
+regions inside it are dropped, and fusion skips a point whose strongest evidence
+is under a window (`reasoning.ts`).
+
+## The ranking is an estimate
+
+A region votes through its nearest resonance hit. An orphan top hit hands the
+vote to the nearest hit that climbs, and a saturated one abstains for the region
+only when nearest beyond `estimatorNoise` (`anchorFallback`, `test/52`).
 
 ## Pins
 
 - `test/16`, `test/34` — refute stopping when one cone is exhausted, in the
   bridge junction and in n-ary cross-region binding.
 - `test/27` — a shared saturated opening does not take the climb's focus; the
-  identity layer alone keeps it past the opening (a separate drop of saturated
-  intervals was measured redundant and removed).
+  identity layer alone keeps it past the opening.
 - `test/49` — refutes treating container fan-out as a hub.
-
-## A shared opening is nobody's evidence
-
-A preamble every deposit carries (a system prompt) is hash-consed into one
-structure, so no structural count sees it as common: its windows have few
-containers. The climb's own proposals do: the bytes the question begins with
-that every ranked anchor begins with too distinguish none of them. A further
-point of attention whose focus starts inside that opening is refused as a root
-(`leading-scaffolding`); the dominant is exempt, as it is from the vote gates
-(`commitVotes`, `test/17`). The votes of regions lying in it are dropped before
-pooling.
-
-Fusion does not fuse a point whose strongest evidence is shorter than a window,
-however many places it is read in. If the strongest place is under a window,
-every place is. Two 3-byte scraps of a preamble name no further topic
-(`reasoning.ts`, `test/17`).
-
-## The ranking is an estimate
-
-A region votes through its nearest resonance hit, and that order is an estimate.
-A top hit that climbs to no context (an orphan) hands the vote to the nearest
-hit that climbs; a saturated top hit claims the region's abstention only when it
-is distinguishably nearest — within the estimator's noise (`estimatorNoise`) the
-nearest tied hit that climbs somewhere unsaturated votes instead. Both are
-traced as `anchorFallback` (`test/52`).

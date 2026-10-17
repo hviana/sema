@@ -43,8 +43,9 @@ shortcuts that pass review and fail the evidence.
 - **Refuted:** it was the dominant training cost, and the 1-bit code ranked a
   byte-distinct branch as nearest, so two different subtrees collapsed onto one
   id.
-- **Instead:** exact dedup, then same-bytes reuse, then a near merge against the
-  write buffer only, decided by bytes (`store.md`; `test/02`).
+- **Instead:** exact dedup, then same-bytes reuse, then a near merge onto a
+  whole form, proposed by structure and decided by bytes (`store.md`;
+  `test/08`).
 
 ### 3. Reading one population's cut with another population's measure
 
@@ -173,7 +174,7 @@ shortcuts that pass review and fail the evidence.
   father's), the meeting fact can lie past the read bound, and a premise can be
   missing. The refusal silenced all of these as if refuted. It turned 12 wrong
   answers per world into silence, but never on evidence of incompatibility
-  (`test/159` 159.4).
+  (`test/159.4`).
 - **Instead:** conclude only what the evidence proves. A meet is an answer; no
   meet is no conclusion, and the market decides as it would without it. A
   refusal needs evidence that the answer is incompatible, which a bounded search

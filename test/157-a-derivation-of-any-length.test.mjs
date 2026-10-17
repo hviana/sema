@@ -17,9 +17,9 @@
 // question's.
 //
 // MEASURED on a constructed genealogical world (version 3: 2,276 people, 66
-// instances, 172 questions): 59 → 140 correct; depth 3–5 from 0 to 42 of 42; a
-// frame composed with a description no instance asks, 0 → 10 of 12; wrong
-// first hops 52 → 10.  With the instances' answers scrambled, so that no path
+// instances, 172 questions): 59 → 138 correct; depth 3–5 from 0 to 42 of 42; a
+// frame composed with a description no instance asks, 0 → 9 of 12; wrong
+// first hops 52 → 9.  With the instances' answers scrambled, so that no path
 // joins filler and answer, the reading transfers nothing.
 //
 // Pinned:
@@ -55,7 +55,8 @@
 //         at the slot's close when a description comes first.
 //   157.17 a description's forms are found on both surfaces of its rarest
 //         window: the fold interns `'s d` as a chunk of one form and as a
-//         run across chunks of the other.
+//         run across chunks of the other;
+//   157.18 a description the corpus reads two ways names nothing.
 // Control (no mutation of the reading short of inventing a path breaks it):
 //   157.9 an instance answered with a fact its filler does not reach carries no
 //         derivation: scrambled answers transfer nothing.
@@ -660,7 +661,7 @@ test("157.17 a description's forms are found on both surfaces of its rarest wind
   );
 });
 
-test("157.13 a description the corpus reads two ways names nothing", async () => {
+test("157.18 a description the corpus reads two ways names nothing", async () => {
   // `'s dad` is agreed as `· father` by three forms and as `· mother` by three
   // others: the readings part ways, so the description is ambiguous, and the
   // shortest of them is no evidence for either.  It names nothing — no

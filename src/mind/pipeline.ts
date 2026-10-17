@@ -482,7 +482,7 @@ export async function think(
   // relation, the one evidence the climb adds; otherwise nothing it read has
   // changed.  Measured on the 2Wiki fixture, recall's
   // `The place of birth of John Lennon is Liverpool.` was the same bytes, owing
-  // 49 bytes ahead of the climb and 27 after it, and the lighter reading was the
+  // 49 bytes ahead of the climb and 28 after it, and the lighter reading was the
   // declared order's answer.
   const pointsShown = () => ctx._edgeAsked?.points !== undefined;
   // What a run made before the points would read differently now: the

@@ -87,29 +87,17 @@ stays the declared order's:
   met in order;
 - equal floors are never skipped.
 
-A result run ahead is the declared order's only if it saw what the declared
-order would have shown it. A mechanism run ahead of the consensus climb reads
-the question without the climb's points, so other instances of the question
-cannot yet name its pick (`evidence.md`), and its result is priced as if the
-question had not named it. When the climb has since run and other instances
-carry a relation (`readsOffInstances`), the mechanism is run again at its
-declared turn (`mechanismReruns`). On the 2Wiki fixture, recall's
-`The place of
-birth of John Lennon is Liverpool.` owed 49 bytes ahead of the
-climb and 28 after it. Rerunning whenever the climb has run costs 26% more bytes
-read on the 31.7M-node store and changes no answer, so the rerun waits for that
-evidence. A mechanism that reads more off the climb's points declares it
-(`readsPoints`), and is run again only when that reading would differ. The cover
-admits a site the question holds under its equivalence (`Man At Bath`), and it
-is run again only when it would admit one on its own sites. Rerunning whenever
-such a point existed reran the cover and recall on 52 of 100 2Wiki questions,
-and added nothing to any of them.
-
-The same holds for a mechanism at the head of the declared order: the cover runs
-before any climb, so a result read without the climb's points is read again once
-a later mechanism has run the climb and instances carry a relation. Without it,
-the evidence that names the cover's step was never counted (the grandmother
-questions, whose step is named only through other instances).
+A result read before the consensus climb (run ahead, or the cover's, first in
+order) did not see the climb's points, so other instances of the question could
+not name its pick (`evidence.md`). Once a mechanism has run the climb, such a
+result is read again (`mechanismReruns`) only when the reading would differ:
+instances carry a relation (`readsOffInstances`), or the mechanism declares what
+else it reads off the points (`readsPoints`: the cover admits a site the
+question holds under its equivalence, `Man At Bath`). Recall's
+`The place of birth of John Lennon is Liverpool.` owes 49 bytes before the climb
+and 28 after it. Rerunning on every climb costs 26% more bytes read on the
+31.7M-node store, and on every such point it reran the cover and recall on 52 of
+100 2Wiki questions. Neither changed an answer.
 
 This is never extra work. On the 31.7M-node store a grade-1 recall run ahead of
 CAST's climb answers a lowercased Persian turn in 1.2 s, against 18.0 s in the
@@ -132,6 +120,5 @@ declared order.
 - `test/04` — the decider, end to end.
 - `test/93` — the investment discipline: the climb runs exactly when
   `worthRunning(2·STEP)` holds, CAST being the cheapest mechanism to touch it.
-- `test/153` — the run-ahead bound: a mechanism floored above it is skipped, the
-  decision equals the declared-order oracle, and a mechanism run ahead of the
-  climb is run again only when instances name its pick.
+- `test/153` — the run-ahead bound skips, the decision is the declared order's,
+  and a result read before the climb is read again when instances name its pick.

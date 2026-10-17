@@ -931,15 +931,14 @@ export function offsetCanon(ctx: MindContext, bytes: Uint8Array): Uint8Array {
  *  continuations by popularity voices some other question's answer.  A
  *  fragment with several continuations leads somewhere FOR THIS QUESTION only
  *  when the question names one (the exact tier below).  So does a fragment
- *  with ONE continuation that was never learnt as a context — no company of
- *  its own (halo): every continuation it holds is inherited, and which one
- *  depends on deposit order (`ther` carried only the last `… mother` fact it
- *  was found reused in).  A form learnt as a context (`Tell me about X`'s `X`,
- *  a defined term) keeps its one continuation.  A form that is
+ *  with ONE continuation that no deposit learnt whole (`learntWhole`): every
+ *  continuation it holds is inherited, and which one depends on deposit order
+ *  (`ther` carried only the last `… mother` fact it was found reused in).  A
+ *  form learnt whole (`Tell me about X`'s `X`, a defined term) keeps its one
+ *  continuation.  A form that is
  *  (nearly) the whole question is not a piece of it: the question says
  *  nothing beyond it, so its continuations answer THIS question.  Read by
- *  every mechanism that projects through a recognised site (cover's sites,
- *  recall's argument binding). */
+ *  the cover's sites and CAST's substitution subject and redirection. */
 export function answersOtherQuestions(
   ctx: MindContext,
   id: number,
@@ -3127,8 +3126,8 @@ export function thingIn(
  *  the corpus learnt WHOLE as a context leading on — in start order; `first`
  *  stops at the first.  `whole` admits the span that is all of `bytes`.
  *  LEARNT WHOLE, not inherited: a piece of other forms (`mother`, the tail of
- *  every `… mother` context) holds continuations by suffix inheritance but no
- *  company of its own (answersOtherQuestions).  A span is probed by content
+ *  every `… mother` context) holds continuations by suffix inheritance but
+ *  was never learnt whole (answersOtherQuestions).  A span is probed by content
  *  hash first (its flat twin), so only a stored run pays the fold. */
 function learntWholeSpans(
   ctx: MindContext,

@@ -41,8 +41,7 @@ tree of about `W` children per node (`W` = 4 by default), level by level
 - **Nothing is imposed that a later question could not reproduce.** No turn
   boundaries, no metadata: a question will be cut by the same rule from its own
   bytes, and any cut it could not reproduce would make the same thing two
-  things. When the two sides disagreed, alignment went quadratic (5.2M cells
-  against 0) and turns asked verbatim stopped resolving to themselves.
+  things.
 
 **Interned by content.** Every subtree becomes a node named by what it contains:
 a branch by its children, a short run by its bytes. The same subtree in a
@@ -127,7 +126,9 @@ of difference.
 provenance. The halos are a statistic accumulated over that record. This is the
 episodic/semantic distinction (Tulving 1972) with fixed roles: **the statistic
 proposes, the record decides.** A halo can say that two things are of a kind; it
-never says they are the same thing, and it never establishes a fact.
+never says they are the same thing, and it never establishes a fact. A transfer
+between spans stands on the record too, licensed by a stored minimal pair or
+convergence (`exact-vs-approximate.md`).
 
 **How the three readings are ordered.** Where Sema looks for a span, it tries
 exact bytes first, then the halo's role, then the gist (`match.ts`). A form
@@ -188,8 +189,8 @@ context window:
 - **The votes are absolute.** A softmax must attend somewhere, because its
   weights sum to one. Sema's anchors count only above floors derived from `D`
   and `N`, so attention can come back empty.
-- **Nothing is blended.** Mixing values would produce bytes nobody deposited.
-  Attention selects, and does not mix.
+- **Nothing is blended.** Mixing would produce bytes nobody deposited. Attention
+  selects, and does not mix.
 - **Exact evidence outranks resemblance.** Only exact evidence may explain a
   vote away.
 
@@ -235,10 +236,10 @@ only near says so.
 step, along succession. A step is admitted only if it closes the derivation,
 moves to structure not yet consumed, or carries what the question still owes
 (`closure.md`). A step counts as _named_ when the question, together with the
-node the step stands on, witnesses one of the contexts that establish it
-(`evidence.md`). A step the question did not name is paid from its remaining
-debt. The question owns the inference, so a chain cannot wander off to a fact
-nobody asked for.
+node the step stands on, witnesses one of the contexts that establish it, or a
+licensed use names it (`evidence.md`). A step the question did not name is paid
+from its remaining debt. The question owns the inference, so a chain cannot
+wander off to a fact nobody asked for.
 
 **Generalization, read and never stored.** When no context is named outright,
 attention's points may hold another instance of the question.
@@ -257,11 +258,10 @@ variable where they differ. It is admitted only under three conditions:
 - two instances agree;
 - what the corpus files under one filler is not credited to the frame.
 
-The third condition comes from a real failure. Two people born in Wellington
-once gave an unknown `Zorblax` the same birthplace
-(`test/76-reference-binding`), Goodman's (1955) accidental generalization. The
-frame is never stored, and neither is any answer. A conclusion kept as a deposit
-would become evidence for itself.
+Without the third, two people born in Wellington would give an unknown `Zorblax`
+the same birthplace (`test/76-reference-binding`): Goodman's (1955) accidental
+generalization. The frame is never stored, and neither is any answer. A
+conclusion kept as a deposit would become evidence for itself.
 
 **Every answer replays.** The derivation is a hyperpath in an AND/OR hypergraph
 whose axioms are stored nodes (`src/derive/`). Its trace replays byte for byte,
@@ -290,7 +290,7 @@ was given.
 
 ## 7. Hypotheses the path invites
 
-Each of these follows from a gap visible on the path, and none is a plan.
+Each follows from a gap visible on the path, and none is a plan.
 
 - **One cut.** Frame against filler is computed in several places: the three
   commonality measures, `frameSlots`, `coInstanceFiller` and CAST's `depth[]`.
@@ -298,8 +298,8 @@ Each of these follows from a gap visible on the path, and none is a plan.
   `commonality.md` holds?
 - **Form, use and identity together.** Two forms with near halos that can stand
   for each other in every stored frame — Leibniz's substitution _salva veritate_
-  — would be one referent. That is aliases (`Clara Novello` and
-  `Clara Anastasia Novello`) seen by the record, with the halo proposing.
+  — would be one referent. The licence reads that standing for a transfer; as
+  identity it would be aliases (`Clara Novello`, `Clara Anastasia Novello`).
 - **Imagination as hypothesis.** Binding stored parts proposes wholes never
   seen, and today it only joins regions. Proposals made this way, then checked
   by content, are abduction with a guaranteed verifier.

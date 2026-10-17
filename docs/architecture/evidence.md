@@ -34,13 +34,13 @@ question plus the node the derivation stands on. On the second hop of
 `Where was the place of death of the director of film Beat Girl?`, the node is
 `Edmond T. Gréville`, and `Edmond T. Gréville place of death` is held by neither
 the question nor the node alone, only by both. Over 5,236 held-out 2Wiki
-questions, the question alone witnessed such a context 69 times, and the
-question plus the first hop 2,153 times.
+questions, the question alone witnessed such a context 69 times; with the first
+hop, 2,153.
 
 Only a **deposited** context establishes anything. A predecessor with structural
 parents or containers is a span inside bigger forms and inherits their edges.
-Witnessing that fragment named every fact it is a piece of: `born?` named nine
-strangers' birthplaces.
+Witnessing it named every fact it is a piece of: `born?` named nine strangers'
+birthplaces.
 
 ## Another instance of the question — `coInstanceFiller`, `byCoInstance`
 
@@ -84,7 +84,7 @@ no context spells the frame around the node, because the node's fact is
 established by its bare name alone, the fact states the relation instead. The
 co-instance's fact spells it before the entity (`The place of birth of`), and
 the node's continuation that opens with those bytes followed by the node is
-named (`test/154` 17). Neither the frame nor the equivalence is stored, and
+named (`test/154.17`). Neither the frame nor the equivalence is stored, and
 nothing in the reading is approximate.
 
 **One measure ranks the two readings:** the question material that evidences a
@@ -105,10 +105,9 @@ the derivation (36 bytes) spells `· mother` there. Frames within one window of
 the strongest are evidence perception cannot tell apart, and name together.
 
 Instances that contradict one another (two of `elder grandmother` reading
-`· father → · mother`, two `· mother → · mother`) name both continuations, as
-evidence perception cannot tell apart. Refusing that derivation changes no
-answer: the walk still commits through the most corroborated first hop and the
-`mother` in `grandmother`. Abstaining would need the mechanisms to share that
+`· father → · mother`, two `· mother → · mother`) name both continuations.
+Refusing instead changes no answer, since the walk still commits through the
+most corroborated first hop; abstaining would need the mechanisms to share that
 the relation is unresolved.
 
 **A derivation, read off other instances.**
@@ -138,8 +137,8 @@ and a search that spends the allowance reads nothing (`pathReadsSaturated`). A
 path's entities are the ones its facts hold whole and learnt as contexts of
 their own (`entitiesIn`): `Henry IV of France`, never the `Henry` inside it, and
 never `mother`, a piece that holds continuations only by suffix inheritance. A
-fact is read whole for this, because a prefix cut at the material's length holds
-the shorter name. Which entities and paths a form gives does not depend on the
+fact is read whole, since a prefix cut at the material's length holds the
+shorter name. Which entities and paths a form gives does not depend on the
 question, so both are kept for the session and dropped on a write.
 
 The sequence is replayed in order (`replayOf`). Its first step applies at the
@@ -154,10 +153,9 @@ derivations. Kept by node alone, only the first way deposited is read, and two
 instances deposited in different orders agree on none. An entity reached at a
 shallower depth is not stood on again, so the paths kept are the shortest ones,
 and each entity is still expanded once. Every further way into an entity is
-work, carried, spelled and later replayed, and it is charged to the same
-allowance as an expansion (`pathWays`). Chained fans multiply ways while
-entities only add up: uncharged, a diamond chain 16 deep costs 90M branch
-lookups. Charged, the search saturates (`pathReadsSaturated`) and reads nothing,
+charged to the same allowance as an expansion (`pathWays`): chained fans
+multiply ways while entities only add up. Uncharged, a diamond chain 16 deep
+costs 90M branch lookups; charged, the search saturates (`pathReadsSaturated`)
 at a cost that does not grow with depth.
 
 **What the derivation says of the entities it stands on.** A path says how it
@@ -211,8 +209,7 @@ description. The rest of the slot is read in order:
   applied first, nearest its entity, so it reads as the beginning those
   derivations share: the shortest sequence two forms spell alike, if every other
   sequence two forms spell begins with it — two readings that part ways name
-  nothing (`test/157` 157.13). The forms come from the description's rarest
-  window.
+  nothing (`test/157.18`). The forms come from the description's rarest window.
 - **Else, one fact the slot witnesses** is that step
   (`Eleanor of Aquitaine's
   father`).
@@ -250,15 +247,15 @@ question-entity fallback asks whether its hypothesis shows.
 **The proposals are one inventory, and their siblings.** The climb's points and
 the response's resonance inventory — the forms `reference` and the substitution
 bridge read as instances — are taken alternately under one budget
-(`instanceProposals`, `chainReach(W)`); reading the points alone missed
-co-instances the resonance ranked (+7/−0 over three 2Wiki fixtures). One region
-votes for one context, so the climb's points hold one instance of a frame
-several share. Once a co-instance has shown the frame, the contexts its rarest
-non-hub window reaches on both surfaces (`siblingInstances`: the fold makes one
-window a chunk of one form and a run across another's) are read as further
-candidates. What a form says as an instance is independent of the material: its
-bytes, filler and relations are read once per question (`instanceBook`); each
-later material pays only the frame check.
+(`instanceProposals`, `chainReach(W)`); the points alone miss co-instances the
+resonance ranks. One region votes for one context, so the climb's points hold
+one instance of a frame several share. Once a co-instance has shown the frame,
+the contexts its rarest non-hub window reaches on both surfaces
+(`siblingInstances`: the fold makes one window a chunk of one form and a run
+across another's) are read as further candidates. What a form says as an
+instance is independent of the material: its bytes, filler and relations are
+read once per question (`instanceBook`); each later material pays only the frame
+check.
 
 Where the points hold no two agreeing instances, the question's own entity shows
 the frame instead: the longest point the question holds whole, exactly or under
@@ -273,13 +270,10 @@ may be another frame's), stop when two agree, and keep entity-only slots
 (`instanceEntity`).
 
 The tier reads the `chainReach(W)` most corroborated of the consensus climb's
-ranked points (`asked.points`), and climbs nothing itself: a climb of its own
-costs 16% more climb visits and names nothing more. So:
-
-- the pick memo is cleared when the points arrive (`memoization.md`);
-- a grounding read before the climb (the cover's, at the head of the declared
-  order) is read again once the climb's points show and instances carry a
-  relation (`pipeline.ts`), so the evidence that names its step is counted.
+ranked points (`asked.points`) and climbs nothing itself (a climb of its own
+costs 16% more climb visits and names nothing more). So the pick memo is cleared
+when the points arrive (`memoization.md`), and a grounding read before the climb
+is read again (`mechanism-market.md`).
 
 A question stored verbatim is its own instance and reads no frames.
 
@@ -314,10 +308,8 @@ A step at `x` is named with no new fact about `x` exactly when:
 
 The law is pinned by the constructed worlds of `test/154`–`test/158`. The
 contrast that fixes the information: an instance's fact respelled on one side
-(two nodes) names nothing, respelled on both (one node) names as before. The
-description reader (`describedSteps`) obeys the same law. (A larger measurement
-against an oracle reading only the deposits motivated it; that oracle is not
-part of this repository, and no figure from it is claimed here.) Limits:
+(two nodes) names nothing, respelled on both (one node) names. The description
+reader (`describedSteps`) obeys the same law. Limits:
 
 - **Identity, not meaning.** A paraphrased frame, an alias or a fact respelled
   on one side leaves the step unavailable to every exact reading; only the use
@@ -339,47 +331,53 @@ Where neither reading names a step, the question may name it by use: in
 span's use is the halos of the contexts its windows reach (at most `W` windows,
 each by its `chainReach(W)` oldest contexts). The candidates are exact: the
 node's continuations, and the establishing contexts holding it, whose rest is
-the relation. On the whole question, for its own thing (`heldEntity`) with two
-continuations, the unsaid run free of scaffolding telling them apart best ranks
-them, its best ahead of the next by `significanceBar`. That bar is a ranking
-floor, not a test of chance: its 3σ is the null of independent vectors, and uses
-are bundles of halos that share the corpus's common company, so unrelated runs
-clear it often (3–4% for single contexts, 11–15% for bundles of 4–16, on two
-300-question stores). The use is evidence only where the corpus licenses it
-(`substitutionGrade` 2). On the walk, a node reached rather than written is read
-the same way, and only a licensed use names its step. A single continuation has
-nothing to be told apart from, so there is no ranking and no margin. The use
-names it only under the licence, on the whole question as on the walk (test/154
-15).
+the relation. The unsaid run free of scaffolding that tells them apart best
+ranks them, its best ahead of the next by `significanceBar`: a ranking floor,
+not a test of chance, since uses are bundles of halos sharing the corpus's
+common company (unrelated runs clear it on 3–4% of single contexts, 11–15% of
+bundles of 4–16). The use is evidence only where the corpus licenses it
+(`substitutionGrade` 2). Unlicensed, it only ranks, on the whole question for
+its own thing (`heldEntity`) with two continuations or more. On the walk (a node
+reached, not written) and for a single continuation, only a licensed use names
+(`test/154.15`), and the licence, which reads no company, is asked first.
 
 A fragment that answers other questions is set aside before the cover takes it
 as a site (`answersOtherQuestions`). The same predicate refuses CAST's
 substitution subject and redirection substitute (`ong)?`, the tail of every
 `… (… Song)?` question).
 
-A fragment with a single continuation is no safer when it was never learnt as a
-context. Suffix inheritance admits a reused piece once two deposits share it, so
-`ther` carries only the fact of the first `… mother` context deposited after
-that, and cover would voice `Otto the Great`'s mother for
-`Anne of Kiev's
-grandmother`. A piece with no company of its own (no halo) holds
-only inherited continuations, so it answers other questions however few it
-holds. A form learnt as a context keeps its one continuation; the definition,
-bridge and ALU suites fail without that exception. On the 2Wiki fixtures the
-rule costs one answer, a title reached through the subword `sistance`
-(`Resistance` for `résistance`). On the trained store such pieces carry many
-continuations and are set aside as fragments with several.
+A fragment with a single continuation is no safer when no deposit learnt it
+whole (`learntWhole`): every continuation it holds is inherited. Suffix
+inheritance admits a reused piece once two deposits share it, so `ther` carries
+only the fact of the first `… mother` context deposited after that, and cover
+would voice `Otto the Great`'s mother for `Anne of Kiev's grandmother`. A form
+learnt whole keeps its one continuation; the definition, bridge and ALU suites
+fail without that exception. On the 2Wiki fixtures the rule costs one answer, a
+title reached through the subword `sistance` (`Resistance` for `résistance`). On
+the trained store such pieces carry many continuations and are set aside as
+fragments with several.
 
 ## Its consumers
 
-| Where                                       | What it decides                                                                                                                                                                                                                                                                          |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chooseNext` (`traverse.ts`)                | **The exact tier.** A continuation is named when one of its establishing contexts other than the node is witnessed by the question plus the node, and the question supplies a window the node lacks. Named picks rank first, then the instance and paraphrase readings, then the ladder. |
-| `askedEvidence` (`traverse.ts`)             | the question spans that named a pick, which a projecting mechanism then accounts for                                                                                                                                                                                                     |
-| `preConsumed` (`pipeline.ts`)               | when a grounding declares no `used`: the forms inside its answer that the question already holds. The entity the answer added stays pivotable                                                                                                                                            |
-| the walk (`reasoning.ts`)                   | a named pivot moves; an unnamed one is offered only while the derivation still owes something, and the closure law decides it by carrying                                                                                                                                                |
-| `answersOtherQuestions` (`traverse.ts`)     | a fragment (a form inside others, with several continuations or one it only inherited, that leaves a window of the question outside it) leads somewhere only if the question names one of its continuations. Read by cover sites, recall's binding and CAST's redirection                |
-| recall's anchor, fusion roots, CAST schemas | a co-instance is never voiced or fused; a comparison names each side by a run no other context holds                                                                                                                                                                                     |
+- `chooseNext` (`traverse.ts`): **The exact tier.** A continuation is named when
+  one of its establishing contexts other than the node is witnessed by the
+  question plus the node, and the question supplies a window the node lacks.
+  Named picks rank first, then the instance and paraphrase readings, then the
+  ladder.
+- `askedEvidence` (`traverse.ts`): the question spans that named a pick, which a
+  projecting mechanism then accounts for.
+- `preConsumed` (`pipeline.ts`): when a grounding declares no `used`: the forms
+  inside its answer that the question already holds. The entity the answer added
+  stays pivotable.
+- the walk (`reasoning.ts`): a named pivot moves; an unnamed one is offered only
+  while the derivation still owes something, and the closure law decides it by
+  carrying.
+- `answersOtherQuestions` (`traverse.ts`): a fragment (a form inside others,
+  with several continuations or one it only inherited, that leaves a window of
+  the question outside it) leads somewhere only if the question names one of its
+  continuations. Read by cover sites and CAST.
+- recall's anchor, fusion roots, CAST schemas: a co-instance is never voiced or
+  fused; a comparison names each side by a run no other context holds.
 
 ## What the question owes
 
@@ -410,11 +408,11 @@ has a question of its own.
 
 | Correct (strict), of the test rows       |     |
 | ---------------------------------------- | --- |
-| compositional, fixture (133)             | 57  |
-| compositional, plus instances (133)      | 103 |
-| inference, plus inference instances (37) | 23  |
+| compositional, fixture (133)             | 58  |
+| compositional, plus instances (133)      | 110 |
+| inference, plus inference instances (37) | 30  |
 
-The first hop is right on 113 and 107 of 133. Most of the remaining first-hop
+The first hop is right on 116 and 114 of 133. Most of the remaining first-hop
 failures are aliases (`Clara Novello` for `Clara Anastasia Novello`), which no
 reading of bytes recovers. The answers gained with instances are relations no
 window spells: `born` → place of birth, `work at` → employer, `is from` →
@@ -433,15 +431,15 @@ about subjects with no question of their own.
 | -------------------------------------------- | --- |
 | depth 1–2, incl. paraphrase, cross-kind (60) | 60  |
 | depth 3–5, incl. cross-kind (42)             | 42  |
-| a frame composed with a stated relation (6)  | 6   |
-| a frame composed with a description (12)     | 10  |
-| all 172                                      | 140 |
+| a frame composed with a stated relation (6)  | 5   |
+| a frame composed with a description (12)     | 9   |
+| all 172                                      | 138 |
 
-Ten first hops are wrong, and two compositions fail: `cover` runs before the
-climb, so `mother` in `grandmother` names the step first. Remaking what the
-climb outdates fixes both at 46% more chart search; it is not done. With the
-instances removed, 12 are correct; with their answers scrambled, so that no path
-joins filler and answer, 11: the gain is the path, not the instances' answers.
+Nine first hops are wrong. In three compositions no instance names the step, and
+the `mother` in `grandmother` does; one stops at its first hop. With the
+instances removed, 12 are correct, and 12 with their answers scrambled, so that
+no path joins filler and answer: the gain is the path, not the instances'
+answers.
 
 A second constructed world asks for an entity selected by a condition: among the
 children of `Y`, the one who is a medic (`The occupation of C is surgeon.`), the
@@ -479,26 +477,16 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
   agree; neither fusion nor a comparison takes a co-instance; a form saying the
   question and more is none; the relation is available only where an instance
   and a context reach one node (155.14).
-- `test/157` — a derivation of any length: three and four steps (across kinds);
-  each frame by its own sequence, in order; the reading that explains more of
-  the question names the step; the start is what the slot names, and a remainder
-  that names nothing only qualifies; a fact holds its entity whole; traced and
-  untraced responses agree; the frame that shares more of the question names the
-  step; a description in an instance's slot is read off the forms that hold it;
-  a description in the question composes with the frame; a description nothing
-  reads determines no start; a description is read off the forms that hold all
-  of it before a word of it is witnessed; the slot's entity is the longest any
-  reading spells; the refusals read an instance's entity as the derivation does;
-  a description's forms are found on both surfaces. Its scrambled-answer case is
-  a control.
+- `test/157` — a derivation of any length: three and four steps (across kinds),
+  each frame by its own sequence, in order; the reading or frame that explains
+  more of the question names the step; what the slot says (its entity, the
+  longest any reading spells, a description read off the forms that hold it on
+  both surfaces, a qualifier); traced and untraced agree. Its scrambled-answer
+  case is a control.
 - `test/158` — what a derivation says of its entities: the condition every
-  instance's entity agrees on selects the branch in either deposit order, traced
-  or not; on an entity before the answer; two relations to one entity at one
-  depth are both read; a fact one instance's entity lacks is no condition, nor
-  one only some of an instance's ways hold; a paraphrase of an instance does not
-  hide its derivation; the derivation goes on only from an entity its
-  conditioned replay stands on; the ways a search carries are charged to its
-  allowance.
+  instance's entity holds selects the branch in either deposit order; every way
+  to an entity is read and charged; a paraphrase of an instance does not hide
+  its derivation.
 - `test/156` — a derivation read off other instances: it answers a new entity's
   question; one instance agrees with nothing; its steps are followed in order,
   each frame by its own pair; a filler spelled only under the equivalence is an
@@ -506,10 +494,8 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
 - `test/76-reference-binding` — a fact the corpus files under an instance's
   filler is no carriage.
 - `test/29` C3 — a further hop inside a comparison's seat waits to be asked.
-- Measured only at fixture scale, with no pin: excluding fragments from
-  establishing contexts (16 answers), refusing a fragment as CAST's redirection
-  substitute (4 answers), the siblings of a co-instance (3 inference and 6
-  compositional answers), the second step held whole (1 inference answer: a
-  piece of the entity stepped again), and the frame shown by the question's own
-  entity (3 inference and 3 compositional answers; on small stores the climb
-  keeps the instances among its points).
+- Measured only at fixture scale, with no pin (answers each gains): excluding
+  fragments from establishing contexts (16), refusing a fragment as CAST's
+  redirection substitute (4), a co-instance's siblings (9), the second step held
+  whole (1), and the frame shown by the question's own entity (6; small stores
+  keep the instances among the climb's points).

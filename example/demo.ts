@@ -28,7 +28,6 @@ const CORPUS: Array<[string, string]> = [
     "Rembrandt van Rijn",
   ],
   ["Pablo Picasso", "Pablo Picasso co-founded the Cubist movement"],
-  ["The Weeping Woman was painted by Pablo Picasso.", "Pablo Picasso"],
 ];
 
 // Questions the corpus can address, and one it cannot — the honest miss.
@@ -38,7 +37,7 @@ const QUERIES = [
   "xylophone",
 ];
 
-// One question answered by composing across the notes, and one answered by
+// One question answered by carrying structure across the notes, and one by
 // computing: the two routes the corpus search does not take.
 const ASKS = [
   "The Weeping Woman was painted by Pablo Picasso.",

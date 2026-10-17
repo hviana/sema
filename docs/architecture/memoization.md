@@ -26,7 +26,7 @@ caller awaits it:
 - `weave()`;
 - `resonance()`, the single top-`k` ANN query;
 - `frames()`;
-- `spanShapedOf(anchor)` / `spanShapedAll()`;
+- `spanShapedOf(anchor)`;
 - the window identities `queryWindows`, `queryResolved` and `windowsOf`;
 - `reachMemo`.
 
@@ -50,6 +50,10 @@ are content-keyed across turns.
 | `_edgeChoice` (the pick memo), `_edgeAsked`            | node / question       | response; cleared at the end                   |
 | `sharedReachMemo`, probes, derivations (`traverse.ts`) | node / form           | on write, or whole at its budget (`caches.md`) |
 
+Elsewhere a per-response memo is a `WeakMap` keyed by the response's lifecycle
+object (`climbMemo`), so it dies with the response: the bridge, halo siblings,
+the licence, the oldest contexts, the instance book.
+
 `foldTree` takes the `_resolvedSubtrees` fast path only when no visitor is
 passed. A walk that emits sites always descends in full, and the cache only
 elides store probes.
@@ -64,13 +68,10 @@ A traced response must emit every step and still give the same answer.
 - **Always consulted:** `perceiveMemo`, `recogniseMemo` and `climbMemo`.
   Bypassing `recogniseMemo` re-runs recognition over a warm subtree cache and
   emits 5 sites instead of 31: a change in the answer, not just a slowdown.
-- **The pick memo is cleared when the climb publishes its points.** A pick made
-  earlier read less evidence, and keeping it made traced and untraced responses
-  disagree.
-- **The exact tier's pick made before the climb is provisional.** It serves
-  until the points arrive and is then made once more, because a co-instance read
-  from them may name a step or outrank what witnessing named. Keeping it made
-  traced and untraced responses disagree (`test/157`).
+- **A pick made before the climb's points is provisional:** the pick memo is
+  cleared when they arrive, since a co-instance read from them may name a step
+  or outrank what witnessing named. Keeping it made traced and untraced
+  responses disagree (`test/157`).
 
 ## Adding a shared analysis
 

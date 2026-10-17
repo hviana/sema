@@ -3,83 +3,58 @@
 `reference` learns a frame from worked examples and voices its slot with the
 bytes the asker put in that position (`src/mind/mechanisms/reference.ts`). It
 asserts _position_ ("this is the thing you named, where the corpus keeps one"),
-not equivalence. The voiced bytes are the asker's, so they cannot fabricate
-corpus knowledge. What can be fabricated is the relation claimed about them, and
-the licence exists to withhold that.
-
-The substitution bridge refuses this shape, and is right to. A substitution
-asserts that two spans mean the same, which no corpus can corroborate for bytes
-it has never seen.
+not the equivalence a substitution asserts, which no corpus can corroborate for
+bytes it never saw. The voiced bytes are the asker's, so they cannot fabricate
+corpus knowledge; the relation claimed about them can, and the licence withholds
+it.
 
 ## Matcher — the frame inventory
 
-`Precomputed.frames()` reads the ranked candidates as instances of the
-question's own frame, through `frameSlots`, which reports and elects nothing
-(`match-project.md`).
-
-Its supply is the one inventory of forms proposed as instances of the question —
-the shared top-`k` resonance and the consensus climb's points, taken alternately
-(the same sources the exact tier reads co-instances from) — so a frame the
-corpus instantiates only once there is out of reach. Measured on the trained
-store, `How do you say 'flurbish' in French?` finds one instance of its frame in
-the top 24, so `reference` abstains. Widening the supply is not the fix:
-abstaining on thin evidence is.
+`Precomputed.frames()` reads the one inventory of proposed instances (the
+top-`k` resonance and the climb's points, alternately; `evidence.md`) through
+`frameSlots`, which reports and elects nothing (`match-project.md`). A frame
+instantiated once there is out of reach: `How do you say 'flurbish' in French?`
+finds one instance in the trained store's top 24: `reference` abstains.
 
 ## The reading — instances agree on the outcome
 
-An instance must lead somewhere (an answer that aligns with the question is no
-instance of what it asks), read as one structure whose slots are all
-substitutions (an insertion or deletion has no occupant to carry), share at
-least one window with the question (a frame with no window in common is chance),
-and cover most of it: a frame the question does not dominate is a different
-sentence that happens to align somewhere (`test/76`:
-`… the language of Nepal
-and in the language of Oman` is no instance of
+An instance leads somewhere, reads as one structure whose slots are all
+substitutions (an insertion has no occupant to carry), shares a window with the
+question, and dominates it, or it is another sentence that happens to align
+(`… the language of Nepal and in the language of Oman` is no instance of
 `The capital of X is …`).
 
-**One frame is one set of positions.** Instances belong to the same frame when
-they have the same number of slots, each overlapping its counterpart. A slot's
-borders move with bytes two forms share by chance (`Darwin`/`Einstein` both end
-in `in`), so the borders do not name the frame. The largest frame is the
-question's, and it needs `AGREEMENT = 2` instances: one alignment agrees with
-nothing.
+**One frame is one set of positions.** Same number of slots, each overlapping
+its counterpart: borders move with bytes shared by chance (`Darwin`/`Einstein`
+end in `in`). The largest is the question's, and needs `AGREEMENT = 2`
+instances.
 
-**Each instance proposes the answer.** Its continuation is followed, its fillers
-replaced by the bytes the question holds in the same slots
-(`substituteAll(cont, fillers → referents)`), and the result is that instance's
-proposal. Two kinds of dependence fall out of the one construction:
+**Each instance proposes the answer**: its continuation, its fillers replaced by
+the question's bytes in the same slots (`substituteAll`):
 
-- **template** — the answer holds a filler (`Run gcc hello.c` carries `main.c`);
-  its limit, the answer that IS the filler, is extraction
-  (`The dog is named Rex.` → `Rex` reads `Clover`);
-- **constant** — the answer holds no filler; every occupant gets the same one.
+- **template**: the answer holds a filler (`Run gcc hello.c` carries `main.c`);
+  at the limit it IS the filler, an extraction (`The dog is named Rex.`);
+- **constant**: the answer holds no filler; every occupant gets the same one.
 
-Every instance of the frame must propose the same bytes; one breaking the
-pattern refuses all. The template keeps what two forms share, so `Poland` read
-against `England` carries `Po` → `Eng` and still says `England`.
+Every instance must propose the same bytes; one breaking the pattern refuses
+all. Refusals:
 
-Refusals, each with its reason:
-
-- **A fact filed under a filler is not a carriage.** If an instance's answer is
-  a continuation of its own filler, it is something the corpus knows _about_
-  that filler (a derivation). Two people born in Wellington would give an
-  unknown `Zorblax` the same birthplace.
-- **A voiced referent reaches one window**, and the referents voiced are a
-  minority of the question: the rest is what makes it an instance of the frame.
+- **A fact filed under a filler is not a carriage.** An answer continuing its
+  own filler is knowledge _about_ it: two people born in Wellington would give
+  `Zorblax` their birthplace.
+- **A voiced referent reaches one window**, and the voiced referents are a
+  minority of the question.
 - Fillers and referents are distinct; no referent lies inside an answered span.
-- **Restatement.** An answer that is part of the question is refused, unless the
-  instances agree that the answer IS the asker's referent (identity carriage).
+- **Restatement**: an answer inside the question, unless the instances agree it
+  IS the asker's referent (identity carriage).
 
 ## Cost
 
 `moves = STEP · voiced + STEP`: one binding per carried referent and one edge
-followed. It is not `CONCEPT`, because the reading is byte identity, not halo.
-The matched frame and the carried referents are `accounted`; a slot the answer
-does not carry is not explained by it. A constructed answer is `complete`, so
-the walk never takes bytes the corpus never said for a trained fact; an identity
-reading (the asker's referent read back) is not, and reasoning may go on from
-it. The floor is `2·STEP`, checked with `worthRunning` before `frames()` is
-touched.
+followed, not `CONCEPT`: the reading is byte identity. The matched frame and the
+carried referents are `accounted`. A constructed answer is `complete`, so the
+walk never extends bytes the corpus never said; an identity reading is not. The
+floor is `2·STEP`, checked with `worthRunning` before `frames()`.
 
 ## Provenance
 
@@ -87,8 +62,8 @@ touched.
 
 ## Pins
 
-- `test/76-reference-binding` — the split between inventory and gate; carried,
-  absorbed and refused frames; the multi-slot licence; `complete`; the guard on
-  answered spans; a fact filed under its filler is no carriage.
+- `test/76-reference-binding` — inventory apart from gate; carried, absorbed and
+  refused frames; the multi-slot licence; `complete`; answered spans; a fact
+  filed under its filler.
 - `test/76-type-level-company` — the halo company by type that the inventory's
   supply relies on.
