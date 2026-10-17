@@ -2694,8 +2694,8 @@ function canonHeldOf(
   const out: Array<{ start: number; end: number; payload: number }> = [];
   memo.set(minLen, { canon: ctx.canon, raw: asked.raw, out });
   for (const id of asked.points) {
-    // The length decides most points, and the store reads it from its index
-    // (exact below the cap): no bytes are rebuilt for a point too short or not
+    // The length decides most points, and the store sums it under the cap
+    // (memoised once exact): no bytes are rebuilt for a point too short or not
     // shorter than the question.
     const len = ctx.store.contentLen(id, asked.bytes.length);
     if (len < minLen || len >= asked.bytes.length) continue;

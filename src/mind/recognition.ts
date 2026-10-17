@@ -464,6 +464,10 @@ export function thingsIn(
       if (climb.saturated) continue;
       for (const root of climb.roots) {
         if (seen.has(root)) continue;
+        // The thing's first `reach + 1` bytes decide most roots: shorter, it
+        // is no long thing; absent from the bytes, the bytes do not hold it.
+        const head = ctx.store.bytesPrefix(root, reach + 1);
+        if (head.length <= reach || indexOf(bytes, head, 0) < 0) continue;
         const len = ctx.store.contentLen(root, n + 1);
         if (len <= reach || len > n || !ctx.store.learntWhole(root)) continue;
         const at = indexOf(bytes, ctx.store.bytes(root), 0);
