@@ -66,7 +66,7 @@ Per-response memos are in `memoization.md`.
 
 ## Pins
 
-- `test/96` — `_bytesCache` is a byte-accounted `BoundedMap` that evicts, and a
-  miss re-derives.
-- `test/91` — `chainRun` hops a transparent chain in one bounded read, not with
-  probes per node.
+- `test/91` — a branch's bytes are cached, so rebuilding it twice does not
+  re-walk its subtree.
+- `test/96` — `bytes()` terminates even when `_bytesCache` evicts its working
+  set: a miss re-derives.

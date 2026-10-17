@@ -18,7 +18,7 @@ import { Alphabet } from "./alphabet.js";
 // (not in a config file) because they follow from the structure itself.
 //
 // MEASUREMENT CAVEAT: these thresholds are compared against RaBitQ-ESTIMATED
-// cosines (1-bit stored codes scored against a 4-bit-quantized query; the
+// cosines (1-bit stored codes scored against an 8-bit-quantized query; the
 // index never reranks with exact vectors).  The derivations assume an exact
 // cosine; the estimator adds a small, rotation-uniformised error the bars do
 // not model.  This is benign for the inequality thresholds (they gate broad

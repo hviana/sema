@@ -71,7 +71,7 @@ form. `join` belongs to `confluence`, not to `cover`.
 ## Pins
 
 - `test/09` — edge following and hop semantics.
-- `test/19` — form rules and multi-hop chains.
+- `test/22` — a partial result is the pivot into the next fact.
 - `test/151` — connectors and concept hops resolved where the search reaches
   them; dominance.
 - `test/154` — an unasked fragment voices nothing; a site held only under the

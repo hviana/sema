@@ -66,9 +66,10 @@ short (`test/157`).
   the cap prunes its branch.
 - **Hub guards, which are true saturations.** A node is not expanded when
   `parentsFirst(bound + 1)` or one `containersSlice` page exceeds `bound`.
-- **The expansion budget, a net.** At most `bound · W` pops, shared across a
-  tier's walks. Running out is an abstention (`junctionBudgetExhausted`), and
-  the search falls through to the resonance tier.
+- **The expansion budget, a net.** At most `bound · W` pops a walk, and
+  `readAllowance · W` shared across a synonym tier's walks. Running out is an
+  abstention (`junctionBudgetExhausted`), and the search falls through to the
+  resonance tier.
 
 Two tightenings were refuted:
 

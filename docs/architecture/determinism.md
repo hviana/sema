@@ -58,4 +58,5 @@ why the pick memo is cleared when the climb publishes its points, is
   training give byte-identical answers and stores.
 - `test/42` — recognition is idempotent under trace.
 - `test/155.4` — traced and untraced responses agree after the climb publishes.
-- `test/34` — tie-breaks are corpus-determined, not interchangeable.
+- `test/30` — equal evidence goes to the first inserted, and corroboration
+  outranks insertion order.

@@ -65,5 +65,3 @@ floor is `2·STEP`, checked with `worthRunning` before `frames()`.
 - `test/76-reference-binding` — inventory apart from gate; carried, absorbed and
   refused frames; the multi-slot licence; `complete`; answered spans; a fact
   filed under its filler.
-- `test/76-type-level-company` — the halo company by type that the inventory's
-  supply relies on.

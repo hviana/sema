@@ -4,7 +4,7 @@
 > identity. Identity is content-addressed lookup: `resolve`, `findLeaf`,
 > `findBranch`, `canonResolve`.
 
-**Why.** Every score is a RaBitQ estimate: 1-bit stored codes against a 4-bit
+**Why.** Every score is a RaBitQ estimate: 1-bit stored codes against an 8-bit
 query, never re-ranked (`geometry.ts`). A decision taken on a score inherits the
 estimator's error, and an identity minted from one corrupts every count built on
 it; a content address cannot be near-but-wrong. So vectors (gists and halos) say

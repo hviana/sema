@@ -61,7 +61,8 @@ consumer owns its own refusal:
 - `reference` requires dominance, substitutions only, a shared window, agreement
   on the outcome, and voiced referents of at least `W` that are a minority of
   the question.
-- CAST, `recall` and `cover` apply their own gates to the same inventory.
+- `recall`'s substitution bridge applies its own gates to the same reading
+  (`recall.md`).
 
 ## Pins
 

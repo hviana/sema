@@ -20,7 +20,7 @@ the container-as-hub saturation in `saturation.md`).
 - Cut: `dominates(reach, N)`. A majority is scaffolding, and a minority
   discriminates. The climb reads the graded form of the same cut, weighing a
   region by `ln(N/c)`.
-- Read by the consensus climb, `confluence`'s gate and edge following.
+- Read by the consensus climb, `confluence`'s gate and the substitution bridge.
 
 **The cohort: the structures aligned to this question.**
 
@@ -36,9 +36,11 @@ the container-as-hub saturation in `saturation.md`).
   overlaps: reuse, not holders (read by bytes, `heldElsewhere`).
 - Cut: `0` anchors nothing, `≥ 2` marks reuse, and past the hub bound,
   scaffolding.
-- Read by the bridge and by attention, which anchor on the rarest window first,
-  and by the scaffolding readings (`scaffoldExtents`,
-  `allWindowsAreScaffolding`).
+- Read by the scaffolding readings (`hubWindows`, `scaffoldExtents`,
+  `allWindowsAreScaffolding`). Choosing the rarest window (the bridge's anchors,
+  the forms a question opens, a frame's siblings) counts both surfaces, chunks
+  and parents (`windowRarity`): the fold interns one window as a chunk of one
+  form and as a run across another's.
 
 **Scaffolding is nobody's evidence and nobody's debt.** A window in more than
 `√N` places explains nothing, because every fact holds it. So a step cannot pay
