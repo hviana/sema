@@ -950,8 +950,26 @@ export function answersOtherQuestions(
   if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
   if (!heldWithin(ctx, id)) return false;
   const nx = ctx.store.nextFirst(id, 2).length;
-  if (nx === 0 || (nx < 2 && ctx.store.learntWhole(id))) return false;
+  if (nx === 0) return false;
+  if (
+    nx < 2 && ctx.store.learntWhole(id) && !scaffoldingForm(ctx, id, siteLen)
+  ) {
+    return false;
+  }
   return namedContinuations(ctx, id, asked) === null;
+}
+
+/** A form every window of which is scaffolding (`hubWindows`): held in more
+ *  places than the hub bound, so the question holding it names nothing by
+ *  it — the song `What` inside `What country is Jerry Bock a citizen of?`.
+ *  Learnt whole, its one continuation still answers another question. */
+function scaffoldingForm(
+  ctx: MindContext,
+  id: number,
+  len: number,
+): boolean {
+  const hub = hubWindows(ctx, read(ctx, id, len));
+  return hub.length > 0 && hub.every((h) => h === 1);
 }
 
 /** The continuations of `id` that `asked` NAMES (see {@link
@@ -1816,27 +1834,6 @@ function byUse(
   // A run is consecutive evidence windows.
   const runs = unionSpans(windowSpans(evidence, W), 1 - W);
   if (runs.length === 0) return none();
-  // THE LICENCE BEFORE THE COMPANY.  Where only a licensed use names (the
-  // walk, or one continuation), the pair the company would choose must be
-  // one the corpus shows; the licence reads no company, so where it shows no
-  // pair of a question run and a stored span, nothing the company chose could
-  // name, and it is not read (measured: the licence refused 77 of 81 uses on
-  // 100 questions, after their company was read).  The same pair asked later
-  // is the response's memo.
-  if (asked !== whole || alone) {
-    const spans = new Map<string, Uint8Array>();
-    for (const { cb, a, b } of sides) {
-      spans.set(latin1(cb.subarray(a, b)), cb.subarray(a, b));
-    }
-    const shown = runs.some((r) => {
-      const A = offsetCanon(ctx, q.subarray(r[0], r[1]));
-      for (const S of spans.values()) {
-        if (licensedSubstitution(ctx, S, A) === "shown") return true;
-      }
-      return false;
-    });
-    if (!shown) return none();
-  }
   const uses = runs.flatMap((r) => {
     const u = useOf(ctx, q, r[0], r[1], { question: whole });
     return u === null ? [] : [{ r, u }];

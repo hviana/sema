@@ -887,3 +887,58 @@ test("154.19 a minimal pair read past its bound refutes nothing", async () => {
   assert.equal(await licence(0), "shown");
   assert.equal(await licence(6), "unread");
 });
+
+test("154.20 a learnt whole made only of scaffolding answers other questions", async () => {
+  // The song `What`, learnt whole with one continuation, sits in a question
+  // about Jerry Bock.  A learnt whole keeps its one continuation — but not a
+  // form every window of which is scaffolding: held everywhere, it names
+  // nothing, and its one continuation answers another question.
+  const words = [
+    "alpha",
+    "bravo",
+    "delta",
+    "echo",
+    "golf",
+    "hotel",
+    "india",
+    "kilo",
+    "lima",
+    "oscar",
+    "papa",
+    "romeo",
+    "tango",
+    "victor",
+    "zulu",
+    "amber",
+    "coral",
+    "dune",
+    "ember",
+    "flint",
+  ];
+  const items = [
+    ["What", "The performer of What is Melinda Marx."],
+    ...deposits([["Jerry Bock", "country of citizenship", "American"]]),
+  ];
+  for (const a of words) {
+    for (const b of words) {
+      items.push([`${a} ${b}What ${b}${a}?`, `${b} ${a}.`]);
+    }
+  }
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  await mind.ingest(items);
+  const fragments = [];
+  const answer = await mind.respondText(
+    "What country is Jerry Bock a citizen of?",
+    (st) => {
+      if (st.mechanism.at(-1) === "unaskedFragments") {
+        for (const x of st.inputs ?? []) fragments.push(x.text);
+      }
+    },
+  );
+  assert.ok(fragments.includes("What"), "the song is a fragment here");
+  assert.equal(answer, "The country of citizenship of Jerry Bock is American.");
+  await mind.store.close();
+});

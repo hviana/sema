@@ -134,3 +134,22 @@ test("a fragment that leads nowhere is still NOT recognised", async () => {
   // And pure noise must still ground to nothing.
   assert.equal(await mind.respondText("qq8f3kz9 zzxq wvbn"), "");
 });
+
+test("past the atom-hub scale, a one-byte question is still the question", async () => {
+  // Atoms stop being sites once the corpus passes the atom-hub scale, but a
+  // span covering the WHOLE question is not a fragment of anything: a learnt
+  // one-byte fact answers at any corpus size, and a byte nobody asked about
+  // stays silent.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  const items = [["7", "seven"]];
+  for (let i = 0; i < 5000; i++) {
+    items.push([`record number ${i} of the registry`, `entry ${i} is filed`]);
+  }
+  for (let i = 0; i < items.length; i += 500) {
+    await m.ingest(items.slice(i, i + 500));
+  }
+  assert.ok(atomIsHub(m.store.edgeSourceCount(), 4), "past the hub scale");
+  assert.equal(await m.respondText("7"), "seven");
+  assert.equal(await m.respondText("d"), "");
+  await m.store.close();
+});

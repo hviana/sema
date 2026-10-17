@@ -339,7 +339,7 @@ bundles of 4–16). The use is evidence only where the corpus licenses it
 (`substitutionGrade` 2). Unlicensed, it only ranks, on the whole question for
 its own thing (`heldEntity`) with two continuations or more. On the walk (a node
 reached, not written) and for a single continuation, only a licensed use names
-(`test/154.15`), and the licence, which reads no company, is asked first.
+(`test/154.15`): the licence is asked of the pair the company chose.
 
 A fragment that answers other questions is set aside before the cover takes it
 as a site (`answersOtherQuestions`). The same predicate refuses CAST's
@@ -351,10 +351,12 @@ whole (`learntWhole`): every continuation it holds is inherited. Suffix
 inheritance admits a reused piece once two deposits share it, so `ther` carries
 only the fact of the first `… mother` context deposited after that, and cover
 would voice `Otto the Great`'s mother for `Anne of Kiev's grandmother`. A form
-learnt whole keeps its one continuation; the definition, bridge and ALU suites
-fail without that exception. On the 2Wiki fixtures the rule costs one answer, a
-title reached through the subword `sistance` (`Resistance` for `résistance`). On
-the trained store such pieces carry many continuations and are set aside as
+learnt whole keeps its one continuation (the definition, bridge and ALU suites
+fail without that exception), unless every window of it is scaffolding: the song
+`What` names nothing in `What country is Jerry Bock a citizen of?`
+(`test/154.20`). On the 2Wiki fixtures the rule costs one answer, a title
+reached through the subword `sistance` (`Resistance` for `résistance`). On the
+trained store such pieces carry many continuations and are set aside as
 fragments with several.
 
 ## Its consumers
@@ -470,7 +472,7 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
   fragment voices nothing it was not asked, even its one inherited continuation;
   a comparison needs two named things; an argument held only under the
   equivalence binds, from any point; a paraphrase names the step by its use
-  (154.10).
+  (154.10); a scaffolding learnt whole answers other questions (154.20).
 - `test/155` — the relation read off another instance: it needs two agreeing
   instances; it refuses a partly shared frame, a said frame and a description in
   the slot; it is never voiced as the answer; traced and untraced responses

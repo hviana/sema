@@ -38,8 +38,8 @@ unit is `1/√D`.
 - `hubBound = ⌈√N⌉`, the bound on every `LIMIT` read (`hubCap` on lists)
 - `consensusFloor = ln N + ½`, for pooled climb votes
 - `atomReach = max(1, ⌈N·W/256⌉)`; past `hubBound` it sets a cost regime only
-  (recognition, the chart, the cross-region budget), since an atom never votes
-  (`saturation.md`)
+  (recognition, the chart, the cross-region budget; the whole question is always
+  read), since an atom never votes (`saturation.md`)
 
 Two bars are scale-free: `dominates(part, whole) = 2·part > whole`, a strict
 majority, and `AGREEMENT = 2`, the fewest instances that make a pattern rather
@@ -79,5 +79,6 @@ answer falls back to a noisy concept hop.
 - `test/64` — `mergeThreshold`, `identityBar` and `reachThreshold`, and the
   scale-aware floor.
 - `test/40` — `consensusFloor` must not gate `chooseNext`'s support counts.
-- `test/78` — `atomReach`/`atomIsHub`: the scale regime recognition reads.
+- `test/78` — `atomReach`/`atomIsHub`: the scale regime recognition reads; a
+  one-byte question is still read whole past it.
 - `test/35-attention-confidence` — a byte atom never votes, at any corpus size.

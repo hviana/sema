@@ -171,8 +171,12 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // but they double the weight cover's derivation search gives that span,
   // distorting its cost model — the same span must count once.
   const seen = new Set<string>();
+  // The question itself is never a fragment of something longer: a span
+  // covering the WHOLE question is exempt from both scale gates below.
+  const whole = (start: number, end: number) =>
+    start === 0 && end === bytes.length;
   const emit = (start: number, end: number, id: number) => {
-    if (id < 0 && atomsAreHubs) return;
+    if (id < 0 && atomsAreHubs && !whole(start, end)) return;
     // A SITE MUST SPAN ONE RIVER WINDOW.  Below W, byte overlap is chance,
     // not evidence — the principle identityBar already states ("below one
     // river window, byte overlap is chance") and the bridge's attestedQ
@@ -197,8 +201,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     // A span covering the WHOLE query is exempt: then it is not a fragment of
     // something longer, it is the question ("hi" asked on its own).
     if (
-      atomsAreHubs && end - start < ctx.space.maxGroup &&
-      !(start === 0 && end === bytes.length)
+      atomsAreHubs && end - start < ctx.space.maxGroup && !whole(start, end)
     ) return;
     const key = start + "," + end + "," + id;
     if (seen.has(key)) return;
