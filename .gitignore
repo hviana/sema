@@ -1,4 +1,9 @@
 .claude
+# .claude stays the developer's OWN local dir (settings.local.json, personal
+# skills). The repo's skills live in .agents/skills and are linked into it —
+# see the README. Version those; ignore everything else under .agents.
+/.agents/*
+!/.agents/skills
 package-lock.json
 node_modules
 /sema.*

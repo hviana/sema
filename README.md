@@ -317,6 +317,23 @@ start talking — no install, no runtime, no API key.
 
 ---
 
+## ✦ Research it — one skill
+
+> [!TIP]
+> **[`start-research`](.agents/skills/start-research)** pulls the trained memory
+> into `data/`, builds a fast harness and a gate harness over it, then loops
+> _brainstorm → hypothesis → Arbor → measure_ — admitting a change only when it
+> clears [every gate](docs/harness/gates.md) and Sema's quality criteria.
+
+The skills are versioned in `.agents/skills/`; your `.claude/` stays yours. Link
+them in, once:
+
+```bash
+mkdir -p .claude/skills && for s in .agents/skills/*/; do ln -sfn "../../${s%/}" ".claude/skills/$(basename "$s")"; done
+```
+
+---
+
 ## ✦ Learn more
 
 | Document                                                                             | What's inside                                                                                                                                          |
