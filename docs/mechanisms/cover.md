@@ -12,8 +12,9 @@ cost, and prunes the rest of the market through the ordinary floor check
 Sites are the spans of the question that name a stored form (`recognition.ts`),
 and the climb's points it holds under the equivalence (`Man At Bath` for a
 stored `Man at Bath`; `canonHeldPoints`), which the cover declares it reads
-(`readsPoints`, `mechanism-market.md`). Any site overlapping a computed span is
-masked: computation always wins, enforced by masking rather than by price
+(`readsPoints`, `mechanism-market.md`). A span named only under the equivalence
+stands where its member does (`role.ts`): `father` is no film `Father`. A site
+overlapping a computed span is masked: computation wins by masking, not by price
 (`cost-model.md`).
 
 ## Gates

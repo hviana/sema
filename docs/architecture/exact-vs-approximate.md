@@ -36,12 +36,13 @@ Three relations, never standing in for one another:
   and `X end`); else **unread**.
 
 `substitutionGrade`: 0 refuted or below the proposal floor, 1 unread with
-company at `conceptThreshold` (counted, `substitutionsOnCompany`), 2 shown. A
-grade-1 swap transfers only where the corpus refutes nothing, and yields to a
-shown one. Every substitution reads it, each side keeping its strongest grade
-(`licensedVariants`). A use, being company, names a step only at grade 2
-(`evidence.md`), and the question with one span swapped answers it only under
-the licence (`unlicensedSwap`). Halo bars: `thresholds.md`.
+company at `conceptThreshold` (counted), 2 shown; grade 1 transfers where
+nothing refutes, yielding to 2. Every substitution reads it, each side at its
+strongest grade (`licensedVariants`). A use names a step only at grade 2
+(`evidence.md`); a swapped span answers only under the licence
+(`unlicensedSwap`). A canonical site swaps spelling, refused where its role and
+the member's (`role.ts`) meet below `significanceBar` on every side both read.
+Bars: `thresholds.md`.
 
 ## Graded ladders — exact first, never reordered
 

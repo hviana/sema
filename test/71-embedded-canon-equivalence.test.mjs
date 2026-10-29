@@ -158,3 +158,55 @@ test("a form held only under the response's equivalence is the cover's site", as
   );
   await m.store.close();
 });
+
+test("a canonical site stands where its member stands, or it is no site", async () => {
+  // `father` and the film `Father` are one canonical class (case), and keep
+  // company with the same people — but the corpus never stands them in the
+  // same place: the film before ` director`, the relation after `the ` and
+  // before ` of`.  Read as the film, the question answers the film's fact.
+  // Each fact is deposited as the trained store holds it: under the entity
+  // alone and under the entity with its relation.
+  const facts = [
+    ["Father", "director", "The director of Father is Wang Shuo."],
+    ["Mother", "director", "The director of Mother is Gleb Panfilov."],
+    ["The Paw", "director", "The director of The Paw is Hans Steinhoff."],
+    [
+      "Ollanta Humala",
+      "father",
+      "The father of Ollanta Humala is Isaac Humala.",
+    ],
+    ["Hassan II", "father", "The father of Hassan II is Mohammed V."],
+    [
+      "Asma of Morocco",
+      "father",
+      "The father of Asma of Morocco is Hassan II.",
+    ],
+  ];
+  const pairs = facts.flatMap(([x, r, f]) => [[x, f], [`${x} ${r}`, f]]);
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(pairs);
+  await m.buildCanonIndex();
+  const steps = [];
+  const asked = await m.respondText(
+    "Who was the father of ollanta humala?",
+    (s) => steps.push(s),
+  );
+  assert.equal(asked, "The father of Ollanta Humala is Isaac Humala.");
+  assert.ok(
+    steps.some((s) =>
+      s.mechanism.at(-1) === "roleRefused" &&
+      s.outputs.some((o) => o.text === "Father")
+    ),
+    "the film is refused as the relation's canonical twin, by its role",
+  );
+  // The same class read where its member stands is still the member: the
+  // entity asked in lower case is the stored entity's site.
+  assert.ok(
+    !steps.some((s) =>
+      s.mechanism.at(-1) === "roleRefused" &&
+      s.outputs.some((o) => o.text === "Ollanta Humala")
+    ),
+    "the entity is no refused twin: it stands where it is stored",
+  );
+  await m.store.close();
+});

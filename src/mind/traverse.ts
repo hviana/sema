@@ -4176,10 +4176,11 @@ const pastHub = new WeakSet<number[]>();
  *  A voter abstains past a hub, because a hub's vote discriminates nothing;
  *  an ENUMERATOR of candidates that are then checked exactly reads what the
  *  bound allows. */
-function oldestContexts(
+export function oldestContexts(
   ctx: MindContext,
   id: number,
   allowance: number,
+  leadsOn = true,
 ): number[] {
   // One climb per node per response: the store is read-only while a response
   // is in flight, and the licence asks the same holders once per stored span
@@ -4187,14 +4188,14 @@ function oldestContexts(
   // licence's own memo is.  Callers only read the list.
   const life = ctx.climbMemo;
   let memo: Map<string, number[]> | undefined;
-  const key = `${id}:${allowance}`;
+  const key = `${id}:${allowance}:${leadsOn}`;
   if (life !== null) {
     memo = oldestMemo.get(life);
     if (memo === undefined) oldestMemo.set(life, memo = new Map());
     const hit = memo.get(key);
     if (hit !== undefined) return hit;
   }
-  const out = oldestContextsOf(ctx, id, allowance);
+  const out = oldestContextsOf(ctx, id, allowance, leadsOn);
   memo?.set(key, out);
   return out;
 }
@@ -4204,14 +4205,19 @@ function oldestContextsOf(
   ctx: MindContext,
   id: number,
   allowance: number,
+  leadsOn: boolean,
 ): number[] {
   // The TOPS above `id` — contexts no larger form holds — oldest first, by the
-  // one ascent (`holdersFrom`).
+  // one ascent (`holdersFrom`).  Without `leadsOn`, every top is taken, the
+  // deposits that lead nowhere too: a continuation writes a form as much as a
+  // context does (role.ts).
   return holdersFrom(
     ctx,
     [id],
     (_bytes, x) =>
-      x !== id && ctx.store.hasNext(x) && !heldWithin(ctx, x) ? x : null,
+      x !== id && (!leadsOn || ctx.store.hasNext(x)) && !heldWithin(ctx, x)
+        ? x
+        : null,
     {
       containers: true,
       order: "dfs",

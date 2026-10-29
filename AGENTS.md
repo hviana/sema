@@ -89,7 +89,7 @@ corpus-determined, not interchangeable (`determinism.md`).
 | Canonical windows                    | `src/mind/canonical.ts`                                                                            |
 | Consensus climb + attention          | `src/mind/attention.ts`                                                                            |
 | Substitution bridge (recall tier)    | `src/mind/bridge.ts`                                                                               |
-| Recognition / junction / resonance   | `src/mind/recognition.ts`, `src/mind/junction.ts`, `src/mind/resonance.ts`                         |
+| Recognition / junction / resonance   | `src/mind/recognition.ts`, `src/mind/role.ts`, `src/mind/junction.ts`, `src/mind/resonance.ts`     |
 | Learning / ingestion                 | `src/mind/learning.ts`, `src/ingest-cache.ts`                                                      |
 | Rationale / trace / meter            | `src/mind/rationale.ts`, `src/mind/trace.ts`, `src/meter.ts`                                       |
 | Extension host types                 | `src/extension.ts`                                                                                 |

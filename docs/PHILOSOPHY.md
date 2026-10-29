@@ -304,8 +304,9 @@ Each follows from a gap visible on the path, and none is a plan.
   seen, and today it only joins regions. Proposals made this way, then checked
   by content, are abduction with a guaranteed verifier.
 - **Richer company.** The halo has two seats, _what it led to_ and _what led to
-  it_. What other relations of use would a seat capture, and what would they let
-  attention see?
+  it_. A role (`role.ts`) reads a third at question time, where a span stands
+  among its windows; it only refuses canonical twins so far. What else would it
+  let attention see?
 - **Other streams.** Whatever has a reading order that preserves locality can
   enter by the same path.
 

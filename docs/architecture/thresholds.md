@@ -17,10 +17,11 @@ indicts a law, never a parameter.
 unit is `1/√D`.
 
 - `estimatorNoise = 1/√D`
-- `significanceBar = 3/√D`, three noise units above chance, the null of
-  independent vectors. Halos share the corpus's common company, so on halos it
-  only proposes or ranks; company standing as evidence is held to
-  `conceptThreshold`.
+- `significanceBar = 3/√D`, three noise units above chance: the null of
+  independent vectors. Halos share the corpus's common company, so on them it
+  only ranks and company as evidence is held to `conceptThreshold`; role
+  profiles (`role.ts`) drop hub windows, so the null holds and roles meeting
+  below it refuse a canonical site.
 - `conceptThreshold = 0.5 + 0.5/√D`, for halo concept sharing: the structural
   midpoint plus half a noise unit
 - `mergeThreshold = 1 − 1/√D`

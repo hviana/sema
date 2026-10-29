@@ -332,6 +332,12 @@ export class Meter {
   /** Co-instances read off the reach of the question's rarest frame window,
    *  beside the climb's own points (traverse.ts, `relationFrames`). */
   coInstanceSiblings = 0;
+  /** Role profiles read: one span's windows bound to where they stand
+   *  (role.ts, `roleIn`). */
+  roleReads = 0;
+  /** Canonical sites recognition refused because the span stands where the
+   *  stored member never stands (role.ts, `rolesAgree`). */
+  roleRefusals = 0;
   /** Frames whose window was a hub, read as a sample of the oldest contexts
    *  holding their narrowest window (traverse.ts, `siblingInstances`). */
   siblingsSampled = 0;

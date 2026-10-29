@@ -4,23 +4,23 @@
 all fifteen laws (numbered as in `INDEX.md`) to the code that defines them and
 the tests that fail when they break.
 
-| #  | Law                    | Defined in                                                                                                                             | Pins                                              |
-| -- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| 1  | Determinism            | `config.ts` (`seed`), `alphabet.ts`, `traverse.ts` (`guidedFirst`, `chooseNext`)                                                       | `test/20`, `test/42`                              |
-| 2  | Derived thresholds     | `geometry.ts` (`atomReach`), `traverse.ts` (`corpusN`, `hubBound`), `canonical.ts` (`chainReach`)                                      | `test/40`, `test/64`, `test/78`                   |
-| 3  | Exact decides          | `primitives.ts` (`resolve`), `match.ts` (`locate`, `alignGraded`), `traverse.ts` (`substitutionGrade`), `resonance.ts`, `attention.ts` | `test/49`, `test/51`, `test/56`                   |
-| 4  | One cost currency      | `graph-search.ts` (`MICRO`…`PASS`), `src/derive` (min, +), `attention.ts` (`poolVotes`, +, +), `pipeline.ts` (`weigh`)                 | `test/04`, `test/55`, `test/151`                  |
-| 5  | Match → project → gate | `match.ts`                                                                                                                             | `test/31`, `test/47`, `test/76-reference-binding` |
-| 6  | Mechanism market       | `pipeline-mechanism.ts` (`PipelineMechanism`, `Precomputed`), `pipeline.ts` (`think`, `worthRunning`)                                  | `test/04`, `test/93`, `test/153`                  |
-| 7  | Commonality            | `traverse.ts` (`reachOf`, `hubWindows`), `geometry.ts` (`dominates`, `AGREEMENT`), `cast.ts` (`depth[]`), `bridge.ts` (rarity)         | `test/17`, `test/34`, `test/73`                   |
-| 8  | Bounded reads          | `store.ts` (`*First`, `containersSlice`, `has*`, `bytesPrefix`, `chainRun`), `traverse.ts` (`hubBound`, `hubCap`)                      | `test/14`, `test/89`, `test/90`, `test/119`       |
-| 9  | Store                  | `store.ts` (`AbstractStore`, `intern`), `store-sqlite.ts`                                                                              | `test/02`, `test/08`, `test/36-bloom`             |
-| 10 | Fold contract          | `geometry.ts` (`contentLevels`, `contentIdentity`), `primitives.ts` (`branchNaming`), `canonical.ts`, `canon.ts`                       | `test/59`, `test/63`, `test/148`, `test/152`      |
-| 11 | Memoization            | `pipeline-mechanism.ts` (`Precomputed`), `mind.ts` (`beginResponse`, `endResponse`)                                                    | `test/42`, `test/155.4`                           |
-| 12 | Saturation             | `traverse.ts` (`edgeAncestors`), `junction.ts` (`junctionContainersFrom`), `resonance.ts` (`pivotInto`), `types.ts` (`SaturationStop`) | `test/16`, `test/27`, `test/34`, `test/49`        |
-| 13 | Meter                  | `meter.ts`, `Precomputed.shared`                                                                                                       | `test/55`                                         |
-| 14 | Closure                | `derivation.ts` (`admissible`, `advance`, `closeOver`)                                                                                 | `test/133`–`151`                                  |
-| 15 | Witnessed evidence     | `evidence.ts` (`witness`, `windowIndex`), `traverse.ts` (`chooseNext`, `answersOtherQuestions`, `coInstanceFiller`, `scaffoldExtents`) | `test/154`–`159`, `test/76-reference-binding`     |
+| #  | Law                    | Defined in                                                                                                                                        | Pins                                              |
+| -- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| 1  | Determinism            | `config.ts` (`seed`), `alphabet.ts`, `traverse.ts` (`guidedFirst`, `chooseNext`)                                                                  | `test/20`, `test/42`                              |
+| 2  | Derived thresholds     | `geometry.ts` (`atomReach`), `traverse.ts` (`corpusN`, `hubBound`), `canonical.ts` (`chainReach`)                                                 | `test/40`, `test/64`, `test/78`                   |
+| 3  | Exact decides          | `primitives.ts` (`resolve`), `match.ts` (`locate`, `alignGraded`), `traverse.ts` (`substitutionGrade`), `role.ts`, `resonance.ts`, `attention.ts` | `test/49`, `test/51`, `test/56`, `test/71`        |
+| 4  | One cost currency      | `graph-search.ts` (`MICRO`…`PASS`), `src/derive` (min, +), `attention.ts` (`poolVotes`, +, +), `pipeline.ts` (`weigh`)                            | `test/04`, `test/55`, `test/151`                  |
+| 5  | Match → project → gate | `match.ts`                                                                                                                                        | `test/31`, `test/47`, `test/76-reference-binding` |
+| 6  | Mechanism market       | `pipeline-mechanism.ts` (`PipelineMechanism`, `Precomputed`), `pipeline.ts` (`think`, `worthRunning`)                                             | `test/04`, `test/93`, `test/153`                  |
+| 7  | Commonality            | `traverse.ts` (`reachOf`, `hubWindows`), `geometry.ts` (`dominates`, `AGREEMENT`), `cast.ts` (`depth[]`), `bridge.ts` (rarity)                    | `test/17`, `test/34`, `test/73`                   |
+| 8  | Bounded reads          | `store.ts` (`*First`, `containersSlice`, `has*`, `bytesPrefix`, `chainRun`), `traverse.ts` (`hubBound`, `hubCap`)                                 | `test/14`, `test/89`, `test/90`, `test/119`       |
+| 9  | Store                  | `store.ts` (`AbstractStore`, `intern`), `store-sqlite.ts`                                                                                         | `test/02`, `test/08`, `test/36-bloom`             |
+| 10 | Fold contract          | `geometry.ts` (`contentLevels`, `contentIdentity`), `primitives.ts` (`branchNaming`), `canonical.ts`, `canon.ts`                                  | `test/59`, `test/63`, `test/148`, `test/152`      |
+| 11 | Memoization            | `pipeline-mechanism.ts` (`Precomputed`), `mind.ts` (`beginResponse`, `endResponse`)                                                               | `test/42`, `test/155.4`                           |
+| 12 | Saturation             | `traverse.ts` (`edgeAncestors`), `junction.ts` (`junctionContainersFrom`), `resonance.ts` (`pivotInto`), `types.ts` (`SaturationStop`)            | `test/16`, `test/27`, `test/34`, `test/49`        |
+| 13 | Meter                  | `meter.ts`, `Precomputed.shared`                                                                                                                  | `test/55`                                         |
+| 14 | Closure                | `derivation.ts` (`admissible`, `advance`, `closeOver`)                                                                                            | `test/133`–`151`                                  |
+| 15 | Witnessed evidence     | `evidence.ts` (`witness`, `windowIndex`), `traverse.ts` (`chooseNext`, `answersOtherQuestions`, `coInstanceFiller`, `scaffoldExtents`)            | `test/154`–`159`, `test/76-reference-binding`     |
 
 Caches (`caches.md`: every acceleration is a `BoundedMap`, and a miss
 re-derives) are pinned by `test/91` and `test/96`.
