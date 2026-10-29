@@ -49,6 +49,9 @@
 //         definition, bridge and ALU suites fail without that exception.)
 //   154.12 …and is found among ALL the climb's points: a title cased otherwise
 //         shares few windows with its stored form and ranks low.
+//   154.21 a subject of several questions answers none it is not asked by
+//         name: not through the cover, an anchor, a precedent or a piece of
+//         its name; asked by name, or alone, it answers.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -940,5 +943,36 @@ test("154.20 a learnt whole made only of scaffolding answers other questions", a
   );
   assert.ok(fragments.includes("What"), "the song is a fragment here");
   assert.equal(answer, "The country of citizenship of Jerry Bock is American.");
+  await mind.store.close();
+});
+
+test("154.21 a subject of several questions answers none it is not asked by name", async () => {
+  // Each fact is also established by the subject alone, so `Ronald Neame`
+  // leads to his death date and his birth date.  `born` witnesses neither
+  // `… date of birth` nor `… date of death`: the pick was popularity, and the
+  // death date — retold through the suffixes of every `… date of death` — won
+  // (`When was Ronald Neame born?` → his death date, on the 100K replay 49
+  // such misses in 300 natural questions).  `Robert`, another entity inside
+  // `Robert Constantin`, stood in when the subject was refused.
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  await mind.ingest(deposits([
+    ["Ronald Neame", "date of death", "16 June 2010"],
+    ["Ronald Neame", "date of birth", "23 April 1911"],
+    ["Robert", "father", "Alberico Gentili"],
+    ["Robert Constantin", "date of death", "1 May 1950"],
+    ["Robert Constantin", "date of birth", "2 June 1880"],
+    ["Hal Ashby", "date of death", "27 December 1988"],
+  ]));
+  assert.equal(await mind.respondText("When was Ronald Neame born?"), "");
+  assert.equal(await mind.respondText("When did Robert Constantin die?"), "");
+  // Asked by name, the step is named; asked alone, the subject answers.
+  assert.equal(
+    await mind.respondText("What is the date of birth of Ronald Neame?"),
+    "The date of birth of Ronald Neame is 23 April 1911.",
+  );
+  assert.notEqual(await mind.respondText("Ronald Neame"), "");
   await mind.store.close();
 });

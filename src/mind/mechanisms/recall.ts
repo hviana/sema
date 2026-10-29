@@ -20,6 +20,8 @@ import {
   allWindowsAreScaffolding,
   corpusN,
   hubBound,
+  answersOtherQuestions,
+  answersUnasked,
   otherInstance,
   unlicensedSwap,
   writesTheQuestion,
@@ -345,6 +347,22 @@ export async function recallByResonance(
       // grounded `… largest ocean …` with Jupiter, `planet` being no learnt
       // thing for the instance reading above to name.
       const swap = co === null ? unlicensedSwap(ctx, anchorBytes) : null;
+      // …and an answer to another question about one of the question's own
+      // subjects (`answersOtherQuestions`, the reading the cover's sites are
+      // refused by): the anchor itself is such a subject, its continuation
+      // chosen by popularity — `When was Wajahat Mirza born?` elected the
+      // entity and voiced his death date — or the anchor is one of that
+      // subject's more specific questions, and voices one of its facts:
+      // `What nationality was Nicolás Echevarría?` elected `Nicolás Echevarría
+      // date of birth`.
+      const unasked = co === null && swap === null && (
+        answersOtherQuestions(
+          ctx,
+          forest[0].anchor,
+          query.length,
+          anchorBytes.length,
+        ) || (g !== null && answersUnasked(ctx, query, pre.rec.sites, g))
+      );
       if (co !== null) {
         ctx.trace?.step(
           "coInstanceAnchor",
@@ -366,6 +384,14 @@ export async function recallByResonance(
           ],
           "refused — the anchor is the question with one span swapped, and " +
             "the corpus licenses no equivalence between the two",
+        );
+      } else if (unasked) {
+        ctx.trace?.step(
+          "unaskedAnchor",
+          [rItem(query, "query"), rNode(ctx, forest[0].anchor, "anchor")],
+          [],
+          "refused — the anchor answers other questions, and this one names " +
+            "none of its continuations",
         );
       } else if (
         g !== null && voicesDisplacedFiller(ctx, query, anchorBytes, g)

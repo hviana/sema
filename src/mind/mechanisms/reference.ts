@@ -43,7 +43,7 @@ import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
 import { distinct, follow, substituteAll } from "../match.js";
 import { resolve } from "../primitives.js";
-import { hubBound, scaffoldSpans } from "../traverse.js";
+import { answersUnasked, hubBound, scaffoldSpans } from "../traverse.js";
 import { AGREEMENT, dominates, twoQuanta } from "../../geometry.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
 import { restates } from "../derivation.js";
@@ -317,6 +317,16 @@ async function bindPrecedent(
     return null;
   }
   if (restates(query, winner.bytes, 0, { proper: true })) return null;
+  if (answersUnasked(ctx, query, pre.rec.sites, winner.bytes)) {
+    ctx.trace?.step(
+      "unaskedPrecedent",
+      [rItem(winner.bytes, "carried")],
+      [],
+      "refused — the precedents carry another question's answer about the " +
+        "question's subject, and this question names none of them",
+    );
+    return null;
+  }
   ctx.trace?.step(
     "bindPrecedent",
     [

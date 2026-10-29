@@ -362,10 +362,10 @@ fragments with several.
 ## Its consumers
 
 - `chooseNext` (`traverse.ts`): **The exact tier.** A continuation is named when
-  one of its establishing contexts other than the node is witnessed by the
-  question plus the node, and the question supplies a window the node lacks.
-  Named picks rank first, then the instance and paraphrase readings, then the
-  ladder.
+  one of its establishing contexts other than the node, never a subject of
+  several questions, is witnessed by the question plus the node, and the
+  question supplies a window the node lacks. Named picks rank first, then the
+  instance and paraphrase readings, then the ladder.
 - `askedEvidence` (`traverse.ts`): the question spans that named a pick, which a
   projecting mechanism then accounts for.
 - `preConsumed` (`pipeline.ts`): when a grounding declares no `used`: the forms
@@ -375,9 +375,13 @@ fragments with several.
   while the derivation still owes something, and the closure law decides it by
   carrying.
 - `answersOtherQuestions` (`traverse.ts`): a fragment (a form inside others,
-  with several continuations or one it only inherited, that leaves a window of
-  the question outside it) leads somewhere only if the question names one of its
-  continuations. Read by cover sites and CAST.
+  with several continuations or one it only inherited), or a subject of several
+  questions (each continuation also established by a context holding it and
+  more: `Ronald Neame date of birth`), that leaves a window of the question
+  outside it leads somewhere only if the question names a continuation, a use
+  only when licensed. Its pieces go with it, and no anchor or precedent voices
+  its continuations (`answersUnasked`; `test/154.21`). Read by cover, CAST,
+  recall and reference.
 - recall's anchor, fusion roots, CAST schemas: a co-instance is never voiced or
   fused; a comparison names each side by a run no other context holds.
 

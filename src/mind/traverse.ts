@@ -948,15 +948,79 @@ export function answersOtherQuestions(
 ): boolean {
   const asked = ctx._edgeAsked;
   if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
-  if (!heldWithin(ctx, id)) return false;
-  const nx = ctx.store.nextFirst(id, 2).length;
-  if (nx === 0) return false;
+  const nx = ctx.store.nextFirst(id, 2);
+  if (nx.length === 0) return false;
+  if (!heldWithin(ctx, id) && !subjectOfSeveral(ctx, id)) return false;
   if (
-    nx < 2 && ctx.store.learntWhole(id) && !scaffoldingForm(ctx, id, siteLen)
+    nx.length < 2 && ctx.store.learntWhole(id) &&
+    !scaffoldingForm(ctx, id, siteLen)
   ) {
     return false;
   }
   return namedContinuations(ctx, id, asked) === null;
+}
+
+/** AN ANSWER TO ANOTHER QUESTION, VOICED BY ANOTHER ROAD: `answer` is a
+ *  continuation of one of the question's sites that answers other questions
+ *  ({@link answersOtherQuestions}).  The cover refuses such a site; a
+ *  mechanism that reaches the same fact through an anchor or a precedent
+ *  voices the same unasked pick — `What nationality was Nicolás Echevarría?`
+ *  elected `Nicolás Echevarría date of birth`, and a precedent carried Brian
+ *  Gibson's death date for `When was Brian Gibson (director) born?`.  At most
+ *  one hub-bounded continuation read per such site. */
+export function answersUnasked(
+  ctx: MindContext,
+  query: Uint8Array,
+  sites: ReadonlyArray<{ start: number; end: number; payload: number }>,
+  answer: Uint8Array,
+): boolean {
+  const id = resolve(ctx, answer);
+  if (id === null) return false;
+  return sites.some((st) =>
+    st.payload >= 0 &&
+    answersOtherQuestions(ctx, st.payload, query.length, st.end - st.start) &&
+    ctx.store.nextFirst(st.payload, hubBound(ctx)).includes(id)
+  );
+}
+
+/** Whether `id` is a SUBJECT OF SEVERAL QUESTIONS: a whole form, no piece of
+ *  others, each of whose (first two) continuations is also established by a
+ *  context that writes it and more ({@link eachMoreSpecific}).  Which of them
+ *  the question names may be read only off the climb's points (a use names
+ *  the whole question's own thing), so a reader that refuses such a subject
+ *  before the points are shown reads them again after (`readsPoints`). */
+export function subjectOfSeveral(ctx: MindContext, id: number): boolean {
+  return id >= 0 && !heldWithin(ctx, id) &&
+    eachMoreSpecific(ctx, id, ctx.store.nextFirst(id, 2));
+}
+
+/** A WHOLE FORM ANSWERS OTHER QUESTIONS TOO when it is the subject of several
+ *  of them: each of its (first two) continuations is also established by a
+ *  context that writes the form and more — `Ronald Neame` leads to his death
+ *  date and his birth date, established by `Ronald Neame date of death` and
+ *  `… date of birth`.  Asked with more than the form, the continuation chosen
+ *  by popularity is the answer to whichever of those questions is retold
+ *  most: `When was Ronald Neame born?` voiced the death date (four contexts
+ *  against two, the extra two being suffixes of `date of death`).  A form with
+ *  one continuation, or whose continuations it alone establishes, still
+ *  answers the question it is in.  Reads at most `chainReach(W)` predecessors
+ *  per continuation, and each only as far as the form. */
+function eachMoreSpecific(
+  ctx: MindContext,
+  id: number,
+  nx: readonly number[],
+): boolean {
+  if (nx.length < 2) return false;
+  const form = read(ctx, id);
+  const W = ctx.space.maxGroup;
+  const reach = form.length + phraseCap(form.length, W);
+  return nx.every((c) =>
+    ctx.store.prevFirst(c, chainReach(W)).some((p) =>
+      p !== id &&
+      ctx.store.contentLen(p, form.length + 1) > form.length &&
+      indexOf(read(ctx, p, reach), form, 0) >= 0
+    )
+  );
 }
 
 /** A form every window of which is scaffolding (`hubWindows`): held in more
@@ -2013,6 +2077,13 @@ function witnessedEntry(
       if (form.length < W || form.length > formCap) continue;
       const w = witness(offsetCanon(ctx, form), indexes, W);
       if (!w.complete || w.bytes < W) continue;
+      // …AND A SUBJECT OF SEVERAL QUESTIONS NAMES NONE OF THEM.  `Webster
+      // Campbell` establishes his birth date and his death date, each also
+      // established by a context that says which (`… date of birth`); the
+      // question holding the subject has said no more than whose fact it is.
+      // Through the fragment `bell`, which inherited only the birth date,
+      // witnessing the subject named it for `When did Webster Campbell die?`.
+      if (eachMoreSpecific(ctx, c, ctx.store.nextFirst(c, 2))) continue;
       if (w.bytes > score) {
         score = w.bytes;
         by = c;

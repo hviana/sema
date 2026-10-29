@@ -23,8 +23,8 @@ cover's site, not a recall tier (`cover.md`).
 | 2    | scaffolding-dominated | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding | `project` the anchor at `CONCEPT`                            |
 | 3b   | substitution bridge   | only after every gist tier failed (below)                                                                                                                | align and substitute                                         |
 
-**Tier 2 refuses four things.** Each would voice the anchor's own occupant as
-the asker's:
+**Tier 2 refuses five things.** Each would voice the anchor's own occupant, or
+another question's answer, as the asker's:
 
 - a continuation that voices the anchor's displaced filler
   (`voicesDisplacedFiller`);
@@ -32,7 +32,9 @@ the asker's:
 - an anchor that is a co-instance of the question (`evidence.md`);
 - an anchor that is the question with one piece swapped, unlicensed
   (`unlicensedSwap`, `exact-vs-approximate.md`): `… largest planet …` is no
-  answer to `… largest ocean …`, while `sea-level` is `sea level`.
+  answer to `… largest ocean …`, while `sea-level` is `sea level`;
+- an answer to another question about one of the question's subjects
+  (`answersOtherQuestions`, `answersUnasked`; trace `unaskedAnchor`).
 
 Putting the asker's referent there is `reference`'s job: it needs the corpus's
 evidence of carriage.

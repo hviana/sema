@@ -23,6 +23,7 @@ import { twoQuanta } from "../../geometry.js";
 import { indexOf } from "../../bytes.js";
 import {
   answersOtherQuestions,
+  subjectOfSeveral,
   askedEvidence,
   canonHeldPoints,
   guidedFirst,
@@ -268,9 +269,15 @@ function coverSites(
   }
 
   // A FRAGMENT ANSWERS OTHER QUESTIONS (traverse.ts) — and the cover used to
-  // account the fragment's bytes as explained by the stranger's answer.
+  // account the fragment's bytes as explained by the stranger's answer.  So
+  // does a piece of such a site: the question's subject is the whole it was
+  // refused as, and `Robert` inside `When did Robert Constantin die?` is
+  // another entity, whose father the cover voiced.
+  const refused = sites.filter((s) =>
+    answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+  );
   const leading = sites.filter((s) =>
-    !answersOtherQuestions(ctx, s.payload, query.length, s.end - s.start)
+    !refused.some((r) => r.start <= s.start && s.end <= r.end)
   );
   if (leading.length < sites.length) {
     if (ctx.meter && run) {
@@ -330,6 +337,11 @@ export const coverMechanism: PipelineMechanism = {
   // instances' relations every pick reads: a site the question holds under
   // its equivalence (`canonSites`), on the sites the run itself stands on.
   readsPoints(ctx, query, pre) {
+    // A subject of several questions refused before the points may be named
+    // by its use once they are shown (traverse.ts, `subjectOfSeveral`).
+    if (pre.rec.sites.some((s) => subjectOfSeveral(ctx, s.payload))) {
+      return true;
+    }
     if (canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length === 0) {
       return false;
     }

@@ -96,7 +96,8 @@ not name its pick (`evidence.md`). Once a mechanism has run the climb, such a
 result is read again (`mechanismReruns`) only when the reading would differ:
 instances carry a relation (`readsOffInstances`), or the mechanism declares what
 else it reads off the points (`readsPoints`: the cover admits a site the
-question holds under its equivalence, `Man At Bath`). Recall's
+question holds under its equivalence, `Man At Bath`, or a subject of several
+questions the use may name, `evidence.md`). Recall's
 `The place of birth of John Lennon is Liverpool.` owes 49 bytes before the climb
 and 28 after it. Rerunning on every climb costs 26% more bytes read on the
 31.7M-node store, and on every such point it reran the cover and recall on 52 of

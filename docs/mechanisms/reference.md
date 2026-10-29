@@ -35,8 +35,9 @@ votes for its own continuation, said verbatim, never the asker's bytes. A
 continuation holding a precedent's own filler (at window scale) is a carriage or
 a fact about it, and the reading abstains (`Run gcc hello.c`,
 `… hello is
-"Bonjour"`). The answer is the one a majority of precedents lead to;
-no majority is silence. `AGREEMENT` votes or more derive it (`reference`); one
+"Bonjour"`). The answer is the one a majority of precedents lead to; no majority is silence,
+and so is another question's answer about one of the question's subjects
+(`answersUnasked`). `AGREEMENT` votes or more derive it (`reference`); one
 precedent cannot show that what varies does not decide the answer (France says
 nothing about Peru), and is said as the nearest stored form, under `recall`.
 
@@ -53,7 +54,7 @@ before `frames()`.
 
 `reference` (or `recall` for one precedent), with the trace steps
 `bindReferent`, `referenceLicence`, `bindPrecedent` (every precedent, for and
-against, and the vote) and `precedentLicence`.
+against, and the vote), `precedentLicence` and `unaskedPrecedent`.
 
 ## Pins
 
