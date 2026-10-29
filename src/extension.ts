@@ -1,17 +1,9 @@
-// extension.ts — shared types for computational extensions.
+// extension.ts — the port the mind lends every mechanism it registers.
 //
-// Extensions (ALU, user computation packs) implement the PipelineMechanism
-// interface (pipeline-mechanism.ts) — this file holds only the types that
-// both the extension author and the pipeline need, without coupling either
-// to a specific mechanism.
-
-/** A half-open byte span of a query an extension computed, and the canonical
- *  result bytes it is authoritative for. */
-export interface ComputedSpan {
-  i: number;
-  j: number;
-  bytes: Uint8Array;
-}
+// Every mechanism joins through one factory (`MechanismFactory`,
+// mind/pipeline-mechanism.ts) that receives this port; a mechanism written
+// outside Sema (the ALU, `src/alu/`, is the shipped example) needs nothing
+// else from it.
 
 /** The generic capabilities the mind lends every extension — nothing here
  *  names any particular extension, and every member is machinery the mind
@@ -39,4 +31,7 @@ export interface ExtensionHost {
   continuation(bytes: Uint8Array): Promise<Uint8Array | null>;
   segment(bytes: Uint8Array): Array<{ i: number; j: number }>;
   reach: number;
+  /** The price of one move on the decider's cost scale (`STEP`,
+   *  cost-model.md): what a mechanism reports its work in. */
+  step: number;
 }

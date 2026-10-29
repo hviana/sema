@@ -222,33 +222,16 @@ test("multi-hop reasoning surfaces the pivot and reason chain", async () => {
   }
 });
 
-test("ALU computation is traced as recognise + evaluate + cover", async () => {
+test("a computation is traced like any mechanism's answer, under its own name", async () => {
   const store = new SQliteStore({ path: ":memory:" });
   const mind = new Mind({ seed: 7, store });
   await mind.ingest([["ice", "ice is frozen water"]]); // a non-empty store
 
   const { steps, ans } = await trace(mind, "2+3");
-  await store.close();
-
   assert.equal(ans, "5");
   assertWellFormed(steps, "alu");
-
-  const mechs = leafMechanisms(steps);
-  assert.ok(mechs.has("computeExtensions"), "alu: no computeExtensions");
-  assert.ok(mechs.has("evalComputation"), "alu: no evalComputation");
-
-  // The cover consumes BOTH recognise and computeExtensions — an EXPLICIT producer edge,
-  // not the previous-sibling default. Find the think-level cover and check its
-  // deps include the computeExtensions step.
-  const compute = steps.find((s) => s.mechanism.at(-1) === "computeExtensions");
-  const cover = steps.find((s) =>
-    s.mechanism.at(-1) === "cover" && s.mechanism.includes("think")
-  );
-  assert.ok(cover, "alu: no cover under think");
-  assert.ok(
-    cover.dependsOn.includes(compute.index),
-    `alu: cover ${cover.dependsOn} should depend on computeExtensions ${compute.index}`,
-  );
+  assert.equal((await mind.respond("2+3")).provenance, "alu");
+  await store.close();
 });
 
 test("concept revoicing emits the voice move (the asker's own word)", async () => {

@@ -556,7 +556,6 @@ export function liftAnswerParts(
 
   if (recognised.length === 1) {
     const s = segs[recognised[0]];
-    if (s.computed && s.i > 0) return [s];
     if (dominates(s.j - s.i, queryLen)) {
       // THE PRODUCT DOES NOT VOICE THE ASK.  Around a dominating form, an
       // edge run of scaffolding a window long is the question's ASK (`Why

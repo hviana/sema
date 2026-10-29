@@ -176,7 +176,7 @@ test("the inventory is shared, lazy, and elects no frame", async () => {
   m.beginResponse(undefined, null);
   try {
     m._edgeGuide = gistOf(m, q);
-    const pre = new Precomputed(m, q, recognise(m, q), [], m._edgeGuide);
+    const pre = new Precomputed(m, q, recognise(m, q), m._edgeGuide);
     const inventory = await pre.frames();
     assert.ok(inventory.length >= 2, "no instances reported");
     for (const inst of inventory) {
@@ -405,7 +405,7 @@ test("a referent may not be lifted out of the engine's OWN reply", async () => {
     try {
       m._edgeGuide = gistOf(m, q);
       m.answeredSpans = answeredSpans;
-      const pre = new Precomputed(m, q, recognise(m, q), [], m._edgeGuide);
+      const pre = new Precomputed(m, q, recognise(m, q), m._edgeGuide);
       return await bindReference(m, q, pre);
     } finally {
       m.answeredSpans = [];

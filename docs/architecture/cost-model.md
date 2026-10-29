@@ -51,11 +51,10 @@ makes the first hop's stop-here (`STEP + CONCEPT`) a real horizon.
 
 ## Policy is not cost
 
-"Computation always wins" is not priced. A computed result costs `STEP`, like a
-learnt edge. It is enforced by masking: `cover.ts` removes any recognised site
-overlapped by a computed span. Keep policy in the callers, and keep the engine
-neutral. Tuning `PASS` to encode a preference breaks the one contract the ladder
-has, its order.
+No mechanism is preferred outside the ladder. A computed result costs `STEP`,
+like a learnt edge, and at an equal grade the declared order decides, as for
+every candidate. Tuning `PASS` to encode a preference breaks the one contract
+the ladder has, its order.
 
 ## Pins
 

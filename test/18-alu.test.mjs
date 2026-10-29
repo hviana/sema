@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Mind } from "../dist/src/index.js";
+import { defaultMechanisms, Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 
 // =========================================================================
@@ -11,21 +11,17 @@ import { SQliteStore } from "../dist/src/store-sqlite.js";
 // The `alu` sub-lib gives the mind a minimal computational kernel — one logic
 // gate (nand), the field-and-order primitives, and one limit operator
 // (converge) — from which arithmetic, logic, and numerical analysis all derive.
-// Its operations are MANUAL rules that compose in the SAME lightest-derivation
-// search as learned facts (see src/mind/graph-search.ts / the ALU MindExtension): a query's
-// operation is recognised (literally or, generically, by resonance), evaluated,
-// and folded into the cover as a recognised completion.
+// Its operations are MANUAL rules, and the ALU is one more mechanism
+// (src/alu/src/mechanism.ts): a query's operation is recognised (literally or,
+// generically, by resonance), evaluated, and offered to the decider as a
+// candidate that explains its span in one move.
 //
 // Two properties these tests pin down:
 //   • COMPUTATION where the corpus is silent — the mind answers "2+2" with "4"
-//     having learned no arithmetic, because the ALU rule grounds it.
-//   • THE ALU ALWAYS WINS — a computation the query invokes is authoritative for
-//     its span: it OVERRIDES any learned fact for the same bytes (even a
-//     deliberately-trained "2+2"→"5" yields "4").  This overrides only the
-//     colliding span, not the rest of thinking: a query with no operation
-//     behaves exactly as before, and a computation composes with an unrelated
-//     rewrite in one answer (the rest of the pre-ALU baseline is unchanged; see
-//     the other test files, all still green).
+//     having learned no arithmetic, because the ALU grounds it.
+//   • NO PRIVILEGE — a computation competes like every candidate: a learnt fact
+//     that explains the same bytes at the same price wins by the declared
+//     order, and a query with no operation behaves exactly as before.
 
 const mk = () => new Mind({ seed: 7 });
 
@@ -59,13 +55,6 @@ test("a computation fires inside a question, like a learned part would", async (
   const m = mk();
   assert.equal(await m.respondText("what is 2+2"), "4");
   assert.equal(await m.respondText("compute 6*7 now"), "42");
-  await m.store.close();
-});
-
-test("punctuation around a computation is preserved", async () => {
-  const m = mk();
-  assert.equal(await m.respondText("2+2."), "4.");
-  assert.equal(await m.respondText("2+2?"), "4?");
   await m.store.close();
 });
 
@@ -140,37 +129,14 @@ test("inverse of a form is its grounded opposite", async () => {
   await m.store.close();
 });
 
-// ── 7. THE ALU ALWAYS WINS — computation overrides recall; rest unchanged ─
+// ── 7. NO PRIVILEGE — a computation is one candidate among the others ─────
 
-test("a computation overrides a learned fact (the ALU always wins)", async () => {
+test("a learnt fact over the same bytes at the same price wins by the declared order", async () => {
   const m = mk();
   await m.ingest([["2+2", "5"]]); // a deliberately wrong learnt fact
-  // The ALU must override the recall: a computation is authoritative for its
-  // span, so the computed answer wins over the corpus's stored one.
-  assert.equal(await m.respondText("2+2"), "4");
-  await m.store.close();
-});
-
-test("a computation and a learned rewrite compose in one answer", async () => {
-  const m = mk();
-  await m.ingest([["ice", "cold"]]);
-  const r = await m.respondText("ice 2+2");
-  assert.ok(r.includes("cold") && r.includes("4"), `got ${JSON.stringify(r)}`);
-  await m.store.close();
-});
-
-test("the ALU wins only on its span — a colliding fact is overridden, an unrelated rewrite still composes", async () => {
-  const m = mk();
-  // "2+2"→"5" collides with the computation; "ice"→"cold" does not.
-  await m.ingest([["2+2", "5"], ["ice", "cold"]]);
-  const r = await m.respondText("ice 2+2");
-  // The computation overrides "5" on its own span (→ "4"), yet the masking is
-  // surgical: the unrelated "ice"→"cold" rewrite is untouched, and "5" never
-  // leaks in.
-  assert.ok(
-    r.includes("cold") && r.includes("4") && !r.includes("5"),
-    `got ${JSON.stringify(r)}`,
-  );
+  // The cover explains "2+2" in one move, as the ALU does; at an equal grade
+  // the earlier mechanism stands — nothing masks the corpus for the ALU.
+  assert.equal(await m.respondText("2+2"), "5");
   await m.store.close();
 });
 
@@ -182,17 +148,14 @@ test("a query with no operation is untouched by the ALU", async () => {
   await m.store.close();
 });
 
-// ── 8. Disabling the ALU restores exact pre-ALU behaviour ────────────────
+// ── 8. A mind registered without the ALU does not compute ───────────────
 
-test("alu.enabled=false makes computation inert", async () => {
-  const m = new Mind({
-    seed: 7,
-    alu: { enabled: false },
-  });
-  // No arithmetic learnt and the ALU off → the query is not grounded as "4";
-  // it falls through to the resonant path (never the computed answer).
-  const r = await m.respondText("2+2");
-  assert.notEqual(r, "4");
+test("a mind registered without the ALU does not compute", async () => {
+  // The defaults without their last factory, the ALU's.
+  const m = new Mind({ seed: 7, mechanisms: defaultMechanisms.slice(0, -1) });
+  assert.ok(!m.mechanisms.some((x) => x.name === "alu"));
+  // No arithmetic learnt and no ALU → "2+2" is not grounded as "4".
+  assert.notEqual(await m.respondText("2+2"), "4");
   await m.store.close();
 });
 

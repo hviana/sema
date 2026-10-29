@@ -4,11 +4,9 @@
 // TWO CORRECTIONS FROM THE ADVERSARIAL REVIEW, in one definition:
 //
 //  M3 — the reasoner's `uncovered` was built from the ladder's `accounted`, a
-//  COST quantity.  The pipeline itself documents that `accounted` can be EMPTY
-//  while nothing is unexplained (a query fully explained by one computed span
-//  plus bridged connectors), and it already builds the genuine remainder as
-//  `[...decided.accounted, ...pre.computed]`.  The reasoner now uses that same
-//  reading — computed once, used by both the extension gate and the fuse gate.
+//  COST quantity, and the pipeline already builds the genuine remainder from
+//  it under the W floor.  The reasoner now uses that same reading — computed
+//  once, used by both the extension gate and the fuse gate.
 //
 //  M4 — the boundary.  The pipeline treats a remainder under W as bridging
 //  punctuation, and the reasoner inherits that floor.  The subtlety the review

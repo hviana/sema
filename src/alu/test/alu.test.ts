@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   addBits,
   Alu,
+  aluMechanism,
   type AluHost,
   type AluResonance,
   asReal,
@@ -46,6 +47,7 @@ import {
   type ResonanceSync,
   signBits,
   solve,
+  STRUCTURAL_HOST,
   symbol,
   tagOf,
   topSingular,
@@ -469,6 +471,43 @@ test("a computed result is itself an operand (composition for free)", () => {
   const first = u.applyBytes("add", [enc("2"), enc("3")])!; // "5"
   const second = u.applyBytes("multiply", [first, enc("4")])!; // "20"
   assert.equal(dec(second), "20");
+});
+
+test("a term flush against a numeral is the rest of its run and names no operation", async () => {
+  const u = new Alu();
+  // "nd" is the list constructor's surface form; the "nd" of "2nd" is not it.
+  assert.deepEqual(await u.parse(enc("2nd Baronet die?")), []);
+  assert.deepEqual(await u.parse(enc("the 2nd one")), []);
+  // The same bytes standing as a token still name it, and a numeral keeps its
+  // reading beside glued bytes that name nothing.
+  assert.equal(dec((await u.parse(enc("nd 1 2")))[0].bytes), "[1,2]");
+  assert.equal(dec((await u.parse(enc("what is 2+2?")))[0].bytes), "4");
+  assert.equal(dec((await u.parse(enc("-sqrt 9")))[0].bytes), "3");
+  // Nor is such a rest an operand: the "?" of "7?" is not times' operand.
+  const [q] = await u.parse(enc("What is 12 times 7?"));
+  assert.equal(dec(q.bytes), "84");
+});
+
+test("the mechanism's floor parses nothing when one move cannot beat the incumbent", async () => {
+  let asked = 0;
+  const host = {
+    ...STRUCTURAL_HOST,
+    meaningOf: async () => (asked++, null),
+    step: 1,
+  };
+  const m = aluMechanism()(host);
+  const query = enc("what is the square root of nine");
+  assert.equal(await m.floor(null, query, null, () => false), 1);
+  assert.equal(asked, 0);
+  // Worth running, it parses — and what it computes is its answer.
+  assert.equal(await m.floor(null, query, null, () => true), null);
+  assert.ok(asked > 0);
+  const two = enc("2+2");
+  assert.equal(await m.floor(null, two, null, () => true), 1);
+  assert.deepEqual(
+    (await m.run(null, two)).map((a) => [dec(a.bytes), a.accounted, a.moves]),
+    [["4", [[0, 3]], 1]],
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

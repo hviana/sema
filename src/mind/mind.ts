@@ -22,11 +22,15 @@ import { SQliteStore } from "../store-sqlite.js";
 import { type MindConfig, resolveConfig } from "../config.js";
 import { type Canon, canonHash, textCanon, textEdgeTrim } from "../canon.js";
 import { bytesEqual, concat2 } from "../bytes.js";
-import { GraphSearch, type Leaf, type Site } from "./graph-search.js";
-import { Alu } from "../alu/src/index.js";
-import type { ComputedSpan, ExtensionHost } from "../extension.js";
+import { GraphSearch, type Leaf, type Site, STEP } from "./graph-search.js";
+import type { ExtensionHost } from "../extension.js";
+import { defaultMechanisms } from "../mechanisms.js";
+import type {
+  MechanismFactory,
+  PipelineMechanism,
+} from "./pipeline-mechanism.js";
 
-export type { ComputedSpan, ExtensionHost };
+export type { ExtensionHost };
 import {
   decodeText,
   type InspectRationale,
@@ -163,7 +167,7 @@ export type {
   SaturationReason,
   SaturationStop,
 } from "./types.js";
-import { aluToMechanism, defaultMechanisms, think } from "./pipeline.js";
+import { think } from "./pipeline.js";
 import { articulate } from "./articulation.js";
 import { ingest, reindexContainment } from "./learning.js";
 import { rItem } from "./trace.js";
@@ -234,12 +238,10 @@ export interface MindOptions {
   alphabet?: Partial<import("../config.js").AlphabetConfig>;
   storeConfig?: Partial<import("../config.js").StoreConfig>;
   store?: Store;
-  /** Additional grounding mechanisms (appended after the built-in defaults). */
-  mechanisms?: import("./pipeline-mechanism.js").PipelineMechanism[];
-  /** Factories that receive the {@link ExtensionHost} and return mechanisms. */
-  mechanismFactories?: ((
-    host: import("../extension.js").ExtensionHost,
-  ) => import("./pipeline-mechanism.js").PipelineMechanism)[];
+  /** The grounding mechanisms, in declared order: factories handed the
+   *  {@link ExtensionHost}.  Default: `defaultMechanisms` (src/mechanisms.ts);
+   *  add one with `[...defaultMechanisms, mine]`. */
+  mechanisms?: readonly MechanismFactory[];
   /** Measure the computational usage of every inference call — see
    *  src/meter.ts. Off by default and free when off (one null check per store
    * read); on, each `respond`/`respondTurn` leaves a {@link Mind.lastCost}
@@ -270,8 +272,7 @@ export class Mind implements MindContext {
   readonly search: GraphSearch;
 
   /** The grounding mechanisms iterated by {@link think}. */
-  readonly mechanisms: import("./pipeline-mechanism.js").PipelineMechanism[] =
-    [];
+  readonly mechanisms: PipelineMechanism[] = [];
 
   /** The live rationale tracer for the inference currently in flight, or null. */
   trace: Rationale | null = null;
@@ -445,19 +446,14 @@ export class Mind implements MindContext {
     storeArg?: Store,
     _fromStore?: true,
   ) {
-    let userMechanisms: import("./pipeline-mechanism.js").PipelineMechanism[] =
-      [];
-    let userFactories: ((
-      host: import("../extension.js").ExtensionHost,
-    ) => import("./pipeline-mechanism.js").PipelineMechanism)[] = [];
+    let factories: readonly MechanismFactory[] = defaultMechanisms;
     if (_fromStore !== undefined) {
       this.cfg = resolveConfig(optsOrCfg as Partial<MindConfig>);
       this.store = storeArg!;
     } else {
       const {
         store: optsStore,
-        mechanisms: userMechs,
-        mechanismFactories: userFacts,
+        mechanisms: optsMechanisms,
         canon: optsCanon,
         profile: optsProfile,
         ...rest
@@ -483,8 +479,7 @@ export class Mind implements MindContext {
       if (explicitSeed === undefined && this.store.trainSeed !== null) {
         this.cfg.seed = this.store.trainSeed;
       }
-      userMechanisms = userMechs ?? [];
-      userFactories = userFacts ?? [];
+      factories = optsMechanisms ?? defaultMechanisms;
     }
     setVecConfig({
       normalizeEpsilon: this.cfg.normalizeEpsilon,
@@ -513,21 +508,8 @@ export class Mind implements MindContext {
       this.space.maxGroup,
       this, // MindContext extends GraphSearchHost
     );
-    // Build the mechanism list: default grounding + ALU + user mechanisms.
-    for (const m of defaultMechanisms) this.mechanisms.push(m);
-
     const host = this.extensionHost();
-    if (this.cfg.alu.enabled) {
-      const alu = new Alu({
-        tol: this.cfg.alu.tol,
-        maxIter: this.cfg.alu.maxIter,
-        precision: this.cfg.alu.precision,
-      }, host);
-      this.mechanisms.push(aluToMechanism(alu));
-    }
-
-    for (const m of userMechanisms) this.mechanisms.push(m);
-    for (const f of userFactories) this.mechanisms.push(f(host));
+    for (const f of factories) this.mechanisms.push(f(host));
   }
 
   // ── Public API ───────────────────────────────────────────────────────────
@@ -1171,6 +1153,7 @@ export class Mind implements MindContext {
       get reach() {
         return mind.space.maxGroup;
       },
+      step: STEP,
     };
   }
 

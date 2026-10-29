@@ -1,7 +1,7 @@
 # Mechanism Market — Many Ways of Thinking, One Price
 
-> **Law:** every grounding mechanism, including the ALU and user extensions,
-> speaks one interface (`mind/pipeline-mechanism.ts`). The decider (`think`,
+> **Law:** every grounding mechanism, Sema's own, the ALU or a caller's, speaks
+> one interface (`mind/pipeline-mechanism.ts`) and joins through one factory. The decider (`think`,
 > `mind/pipeline.ts`) weighs every candidate in one currency and never asks
 > which mechanism produced it.
 
@@ -16,7 +16,6 @@ keeps all of them and lets the evidence choose.
 interface PipelineMechanism {
   name;
   provenance;
-  parse?(query): Promise<ComputedSpan[]>; // authoritative spans, collected before any floor
   floor(ctx, query, pre, worthRunning): Promise<number | null>; // admissible bound, or null
   run(ctx, query, pre): Promise<MechanismResult[]>;
   readsPoints?(ctx, query, pre): boolean; // what a rerun would read off the climb's points
@@ -37,10 +36,10 @@ lower bound that never overstates the cost.
 
 ## The decider
 
-The default order is
-`cover, cast, confluence, extraction, reference, recall,
-prefix-completion`,
-then the ALU (`aluToMechanism`), then extensions. A mechanism reports what it
+Every mechanism is a factory handed the mind's port (`ExtensionHost`). The
+default registration (`defaultMechanisms`, `src/mechanisms.ts`) is
+`cover, cast, confluence, extraction, reference, recall, prefix-completion, alu`;
+a caller appends its own (`[...defaultMechanisms, mine]`). A mechanism reports what it
 did, never a price. The decider prices it in one place (`cost-model.md`):
 
 ```

@@ -121,7 +121,7 @@ test("fuseAttention: ordinary multi-topic fusion (no embedded answers) is comple
   const q = enc("red then circle");
   const roots = await m.climbAttention(q, 24);
   assert.equal(roots.length, 1, "expected the single joint binding root");
-  // Force a second, independent (unclimbed-style) inclusion path by
+  // Force a second, independent inclusion path by
   // reusing the SAME root twice at different synthetic positions, neither
   // of which has an embedded answer — a pure regression check that the
   // new filter doesn't fire when there is nothing to catch.

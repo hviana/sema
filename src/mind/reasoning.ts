@@ -573,11 +573,10 @@ export function fuseAttention(
   query: Uint8Array,
   state: DerivationState,
   pre: Precomputed,
-  unclimbed = false,
   primarySpans: ReadonlyArray<Span> = [],
 ): Promise<DerivationState> {
   return closeOver(state, query, ctx.space.maxGroup, [
-    fusionLayer(ctx, query, pre, unclimbed, primarySpans),
+    fusionLayer(ctx, query, pre, primarySpans),
   ]);
 }
 
@@ -590,14 +589,6 @@ export function fusionLayer(
   ctx: MindContext,
   query: Uint8Array,
   pre: Precomputed,
-  /** True when `primary` never touched the consensus climb at all — e.g. a
-   *  pure ALU computation, which has no anchor of its own.  commitVotes
-   *  ALWAYS admits the dominant root regardless of its vote (attention.ts:
-   *  "roots.length === 0 || …") on the assumption a lone root already IS
-   *  primary's own source; that assumption is exactly backwards when
-   *  primary is unclimbed.  Absent or false preserves the original
-   *  behaviour exactly. */
-  unclimbed = false,
   /** The query spans `primary`'s own grounding stands on — used ONLY to place
    *  primary in the fused reading order (see below).  Resolved by the caller,
    *  which is the layer that knows how a given grounding records its evidence;
@@ -649,28 +640,8 @@ export function fusionLayer(
     // query, same k, same DF mode) — read them from Precomputed instead of
     // re-climbing, so even a traced response pays for the climb once.
     const forest = (await pre.attention()).roots;
-    // A LONE root is ordinarily primary's own source — nothing to fuse.  But
-    // when primary is unclimbed, the lone root was never checked against
-    // anything: it is admitted by commitVotes unconditionally, so it may be
-    // genuine consensus (Attention.breadth dominates — most of the query's
-    // OWN regions corroborate it) or a coincidental echo (breadth does not
-    // dominate — see test/35-attention-confidence).  breadth is the SCALE-
-    // INVARIANT read of exactly this question: the raw IDF vote cannot serve
-    // here, since it is an absolute ln(N)-scaled quantity (a genuine root on
-    // a large store can score BELOW its own floor while a coincidental echo
-    // on a small one scores comfortably above its own, smaller, floor).
-    //
-    // Breadth alone is not enough when primary is a pure COMPUTATION.  The ALU
-    // answers "2+2 equals what?" with 4, and the store's own arithmetic table
-    // then supplies a lone root — an exemplar like "1+2" — whose breadth
-    // dominates because it is corroborated by the computation's OWN bytes.
-    // Fusing it projected that exemplar's continuation and the bridge voiced
-    // "4+3" (test/11 seed 99) — the separation above is what refuses it.
-    const lonePromotes = unclimbed && forest.length === 1 &&
-      forest[0].breadth > 0.5 && independentOfPrimary(forest[0]);
-    if (forest.length === 0 || (forest.length <= 1 && !lonePromotes)) {
-      return null;
-    }
+    // A LONE root is primary's own source — nothing to fuse.
+    if (forest.length <= 1) return null;
 
     // WHERE THE QUERY ASKED FOR IT.  The sort below orders the fused pieces by
     // query position, which is the whole point of the `start` field: a
@@ -680,21 +651,9 @@ export function fusionLayer(
     // primary's own source only when primary happens to come from that root.
     // When it does not, primary is sorted to a position it never occupied.
     //
-    // Observed live: "What is the capital of France? And what is 2 + 2?"
-    // answered "4The capital city of France is Paris." — the ALU result, whose
-    // evidence is the "2 + 2" span near the END of the query, inherited the
-    // France root's start of 0 and sorted ahead of the France answer.  Both
-    // pieces were right; only the order was.
-    //
     // primary's own position is the earliest query byte its grounding stands
-    // on.  `accounted` is the cost-ladder read of that and is authoritative
-    // when non-empty; when it is empty the grounding is a pure COMPUTATION,
-    // whose evidence is its computed span — the same cost-ladder-vs-coverage
-    // distinction think() already draws for the fusion remainder ("`accounted`
-    // alone undercounts this ... cover prices its computed spans at near-zero
-    // and deliberately leaves them out"), read here for position instead of
-    // for coverage.  With neither, nothing is known and the old behaviour
-    // (forest[0].start) stands.
+    // on — the spans it priced.  With none, nothing is known and the old
+    // behaviour (forest[0].start) stands.
     const primaryStart = primarySpans.length > 0
       ? primarySpans.reduce((m, [s]) => Math.min(m, s), Infinity)
       : forest[0].start;
@@ -702,9 +661,7 @@ export function fusionLayer(
       { start: primaryStart, bytes: primary },
     ];
     const qv = pre.guide; // once, not per root
-    const rest = (lonePromotes ? forest : forest.slice(1)).filter(
-      independentOfPrimary,
-    );
+    const rest = forest.slice(1).filter(independentOfPrimary);
     if (rest.length === 0) return null;
     const t = ctx.trace?.enter("fuseAttention", [
       rItem(primary, "primary"),

@@ -4,14 +4,13 @@
 // UNIFORM mechanisms.  The pipeline sees mechanisms through the
 // PipelineMechanism interface only — it never imports a mechanism-specific
 // type and never has a special-case branch for any mechanism.  Adding a
-// mechanism means registering one object; removing one means dropping it
-// from the list.  The mechanisms themselves live in mechanisms/ (one file
-// each); the shared pre-computation they exchange lives in Precomputed
+// mechanism means registering one factory; removing one means dropping it
+// from the list (src/mechanisms.ts).  Sema's own live in mechanisms/ (one file
+// each); the shared pre-computation they read lives in Precomputed
 // (pipeline-mechanism.ts).
 
 import type { MindContext } from "./types.js";
 import { PASS, STEP } from "./graph-search.js";
-import type { ComputedSpan } from "../extension.js";
 import { gistOf, read, resolve } from "./primitives.js";
 import { recognise } from "./recognition.js";
 import { fusionLayer, walkLayer } from "./reasoning.js";
@@ -20,7 +19,6 @@ import {
   closeOver,
   type DerivationState,
   remainderOf,
-  type Span,
   spanBytes,
   unexplainedSpans,
   windowOf,
@@ -40,70 +38,14 @@ import {
   type PipelineMechanism,
   Precomputed,
 } from "./pipeline-mechanism.js";
-import { coverMechanism } from "./mechanisms/cover.js";
-import { castMechanism } from "./mechanisms/cast.js";
-import { confluenceMechanism } from "./mechanisms/confluence.js";
-import { extractionMechanism } from "./mechanisms/extraction.js";
-import { referenceMechanism } from "./mechanisms/reference.js";
-import { prefixMechanism } from "./mechanisms/prefix-completion.js";
-import { recallMechanism } from "./mechanisms/recall.js";
-
-// Re-exports: cover's pre-resolution helpers and the ALU adapter kept
-// importable from the pipeline module (their historical home).
+// Re-exports: cover's pre-resolution helpers, kept importable from the
+// pipeline module (their historical home).
 export { offerConcepts, offerConnectors } from "./mechanisms/cover.js";
-export { aluToMechanism } from "./mechanisms/alu.js";
-
-// ── Extension dispatch (pre-loop parse) ─────────────────────────────────────
-
-async function collectComputed(
-  ctx: MindContext,
-  mechanisms: readonly PipelineMechanism[],
-  query: Uint8Array,
-): Promise<ComputedSpan[]> {
-  const out: ComputedSpan[] = [];
-  const meter = ctx.meter;
-  for (const m of mechanisms) {
-    if (!m.parse) continue;
-    const spans = meter
-      ? await meter.time(`${m.name}.parse`, () => m.parse!(query))
-      : await m.parse(query);
-    out.push(...spans);
-  }
-  return out;
-}
-
-// ── Built-in mechanisms ─────────────────────────────────────────────────────
-
-// ORDER MATTERS, but only through the uniform floor/worthRunning pruning —
-// no mechanism is special-cased.  Cover runs FIRST: when a computed
-// extension result (e.g. ALU) exists, cover masks it in at near-zero cost
-// (see mechanisms/cover.ts), which becomes `best` before any other mechanism
-// invests in its own precomputation.  CAST's and confluence's floors (2*STEP,
-// 3*STEP) then fail `worthRunning` and are skipped by the SAME admissible-
-// floor pruning every mechanism is already subject to — not by asking
-// "is this an extension?". Grade TIES keep the earlier candidate, so this
-// order is also the tie-break priority: cover, cast, confluence, extraction,
-// reference, recall.
-//
-// REFERENCE sits after extraction and before recall because that is what its
-// claim is worth: extraction READS a span out of the query (no synthesis),
-// reference voices one through a learnt slot, and recall's tiers degrade
-// toward echo and silence.  It does not PRUNE recall — its floor is two
-// projections, so recall's one-STEP floor still clears `worthRunning` — and it
-// is not meant to: both run, share one resonance read
-// (Precomputed.resonance), and the ladder decides.
-export const defaultMechanisms: PipelineMechanism[] = [
-  coverMechanism,
-  castMechanism,
-  confluenceMechanism,
-  extractionMechanism,
-  referenceMechanism,
-  recallMechanism,
-  prefixMechanism,
-];
 
 // ── think — the main inference pipeline ─────────────────────────────────────
 
+/** Sema's own mechanisms' tags; any other registered mechanism names its own
+ *  act.  Reported throughout, compared nowhere. */
 export type Provenance =
   | "cast"
   | "join"
@@ -112,7 +54,8 @@ export type Provenance =
   | "reference"
   | "recall"
   | "recall-echo"
-  | "prefix";
+  | "prefix"
+  | (string & {});
 
 export interface Thought {
   bytes: Uint8Array;
@@ -185,7 +128,7 @@ export interface RegimePredictionData {
 /** Think: a single lightest-derivation exploration of the Sema graph.
  *
  *  Every answer travels the same path:
- *    1. Pre-computation — recognise, extension parse, guide; everything
+ *    1. Pre-computation — recognise, guide; everything
  *       expensive stays lazy on Precomputed until a mechanism asks.
  *    2. Grounding — every mechanism yields candidates weighed in the one
  *       cost ladder; the lightest grounding derivation wins.
@@ -194,7 +137,7 @@ export interface RegimePredictionData {
 export async function think(
   ctx: MindContext,
   query: Uint8Array,
-  mechs?: readonly PipelineMechanism[],
+  mechanisms: readonly PipelineMechanism[],
 ): Promise<Thought | null> {
   if (query.length === 0) return null;
 
@@ -221,7 +164,6 @@ export async function think(
   };
 
   // ── Pre-computation ──────────────────────────────────────────────────
-  const mechanisms = mechs ?? defaultMechanisms;
   const meter = ctx.meter;
   // recognition is a shared analysis (meter.md contract 5): it does the query's
   // own store work (perceive → foldTree → resolve), which used to land in
@@ -235,43 +177,16 @@ export async function think(
     : recognise(ctx, query);
   ctx._edgeAsked.sites = rec.sites;
 
-  // Phase 1: collect computed spans from mechanisms that implement parse()
-  const computed = meter
-    ? await meter.time(
-      "collectComputed",
-      () => collectComputed(ctx, mechanisms, query),
-    )
-    : await collectComputed(ctx, mechanisms, query);
-
-  if (computed.length > 0) {
-    ctx.trace?.step(
-      "computeExtensions",
-      [rItem(query, "query")],
-      computed.map((u) =>
-        rItem(query.subarray(u.i, u.j), "operand", undefined, [u.i, u.j])
-      ),
-      `extensions recognised and evaluated ${computed.length} computation(s)`,
-    );
-    for (const u of computed) {
-      ctx.trace?.step(
-        "evalComputation",
-        [rItem(query.subarray(u.i, u.j), "expression", undefined, [u.i, u.j])],
-        [rItem(u.bytes, "result", resolve(ctx, u.bytes) ?? undefined)],
-        "evaluate the recognised operation to its authoritative result",
-      );
-    }
-  }
-
-  // Phase 2: the shared pre-computation container. Eager fields only
-  // (recognition, computed spans, guide) — every expensive analysis (consensus
+  // The shared pre-computation container. Eager fields only
+  // (recognition, guide) — every expensive analysis (consensus
   // climb, weave, span-shape classification) is a lazily-cached method on
   // Precomputed, first-touched by whichever mechanism's floor survives its
   // cheap gates and the worthRunning check. A query no mechanism climbs for
-  // (e.g. one an extension decided) never climbs. NOT phased: the constructor
+  // never climbs. NOT phased: the constructor
   // itself is trivial (it only derives `k`), so a phase here would add a
   // zero-work entry to every profiled report — the meter attributes WORK
   // (meter.md); the trace already represents structure.
-  const pre = new Precomputed(ctx, query, rec, computed, ctx._edgeGuide);
+  const pre = new Precomputed(ctx, query, rec, ctx._edgeGuide);
 
   // ── Grounding: ONE lightest-derivation choice among the mechanisms ────
 
@@ -744,17 +659,15 @@ export async function think(
   //
   // THE REASONER JUDGES ITS OWN EXTENSIONS BY THE PIPELINE'S REMAINDER, not by
   // the ladder's `accounted` — and by the SAME reading the fuse gate below uses,
-  // with the same W floor.  `accounted` is a COST quantity (measured: a query
-  // fully explained by one computed span plus bridged connectors reports
-  // `accounted: []` while nothing is unexplained), and a remainder under one
-  // river-fold quantum is bridging punctuation, never a second topic — so it
-  // licenses no extension and blocks none.
+  // with the same W floor.  `accounted` is a COST quantity, and a remainder
+  // under one river-fold quantum is bridging punctuation, never a second topic
+  // — so it licenses no extension and blocks none.
   //
   // The state is built HERE, where these quantities are already computed, so it
   // costs nothing new: `accounted` is what the winning transition priced,
-  // `remainder` is the coverage reading over `accounted ∪ the response's
-  // computed spans` (the union is what makes the two different quantities, and
-  // both are kept), `cost` is the ladder position, and the two declarations are
+  // `remainder` is the coverage reading over `accounted` (the W floor is what
+  // makes the two different quantities, and both are kept), `cost` is the
+  // ladder position, and the two declarations are
   // the producer's own (`fixed`, `used`).  What follows reads THIS state rather
   // than a tuple rebuilt at each call site.
   // A DERIVATION IS BORN OWING WHAT ITS ANSWER DOES NOT CARRY.  The winning
@@ -762,11 +675,7 @@ export async function think(
   // without evidence stays owed, and a later transition pays it only by carrying
   // it (the law reads the window; see derivation.ts).  Same reading, one
   // definition — not a second spelling of it here.
-  const priced: Array<[number, number]> = [
-    ...decided.accounted,
-    ...pre.computed.map((u): [number, number] => [u.i, u.j]),
-  ];
-  const explained = priced.filter(([a, b]) =>
+  const explained = decided.accounted.filter(([a, b]) =>
     windowOf([a, b], answer, query, ctx.space.maxGroup) !== null
   );
   // THE DERIVATION IS BORN OWING ITS DISCRIMINATIVE MATERIAL.  The bytes a
@@ -789,7 +698,11 @@ export async function think(
   // are the law's, so the floor is applied once and in one place — and the
   // paid-in-full reading is computed only when a meter will read it.
   if (ctx.meter) {
-    const paidInFull = remainderOf(query.length, priced, ctx.space.maxGroup);
+    const paidInFull = remainderOf(
+      query.length,
+      decided.accounted,
+      ctx.space.maxGroup,
+    );
     ctx.meter.groundingWithheldBytes += spanBytes(paid) -
       spanBytes(paidInFull);
   }
@@ -940,30 +853,8 @@ export async function think(
   //     so the fusion layer does not ENGAGE — read off the state the walk
   //     reached, the one fusion is actually offered against.
   //
-  // What the fusion needs from the grounding — whether its substance is purely
-  // computed (`unclimbed`) and where it stands in the query (`primarySpans`) —
-  // is the grounding's own evidence, resolved here where both readings are in
-  // hand.
-  //
-  // Whether the winning candidate's entire recognised substance is COMPUTED —
-  // every accounted span exactly a pre.computed span, nothing from a genuinely
-  // recognised/climbed site.  fuseAttention's lone-root shortcut assumes a
-  // single point of attention already IS primary's own source; that assumption
-  // is exactly backwards for a pure computation (an ALU result has no anchor of
-  // its own) — gated there by Attention.breadth so a coincidental echo (which
-  // this flag alone cannot distinguish) is still rejected.
-  const unclimbed = state.accounted.length > 0 &&
-    state.accounted.every(([i, j]) =>
-      pre.computed.some((u) => u.i === i && u.j === j)
-    );
-  // Where the winning grounding stands in the query — fusion places primary by
-  // it.  `accounted` is the cost-ladder read and is authoritative when
-  // non-empty; when it is empty the grounding is a pure COMPUTATION, whose
-  // evidence is its computed span — the cost-ladder-vs-coverage distinction
-  // `explained` above draws, read here for POSITION instead of coverage.
-  const primarySpans: ReadonlyArray<Span> = state.accounted.length > 0
-    ? state.accounted
-    : pre.computed.map((u): [number, number] => [u.i, u.j]);
+  // Fusion places primary in the reading order by where its grounding stands
+  // in the query: the spans the winning transition priced.
   const fused = await closeOver(
     state,
     query,
@@ -971,7 +862,7 @@ export async function think(
     [
       walkLayer(ctx, query, preConsumed, pre, voiced),
       {
-        ...fusionLayer(ctx, query, pre, unclimbed, primarySpans),
+        ...fusionLayer(ctx, query, pre, state.accounted),
         engages: (d: DerivationState) => !closed(d),
       },
     ],

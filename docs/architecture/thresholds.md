@@ -3,7 +3,7 @@
 > **Law:** every decision cutoff is a formula over the vector dimension `D`, the
 > perception window `W` (`maxGroup`) or the corpus size `N`. `config.ts` holds
 > capacities and budgets only: cache bytes, batch sizes, index parameters, query
-> `k`, ALU precision and the seed. It never holds a threshold.
+> `k` and the seed. It never holds a threshold.
 
 **Why.** A kept memory grows, and a fixed number silently changes meaning as
 `N`, `D` or a span's length changes. A derived bar is measured against the

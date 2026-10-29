@@ -5,9 +5,9 @@
 // a subject the question never wrote.
 //
 //   the FUSION pays: the grounding priced a span of the question its answer does
-//   not hold (the ALU's surface form is not in its result), so the derivation was
-//   born OWING it, and the fused step — offered to the law as a transition —
-//   carried a window of it and consumed it.  Four bytes, one quantum.
+//   not carry, so the derivation was born OWING it, and the fused step —
+//   offered to the law as a transition — carried a window of it and consumed
+//   it.  Four bytes, one quantum.
 //
 //   the WALK does not: its step follows the answer's own learnt continuation,
 //   structure the question never wrote, so it carries nothing to consume.
@@ -27,6 +27,8 @@ const CHAIN = [
   ["the Eiffel Tower", "the Eiffel Tower is in Paris"],
 ];
 const FUSING = [
+  ["What is the capital of France", "The capital of France is Paris"],
+  ["Paris", "Paris is famous for the Eiffel Tower"],
   ["2+2", "2+2 equals 4"],
   [
     "The tallest tower in Paris",

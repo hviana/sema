@@ -133,7 +133,6 @@ export async function articulate(
     ans.splits,
     substitutions,
     undefined,
-    undefined,
     ctx.trace ? (steps) => traceDerivation(ctx, steps) : undefined,
   );
   const segs = solved && solved.segs;

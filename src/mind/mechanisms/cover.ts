@@ -1,17 +1,11 @@
 // mechanisms/cover.ts — Cover (Grounding II): the query's own decomposition
 // composes an answer through ONE lightest-derivation search.
 //
-// Cover consumes recognition directly (its axioms are the query's own
-// decomposition) plus the computed spans any parse()-bearing mechanism
-// contributed: computed spans MASK colliding recognised sites and enter the
-// search at zero cost ("computation always wins", alu.md) — which is also why
-// cover runs FIRST in defaultMechanisms: a computed-backed cover becomes a
-// near-zero-cost incumbent that prunes the other mechanisms through the
-// ordinary admissible-floor check, with no extension special-case anywhere.
+// Cover consumes recognition directly: its axioms are the query's own
+// decomposition, and it reads nothing another mechanism produced.
 
 import type { MindContext } from "../types.js";
 import type {
-  ComputedResult,
   ConceptLicence,
   ConnectorLicence,
   DerivationStep,
@@ -230,8 +224,7 @@ export function offerConnectors(
 }
 
 /** The sites the cover stands on before the climb's points: recognition's,
- *  masked by computed spans and rid of fragments that answer other
- *  questions.  One reading for the run and for `readsPoints`; only the run
+ *  rid of fragments that answer other questions.  One reading for the run and for `readsPoints`; only the run
  *  traces and meters it. */
 function coverSites(
   ctx: MindContext,
@@ -239,35 +232,8 @@ function coverSites(
   pre: Precomputed,
   run: boolean,
 ): Array<{ start: number; end: number; payload: number }> {
-  const { rec, computed } = pre;
   const traced = run ? ctx.trace : null;
-
-  // Masking: computed spans are authoritative.  Remove recognised sites
-  // that overlap any computed span before building the cover search.
-  let sites = computed.length === 0
-    ? rec.sites
-    : rec.sites.filter((s) =>
-      !computed.some((u) => s.start < u.j && u.i < s.end)
-    );
-
-  if (computed.length > 0 && sites.length < rec.sites.length) {
-    traced?.step(
-      "maskByComputation",
-      rec.sites.map((s) =>
-        rItem(query.subarray(s.start, s.end), "form", s.payload, [
-          s.start,
-          s.end,
-        ])
-      ),
-      sites.map((s) =>
-        rItem(query.subarray(s.start, s.end), "form", s.payload, [
-          s.start,
-          s.end,
-        ])
-      ),
-      "a computation always wins: recognised forms overlapping a computed span are dropped",
-    );
-  }
+  let sites = pre.rec.sites;
 
   // A FRAGMENT ANSWERS OTHER QUESTIONS (traverse.ts) — and the cover used to
   // account the fragment's bytes as explained by the stranger's answer.  So
@@ -355,12 +321,12 @@ export const coverMechanism: PipelineMechanism = {
       0;
   },
   async run(ctx, query, pre) {
-    const { rec, computed } = pre;
+    const { rec } = pre;
     let sites = coverSites(ctx, query, pre, true);
 
     sites = [...sites, ...canonSites(ctx, query, sites)];
 
-    if (sites.length === 0 && computed.length === 0) return [];
+    if (sites.length === 0) return [];
 
     const connectors = ctx.meter
       ? ctx.meter.timeSync(
@@ -368,14 +334,6 @@ export const coverMechanism: PipelineMechanism = {
         () => offerConnectors(ctx, sites, query),
       )
       : offerConnectors(ctx, sites, query);
-    let splits = rec.splits;
-    if (computed.length > 0) {
-      splits = new Set(rec.splits);
-      for (const u of computed) {
-        splits.add(u.i);
-        splits.add(u.j);
-      }
-    }
     const concepts = ctx.meter
       ? ctx.meter.timeSync(
         "cover.offerConcepts",
@@ -383,28 +341,17 @@ export const coverMechanism: PipelineMechanism = {
       )
       : offerConcepts(ctx, sites);
 
-    const coverDeps = [
-      ctx.trace?.lastIndex("recognise"),
-      ctx.trace?.lastIndex("computeExtensions"),
-    ].filter((x): x is number => x !== undefined);
-
-    // Convert ComputedSpan[] to ComputedResult[] for the graph search.
-    const computedResults: ComputedResult[] = computed.map((u) => ({
-      i: u.i,
-      j: u.j,
-      bytes: u.bytes,
-      node: resolve(ctx, u.bytes) ?? undefined,
-    }));
-
-    const tCover = ctx.trace?.enter("cover", [
-      ...sites.map((s) =>
+    const recognised = ctx.trace?.lastIndex("recognise");
+    const tCover = ctx.trace?.enter(
+      "cover",
+      sites.map((s) =>
         rItem(query.subarray(s.start, s.end), "form", s.payload, [
           s.start,
           s.end,
         ])
       ),
-      ...computedResults.map((u) => rItem(u.bytes, "computed")),
-    ], coverDeps.length ? coverDeps : undefined);
+      recognised === undefined ? undefined : [recognised],
+    );
 
     // COVER, GRANT WHAT IT ASKED, COVER AGAIN — until a cover asks for nothing
     // (see Licence in graph-search.ts).  Only the final cover's derivations reach the
@@ -418,10 +365,9 @@ export const coverMechanism: PipelineMechanism = {
         sites,
         concepts,
         rec.leaves,
-        splits,
+        rec.splits,
         undefined,
         connectors,
-        computedResults,
         ctx.trace ? (steps) => derivations.push(steps) : undefined,
       );
       if (concepts.asked.size === 0 && connectors.asked.size === 0) break;

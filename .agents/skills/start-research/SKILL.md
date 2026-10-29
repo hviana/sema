@@ -126,7 +126,7 @@ capability failure, never an expectation this corpus cannot support.
 winning provenance, the runner-up margin, and the counters. `fast.mjs` reads
 that file and runs the failing ids only (override with `FAST_IDS=a,b`). The
 winning tag is not the file name: `confluence`→`join`, `extraction`→`extract`,
-`prefix-completion`→`prefix`, `recall`→`recall`/`recall-echo`, `alu`→`cover`.
+`prefix-completion`→`prefix`, `recall`→`recall`/`recall-echo`.
 
 ```js
 import {
@@ -144,11 +144,10 @@ const text = await mind.respondText(c.ask, (s) => {
 reports.push(mind.lastCost); // formatReport(sumReports(reports)) at the end
 ```
 
-`decision` stays `null` when nothing grounds — that is the honest-silence
-assertion. `alu` grounds under the tag `cover`: assert the bytes. If the gate
-ever needs to tell those two apart, close it **in the instrumentation**
-(`AGENTS.md` §6), never with a private probe in the harness. Close the store
-(`await mind.store.close()`) so a run ends clean.
+Assert honest silence on the bytes (`""`): `decision` stays `null` whenever
+fewer than two candidates stood, answered or not. If the gate ever needs what the instruments do not show, close it
+**in the instrumentation** (`AGENTS.md` §6), never with a private probe in the
+harness. Close the store (`await mind.store.close()`) so a run ends clean.
 
 ```bash
 npm run build && node bench/gate.mjs && node bench/fast.mjs

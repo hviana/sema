@@ -230,7 +230,7 @@ differently:
   precedents carry.
 - `recall` takes the nearest stored form by gist.
 - `prefix-completion` completes a known beginning.
-- The ALU computes, and what it computes is authoritative.
+- The ALU computes. Its code lives apart, to show that any mechanism can join.
 
 **One price.** Every candidate weighs `moves + PASS·unaccounted`, and `PASS` per
 byte of unexplained question outweighs any move (`cost-model.md`). The price is

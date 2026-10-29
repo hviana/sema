@@ -31,8 +31,9 @@ Hard facts:
 Mental model, top to bottom:
 
 ```
+mechanisms.ts        the default registration: every mechanism is a factory, Sema's or not
 mind/pipeline.ts     grounding decider: mechanisms compete on one cost scale
-mind/mechanisms/*    cover · cast · confluence · extraction · reference · recall · prefix-completion · alu
+mind/mechanisms/*    cover · cast · confluence · extraction · reference · recall · prefix-completion
 mind/*               recognition, attention, match/project, evidence, closure, graph search, learning, rationale
 store.ts             AbstractStore: ALL DAG store domain logic
 store-sqlite.ts      the one concrete backend (thin SQL wrappers)
@@ -79,7 +80,7 @@ corpus-determined, not interchangeable (`determinism.md`).
 | Store domain logic / SQLite adapter  | `src/store.ts`, `src/store-sqlite.ts`                                                              |
 | Mechanism contract + `Precomputed`   | `src/mind/pipeline-mechanism.ts`                                                                   |
 | Grounding decider (`think`)          | `src/mind/pipeline.ts`                                                                             |
-| Grounding mechanisms (one file each) | `src/mind/mechanisms/{cover,cast,confluence,extraction,reference,recall,prefix-completion,alu}.ts` |
+| Grounding mechanisms (one file each) | `src/mind/mechanisms/*.ts`; the ALU's own in `src/alu/src/mechanism.ts`; registered in `src/mechanisms.ts` |
 | Weighted deduction + cost ladder     | `src/mind/graph-search.ts` (engine in `src/derive/`)                                               |
 | Match/project family                 | `src/mind/match.ts`                                                                                |
 | Graph traversal, corpus scale        | `src/mind/traverse.ts`                                                                             |
@@ -105,7 +106,7 @@ methods; `mind.ts` is a thin assembly.
 Implement `PipelineMechanism` (`floor` → admissible bound or `null`; `run` →
 candidates with `bytes`/`accounted`/`moves` + optional
 `scaffolding`/`complete`/`used`/`provenance`). Register via
-`new Mind({ mechanismFactories: [host => yourMechanism(host)] })`. Verify the
+`new Mind({ mechanisms: [...defaultMechanisms, host => yourMechanism(host)] })`. Verify the
 four market constraints (decoupled, declared competence, visible budget,
 evidence travels). → `docs/architecture/mechanism-market.md`
 

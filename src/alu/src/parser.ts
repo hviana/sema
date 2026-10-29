@@ -261,7 +261,16 @@ export class QueryParser {
    *
    *  Tokens are disjoint, ascending, and cover every non-spacing byte — so
    *  the gap between consecutive tokens is pure spacing BY CONSTRUCTION, a
-   *  structural fact the run recogniser leans on. */
+   *  structural fact the run recogniser leans on.
+   *
+   *  A term FLUSH against a numeral is no notation-level token: it is what
+   *  is left of a run the numeral was claimed from — the "nd" of "2nd", the
+   *  "dogs" of "3dogs" — so it is marked a `fragment`: it names no operation
+   *  and is no operand (the "?" of "7?" is not `times`' second operand).  The
+   *  numeral keeps its reading (digits ground a quantity wherever they stand,
+   *  and "2+2?" or "(3" glue a numeral to bytes that are no token); only the
+   *  cut-off rest loses the claim to be one.  An
+   *  operator is notation, so a term it bounds stays whole ("-sqrt 9"). */
   private lex(query: Uint8Array): Token[] {
     const { operands, operators } = this.alu.scan(query);
     const claimed = [
@@ -269,13 +278,16 @@ export class QueryParser {
       ...operators.map((o): Token => ({ i: o.i, j: o.j, kind: "operator" })),
     ].sort((a, b) => a.i - b.i);
     const tokens: Token[] = [];
-    let p = 0;
+    let prev: Token | null = null;
     for (const c of [...claimed, END]) {
+      const p = prev?.j ?? 0;
       for (const t of nonSpaceRuns(query, p, Math.min(c.i, query.length))) {
-        tokens.push({ ...t, kind: "term" });
+        const fragment = (t.i === p && prev?.kind === "operand") ||
+          (t.j === c.i && c.kind === "operand");
+        tokens.push({ ...t, kind: "term", ...(fragment && { fragment }) });
       }
       if (c !== END) tokens.push(c);
-      p = c.j;
+      prev = c;
     }
     return tokens;
   }
@@ -441,7 +453,7 @@ export class QueryParser {
     tokens: Token[],
     readings: Map<Token, readonly string[]>,
   ): Promise<ComputedSpan[]> {
-    const terms = tokens.filter((t) => t.kind === "term");
+    const terms = tokens.filter((t) => t.kind === "term" && !t.fragment);
     const anchors = this.alu.conceptAnchors();
     await Promise.all(terms.map(async (term) => {
       if (readings.has(term)) return;
@@ -546,7 +558,7 @@ export class QueryParser {
     const picked: Token[] = [];
     let from = term.j;
     for (const tok of tokens) {
-      if (tok.i < term.j || tok.kind === "operator") continue;
+      if (tok.i < term.j || tok.kind === "operator" || tok.fragment) continue;
       if (picked.length === arity) break;
       if (tok.i - from > this.host.reach) break; // next token too far
       picked.push(tok);
@@ -617,10 +629,13 @@ const UTF8 = new TextEncoder();
  *  OPERATOR (the scanner's reading) or an unclaimed TERM between them.  The
  *  stream is ascending and disjoint and covers every non-spacing byte.  A
  *  COMPOSED operand (a collapsed arithmetic run, see {@link compose}) carries
- *  its evaluated `value`; a plain token's value is its own bytes. */
+ *  its evaluated `value`; a plain token's value is its own bytes.  A
+ *  `fragment` term is the rest of a run a numeral was claimed from — it names
+ *  no operation and is no operand ({@link QueryParser.lex}). */
 interface Token extends Span {
   kind: "operand" | "operator" | "term";
   value?: Uint8Array;
+  fragment?: boolean;
 }
 
 /** Sentinel closing the lex walk (never emitted). */

@@ -120,7 +120,7 @@ test("5. every layer of the stack reports", async () => {
 
   // The mechanism market — every mechanism was offered the query.
   assert.ok(
-    c.mechanismFloors + c.mechanismSkips >= 5,
+    (c.mechanismFloors ?? 0) + (c.mechanismSkips ?? 0) >= 5, // zeros omitted
     "each built-in mechanism's floor() was accounted",
   );
   assert.ok(c.mechanismRuns > 0, "at least one mechanism ran");

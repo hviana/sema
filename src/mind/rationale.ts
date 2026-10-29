@@ -164,7 +164,7 @@ export class Rationale {
   }> = [];
   /** The most recent step index emitted under each mechanism name — the handle
    *  a later step uses to name an EARLIER mechanism as its data-flow producer
-   *  (e.g. cover depends on the latest recognise / computeExtensions).  One tracer is
+   *  (e.g. cover depends on the latest recognise).  One tracer is
    *  built per response and inference is sequential, so "most recent" is exactly
    *  "the one that produced the inputs I am about to consume". */
   private readonly lastByName = new Map<string, number>();

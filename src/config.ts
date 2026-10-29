@@ -8,22 +8,6 @@
 // geometry.ts) and every consumer reads it from there; a config knob for it
 // existed once but was never read — a dead setting that silently did nothing.
 
-export interface AluConfig {
-  /** Whether the ALU sub-lib contributes computation rules to the graph search.
-   *  When false, no operator/operand pre-resolution runs and no ALU rule fires —
-   *  thinking behaves exactly as it did before ALU existed. */
-  enabled: boolean;
-  /** Convergence tolerance ε for the numerical limit layer (diff/solve/exp/…). */
-  tol: number;
-  /** Hard iteration ceiling for any convergence loop, so a non-converging
-   *  refinement still terminates. */
-  maxIter: number;
-  /** Decimal places a real result is rounded to before it is encoded to bytes.
-   *  Determinism here is load-bearing: the search keys an output span by its
-   *  bytes, so two derivations of the same value must spell it identically. */
-  precision: number;
-}
-
 export interface GeometryConfig {
   /** Maximum siblings per tree fold. */
   maxGroup: number;
@@ -142,7 +126,6 @@ export interface MindConfig {
   normalizeEpsilon: number;
   cosineEpsilon: number;
 
-  alu: AluConfig;
   geometry: GeometryConfig;
   alphabet: AlphabetConfig;
   store: StoreConfig;
@@ -163,12 +146,6 @@ export const DEFAULT_CONFIG: MindConfig = {
   corpusSampleFloorBytes: 12,
   normalizeEpsilon: 1e-12,
   cosineEpsilon: 1e-12,
-  alu: {
-    enabled: true,
-    tol: 1e-10,
-    maxIter: 1000,
-    precision: 6,
-  },
   geometry: {
     maxGroup: 4,
   },
@@ -215,12 +192,6 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
       DEFAULT_CONFIG.corpusSampleFloorBytes,
     normalizeEpsilon: opts.normalizeEpsilon ?? DEFAULT_CONFIG.normalizeEpsilon,
     cosineEpsilon: opts.cosineEpsilon ?? DEFAULT_CONFIG.cosineEpsilon,
-    alu: {
-      enabled: opts.alu?.enabled ?? DEFAULT_CONFIG.alu.enabled,
-      tol: opts.alu?.tol ?? DEFAULT_CONFIG.alu.tol,
-      maxIter: opts.alu?.maxIter ?? DEFAULT_CONFIG.alu.maxIter,
-      precision: opts.alu?.precision ?? DEFAULT_CONFIG.alu.precision,
-    },
     geometry: {
       maxGroup: opts.geometry?.maxGroup ?? DEFAULT_CONFIG.geometry.maxGroup,
     },

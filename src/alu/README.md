@@ -67,9 +67,9 @@ whole.
 The ALU is a plain class (`alu.ts`) that exposes
 `parse(query) →
 ComputedSpan[]`. A `ComputedSpan` is `{ i, j, bytes }`: a
-half-open byte range and the authoritative result computed for it. In Sema,
-`aluToMechanism` wraps it as an ordinary pipeline mechanism. Computed spans mask
-the recognised sites they overlap, which is how computation always wins
+half-open byte range and the result computed for it. `aluMechanism`
+(`mechanism.ts`) makes each one an answer of a host's mechanism: its bytes, the
+span it explains, one move. Sema registers it like any mechanism
 (`docs/mechanisms/alu.md`).
 
 **The host port.** At construction the ALU receives an `ExtensionHost`, four
@@ -89,7 +89,8 @@ only the paths that depend on meaning stay silent.
 - **Infix arithmetic** (`2+3*4`), read with precedence climbing and independent
   of any chunking, so a multi-digit number is always read whole.
 - **Operations named by meaning,** where a term's gist lands on a learnt anchor
-  registered as an operation's meaning.
+  registered as an operation's meaning. A term is a whole token: what a numeral
+  was cut from (the `nd` of `2nd`) names nothing.
 
 **Asynchronous reads are resolved before the synchronous kernel runs.**
 `prefetchResonance` resolves operations by meaning. Opposites are resolved on
@@ -126,6 +127,7 @@ src/expr.ts, text.ts   the expression grammar and the byte classes
 src/resonance.ts       AluResonance and the async → sync pre-resolution
 src/kernel-*.ts        logic, bits, arith, numeric, nd
 src/alu.ts             the assembled Alu
+src/mechanism.ts       the Alu as a host's grounding mechanism
 src/index.ts           public surface
 test/alu.test.ts       self-contained tests
 ```

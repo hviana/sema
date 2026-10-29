@@ -35,12 +35,11 @@ import { SQliteStore } from "../dist/src/store-sqlite.js";
 // "[1,2,3]" decodes to an nd and the result re-encodes canonically.
 //
 // The programmatic API belongs to the ALU's own instance, not the Mind: the
-// Mind only knows the generic MindExtension contract (parse).  A caller that
-// wants direct computation registers the ALU itself through the extensions
-// factory — which receives the mind's host port — and keeps the reference.
+// Mind only knows the mechanism contract.  A caller that wants direct
+// computation registers the ALU's mechanism factory itself — handed the mind's
+// host port — and keeps the instance it carries.
 
-import { Alu } from "../dist/src/alu/src/index.js";
-import { aluToMechanism } from "../dist/src/mind/pipeline.js";
+import { aluMechanism } from "../dist/src/alu/src/index.js";
 
 /** A mind wired with an ALU extension whose instance the caller keeps: the
  *  mind stays generic; the computational API lives on the extension. */
@@ -48,10 +47,10 @@ const mk = () => {
   let alu;
   const m = new Mind({
     seed: 7,
-    alu: { enabled: false }, // the built-in stays off; we hold our own
-    mechanismFactories: [(host) => {
-      alu = new Alu({}, host);
-      return aluToMechanism(alu);
+    mechanisms: [(host) => {
+      const mechanism = aluMechanism()(host);
+      alu = mechanism.alu;
+      return mechanism;
     }],
   });
   m.alu = alu; // test convenience: carry the handle alongside the mind
@@ -242,13 +241,9 @@ test("nd computation is deterministic and disabling the ALU makes it inert", asy
   };
   assert.equal(await run(), await run());
 
-  // A mind with no ALU extension at all: the operation vocabulary simply does
-  // not exist anywhere on the mind — computation is inert by absence, not by a
-  // flag check in the machinery.
-  const off = new Mind({
-    seed: 7,
-    alu: { enabled: false },
-  });
+  // The mind itself has no computational API, even with the ALU registered:
+  // the operation vocabulary lives on the mechanism, never on the mind.
+  const off = new Mind({ seed: 7 });
   assert.equal(typeof off.compute, "undefined");
   await off.store.close();
 });

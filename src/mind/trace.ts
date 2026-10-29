@@ -81,7 +81,7 @@ export const MOVE_NOTE: Record<string, string> = {
   "bridge": "advance the cover frontier across this span",
   "pool-vote":
     "pool independent regions' evidence for a shared anchor (sum, not shortest path)",
-  "axiom": "a seed: a perceived leaf, recognised form, or computed result",
+  "axiom": "a seed: a perceived leaf or recognised form",
   "step": "a derivation step",
 };
 

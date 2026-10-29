@@ -10,8 +10,9 @@ export type {
   Input,
   Response,
 } from "./mind.js";
-export type { ComputedSpan, ExtensionHost } from "./mind.js";
+export type { ExtensionHost } from "./mind.js";
 export type {
+  MechanismFactory,
   MechanismResult,
   PipelineMechanism,
   Precomputed,

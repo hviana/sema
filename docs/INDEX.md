@@ -63,7 +63,7 @@ consumers).
 | `reference`         | voicing a frame's slot in the asker's bytes, or its precedents' majority      |
 | `recall`            | the nearest stored form, or honest silence                                    |
 | `prefix-completion` | completing a known beginning of exactly one form                              |
-| `alu`               | computation, which is authoritative                                           |
+| `alu`               | computation, by a mechanism whose code lives apart (`src/alu/`)               |
 
 ## Elsewhere
 

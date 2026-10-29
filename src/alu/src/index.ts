@@ -71,6 +71,11 @@ export {
   STRUCTURAL_HOST,
 } from "./parser.js";
 
+export {
+  aluMechanism,
+  type MechanismAnswer,
+  type MechanismHost,
+} from "./mechanism.js";
 export { registerNd } from "./kernel-nd.js";
 export { registerLogic } from "./kernel-logic.js";
 export {

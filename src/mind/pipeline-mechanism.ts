@@ -15,7 +15,7 @@
 
 import type { AncestorReach, MindContext, Recognition } from "./types.js";
 import type { AttentionRead } from "./types.js";
-import type { ComputedSpan } from "../extension.js";
+import type { ExtensionHost } from "../extension.js";
 import type { Hit } from "../store.js";
 import type { Vec } from "../vec.js";
 import { indexOf } from "../bytes.js";
@@ -37,8 +37,7 @@ import { sharedReachMemo } from "./traverse.js";
 //
 // Precomputed is a LAZY container for structural analyses of the query — the
 // ONE place a response's shared evidence lives, for inter-mechanism exchange
-// and for analyses future mechanisms will want.  Eager fields (rec, computed,
-// guide) are populated by the pipeline before the mechanism loop; everything
+// and for analyses future mechanisms will want.  Eager fields (rec, guide) are populated by the pipeline before the mechanism loop; everything
 // expensive is a lazily-cached method that computes on first access.  A
 // mechanism that never asks for an analysis pays nothing for it; two
 // mechanisms asking for the same analysis pay once.
@@ -63,8 +62,6 @@ export class Precomputed {
     readonly query: Uint8Array,
     /** Recognition result (structural + canonical). */
     readonly rec: Recognition,
-    /** Computed spans from mechanisms that implement `parse()` (e.g. ALU). */
-    readonly computed: ComputedSpan[],
     /** The query's gist — the response-wide disambiguation guide. */
     readonly guide: Vec,
   ) {
@@ -705,31 +702,24 @@ export interface MechanismResult {
 
 // ── PipelineMechanism ────────────────────────────────────────────────────────
 
+/** How every mechanism joins a Mind: handed the mind's port, it returns the
+ *  mechanism (src/mechanisms.ts holds the default registration). */
+export type MechanismFactory = (host: ExtensionHost) => PipelineMechanism;
+
 export interface PipelineMechanism {
   /** Stable identifier for trace/debug. */
   readonly name: string;
 
-  /** Which provenance tag the pipeline attaches to this mechanism's answers.
-   *  DECLARED, not free-form: the pipeline narrows it to its own `Provenance`
-   *  vocabulary (pipeline.ts), because post-grounding gates on that vocabulary
-   *  — so an adapter declares one of those values, never a label of its own.
-   *  The type is `string` only because a mechanism imports nothing from
-   *  `pipeline.ts` (constraint 1, decoupling); the contract is semantic, and
-   *  every shipped adapter honours it (see mechanisms/alu.ts). */
+  /** The provenance tag the pipeline attaches to this mechanism's answers:
+   *  reported, compared nowhere (pipeline.ts) — a mechanism names its own act. */
   readonly provenance: string;
-
-  /** Parse authoritative spans BEFORE the grounding loop.
-   *  Only needed by computational mechanisms (e.g. ALU).  Results from ALL
-   *  mechanisms that implement this are collected into `Precomputed.computed`
-   *  before any `floor()` or `run()` is called. */
-  parse?(query: Uint8Array): Promise<ComputedSpan[]>;
 
   /** Admissible lower bound on this mechanism's weight.
    *  Returns `null` when the mechanism structurally cannot fire.
    *
    *  `worthRunning(cheapFloor)` reports whether the CURRENT incumbent
-   *  (established by mechanisms that already ran this response, cover being
-   *  first — see `defaultMechanisms`) could still be beaten by a floor no
+   *  (established by mechanisms that already ran this response, in the
+   *  declared order — see `defaultMechanisms`) could still be beaten by a floor no
    *  tighter than `cheapFloor`.  THE INVESTMENT DISCIPLINE: before
    *  first-touching an expensive shared analysis (`pre.attention()`,
    *  `pre.weave()`, …), check `worthRunning(bound)` with this mechanism's
@@ -738,8 +728,7 @@ export interface PipelineMechanism {
    *  the pipeline's own check then prunes `run()` and records the truthful
    *  "cannot beat incumbent" trace note, and no analysis was computed just
    *  to be discarded.  This is uniform: no mechanism asks what produced the
-   *  incumbent — a computed extension result and an ordinary cheap cover
-   *  prune the same way. */
+   *  incumbent. */
   floor(
     ctx: MindContext,
     query: Uint8Array,

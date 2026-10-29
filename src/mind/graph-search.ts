@@ -45,22 +45,6 @@ export interface Leaf {
   node: number | null;
 }
 
-/** A COMPUTED span: the result of applying a manual rule (an extension's
- *  operation — e.g. the `alu` extension's arithmetic) to a recognised stretch
- *  of the query.  Every
- *  bit of the intelligence — recognising the operator (literally or by
- *  resonance), parsing the operands, evaluating the operation — is done by the
- *  caller (src/mind/pipeline.ts), which hands the search the finished result span; the search
- *  treats it exactly like any other recognised completion (a learned fact that
- *  happens to be computed rather than stored).  `node` is the canonical id of
- *  the result bytes when the store already holds them, else undefined. */
-export interface ComputedResult {
-  i: number;
-  j: number;
-  bytes: Uint8Array;
-  node?: number;
-}
-
 // ── the deduction system the graph exploration runs on ───────────────────
 //
 // Three item kinds drive one lightest-derivation search over the Sema graph
@@ -102,18 +86,6 @@ export type GItem =
     cover: boolean;
     rec: boolean;
     node?: number;
-    /** Set only for a {@link ComputedResult} axiom (an extension's derived
-     *  value, e.g. ALU arithmetic) — as opposed to a genuinely RECOGNISED
-     *  learned form.  Both set `rec: true` (a computation bridges the cover
-     *  exactly like a learned terminal answer), but they mean different
-     *  things for `i..j`'s WIDTH: a recognised form's query-span width is
-     *  real evidence of how much of the query's meaning it accounts for
-     *  (liftAnswer's half-dominance framing decision); a computed span's
-     *  width is operand digit-count, uncorrelated with meaning ("1000 - 421"
-     *  is wider than "15 * 7" only because the numbers are bigger, not
-     *  because subtraction is more "the point" of its query).  See
-     *  {@link liftAnswer}. */
-    computed?: boolean;
     /** Set on the out emitted at a chain's GENUINE FIXPOINT — the one span kind a
      *  recursive re-cover ({@link GraphSearch.recompleteNode}) may deepen.  The
      *  re-cover does NOT run here: this marks the span as eligible, and
@@ -178,9 +150,6 @@ export interface Seg {
   bytes: Uint8Array;
   rec: boolean;
   node?: number;
-  /** See the `computed` field of the "out" {@link GItem} — set only for an
-   *  extension's derived value, never a genuinely recognised learned form. */
-  computed?: boolean;
   /** See the `fix` field of the "out" {@link GItem} — this span ended a chain at
    *  a genuine fixpoint, so it is the one span kind a recursive re-cover may
    *  still deepen.  Consumed by {@link GraphSearch.deepen}. */
@@ -226,7 +195,6 @@ function readCover(derivation: Derivation<GItem>): Seg[] {
         bytes: out.bytes,
         rec: out.rec,
         node: out.node,
-        computed: out.computed,
         fix: out.fix,
       });
     }
@@ -253,7 +221,7 @@ export interface DerivationStep {
   /** The `order`s of the steps that produced this one's premises — the EXACT
    *  data-flow edges of the proof tree (a `bridge` names the `ground` whose
    *  `out` it crossed and the earlier `cover` it extended).  A premise that is
-   *  an axiom (a seed leaf/form/computed result, never a rule conclusion) has no
+   *  an axiom (a seed leaf or form, never a rule conclusion) has no
    *  producer and contributes no edge, so this lists only the derived premises —
    *  the finest dependency structure the inference holds. */
   producers: number[];
@@ -284,7 +252,7 @@ export interface DerivationItem {
  *  conclusion shape (the rules carry no label, so this classifies by structure,
  *  the single place that maps rule geometry to a name). */
 export type DerivationMove =
-  | "axiom" // a seed: a perceived leaf, a recognised form, or a computed result
+  | "axiom" // a seed: a perceived leaf or a recognised form
   | "follow-edge" // form→form via a continuation edge (STEP) — the core "what follows what"
   | "concept-hop" // form→form via a halo sibling's edge (CONCEPT) — a synonym jump
   | "voice" // form→out emitting an asker-voice substitute (articulation)
@@ -460,8 +428,8 @@ function readDerivation(
   // The `order` assigned to each already-emitted derivation node, so a later
   // step that consumes it as a premise can name it as a producer — the proof
   // tree's data-flow edge, preserved exactly.  Only RULE-bearing nodes (the
-  // emitted steps) get an entry; an axiom premise (a seed leaf/form/computed
-  // result) has no producer and contributes no edge.  `order` therefore stays
+  // emitted steps) get an entry; an axiom premise (a seed leaf or form) has
+  // no producer and contributes no edge.  `order` therefore stays
   // contiguous with `steps`, so producers index directly into the emitted list.
   const orderOf = new Map<Derivation<GItem>, number>();
   let order = 0;
@@ -539,7 +507,6 @@ export class GraphSearch {
     splits: ReadonlySet<number>,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ConnectorLicence,
-    computedResults?: ReadonlyArray<ComputedResult>,
     /** When given, receives each solved span's lightest derivation — the full
      *  adapted A*LD proof tree as classified {@link DerivationStep}s — for the
      *  TOP cover AND every nested completion the sink is threaded into (see
@@ -566,7 +533,6 @@ export class GraphSearch {
       concepts,
       substitutions,
       connectors,
-      computedResults,
       onDerivation,
     );
     // Deepening runs HERE, once, on the derivation the top cover CHOSE — never
@@ -607,7 +573,6 @@ export class GraphSearch {
     concepts: ConceptLicence,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ConnectorLicence,
-    computedResults?: ReadonlyArray<ComputedResult>,
     onDerivation?: (steps: DerivationStep[]) => void,
   ): { segs: Seg[]; cost: number; moves: number } | null {
     // The query's own bytes, tiled from its perceived leaves.  A JOIN reads the
@@ -668,7 +633,6 @@ export class GraphSearch {
         joins,
         substitutions,
         connectors,
-        computedResults,
       );
       const stats = meter ? { pops: 0, pushes: 0 } : undefined;
       derivation = lightestDerivation(system, stats);
@@ -748,7 +712,6 @@ export class GraphSearch {
     joins: JoinLicense,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ConnectorLicence,
-    computedResults?: ReadonlyArray<ComputedResult>,
   ): DeductionSystem<GItem> {
     const W = this.maxGroup; // fusible span ceiling (shortest composite bound)
     const atomsAreHubs = atomIsHub(this.store.edgeSourceCount(), W);
@@ -870,36 +833,6 @@ export class GraphSearch {
               via: false,
             },
             cost: 0,
-          };
-        }
-        // Computed (extension) results — see {@link ComputedResult}.  Each enters as a
-        // RECOGNISED covering completion, exactly like a learned terminal answer:
-        // its bytes are the computed result, it bridges the cover at MICRO (rec),
-        // and it carries the result's canonical node (when the store holds it) so
-        // it can fuse as an operand of an outer form.  The STEP base cost marks a
-        // computation as a unit of work — a derived fact, on par with following a
-        // learned edge (STEP), so it decisively beats leaving the span
-        // unrecognised (PASS) but never masquerades as a free perceived leaf.
-        // Because this cost EQUALS a learned edge's, the search would tie a
-        // computation against a colliding recall; the computation-always-wins policy lives
-        // in the caller (src/mind/pipeline.ts think), which masks any recognised site a result
-        // overlaps so the computation is the cover's sole completion there — the
-        // search stays a neutral cost engine with no computation-vs-recall precedence baked
-        // in.  When `computedResults` is empty (every non-arithmetic query) this loop
-        // emits nothing, so the search is byte-identical to one with no extension at all.
-        for (const u of computedResults ?? []) {
-          yield {
-            item: {
-              kind: "out",
-              i: u.i,
-              j: u.j,
-              bytes: u.bytes,
-              cover: true,
-              rec: true,
-              node: u.node,
-              computed: true,
-            },
-            cost: STEP,
           };
         }
       },
@@ -1408,7 +1341,6 @@ export class GraphSearch {
           splits: rec.splits,
         },
         noLicence(),
-        undefined,
         undefined,
         undefined,
         this.derivationSink,
