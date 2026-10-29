@@ -870,24 +870,33 @@ function groupByLevel<T>(
   return groupByLevel(alg, space, groups, groupLevels, level + 1);
 }
 
-/** Join a row of already-folded items as one unnormalized node — the same
- *  two-ended seat binding as {@link flatFold}, one level up.  A group formed
- *  by content-level cuts inherits the same robustness: interior items keep
- *  their seats when a leading or trailing segment is perturbed. */
-function joinFlat(space: Space, items: Folded[]): Folded {
-  const n = items.length;
+/** THE FOLD'S ONE BINDING: a row of vectors, each bound to its two-ended seat
+ *  and superposed, unnormalized — `gist[d] += v[seat[d]]`, in row order, from
+ *  zero.  Two-ended: the first half takes low seats and the second half high
+ *  seats, inward from the tail of the FULL keyring, so interior items keep
+ *  their seats when a leading or trailing item is perturbed.  A segment's gist
+ *  is this over its bytes ({@link flatFold}), a group's over its items
+ *  ({@link joinFlat}), a stored node's over its kids (`storedGist`); one order
+ *  of float32 additions, so equal rows give equal bits ({@link boundCoord} is
+ *  its one-coordinate twin). */
+export function bindRow(space: Space, row: ArrayLike<Vec>): Vec {
+  const n = row.length;
   const gist = new Float32Array(space.D);
-  const kids = new Array<Sema>(n);
-  let len = 0;
   for (let k = 0; k < n; k++) {
-    const v = items[k].tree.v;
-    const slot = twoEndedSeat(space.seats.length, n, k);
-    const seat = space.seats[slot].fwd;
+    const v = row[k];
+    const seat = space.seats[twoEndedSeat(space.seats.length, n, k)].fwd;
     for (let d = 0; d < space.D; d++) gist[d] += v[seat[d]];
-    kids[k] = items[k].tree;
-    len += items[k].len;
   }
-  return { tree: sema(gist, null, kids), len };
+  return gist;
+}
+
+/** Join a row of already-folded items as one unnormalized node — the same
+ *  {@link bindRow} as {@link flatFold}, one level up. */
+function joinFlat(space: Space, items: Folded[]): Folded {
+  const kids = items.map((it) => it.tree);
+  let len = 0;
+  for (const it of items) len += it.len;
+  return { tree: sema(bindRow(space, kids.map((k) => k.v)), null, kids), len };
 }
 
 /** What the fold's SHAPE asks of the items it groups — see the note at the
@@ -1039,18 +1048,12 @@ function flatFold(
       len: 1,
     };
   }
-  const gist = new Float32Array(space.D);
   const kids = new Array<Sema>(n);
   for (let k = 0; k < n; k++) {
-    const b = bytes[from + k];
-    const v = alphabet.vecs[b];
-    // Two-ended: the first half uses low seats and the second half uses
-    // high seats, inward from the tail of the FULL keyring.
-    const slot = twoEndedSeat(space.seats.length, n, k);
-    const seat = space.seats[slot].fwd;
-    for (let d = 0; d < space.D; d++) gist[d] += v[seat[d]];
-    kids[k] = sema(v, bytes.slice(from + k, from + k + 1), null);
+    const b = bytes.slice(from + k, from + k + 1);
+    kids[k] = sema(alphabet.vecs[b[0]], b, null);
   }
+  const gist = bindRow(space, kids.map((k) => k.v));
   return { tree: sema(gist, null, kids), len: n };
 }
 
