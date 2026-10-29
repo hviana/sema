@@ -19,9 +19,9 @@ unit is `1/√D`.
 - `estimatorNoise = 1/√D`
 - `significanceBar = 3/√D`, three noise units above chance: the null of
   independent vectors. Halos share the corpus's common company, so on them it
-  only ranks and company as evidence is held to `conceptThreshold`; role
-  profiles (`role.ts`) drop hub windows, so the null holds and roles meeting
-  below it refuse a canonical site.
+  only ranks and company as evidence is held to `conceptThreshold`; a role
+  (`role.ts`) keeps its common frame windows, so only a role below the bar is
+  evidence, and it refuses a canonical site.
 - `conceptThreshold = 0.5 + 0.5/√D`, for halo concept sharing: the structural
   midpoint plus half a noise unit
 - `mergeThreshold = 1 − 1/√D`

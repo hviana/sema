@@ -210,3 +210,56 @@ test("a canonical site stands where its member stands, or it is no site", async 
   );
   await m.store.close();
 });
+
+test("a role agrees only where every side it is read on agrees", async () => {
+  // `Mother` the film is also written inside `the Motherland`, so the bytes
+  // stand after `the ` exactly where the relation does; only the right side
+  // (` of ` against ` director`, `land`) tells them apart.  One generic side
+  // agreeing is no agreement, and the frame words that say what a span is are
+  // never dropped as common.
+  const facts = [
+    ["Mother", "director", "The director of Mother is Gleb Panfilov."],
+    [
+      "She Defends the Motherland",
+      "director",
+      "The director of She Defends the Motherland is Fridrikh Ermler.",
+    ],
+    [
+      "Calling the Motherland",
+      "director",
+      "The director of Calling the Motherland is Ivan Pyryev.",
+    ],
+    [
+      "Rothesay Castle",
+      "director",
+      "The director of Rothesay Castle is Bruce Mann.",
+    ],
+    ["Henry I", "mother", "The mother of Henry I is Matilda of Flanders."],
+    ["Bertha", "mother", "The mother of Bertha is Waldrada."],
+    [
+      "Robert Jocelyn",
+      "mother",
+      "The mother of Robert Jocelyn is Charlotte Bligh.",
+    ],
+  ];
+  const pairs = facts.flatMap(([x, r, f]) => [[x, f], [`${x} ${r}`, f]]);
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(pairs);
+  await m.buildCanonIndex();
+  const steps = [];
+  const asked = await m.respondText(
+    "Who is the mother of robert jocelyn?",
+    (s) => steps.push(s),
+  );
+  assert.equal(asked, "The mother of Robert Jocelyn is Charlotte Bligh.");
+  const film = m.resolve(new TextEncoder().encode("Mother"));
+  assert.ok(film !== null);
+  assert.ok(
+    !steps.some((s) =>
+      s.mechanism.at(-1) === "recognise" &&
+      s.outputs.some((o) => o.text === "mother" && o.node === film)
+    ),
+    "the film is no site of the relation",
+  );
+  await m.store.close();
+});

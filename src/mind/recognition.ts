@@ -177,12 +177,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // covering the WHOLE question is exempt from both scale gates below.
   const whole = (start: number, end: number) =>
     start === 0 && end === bytes.length;
-  const emit = (
-    start: number,
-    end: number,
-    id: number,
-    canonical = false,
-  ) => {
+  const emit = (start: number, end: number, id: number) => {
     if (id < 0 && atomsAreHubs && !whole(start, end)) return;
     // A SITE MUST SPAN ONE RIVER WINDOW.  Below W, byte overlap is chance,
     // not evidence — the principle identityBar already states ("below one
@@ -214,14 +209,18 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     if (seen.has(key)) return;
     seen.add(key);
     if (!leadsSomewhere(ctx, id)) return;
-    // A CANONICAL SITE IS A SUBSTITUTION, NOT AN IDENTITY: its bytes differ
-    // from the stored member's, and the canonicalizer says the difference does
-    // not matter.  Where the corpus never stands the member where the question
-    // stands the span, it does — `father` in `Who was the father of Ollanta
-    // Humala?` is no `Father`, a film stored before ` director`, and following
-    // the film's edge voiced `The director of Father is Wang Shuo.`  So the
-    // substitution is refused as every substitution is, below the proposal
-    // floor (role.ts); an exact site is never asked.
+    // A CANONICAL SITE IS A SUBSTITUTION, NOT AN IDENTITY: the stored member's
+    // bytes are not the span's, and the canonicalizer says the difference does
+    // not matter — whichever path named it (the fold, the exact sweep's flat
+    // entry resolving to its class, the canonical sweep).  Where the corpus
+    // never stands the member where the question stands the span, it does —
+    // `father` in `Who was the father of Ollanta Humala?` is no `Father`, a
+    // film stored before ` director`, and following the film's edge voiced
+    // `The director of Father is Wang Shuo.`  So the substitution is refused
+    // as every substitution is, below the proposal floor (role.ts); an exact
+    // site is never asked.
+    const canonical = id >= 0 &&
+      !bytesEqual(read(ctx, id, end - start + 1), bytes.subarray(start, end));
     if (canonical && rolesAgree(ctx, bytes, start, end, id) === false) {
       if (ctx.meter) ctx.meter.roleRefusals++;
       ctx.trace?.step(
@@ -252,7 +251,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     // path above instead — canon equivalence only applies to composites.
     else if (n.kids !== null) {
       const cid = canonResolve(ctx, bytes.subarray(start, end));
-      if (cid !== null) emit(start, end, cid, true);
+      if (cid !== null) emit(start, end, cid);
     }
     if (isChunk(n)) {
       starts.add(start);
@@ -300,13 +299,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     }
     // A flat entry that leads nowhere resolves to the member of its canonical
     // class that does (`resolve`), and that member's bytes are not the span's.
-    emit(
-      p,
-      e,
-      id,
-      id !== flat &&
-        !bytesEqual(read(ctx, id, e - p + 1), bytes.subarray(p, e)),
-    );
+    emit(p, e, id);
     return true;
   };
   for (let p = 0; p < n; p++) {
@@ -339,7 +332,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
         if (ctx.meter) ctx.meter.recogniseCanonSpans++;
         if (canonFind(h).length === 0) return;
         const id = resolveSpan(p, e);
-        if (id !== null) emit(p, e, id, true);
+        if (id !== null) emit(p, e, id);
         else if (ctx.meter) ctx.meter.canonProbesDenied++;
       };
       for (let p = 0; p < n; p++) {

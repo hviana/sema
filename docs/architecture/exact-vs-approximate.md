@@ -41,8 +41,8 @@ nothing refutes, yielding to 2. Every substitution reads it, each side at its
 strongest grade (`licensedVariants`). A use names a step only at grade 2
 (`evidence.md`); a swapped span answers only under the licence
 (`unlicensedSwap`). A canonical site swaps spelling, refused where its role and
-the member's (`role.ts`) meet below `significanceBar` on every side both read.
-Bars: `thresholds.md`.
+the member's (`role.ts`) meet below `significanceBar` on a side both read. Bars:
+`thresholds.md`.
 
 ## Graded ladders — exact first, never reordered
 
