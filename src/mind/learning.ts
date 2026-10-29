@@ -6,7 +6,7 @@
 import { addInto, normalize, Vec, zeros } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
-import { inputBytes, perceiveDeposit, resolve } from "./primitives.js";
+import { foldTree, inputBytes, perceiveDeposit, resolve } from "./primitives.js";
 import { canonicalWindows, flatId } from "./canonical.js";
 import { flatBytesKids } from "../store.js";
 import { rItem, rNode } from "./trace.js";
@@ -54,16 +54,24 @@ export async function internTreeIds(
   return id;
 }
 
-/** Index flat branches for sub-spans of a deposit's byte stream, linked to
- *  their structural chunks via durable CONTAINMENT edges. */
-export async function indexSubSpans(
+/** A deposit's byte stream as the containment index reads it: the leaf id of
+ *  every byte that lies in a chunk, its leaf vector (null when the stream is
+ *  read back from the store), and the chunk that holds it.  A leaf outside
+ *  every chunk is not part of it. */
+interface ChunkStream {
+  leafIds: number[];
+  vecs: Vec[] | null;
+  chunkOf: Array<number | undefined>;
+}
+
+/** The stream of a freshly perceived deposit tree, or null when a leaf is
+ *  not stored. */
+function perceivedStream(
   ctx: MindContext,
   tree: Sema,
   ids: Map<Sema, number>,
-): Promise<boolean> {
-  const chunkOf: Array<number | undefined> = [];
-  const streamIds: number[] = [];
-  const streamVecs: Vec[] = [];
+): ChunkStream | null {
+  const st: ChunkStream = { leafIds: [], vecs: [], chunkOf: [] };
   const collect = (n: Sema): boolean => {
     if (isChunk(n)) {
       // A chunk inside a memo-skipped shared subtree is absent from `ids`;
@@ -73,9 +81,9 @@ export async function indexSubSpans(
       for (const k of n.kids) {
         const lid = k.leaf ? ctx.store.findLeaf(k.leaf) : null;
         if (lid === null) return false;
-        streamIds.push(lid);
-        streamVecs.push(k.v);
-        chunkOf.push(chunkId);
+        st.leafIds.push(lid);
+        st.vecs!.push(k.v);
+        st.chunkOf.push(chunkId);
       }
       return true;
     }
@@ -84,36 +92,79 @@ export async function indexSubSpans(
     }
     return true;
   };
-  if (!collect(tree)) return false;
+  return collect(tree) ? st : null;
+}
 
+/** Index flat branches for the sub-spans of a stream, linked to their chunks
+ *  by durable CONTAINMENT edges: every canonical window, contained by each
+ *  chunk it overlaps.  A deposit mints the windows it does not find; a
+ *  rebuild reads a store that already holds them, and mints nothing. */
+async function indexWindows(
+  ctx: MindContext,
+  st: ChunkStream,
+  seenBefore: (off: number, len: number) => boolean,
+): Promise<void> {
   const W = ctx.space.maxGroup; // write side of the canonical contract
-  const prev = ctx._prevSeen;
-  const seenBefore = (off: number, len: number): boolean => {
-    if (!prev) return false;
-    for (let i = off; i < off + len; i++) {
-      const c = chunkOf[i];
-      if (c === undefined || !prev.has(c)) return false;
-    }
-    return true;
-  };
-  const lens = streamIds.length >= W ? canonicalWindows(W) : [streamIds.length];
+  const n = st.leafIds.length;
+  const lens = n >= W ? canonicalWindows(W) : [n];
   for (const len of lens) {
     if (len < 1) continue;
-    for (let off = 0; off + len <= streamIds.length; off++) {
+    for (let off = 0; off + len <= n; off++) {
       if (seenBefore(off, len)) continue;
-      const winIds = streamIds.slice(off, off + len);
+      const winIds = st.leafIds.slice(off, off + len);
       const flatId = ctx.store.findBranch(winIds) ??
-        await ctx.store.putBranch(
+        (st.vecs === null ? null : await ctx.store.putBranch(
           winIds,
-          foldVecs(ctx.space, streamVecs.slice(off, off + len)),
-        );
+          foldVecs(ctx.space, st.vecs.slice(off, off + len)),
+        ));
+      if (flatId === null) continue;
       for (let i = off; i < off + len; i++) {
-        const c = chunkOf[i];
+        const c = st.chunkOf[i];
         if (c !== undefined) ctx.store.addContainer(flatId, c);
       }
     }
   }
+}
+
+/** Index flat branches for sub-spans of a deposit's byte stream, linked to
+ *  their structural chunks via durable CONTAINMENT edges. */
+export async function indexSubSpans(
+  ctx: MindContext,
+  tree: Sema,
+  ids: Map<Sema, number>,
+): Promise<boolean> {
+  const st = perceivedStream(ctx, tree, ids);
+  if (st === null) return false;
+  const prev = ctx._prevSeen;
+  await indexWindows(ctx, st, (off, len) => {
+    if (!prev) return false;
+    for (let i = off; i < off + len; i++) {
+      const c = st.chunkOf[i];
+      if (c === undefined || !prev.has(c)) return false;
+    }
+    return true;
+  });
   return true;
+}
+
+/** Re-derive a stored deposit's containment rows (`Mind.rebuildDerived`).
+ *  The same bytes fold to the same tree (fold-contract.md), so the deposit's
+ *  tree is perceived again from its bytes, and its chunks are named as the
+ *  read side names them (`foldTree`) — the nodes the deposit interned.  Its
+ *  stored kids would not do: a root named by its bytes' flat twin keeps no
+ *  tree below it. */
+export async function reindexContainment(
+  ctx: MindContext,
+  root: number,
+): Promise<void> {
+  const tree = perceiveDeposit(ctx, ctx.store.bytes(root));
+  const ids = new Map<Sema, number>();
+  foldTree(ctx, tree, 0, (n, _start, _end, node) => {
+    if (node !== null) ids.set(n, node);
+  });
+  const st = perceivedStream(ctx, tree, ids);
+  if (st === null) return;
+  await indexWindows(ctx, { ...st, vecs: null }, () => false);
 }
 
 /** Perceive, intern, and index a single input.  Returns the perceived tree,

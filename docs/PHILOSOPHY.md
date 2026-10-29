@@ -9,8 +9,11 @@ runs through the whole path:
 > was kept. Charge for what was not found.**
 
 Every structure below is either something kept (exact, it may decide) or a way
-of finding (approximate, it may only propose). Holding that distinction is what
-lets a reader predict how any part of Sema behaves.
+of finding (approximate, it may only propose). What was kept is the store's
+**base**, and the store keeps nothing else as knowledge: every index, cache and
+consolidation is **derived** from the base, rebuilt from it alone, and never
+testifies (`store.md`). Holding that distinction is what lets a reader predict
+how any part of Sema behaves.
 
 ## 1. Information enters
 

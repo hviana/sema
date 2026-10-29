@@ -598,6 +598,38 @@ export interface Store {
    *  by the caller's identity hash. */
   sketchPut?(id: NodeId, ids: readonly NodeId[]): void;
 
+  // ── the record and what is derived from it (store.md) ─────────────────
+  //
+  // The BASE is what only ingestion can write: nodes, edges, wholes, halos and
+  // the training metadata.  Everything else is DERIVED — a function of the
+  // base alone — and `Mind.rebuildDerived` rebuilds it from the base.
+
+  /** Drop every derived structure and its in-memory mirrors; the base is
+   *  untouched. */
+  clearDerived(): Promise<void>;
+  /** Re-derive the structural reverse index (child → parents) from the
+   *  nodes' kids, and the dedup filter from their content hashes. */
+  rebuildStructure(): Promise<void>;
+  /** Every whole root, ascending. */
+  eachWhole(cb: (id: NodeId) => void): void;
+  /** Every node that bears or receives an edge, or holds a halo, ascending. */
+  eachTarget(cb: (id: NodeId) => void): void;
+  /** Every node with two structural parents or more, ascending. */
+  eachBridge(cb: (id: NodeId) => void): void;
+  /** Put `id` into the content index under `gist`, once — the base holds no
+   *  gist, so the rebuilder supplies it. */
+  reindexGist(id: NodeId, gist: Vec): void;
+  /** Put every halo into the halo index, from the base's accumulators. */
+  reindexHalos(): Promise<void>;
+  /** Where the derived layer stands behind the base: null when it is current,
+   *  else the first node id it has not seen (0 when it was lost whole).  The
+   *  layers commit base first, so a crash between the two leaves the derived
+   *  layer behind — reads degrade, never mislead — and this is where
+   *  `Mind.repairDerived` resumes. */
+  derivedLag(): number | null;
+  /** Record that the derived layer has caught up with the base. */
+  markDerivedCurrent(): void;
+
   // ── lifecycle ──────────────────────────────────────────────────────────
   size(): Promise<number>;
   saveSnapshot(bytes: Uint8Array): Promise<void>;
@@ -617,6 +649,16 @@ export interface Store {
 // ── Serialisation utilities (pure functions, no DB dependency) ───────────
 
 const _ZERO = new Uint8Array(0);
+
+/** The metadata keys that belong to the DERIVED layer — its own cursors, kept
+ *  with it and dropped with it: the canonical index's build cursor, the
+ *  content index's compaction watermark, and `derived.base`, the base's next
+ *  node id when the derived layer last caught up with it. */
+export const DERIVED_META_KEYS: ReadonlySet<string> = new Set([
+  "canon.upto",
+  "contentCompact.watermark",
+  "derived.base",
+]);
 
 /** Hand control back to the event loop for exactly one turn.
  *
@@ -939,6 +981,26 @@ export abstract class AbstractStore implements Store {
   protected abstract _vecHaloPhysicalSize(): number;
   protected abstract _vecHaloClusterCount(): number;
   protected abstract _vecHaloCompact(): void;
+
+  // -- The derived layer (store.md): what the base alone rebuilds --
+  /** Delete every derived row — structural reverse index, containment,
+   *  canonical index, sketches, persisted filters — and the derived cursors
+   *  in the metadata, and empty both vector indexes.  Base rows untouched. */
+  protected abstract _dbClearDerived(): void;
+  /** Every node stored with a kids list, ascending: (id, kids). */
+  protected abstract _dbEachBranch(
+    cb: (id: NodeId, kids: NodeId[]) => void,
+  ): void;
+  /** Every whole root, ascending. */
+  protected abstract _dbEachWhole(cb: (id: NodeId) => void): void;
+  /** Every node with at least two structural parents, ascending. */
+  protected abstract _dbEachBridge(cb: (id: NodeId) => void): void;
+  /** Every halo row, ascending: (id, encoded accumulator). */
+  protected abstract _dbEachHalo(
+    cb: (id: NodeId, vec: Uint8Array) => void,
+  ): void;
+  /** Rebuild the dedup filter from the node table's content hashes. */
+  protected abstract _dbRebuildFilter(): void;
 
   /** Derived query breadth for a partitioned index of C clusters: probe √C
    *  of them (the same √-of-the-population convention as the hub bound √N).
@@ -2243,6 +2305,98 @@ export abstract class AbstractStore implements Store {
 
     return toRemove.length;
   }
+
+  // ── The record and what is derived from it ────────────────────────────
+  //
+  // THE BASE is what only ingestion can write, because it records what
+  // happened: the nodes (content), the edges in the order they were learnt
+  // (deposited and suffix-inherited alike: both are the deposit law, and the
+  // order breaks ties), the wholes, the halos (one accumulator per episode, in
+  // arrival order and with repetition — nothing else in the store can replay
+  // them) and the training metadata.  EVERYTHING ELSE IS DERIVED: a function of
+  // the base alone, kept to make reading cheap.  Dropping it loses speed, never
+  // knowledge, and `Mind.rebuildDerived` rebuilds it.  The approximate vector
+  // indexes rebuild the same vectors per id, not the same clusters.
+
+  /** {@link Store.clearDerived} */
+  async clearDerived(): Promise<void> {
+    await this._ensureReady();
+    this.flush();
+    this._dbBeginTx();
+    this._dbClearDerived();
+    this._dbCommitTx();
+    // The in-memory mirrors of derived state.
+    this._indexedIds.clear();
+    this._coveredIds.clear();
+    this._pendingGist.clear();
+    this._haloNorm.clear();
+    this._chainMemo.clear();
+    this._contentBuffer = [];
+    this._bufferedIds.clear();
+    this._haloBuffer.clear();
+    this._containBuf.clear();
+    this._resonateCache = null;
+    this._resonateHaloCache = null;
+  }
+
+  /** {@link Store.rebuildStructure} */
+  async rebuildStructure(): Promise<void> {
+    await this._ensureReady();
+    this._dbBeginTx();
+    // The same rows the mint writes: one per stored child, byte atoms never
+    // (a byte belongs to nearly every branch, see `_dbInsertKid`'s caller).
+    this._dbEachBranch((id, kids) => {
+      for (const c of kids) {
+        if (c < 0 && c >= -256) continue;
+        this._dbInsertKid(c, id);
+      }
+    });
+    this._dbCommitTx();
+    this._dbRebuildFilter();
+  }
+
+  /** {@link Store.eachWhole} */
+  eachWhole(cb: (id: NodeId) => void): void {
+    this._dbEachWhole(cb);
+  }
+
+  /** {@link Store.eachTarget} */
+  eachTarget(cb: (id: NodeId) => void): void {
+    for (const id of this._dbEdgeOrHaloIds()) cb(id);
+  }
+
+  /** {@link Store.eachBridge} */
+  eachBridge(cb: (id: NodeId) => void): void {
+    this._dbEachBridge(cb);
+  }
+
+  /** {@link Store.reindexGist} */
+  reindexGist(id: NodeId, gist: Vec): void {
+    if (this._indexedIds.has(id)) return;
+    this._indexedIds.set(id, true);
+    this._contentBuffer.push({ id, vector: gist });
+    this._bufferedIds.add(id);
+    if (this.pending() >= this.batchSize) this.flush();
+  }
+
+  /** {@link Store.reindexHalos} */
+  async reindexHalos(): Promise<void> {
+    await this._ensureReady();
+    this._dbEachHalo((id, vec) => {
+      this._haloBuffer.set(id, normalize(haloDecode(vec, this.D)));
+      if (this.pending() >= this.batchSize) this.flush();
+    });
+    this.flush();
+  }
+
+  /** {@link Store.derivedLag} — a store whose layers commit as one is never
+   *  behind. */
+  derivedLag(): number | null {
+    return null;
+  }
+
+  /** {@link Store.markDerivedCurrent} */
+  markDerivedCurrent(): void {}
 
   /** {@link Store.repairContentIndex} */
   async repairContentIndex(

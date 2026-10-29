@@ -33,6 +33,9 @@
 //                          unique content scales with chunks, not deposits.
 //  12. Concept formation  — incremental halo-driven cross-name transfer, training
 //                          idempotency, deterministic conflict resolution.
+//  13. The derived layer  — everything but the base (nodes, edges, wholes,
+//                          halos, meta) is dropped and rebuilt from the base
+//                          alone, and the store answers byte for byte.
 //
 // (This file is the single home for storage correctness; it absorbs the old
 // 06-sleep and 12-compression suites, whose concerns are the store's.)
@@ -86,7 +89,16 @@ function tmpStem(tag) {
   }`;
 }
 function cleanup(stem) {
-  for (const ext of [".sqlite", ".content.vec", ".halo.vec"]) {
+  for (
+    const ext of [
+      ".sqlite",
+      ".derived.sqlite",
+      ".derived.sqlite-wal",
+      ".derived.sqlite-shm",
+      ".content.vec",
+      ".halo.vec",
+    ]
+  ) {
     try {
       rmSync(stem + ext);
     } catch { /* may not exist */ }
@@ -1103,5 +1115,165 @@ test("a deposit records what it learnt whole, apart from the company the halo ke
     }
   } finally {
     cleanup(stem);
+  }
+});
+
+// =========================================================================
+// 13 — THE DERIVED LAYER: rebuilt from the base alone
+// =========================================================================
+
+test("the derived layer is rebuilt from the base alone, and answers the same", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const stem = tmpStem("derived");
+  const pairs = [
+    ["The Paw director", "The director of The Paw is Hans Steinhoff."],
+    ["The Paw", "The director of The Paw is Hans Steinhoff."],
+    ["Hans Steinhoff place of birth", "The place of birth of Hans Steinhoff is Marienberg."],
+    ["Hans Steinhoff", "The place of birth of Hans Steinhoff is Marienberg."],
+    ["What is the capital of France?", "The capital of France is Paris."],
+    ["How are you today?", "I'm doing great, thanks for asking."],
+    ["How are you today?", "I'm doing great, thanks for asking."],
+  ];
+  const asks = [
+    "Who is the director of The Paw?",
+    "Where was Hans Steinhoff born?",
+    "what is the capital of france",
+    "How are you today?",
+    "Zorblax quintessence of the vorpal meridian?",
+  ];
+  const BASE = ["node", "edge", "whole", "halo"];
+  const rows = (db, sql) =>
+    db.prepare(sql).all().map((r) =>
+      Object.values(r).map((x) =>
+        x instanceof Uint8Array ? Buffer.from(x).toString("hex") : x
+      ).join(",")
+    ).sort();
+  const contain = (db) => {
+    const out = new Set();
+    for (const r of db.prepare("SELECT id, parents FROM contain").all()) {
+      const b = r.parents;
+      const p = new Int32Array(
+        b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
+      );
+      for (const x of p) out.add(`${Math.floor(r.id / 256)}>${x}`);
+    }
+    return out;
+  };
+  const read = () => {
+    const db = new DatabaseSync(`${stem}.sqlite`, { readOnly: true });
+    const dd = new DatabaseSync(`${stem}.derived.sqlite`, { readOnly: true });
+    const out = {
+      base: BASE.map((t) => rows(db, `SELECT * FROM ${t}`)),
+      // The base file holds the base and nothing else.
+      tables: db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all().map((r) => r.name).sort(),
+      kid: rows(dd, "SELECT child, parent FROM kid"),
+      canon: rows(dd, "SELECT h, id FROM canon"),
+      contain: contain(dd),
+    };
+    db.close();
+    dd.close();
+    return out;
+  };
+  try {
+    let mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
+    await mind.ingest(pairs);
+    await mind.ingest("Marienberg is a town in Saxony, Germany.");
+    await mind.buildCanonIndex();
+    const before = [];
+    for (const q of asks) before.push(await mind.respondText(q));
+    await mind.store.close();
+    const was = read();
+    assert.ok(was.kid.length > 0 && was.canon.length > 0 && was.contain.size > 0);
+
+    mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
+    await mind.rebuildDerived();
+    const after = [];
+    for (const q of asks) after.push(await mind.respondText(q));
+    await mind.store.close();
+    const now = read();
+
+    assert.deepEqual(
+      was.tables,
+      ["edge", "halo", "meta", "node", "snapshot", "whole"],
+      "the base file holds the base alone",
+    );
+    assert.deepEqual(now.base, was.base, "the base is never touched");
+    assert.deepEqual(now.kid, was.kid, "the reverse index is the nodes' kids");
+    assert.deepEqual(now.canon, was.canon, "the canonical index, from scratch");
+    // Containment as the definition reads it: every window of every whole.
+    // Ingestion's shortcuts may only omit rows, never invent them.
+    for (const r of was.contain) {
+      assert.ok(now.contain.has(r), `containment row ${r} is rebuilt`);
+    }
+    assert.deepEqual(after, before, "the store answers byte for byte");
+  } finally {
+    cleanup(stem);
+  }
+});
+
+test("a derived layer behind the base, or lost, catches up and answers the same", async () => {
+  const { copyFileSync } = await import("node:fs");
+  const { DatabaseSync } = await import("node:sqlite");
+  const stem = tmpStem("lag");
+  const first = [
+    ["The Paw director", "The director of The Paw is Hans Steinhoff."],
+    ["The Paw", "The director of The Paw is Hans Steinhoff."],
+  ];
+  const second = [
+    ["Hans Steinhoff place of birth", "The place of birth of Hans Steinhoff is Marienberg."],
+    ["Hans Steinhoff", "The place of birth of Hans Steinhoff is Marienberg."],
+    ["How are you today?", "I'm doing great, thanks for asking."],
+  ];
+  const asks = [
+    "Who is the director of The Paw?",
+    "Where was Hans Steinhoff born?",
+    "How are you today?",
+  ];
+  const parents = () => {
+    const dd = new DatabaseSync(`${stem}.derived.sqlite`, { readOnly: true });
+    const n = dd.prepare("SELECT count(*) AS c FROM kid").get().c;
+    dd.close();
+    return n;
+  };
+  const answers = async (mind) => {
+    const out = [];
+    for (const q of asks) out.push(await mind.respondText(q));
+    return out;
+  };
+  try {
+    let mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
+    await mind.ingest(first);
+    await mind.store.close();
+    copyFileSync(`${stem}.derived.sqlite`, `${stem}.behind`);
+    mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
+    await mind.ingest(second);
+    const truth = await answers(mind);
+    await mind.store.close();
+    const kids = parents();
+
+    // The derived layer lost its last commits: the open re-derives the
+    // reverse index, the next write path the containment.
+    copyFileSync(`${stem}.behind`, `${stem}.derived.sqlite`);
+    mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
+    assert.ok(mind.store.derivedLag() !== null, "the lag is seen on open");
+    await mind.repairDerived();
+    assert.equal(mind.store.derivedLag(), null);
+    assert.deepEqual(await answers(mind), truth);
+    await mind.store.close();
+    assert.equal(parents(), kids, "the reverse index is whole again");
+
+    // The derived layer lost whole: rebuilt from the base.
+    for (const ext of [".derived.sqlite", ".content.vec", ".halo.vec"]) {
+      rmSync(stem + ext, { force: true });
+    }
+    mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
+    assert.equal(mind.store.derivedLag(), 0);
+    await mind.repairDerived();
+    assert.deepEqual(await answers(mind), truth);
+    await mind.store.close();
+  } finally {
+    cleanup(stem);
+    rmSync(`${stem}.behind`, { force: true });
   }
 });

@@ -57,11 +57,39 @@ decisions at ten times the training time).
 - **Wholes.** A deposit records what it learnt whole (`markWhole`): context,
   continuation, bare experience; `learntWhole` probes it. An older store's halo
   rows are read as its wholes, once, on open.
-- **Sketches.** `sketchGet`/`sketchPut` hold durable derived state: a miss costs
-  time, never correctness.
+- **Sketches.** `sketchGet`/`sketchPut` hold derived state: a miss costs time,
+  never correctness.
 
 `leadsSomewhere(id) = hasNext || hasHalo` is the one raw admission predicate: a
 form is knowledge only if it continues somewhere or keeps company.
+
+## The record and what is derived from it
+
+> **The store keeps what was given. Everything else is derived from it,
+> rebuilt from it alone, and never testifies.**
+
+- **Base** — written by ingestion alone: the nodes; the edges in learnt order,
+  deposited and suffix-inherited; the wholes; the halos, one accumulator per
+  episode in arrival order; the metadata.
+- **Derived** — rebuilt from the base: the reverse index (`kid`),
+  containment, the canonical index, the sketches, the filters, and the gist and
+  halo indexes.
+
+The base is what nothing else can replay: the halo depends on the order and the
+repetition of episodes, and the edges' order breaks ties, so neither is derived.
+A layered store keeps each layer in its own file: `<stem>.sqlite` (the base
+alone) and `<stem>.derived.sqlite`, beside the two `.vec` indexes.
+`Mind.rebuildDerived` drops the derived layer and derives it again: exact
+structures come back identical (containment as every whole's windows: a superset
+of what ingestion's shortcuts recorded, save a deposit near dedup merged, whose
+bytes the base no longer holds), the vector indexes come back with the same
+vectors per id, not the same clusters, and the store answers byte for byte
+(`test/08`). The two files never commit as one: the base commits first, so a
+crash leaves the derived layer behind (`derived.base`), never ahead of it. The
+open re-derives the reverse index; `Mind.repairDerived`, run before every
+ingest, the containment of the deposits it had not seen, or all of it when the
+file was lost. A store written before the layers were separated keeps both in
+one file and opens as it is.
 
 ## Probes that do not grow with N
 
@@ -105,12 +133,14 @@ Maintenance is incremental:
 - `repairContentIndex` re-inserts bridge nodes whose gists were evicted before
   they were indexed.
 - `buildCanonIndex` extends the canonical index from a given id.
+- `rebuildDerived` derives the whole derived layer from the base;
+  `repairDerived` catches it up when it is behind.
 
 ## Adding a backend
 
 1. Subclass `AbstractStore` and implement every
    `protected abstract _db*`/`_vec*` method as a thin wrapper. Never
-   re-implement dedup or batching.
+   re-implement dedup or batching. Nothing derived may enter the base.
 2. Keep the `*First`/`*Slice` methods as real `LIMIT ?` queries, and keep `has*`
    and counts as point probes. Never materialise a list and then slice it.
 3. Run the whole suite with your store substituted.
@@ -120,8 +150,10 @@ Maintenance is incremental:
 - `test/02` — the exact round trip.
 - `test/08` — storage: the node layout, halo persistence and 2-bit round trip,
   the `haloMass`/`hasHalo` contract, survival across a reopen, what a deposit
-  learnt whole, and near dedup (onto a whole form, kept apart by the bar, alike
-  at every batch size, off with `nearDedup: false`).
+  learnt whole, near dedup (onto a whole form, kept apart by the bar, alike at
+  every batch size, off with `nearDedup: false`), and the layers: the derived
+  one rebuilt from the base answers byte for byte, and catches up when behind
+  or lost.
 - `test/36-bloom` — the filters' exactness and persistence; their positions read
   the whole hash.
 - `test/153.4` — the span prober answers exactly what `findFlatBranch` answers.

@@ -37,6 +37,9 @@ const cleanup = (path) => {
       ".sqlite",
       ".sqlite-wal",
       ".sqlite-shm",
+      ".derived.sqlite",
+      ".derived.sqlite-wal",
+      ".derived.sqlite-shm",
       ".content.vec",
       ".content.vec-wal",
       ".content.vec-shm",
@@ -163,8 +166,9 @@ test("canon filter: persisted with its rows, rebuilt when its stamp is stale", a
   await s.close();
 
   // A writer that knows nothing of the filter (an older build) adds rows and
-  // advances the cursor, as every canon build does.
-  const db = new DatabaseSync(path + ".sqlite");
+  // advances the cursor, as every canon build does — in the derived layer's
+  // file, where the canonical index and its cursor live.
+  const db = new DatabaseSync(path + ".derived.sqlite");
   for (let i = 300; i < 350; i++) {
     db.prepare("INSERT INTO canon (h, id) VALUES (?, ?)").run(H(i), i);
   }

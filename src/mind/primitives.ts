@@ -3,8 +3,8 @@
 //   Address  — bytes → node   (perceive, foldTree, resolve)
 //   Read     — node → bytes   (read)
 
-import { Vec } from "../vec.js";
-import { Sema } from "../sema.js";
+import { addInto, permute, Vec, zeros } from "../vec.js";
+import { Sema, twoEndedSeat } from "../sema.js";
 import {
   bytesToTree,
   contentFoldIncremental,
@@ -179,6 +179,42 @@ export function inputBytes(ctx: MindContext, input: Input): Uint8Array {
 /** Convenience: the gist vector of a byte span. */
 export function gistOf(ctx: MindContext, bytes: Uint8Array): Vec {
   return perceive(ctx, bytes).v;
+}
+
+/** THE GIST OF A STORED NODE, from the node alone — what the derived layer
+ *  regenerates its content index from (`Mind.rebuildDerived`; the base keeps no
+ *  gist).  The algebra the fold wrote it with: a byte atom is its alphabet
+ *  vector, any other node its children bound to their two-ended seats and
+ *  superposed, unnormalized.  A node wider than the keyring is no single fold
+ *  — a whole stream's flat twin — and carries its stream's perceived root, as
+ *  the deposit gave it.  `memo` keeps shared subtrees folded once. */
+export function storedGist(
+  ctx: MindContext,
+  id: number,
+  memo: { get(id: number): Vec | undefined; set(id: number, v: Vec): void },
+): Vec {
+  if (id < 0) return ctx.alphabet.vecs[-(id + 1)];
+  const hit = memo.get(id);
+  if (hit !== undefined) return hit;
+  const kids = ctx.store.get(id)?.kids ?? null;
+  const seats = ctx.space.seats.length;
+  let v: Vec;
+  if (kids === null || kids.length > seats) {
+    v = perceive(ctx, ctx.store.bytes(id)).v;
+  } else {
+    v = zeros(ctx.store.D);
+    kids.forEach((k, i) => {
+      addInto(
+        v,
+        permute(
+          storedGist(ctx, k, memo),
+          ctx.space.seats[twoEndedSeat(seats, kids.length, i)].fwd,
+        ),
+      );
+    });
+  }
+  memo.set(id, v);
+  return v;
 }
 
 /** Fold a perceived tree bottom-up against the store's content-addressed maps:

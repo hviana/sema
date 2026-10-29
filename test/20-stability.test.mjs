@@ -239,6 +239,9 @@ function cleanup(stem) {
       ".sqlite",
       ".sqlite-shm",
       ".sqlite-wal",
+      ".derived.sqlite",
+      ".derived.sqlite-shm",
+      ".derived.sqlite-wal",
       ".content.vec",
       ".content.vec-shm",
       ".content.vec-wal",
@@ -356,8 +359,9 @@ test("the whole graph survives a store reopen: ids, edges, containment, document
         before.answer,
         "recall changed across reopen",
       );
-      // Containment was persisted (not a session-local map).
-      const db = new DatabaseSync(`${stem}.sqlite`);
+      // Containment was persisted (not a session-local map) — in the derived
+      // layer's file.
+      const db = new DatabaseSync(`${stem}.derived.sqlite`);
       const contain = db.prepare("SELECT COUNT(*) n FROM contain").get().n;
       db.close();
       assert.ok(contain > 0, "containment rows were not durable");
@@ -378,8 +382,12 @@ test("two identically-fed stores are row-for-row identical in every structural t
       await trainCorpus(mind);
       await store.close();
     }
+    // The reverse index and containment live in the derived layer's file.
     const dump = (stem, sql) => {
-      const db = new DatabaseSync(`${stem}.sqlite`);
+      const derived = /\bFROM (kid|contain)\b/.test(sql);
+      const db = new DatabaseSync(
+        derived ? `${stem}.derived.sqlite` : `${stem}.sqlite`,
+      );
       const rows = JSON.stringify(
         db.prepare(sql).all(),
         (_, v) => v instanceof Uint8Array ? Buffer.from(v).toString("hex") : v,
@@ -419,6 +427,8 @@ test("kid rows mirror every branch's kids exactly, and branch ids are dense", as
       await store.close();
     }
     const db = new DatabaseSync(`${stem}.sqlite`);
+    // The reverse index lives in the derived layer's file.
+    db.exec(`ATTACH DATABASE '${stem}.derived.sqlite' AS d`);
     // Dense ids: rows 0..count-1 with no gaps.
     const { n, mx } = db.prepare(
       "SELECT COUNT(*) n, MAX(id) mx FROM node",

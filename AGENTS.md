@@ -126,8 +126,9 @@ pipeline. → `docs/architecture/cost-model.md`
 
 Subclass `AbstractStore`; implement `_db*`/`_vec*` as thin wrappers. `LIMIT`
 variants must be real `LIMIT ?` queries; existence probes must be point probes.
-Run the full suite with your store substituted. → `docs/architecture/store.md`
-(+ `docs/architecture/bounded-reads.md` for caps)
+Nothing derived enters the base; every derived structure rebuilds from it
+(`Mind.rebuildDerived`). Run the full suite with your store substituted. →
+`docs/architecture/store.md` (+ `docs/architecture/bounded-reads.md` for caps)
 
 ## 5. Testing norms
 

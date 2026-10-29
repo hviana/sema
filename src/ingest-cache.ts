@@ -124,6 +124,7 @@ export class CachedIngest {
     input: Input | (Input | [Input, Input])[],
     second?: Input,
   ): Promise<(Sema & { id: number }) | undefined> {
+    await this.mind.repairDerived();
     invalidateStructuralCaches(this.mind);
     // One shape-reading for both ingest paths — see {@link dispatchIngest}.
     return dispatchIngest(

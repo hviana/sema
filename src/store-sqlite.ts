@@ -28,6 +28,7 @@
 //     own files on every write — no separate serialisation step is needed.
 
 import { DatabaseSync } from "node:sqlite";
+import { existsSync, unlinkSync } from "node:fs";
 
 import {
   AbstractStore,
@@ -35,6 +36,7 @@ import {
   type NodeId,
   type NodeRec,
   packKids,
+  DERIVED_META_KEYS,
   type Store,
   unpackKids,
 } from "./store.js";
@@ -52,7 +54,11 @@ export interface SQliteStoreOptions extends Partial<StoreConfig> {
   queryBits?: number;
 }
 
-const SCHEMA = `
+// THE BASE — what only ingestion can write (store.ts, "The record and what is
+// derived from it"): the content-addressed DAG, the edges in learnt order, the
+// wholes, the halo accumulators, the training metadata and the snapshot.
+const SCHEMA_BASE = `
+
 -- Content-addressed lookup goes through ONE small integer index: h is the
 -- FNV-1a hash of the row's content key (leaf bytes, or the packed kid ids of a
 -- mixed branch). Indexing the hash instead of the blob itself means the lookup
@@ -66,6 +72,39 @@ CREATE TABLE IF NOT EXISTS node (
   h    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_node_h ON node(h);
+-- seq is a plain INTEGER PRIMARY KEY: rowids are assigned max+1 and edges are
+-- never deleted, so insertion order is preserved without AUTOINCREMENT's
+-- sqlite_sequence bookkeeping table.
+CREATE TABLE IF NOT EXISTS edge (
+  src INTEGER NOT NULL,
+  dst INTEGER NOT NULL,
+  seq INTEGER PRIMARY KEY
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_edge ON edge(src, dst);
+CREATE INDEX IF NOT EXISTS idx_edge_dst ON edge(dst);
+CREATE TABLE IF NOT EXISTS halo (
+  id   INTEGER PRIMARY KEY,
+  vec  BLOB NOT NULL,
+  mass REAL NOT NULL DEFAULT 0
+);
+-- WHOLES: the roots a deposit learnt whole (a context, a continuation, a bare
+-- experience).  Recorded apart from the halo, which records company.
+CREATE TABLE IF NOT EXISTS whole (
+  id INTEGER PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS snapshot (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  data BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  val TEXT NOT NULL
+);
+`;
+
+// THE DERIVED LAYER — rebuildable from the base alone (`Mind.rebuildDerived`),
+// in its own file `<stem>.derived.sqlite` beside the base `<stem>.sqlite`.
+const SCHEMA_DERIVED = `
 -- Negative-lookup BLOOM FILTER over node.h — the RAM structure that lets the
 -- content-addressed dedup probes (findLeaf/findBranch, the training hot path)
 -- answer "definitely new content" without an idx_node_h descent.  Persisted
@@ -92,26 +131,6 @@ CREATE TABLE IF NOT EXISTS kid (
   parent INTEGER NOT NULL,
   PRIMARY KEY (child, parent)
 ) WITHOUT ROWID;
--- seq is a plain INTEGER PRIMARY KEY: rowids are assigned max+1 and edges are
--- never deleted, so insertion order is preserved without AUTOINCREMENT's
--- sqlite_sequence bookkeeping table.
-CREATE TABLE IF NOT EXISTS edge (
-  src INTEGER NOT NULL,
-  dst INTEGER NOT NULL,
-  seq INTEGER PRIMARY KEY
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_edge ON edge(src, dst);
-CREATE INDEX IF NOT EXISTS idx_edge_dst ON edge(dst);
-CREATE TABLE IF NOT EXISTS halo (
-  id   INTEGER PRIMARY KEY,
-  vec  BLOB NOT NULL,
-  mass REAL NOT NULL DEFAULT 0
-);
--- WHOLES: the roots a deposit learnt whole (a context, a continuation, a bare
--- experience).  Recorded apart from the halo, which records company.
-CREATE TABLE IF NOT EXISTS whole (
-  id INTEGER PRIMARY KEY
-);
 -- CONTAINMENT: the chunks a sub-span flat branch OVERLAPS (inside one, or across
 -- a boundary), for children that are not among any parent's kids list.  The
 -- climb through them reads a window's neighbourhood.  Kept SEPARATE from kid so parents() — the structural climb — is
@@ -176,10 +195,8 @@ CREATE TABLE IF NOT EXISTS sketch (
   id  INTEGER PRIMARY KEY,
   ids BLOB
 );
-CREATE TABLE IF NOT EXISTS snapshot (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  data BLOB NOT NULL
-);
+-- The derived layer's own cursors (canon.upto, the compaction watermark) and
+-- 'derived.base': the base's next node id when this layer last committed.
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   val TEXT NOT NULL
@@ -256,6 +273,14 @@ export class SQliteStore extends AbstractStore implements Store {
   private halos: VectorDatabase | null = null; // CACHE:   halo gists
 
   private sqlite: DatabaseSync | null = null;
+  /** The derived layer's connection: `<stem>.derived.sqlite`, or the base
+   *  connection itself for a store written before the layers were separated
+   *  (one file holding both, opened as it is). */
+  private derived: DatabaseSync | null = null;
+  /** Whether the derived layer has its own file (and so its own commits). */
+  private get layered(): boolean {
+    return this.derived !== null && this.derived !== this.sqlite;
+  }
 
   // Deferred write transaction guard.
   private _inTx = false;
@@ -372,20 +397,17 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // -- Lifecycle --
 
-  protected async _dbOpen(): Promise<void> {
-    const stem = this.opts.path ?? ":memory:";
-    const sp = stem === ":memory:" ? ":memory:" : `${stem}.sqlite`;
-
-    this.sqlite = new DatabaseSync(sp);
+  /** The pragmas both files of the store run under. */
+  private configure(db: DatabaseSync): DatabaseSync {
     // Page size matched to the store's row grain BEFORE any table exists (a
     // no-op on a non-empty database). Every table here holds small rows —
     // packed kid/contain pairs, byte-packed flat branches, quantized halos —
     // so SQLite's default 4 KiB pages carry mostly slack; 1 KiB pages keep
     // leaf-page fill high at a negligible extra tree depth.
-    this.sqlite.exec("PRAGMA page_size = 1024;");
+    db.exec("PRAGMA page_size = 1024;");
     // WAL + NORMAL sync: crash-safe (WAL commits are atomic) without a full
     // fsync per commit — the same discipline the vector databases use.
-    this.sqlite.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+    db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
     // SQLite's autocheckpoint default is 1000 PAGES — 1 MiB at this store's
     // 1 KiB page size — so at training write rates nearly every batch commit
     // crossed the threshold and paid a synchronous checkpoint: random writes
@@ -396,7 +418,7 @@ export class SQliteStore extends AbstractStore implements Store {
     // rewrites and amortizes the checkpoint's fixed cost; crash-safety is
     // unchanged (WAL recovery replays it), the only trade is a bounded,
     // fixed-size WAL file.
-    this.sqlite.exec("PRAGMA wal_autocheckpoint = 65536;");
+    db.exec("PRAGMA wal_autocheckpoint = 65536;");
     // Page cache for the DAG tables.  Content-addressed dedup (findLeaf /
     // findBranch), parent probes and contain appends are millions of point
     // queries per session against a file that outgrows SQLite's ~2 MiB
@@ -404,8 +426,34 @@ export class SQliteStore extends AbstractStore implements Store {
     // ingest hot path.  Negative = KiB budget (size-based, page-size
     // independent).  Latency only — results identical at any value.
     const cacheKb = Math.max(0, Math.floor(this.sqliteCacheMb * 1024));
-    if (cacheKb > 0) this.sqlite.exec(`PRAGMA cache_size = -${cacheKb};`);
-    this.sqlite.exec(SCHEMA);
+    if (cacheKb > 0) db.exec(`PRAGMA cache_size = -${cacheKb};`);
+    return db;
+  }
+
+  protected async _dbOpen(): Promise<void> {
+    const stem = this.opts.path ?? ":memory:";
+    const sp = stem === ":memory:" ? ":memory:" : `${stem}.sqlite`;
+
+    // A store written before the layers were separated keeps its derived
+    // tables in the base file: opened as it is, one file, one connection.
+    let legacy = false;
+    if (sp !== ":memory:" && existsSync(sp)) {
+      const probe = new DatabaseSync(sp, { readOnly: true });
+      legacy = probe.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kid'",
+      ).get() !== undefined;
+      probe.close();
+    }
+    this.sqlite = this.configure(new DatabaseSync(sp));
+    this.sqlite.exec(SCHEMA_BASE);
+    if (legacy) {
+      this.derived = this.sqlite;
+    } else {
+      this.derived = this.configure(
+        new DatabaseSync(sp === ":memory:" ? ":memory:" : `${stem}.derived.sqlite`),
+      );
+    }
+    this.derived.exec(SCHEMA_DERIVED);
 
     // Recover D from a previous run so loadFromStore() can bootstrap with any
     // default — the real value is read from meta before vector indices load.
@@ -486,6 +534,52 @@ export class SQliteStore extends AbstractStore implements Store {
     ).get() as { m: number | null }).m ?? -1) + 1;
 
     this._bloomLoad();
+    this._derivedCatchUp();
+  }
+
+  /** Where the derived layer stands behind the base (see {@link
+   *  Store.derivedLag}); null when current. */
+  private _derivedFrom: number | null = null;
+
+  /** On open: a layered store whose derived layer last saw fewer nodes than
+   *  the base holds re-derives what the store alone can — the reverse index of
+   *  the nodes it has not seen — and records where the rest (containment,
+   *  read off the deposits' trees) must resume. */
+  private _derivedCatchUp(): void {
+    if (!this.layered) return;
+    const covered = Number(this._dbGetMeta("derived.base") ?? 0);
+    if (covered >= this._nextId) return;
+    this._derivedFrom = covered;
+    const scan = this.sqlite!.prepare(
+      "SELECT id, kids FROM node WHERE id >= ? AND kids IS NOT NULL " +
+        "AND length(kids) > 0 ORDER BY id",
+    );
+    scan.setReturnArrays(true);
+    this._dbBeginTx();
+    for (
+      const [id, kids] of scan.iterate(covered) as IterableIterator<
+        [number, Uint8Array]
+      >
+    ) {
+      for (const c of unpackKids(kids)) {
+        if (c < 0 && c >= -256) continue;
+        this._dbInsertKid(c, id);
+      }
+    }
+    this._dbCommitTx();
+  }
+
+  /** {@link Store.derivedLag} */
+  override derivedLag(): number | null {
+    return this._derivedFrom;
+  }
+
+  /** {@link Store.markDerivedCurrent} */
+  override markDerivedCurrent(): void {
+    this._derivedFrom = null;
+    if (!this.layered) return;
+    this._dbBeginTx();
+    this._dbCommitTx(); // stamps derived.base with the current node count
   }
 
   // ── negative dedup filter: load / rebuild / persist ────────────────────
@@ -494,7 +588,7 @@ export class SQliteStore extends AbstractStore implements Store {
    *  (id ≥ stored `upto`); a missing/undersized blob forces a full rebuild.
    *  Clean-close sessions restart with a 0-row top-up. */
   private _bloomLoad(): void {
-    const row = this.sqlite!.prepare(
+    const row = this.derived!.prepare(
       "SELECT bits, n, upto FROM bloom WHERE id = 1",
     ).get() as { bits: Uint8Array; n: number; upto: number } | undefined;
     const wantLog2 = bloomLog2For(this._nextId);
@@ -544,9 +638,9 @@ export class SQliteStore extends AbstractStore implements Store {
    *  caller's transaction when one is open (checkpoint/close both flush
    *  first). */
   private _bloomPersist(): void {
-    if (!this._bloom || !this.sqlite) return;
+    if (!this._bloom || !this.derived) return;
     if (this._nextId < BLOOM_PERSIST_MIN_NODES) return;
-    this.sqlite.prepare(
+    this.derived.prepare(
       "INSERT INTO bloom (id, bits, n, upto) VALUES (1, ?, ?, ?) " +
         "ON CONFLICT(id) DO UPDATE SET bits = excluded.bits, " +
         "n = excluded.n, upto = excluded.upto",
@@ -566,6 +660,8 @@ export class SQliteStore extends AbstractStore implements Store {
       this.halos.close();
       this.halos = null;
     }
+    if (this.layered) this.derived!.close();
+    this.derived = null;
     if (this.sqlite) {
       this.sqlite.close();
       this.sqlite = null;
@@ -577,15 +673,26 @@ export class SQliteStore extends AbstractStore implements Store {
   protected _dbBeginTx(): void {
     if (this._inTx || !this.sqlite) return;
     this.sqlite.exec("BEGIN");
+    if (this.layered) this.derived!.exec("BEGIN");
     this._inTx = true;
   }
 
+  /** The base commits FIRST.  Two files never commit as one (WAL), so a crash
+   *  between the two commits leaves the derived layer BEHIND the base — rows
+   *  missing for the last nodes, repaired on the next open — and never ahead
+   *  of it, naming nodes that do not exist. */
   protected _dbCommitTx(): void {
     if (!this._inTx || !this.sqlite) return;
     // The canon filter commits WITH the rows it covers — see canon_bloom.
     this._canonBloomPersist();
     this._inTx = false; // clear first so a throw can't wedge us mid-commit
     this.sqlite.exec("COMMIT");
+    if (this.layered) {
+      if (this._derivedFrom === null) {
+        this._dbSetMeta("derived.base", String(this._nextId));
+      }
+      this.derived!.exec("COMMIT");
+    }
   }
 
   // -- Node CRUD --
@@ -695,7 +802,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   protected _dbInsertKid(child: NodeId, parent: NodeId): void {
     if (!this._insertKid) {
-      this._insertKid = this.sqlite!.prepare(
+      this._insertKid = this.derived!.prepare(
         "INSERT OR IGNORE INTO kid (child, parent) VALUES (?, ?)",
       );
     }
@@ -704,7 +811,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   protected _dbGetParents(id: NodeId): NodeId[] {
     if (!this._selParents) {
-      this._selParents = this.sqlite!.prepare(
+      this._selParents = this.derived!.prepare(
         "SELECT parent FROM kid WHERE child = ?",
       );
     }
@@ -718,7 +825,7 @@ export class SQliteStore extends AbstractStore implements Store {
   private _selParentsFirst: any = null;
   protected _dbGetParentsFirst(id: NodeId, limit: number): NodeId[] {
     if (!this._selParentsFirst) {
-      this._selParentsFirst = this.sqlite!.prepare(
+      this._selParentsFirst = this.derived!.prepare(
         "SELECT parent FROM kid WHERE child = ? LIMIT ?",
       );
     }
@@ -731,7 +838,7 @@ export class SQliteStore extends AbstractStore implements Store {
    *  without handing them to JS. */
   protected override _dbParentsExceed(id: NodeId, n: number): boolean {
     if (!this._selParentBeyond) {
-      this._selParentBeyond = this.sqlite!.prepare(
+      this._selParentBeyond = this.derived!.prepare(
         "SELECT 1 FROM kid WHERE child = ? LIMIT 1 OFFSET ?",
       );
     }
@@ -747,6 +854,10 @@ export class SQliteStore extends AbstractStore implements Store {
    *  dominates on the deep single-structure scaffolding this read exists
    *  for. */
   protected override _chainWalk(id: NodeId, cap: number): NodeId[] {
+    // The walk reads parents (derived) beside edges (base).  With the layers
+    // in two files no one SQL statement sees both as this session wrote them,
+    // so the base class's loop of the same three probes walks it.
+    if (this.layered) return super._chainWalk(id, cap);
     if (!this._selChain) {
       this._selChain = this.sqlite!.prepare(
         `WITH RECURSIVE chain(n, d) AS (
@@ -779,7 +890,7 @@ export class SQliteStore extends AbstractStore implements Store {
   protected _dbContainExists(child: NodeId): boolean {
     if (!this._selContainExists) {
       // A probe of the child's rowid range — one descent.
-      this._selContainExists = this.sqlite!.prepare(
+      this._selContainExists = this.derived!.prepare(
         "SELECT 1 AS one FROM contain WHERE id >= ? AND id < ? LIMIT 1",
       );
     }
@@ -793,7 +904,7 @@ export class SQliteStore extends AbstractStore implements Store {
    *  rows, each read from the cell header without loading the blob. */
   private containPages(child: NodeId): Array<{ seq: number; len: number }> {
     if (!this._selContainPages) {
-      this._selContainPages = this.sqlite!.prepare(
+      this._selContainPages = this.derived!.prepare(
         "SELECT id, length(parents) AS len FROM contain " +
           "WHERE id >= ? AND id < ? ORDER BY id",
       );
@@ -810,7 +921,7 @@ export class SQliteStore extends AbstractStore implements Store {
   private _selContainPage: any = null;
   private containPage(child: NodeId, seq: number): Uint8Array {
     if (!this._selContainPage) {
-      this._selContainPage = this.sqlite!.prepare(
+      this._selContainPage = this.derived!.prepare(
         "SELECT parents FROM contain WHERE id = ?",
       );
     }
@@ -826,7 +937,7 @@ export class SQliteStore extends AbstractStore implements Store {
   ): NodeId[] {
     if (!this._selContainPageSub) {
       // substr on a BLOB returns bytes: unpack only the requested span.
-      this._selContainPageSub = this.sqlite!.prepare(
+      this._selContainPageSub = this.derived!.prepare(
         "SELECT substr(parents, 1 + ? * 4, ? * 4) AS page " +
           "FROM contain WHERE id = ?",
       );
@@ -859,7 +970,7 @@ export class SQliteStore extends AbstractStore implements Store {
     if (!this._selContainCount) {
       // Stored ENTRY count (transient duplicates included) — consistent with
       // what the slice streams, which is all the seam math needs.
-      this._selContainCount = this.sqlite!.prepare(
+      this._selContainCount = this.derived!.prepare(
         "SELECT COALESCE(SUM(length(parents)), 0) / 4 AS n " +
           "FROM contain WHERE id >= ? AND id < ?",
       );
@@ -872,7 +983,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   protected _dbGetContainParents(child: NodeId): NodeId[] {
     if (!this._selContain) {
-      this._selContain = this.sqlite!.prepare(
+      this._selContain = this.derived!.prepare(
         "SELECT parents FROM contain WHERE id >= ? AND id < ? ORDER BY id",
       );
     }
@@ -902,11 +1013,11 @@ export class SQliteStore extends AbstractStore implements Store {
   protected _dbAppendContain(child: NodeId, parents: NodeId[]): void {
     if (parents.length === 0) return;
     if (!this._upsContainPage) {
-      this._upsContainPage = this.sqlite!.prepare(
+      this._upsContainPage = this.derived!.prepare(
         "INSERT INTO contain (id, parents) VALUES (?, ?) " +
           "ON CONFLICT(id) DO UPDATE SET parents = excluded.parents",
       );
-      this._delContainPage = this.sqlite!.prepare(
+      this._delContainPage = this.derived!.prepare(
         "DELETE FROM contain WHERE id = ?",
       );
     }
@@ -1100,40 +1211,34 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // -- Meta --
 
+  /** The connection a metadata key lives on: a derived cursor with its layer
+   *  (`DERIVED_META_KEYS`), everything else with the base. */
+  private metaDb(key: string): DatabaseSync {
+    return DERIVED_META_KEYS.has(key) ? this.derived! : this.sqlite!;
+  }
+
   protected _dbGetMeta(key: string): string | null {
-    if (!this._getMeta) {
-      this._getMeta = this.sqlite!.prepare(
-        "SELECT val FROM meta WHERE key = ?",
-      );
-    }
-    const row = this._getMeta.get(key) as { val: string } | undefined;
+    const row = this.metaDb(key).prepare("SELECT val FROM meta WHERE key = ?")
+      .get(key) as { val: string } | undefined;
     return row ? row.val : null;
   }
 
   protected _dbSetMeta(key: string, val: string): void {
-    if (!this._setMeta) {
-      this._setMeta = this.sqlite!.prepare(
-        "INSERT INTO meta (key, val) VALUES (?, ?) " +
-          "ON CONFLICT(key) DO UPDATE SET val = excluded.val",
-      );
-    }
-    this._setMeta.run(key, val);
+    this.metaDb(key).prepare(
+      "INSERT INTO meta (key, val) VALUES (?, ?) " +
+        "ON CONFLICT(key) DO UPDATE SET val = excluded.val",
+    ).run(key, val);
   }
 
   protected _dbDeleteMeta(key: string): void {
-    if (!this._delMeta) {
-      this._delMeta = this.sqlite!.prepare(
-        "DELETE FROM meta WHERE key = ?",
-      );
-    }
-    this._delMeta.run(key);
+    this.metaDb(key).prepare("DELETE FROM meta WHERE key = ?").run(key);
   }
 
   // -- Canonical-form index (Store optional capability) --
 
   canonAdd(h: number, id: number): void {
     if (!this._insCanon) {
-      this._insCanon = this.sqlite!.prepare(
+      this._insCanon = this.derived!.prepare(
         "INSERT OR IGNORE INTO canon (h, id) VALUES (?, ?)",
       );
     }
@@ -1153,7 +1258,7 @@ export class SQliteStore extends AbstractStore implements Store {
    *  else built from the index as it stands. */
   private _canonFilter(): NodeBloom {
     if (this._canonBloom === null) {
-      const row = this.sqlite!.prepare(
+      const row = this.derived!.prepare(
         "SELECT bits, n, upto FROM canon_bloom WHERE id = 1",
       ).get() as { bits: Uint8Array; n: number; upto: string } | undefined;
       if (row !== undefined && row.upto === this._canonStamp()) {
@@ -1171,7 +1276,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   private _canonScan(): NodeBloom {
     const b = new NodeBloom(bloomLog2For(this.canonCount()));
-    const scan = this.sqlite!.prepare("SELECT h FROM canon");
+    const scan = this.derived!.prepare("SELECT h FROM canon");
     scan.setReturnArrays(true);
     for (const r of scan.iterate() as IterableIterator<[number]>) b.add(r[0]);
     return b;
@@ -1185,8 +1290,8 @@ export class SQliteStore extends AbstractStore implements Store {
 
   private _canonBloomPersist(): void {
     const b = this._canonBloom;
-    if (b === null || !this._canonBloomDirty || !this.sqlite) return;
-    this.sqlite.prepare(
+    if (b === null || !this._canonBloomDirty || !this.derived) return;
+    this.derived.prepare(
       "INSERT INTO canon_bloom (id, bits, n, upto) VALUES (1, ?, ?, ?) " +
         "ON CONFLICT(id) DO UPDATE SET bits = excluded.bits, " +
         "n = excluded.n, upto = excluded.upto",
@@ -1197,7 +1302,7 @@ export class SQliteStore extends AbstractStore implements Store {
   canonFind(h: number): number[] {
     if (!this._canonFilter().mightContain(h)) return [];
     if (!this._selCanon) {
-      this._selCanon = this.sqlite!.prepare(
+      this._selCanon = this.derived!.prepare(
         "SELECT id FROM canon WHERE h = ?",
       );
     }
@@ -1208,7 +1313,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   sketchGet(id: number): number[] | null {
     if (!this._selSketch) {
-      this._selSketch = this.sqlite!.prepare(
+      this._selSketch = this.derived!.prepare(
         "SELECT ids FROM sketch WHERE id = ?",
       );
     }
@@ -1228,7 +1333,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   sketchPut(id: number, ids: readonly number[]): void {
     if (!this._insSketch) {
-      this._insSketch = this.sqlite!.prepare(
+      this._insSketch = this.derived!.prepare(
         "INSERT OR REPLACE INTO sketch (id, ids) VALUES (?, ?)",
       );
     }
@@ -1243,7 +1348,7 @@ export class SQliteStore extends AbstractStore implements Store {
 
   canonCount(): number {
     if (!this._cntCanon) {
-      this._cntCanon = this.sqlite!.prepare(
+      this._cntCanon = this.derived!.prepare(
         "SELECT count(*) AS c FROM canon",
       );
     }
@@ -1344,6 +1449,78 @@ export class SQliteStore extends AbstractStore implements Store {
     after: number,
   ): IterableIterator<{ ext: NodeId; internal: number }> {
     if (this.content) yield* this.content.keysSince(after);
+  }
+
+  // -- The derived layer --
+
+  /** {@link AbstractStore._dbClearDerived} — inside the caller's transaction.
+   *  The vector indexes live in their own files, so they are closed, removed
+   *  and opened empty. */
+  protected _dbClearDerived(): void {
+    this.derived!.exec(
+      "DELETE FROM kid; DELETE FROM contain; DELETE FROM bloom; " +
+        "DELETE FROM canon; DELETE FROM canon_bloom; DELETE FROM sketch;",
+    );
+    for (const key of DERIVED_META_KEYS) this._dbDeleteMeta(key);
+    this._canonBloom = null;
+    this._canonBloomDirty = false;
+    for (const name of ["content", "halo"] as const) {
+      (name === "content" ? this.content : this.halos)?.close();
+      const path = this.vectorDbPath(name);
+      if (path !== ":memory:") {
+        for (const f of [path, `${path}-wal`, `${path}-shm`]) {
+          try {
+            unlinkSync(f);
+          } catch {
+            // absent: nothing to remove
+          }
+        }
+      }
+      if (name === "content") this.content = this.openVectorDB(name);
+      else this.halos = this.openVectorDB(name);
+    }
+  }
+
+  /** {@link AbstractStore._dbEachBranch} */
+  protected _dbEachBranch(cb: (id: NodeId, kids: NodeId[]) => void): void {
+    const scan = this.sqlite!.prepare(
+      "SELECT id, kids FROM node WHERE kids IS NOT NULL AND length(kids) > 0 " +
+        "ORDER BY id",
+    );
+    scan.setReturnArrays(true);
+    for (const [id, kids] of scan.iterate() as IterableIterator<[number, Uint8Array]>) {
+      cb(id, unpackKids(kids));
+    }
+  }
+
+  /** {@link AbstractStore._dbEachWhole} */
+  protected _dbEachWhole(cb: (id: NodeId) => void): void {
+    const scan = this.sqlite!.prepare("SELECT id FROM whole ORDER BY id");
+    scan.setReturnArrays(true);
+    for (const [id] of scan.iterate() as IterableIterator<[number]>) cb(id);
+  }
+
+  /** {@link AbstractStore._dbEachBridge} */
+  protected _dbEachBridge(cb: (id: NodeId) => void): void {
+    const scan = this.derived!.prepare(
+      "SELECT child FROM kid GROUP BY child HAVING count(*) >= 2 ORDER BY child",
+    );
+    scan.setReturnArrays(true);
+    for (const [id] of scan.iterate() as IterableIterator<[number]>) cb(id);
+  }
+
+  /** {@link AbstractStore._dbEachHalo} */
+  protected _dbEachHalo(cb: (id: NodeId, vec: Uint8Array) => void): void {
+    const scan = this.sqlite!.prepare("SELECT id, vec FROM halo ORDER BY id");
+    scan.setReturnArrays(true);
+    for (const [id, vec] of scan.iterate() as IterableIterator<[number, Uint8Array]>) {
+      cb(id, vec);
+    }
+  }
+
+  /** {@link AbstractStore._dbRebuildFilter} */
+  protected _dbRebuildFilter(): void {
+    this._bloomRebuild();
   }
 
   /** {@link AbstractStore._dbEdgeOrHaloIds} — one C-side scan; UNION dedups

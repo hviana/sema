@@ -133,6 +133,7 @@ import {
   perceive as perceiveImpl,
   perceiveKey,
   resolve as resolveImpl,
+  storedGist,
 } from "./primitives.js";
 import {
   chooseNext,
@@ -164,7 +165,7 @@ export type {
 } from "./types.js";
 import { aluToMechanism, defaultMechanisms, think } from "./pipeline.js";
 import { articulate } from "./articulation.js";
-import { ingest } from "./learning.js";
+import { ingest, reindexContainment } from "./learning.js";
 import { rItem } from "./trace.js";
 // The work meter is exported from src/index.ts (via src/meter.ts) — the one
 // definition; the Mind only consumes it.
@@ -1147,6 +1148,7 @@ export class Mind implements MindContext {
      *  nothing (§ rationale.ts), exactly as on the inference path. */
     inspectRationale?: InspectRationale,
   ): Promise<(Sema & { id: number }) | undefined> {
+    await this.repairDerived();
     invalidateStructuralCaches(this);
     const prevTrace = this.trace;
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
@@ -1247,6 +1249,85 @@ export class Mind implements MindContext {
     await store.setMeta("canon.upto", String(maxId + 1));
     store.commit();
     return added;
+  }
+
+  // ── The derived layer ──────────────────────────────────────────────────
+
+  /** REBUILD EVERYTHING DERIVED FROM THE BASE (store.md): drop it and derive
+   *  it again from the nodes, edges, wholes and halos alone, in their order.
+   *
+   *  - the structural reverse index and the dedup filter, from the nodes;
+   *  - containment, from every whole's stored tree (`reindexContainment`);
+   *  - the content index, by the rule ingestion follows with no budget: every
+   *    edge endpoint's subtree, every whole, its parts, every halo holder and
+   *    every bridge, under gists folded from the stored nodes (`storedGist`);
+   *  - the halo index, from the accumulators;
+   *  - the canonical-form index, from scratch.
+   *
+   *  Exact structures come back identical; the approximate vector indexes
+   *  come back with the same vectors per id — never fewer ids than a budgeted
+   *  ingestion indexed — not the same clusters.  A batch over the whole store:
+   *  run after training, never while answering. */
+  async rebuildDerived(): Promise<void> {
+    const store = this.store;
+    await store.clearDerived();
+    await store.rebuildStructure();
+    const wholes: number[] = [];
+    store.eachWhole((id) => wholes.push(id));
+    for (const id of wholes) await reindexContainment(this, id);
+    store.commit();
+    const memo = new BoundedMap<number, Vec>(64_000_000, (v) => v.byteLength);
+    const gist = (id: number): Vec => storedGist(this, id, memo);
+    const subtree = (root: number): void => {
+      const stack = [root];
+      const seen = new Set<number>(stack);
+      while (stack.length > 0) {
+        const id = stack.pop()!;
+        const kids = id < 0 ? null : store.get(id)?.kids;
+        if (!kids) continue;
+        store.reindexGist(id, gist(id));
+        for (const k of kids) {
+          if (!seen.has(k)) {
+            seen.add(k);
+            stack.push(k);
+          }
+        }
+      }
+    };
+    store.eachTarget((id) => {
+      if (id >= 0) subtree(id);
+    });
+    for (const id of wholes) {
+      store.reindexGist(id, gist(id));
+      for (const k of store.get(id)?.kids ?? []) {
+        if (k >= 0) store.reindexGist(k, gist(k));
+      }
+    }
+    store.eachBridge((id) => store.reindexGist(id, gist(id)));
+    await store.reindexHalos();
+    await this.buildCanonIndex();
+    store.commit();
+    store.markDerivedCurrent();
+  }
+
+  /** CATCH THE DERIVED LAYER UP WITH THE BASE.  The layers commit base first,
+   *  so a crash between their commits leaves the derived layer behind: the
+   *  store re-derives on open what it can alone (the reverse index), and this
+   *  re-derives the containment of the deposits it had not seen — or the whole
+   *  layer, when its file was lost.  Cheap when nothing is behind (one check),
+   *  and run before every ingest: a write path, never an answer (asking never
+   *  writes). */
+  async repairDerived(): Promise<void> {
+    const from = this.store.derivedLag();
+    if (from === null) return;
+    if (from === 0) return this.rebuildDerived();
+    const behind: number[] = [];
+    this.store.eachWhole((id) => {
+      if (id >= from) behind.push(id);
+    });
+    for (const id of behind) await reindexContainment(this, id);
+    this.store.commit();
+    this.store.markDerivedCurrent();
   }
 
   // ── Persistence ──────────────────────────────────────────────────────────

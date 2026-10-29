@@ -40,7 +40,7 @@ Sema is one system, stated four ways:
 | 6  | `mechanism-market.md`     | one interface, one price; never compute what cannot change the decision                                            |
 | 7  | `commonality.md`          | frame against filler is read over a named population: corpus, cohort or places, never substituted                  |
 | 8  | `bounded-reads.md`        | no per-query read grows with `N`; the store enforces `hubBound = ⌈√N⌉`                                             |
-| 9  | `store.md`                | a node is named by its content; `AbstractStore` owns every domain decision                                         |
+| 9  | `store.md`                | a node is named by its content; the base keeps what was given, all else is derived from it and rebuilt             |
 | 10 | `fold-contract.md`        | deposit and question fold the same bytes into the same tree and the same node; nothing outside the bytes shapes it |
 | 11 | `memoization.md`          | asking never writes; shared analyses are computed once per response, and tracing changes no answer                 |
 | 12 | `saturation.md`           | every walk names the stop that decides it; the cap is only a net                                                   |
