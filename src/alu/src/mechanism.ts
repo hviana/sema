@@ -10,6 +10,7 @@
 // mechanism's on the host's own terms: no precedence, no reading of what
 // another mechanism found.
 
+import { bytesEqual } from "../../bytes.js";
 import { Alu, type AluOptions } from "./alu.js";
 import type { AluHost, ComputedSpan } from "./parser.js";
 
@@ -31,11 +32,14 @@ export interface MechanismAnswer {
 export function aluMechanism(opts: AluOptions = {}) {
   return (host: MechanismHost) => {
     const alu = new Alu(opts, host);
-    // The floor and the run read one parse of one query.
+    // The floor and the run read one parse of one query — the query's
+    // bytes, kept as a copy, so a caller's reused buffer is a new query.
     let last: { query: Uint8Array; spans: Promise<ComputedSpan[]> } | null =
       null;
     const spansOf = (query: Uint8Array): Promise<ComputedSpan[]> => {
-      if (last?.query !== query) last = { query, spans: alu.parse(query) };
+      if (last === null || !bytesEqual(last.query, query)) {
+        last = { query: query.slice(), spans: alu.parse(query) };
+      }
       return last.spans;
     };
     return {

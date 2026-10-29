@@ -246,12 +246,16 @@ export function registerArith(r: OperationRegistry): void {
       ? BigInt(e.x)
       : null;
     if (eInt !== null) {
-      let n = eInt;
-      const neg = n < 0n;
-      if (neg) n = -n;
+      // By squaring: log2(n) multiplies, not n (`2^99999999` was 10^8 of them).
+      let n = eInt < 0n ? -eInt : eInt;
       let acc: Value = int(1n);
-      for (let i = 0n; i < n; i++) acc = ctx.apply("multiply", [acc, base]);
-      return neg ? ctx.apply("reciprocal", [acc]) : acc;
+      let sq = base;
+      while (n > 0n) {
+        if (n & 1n) acc = ctx.apply("multiply", [acc, sq]);
+        n >>= 1n;
+        if (n > 0n) sq = ctx.apply("multiply", [sq, sq]);
+      }
+      return eInt < 0n ? ctx.apply("reciprocal", [acc]) : acc;
     }
     // Fractional exponent: b^e = exp(e·ln b), needing the limit layer.
     if (ctx.has("exp") && ctx.has("log")) {

@@ -124,9 +124,24 @@ export function integrate(
 }
 
 /** e^x by its Taylor series, summed until a term is below tolerance — a
- *  `converge` over partial sums.  (Range-reduction-free; adequate for the
- *  arguments a query produces, and exact in the limit.) */
+ *  `converge` over partial sums — with argument reduction, as {@link sinSeries}
+ *  has: the series alternates and cancels catastrophically below zero, so
+ *  e^x = 1 / e^−x there; and it needs ~x terms above one, so the argument is
+ *  halved until it is at most one and the sum squared back (`53^-10.6` read
+ *  24.37 for 5.5e-19). */
 export function expSeries(x: number, tol: number, maxIter: number): number {
+  if (x < 0) return 1 / expSeries(-x, tol, maxIter);
+  let halvings = 0;
+  while (x > 1) {
+    x /= 2;
+    halvings++;
+  }
+  let sum = expTaylor(x, tol, maxIter);
+  while (halvings-- > 0) sum *= sum;
+  return sum;
+}
+
+function expTaylor(x: number, tol: number, maxIter: number): number {
   let term = 1;
   let sum = 1;
   for (let n = 1; n < maxIter; n++) {

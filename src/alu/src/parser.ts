@@ -269,8 +269,8 @@ export class QueryParser {
    *  and is no operand (the "?" of "7?" is not `times`' second operand).  The
    *  numeral keeps its reading (digits ground a quantity wherever they stand,
    *  and "2+2?" or "(3" glue a numeral to bytes that are no token); only the
-   *  cut-off rest loses the claim to be one.  An
-   *  operator is notation, so a term it bounds stays whole ("-sqrt 9"). */
+   *  cut-off rest loses the claim to be one.  An operator is notation, so a
+   *  term it bounds stays whole ("-sqrt 9"). */
   private lex(query: Uint8Array): Token[] {
     const { operands, operators } = this.alu.scan(query);
     const claimed = [

@@ -253,6 +253,22 @@ test("real power via exp∘log agrees with Math.pow", () => {
   close(asReal(ctx.apply("power", [real(2), real(0.5)])), Math.SQRT2, 1e-6);
 });
 
+test("exp reduces its argument: a far exponent stays accurate on either side", () => {
+  const { ctx } = fullCtx();
+  // The alternating series below zero cancelled: 53^-10.6 read 24.37.
+  const tiny = asReal(ctx.apply("power", [real(53), real(-10.6)]));
+  close(tiny / Math.pow(53, -10.6), 1, 1e-6);
+  const huge = asReal(ctx.apply("exp", [real(300)]));
+  close(huge / Math.exp(300), 1, 1e-6);
+});
+
+test("an integer power is by squaring: 2^(2^20) is twenty multiplies, not a million", () => {
+  const { ctx } = fullCtx();
+  const p = ctx.apply("power", [int(2n), int(1n << 20n)]);
+  assert.equal(N(p), 1n << 1048576n);
+  assert.equal(N(ctx.apply("power", [int(-3n), int(5n)])), -243n);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 4 — Arithmetic: polynomial / vector / matrix / linsolve (structured arith).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -540,6 +556,9 @@ test("the mechanism's floor parses nothing when one move cannot beat the incumbe
     (await m.run(null, two)).map((a) => [dec(a.bytes), a.accounted, a.moves]),
     [["4", [[0, 3]], 1]],
   );
+  // A reused buffer holding other bytes is another query.
+  two.set(enc("3+3"));
+  assert.deepEqual((await m.run(null, two)).map((a) => dec(a.bytes)), ["6"]);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

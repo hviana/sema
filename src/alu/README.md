@@ -72,10 +72,10 @@ half-open byte range and the result computed for it. `aluMechanism`
 span it explains, one move. Sema registers it like any mechanism
 (`docs/mechanisms/alu.md`).
 
-**The host port.** At construction the ALU receives an `ExtensionHost`, four
+**The host port.** At construction the ALU receives its `AluHost`, four
 neutral capabilities that know nothing about the ALU:
 `meaningOf(bytes, anchors)`, `continuation(bytes)`, `segment(bytes)` and
-`reach`. The ALU adapts them into its own `AluResonance` (`resonance.ts`):
+`reach`; its mechanism also reads `step`, the price of one move. The ALU adapts them into its own `AluResonance` (`resonance.ts`):
 
 - `meaningOf` becomes `recogniseOp`: which operation does this span mean?
 - `continuation` becomes `opposite`: a symbol's inverse.
