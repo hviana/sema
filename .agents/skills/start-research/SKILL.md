@@ -66,14 +66,15 @@ old copy.
 
 ## 2 — Get the real store
 
-The harnesses measure on real data: `data/sema.sqlite` plus its two vector
+The harnesses measure on real data: `data/sema.sqlite` (the base), its derived
+layer `data/sema.derived.sqlite` when the store is layered, and its two vector
 indexes (`SQliteStore` finds them by stem). `data/` is gitignored — never commit
 it. Download only what is missing or truncated:
 
 ```bash
 B=https://huggingface.co/buckets/hviana/sema-trained-v1/resolve
 mkdir -p data
-for f in sema.sqlite sema.content.vec sema.halo.vec; do
+for f in sema.sqlite sema.derived.sqlite sema.content.vec sema.halo.vec; do
   r=$(curl -sIL "$B/$f?download=true" | awk 'tolower($1)=="content-length:"{n=$2} END{print n+0}')
   [ "$r" -gt 0 ] || { echo "NO REMOTE SIZE: $f"; continue; }
   l=$(wc -c < "data/$f" 2>/dev/null || echo 0)
@@ -214,6 +215,7 @@ without evidence is a failure, not a pass. Any failure ⇒ revert and return to 
 | 6 | Clean code: OO practice, conventions and design patterns, sitting in — or spread across — the right layers, with no logical, semantic or conceptual duplication.                         |
 | 7 | No store change and no new index, unless exceptionally justified.                                                                                                                        |
 | 8 | Every code change is reflected in the `.md` files (excluding the root README and the licences) — see below.                                                                              |
+| 9 | Machinery is byte-oriented and text-agnostic: no rule may assume words, whitespace, case, script or any other property of text — only bytes.                                             |
 
 **Criterion 8, how.** Those files hold the minimum text needed to understand the
 whole. They must describe current behaviour. Do not rewrite them: they contain
