@@ -18,7 +18,9 @@ three bytes at `STEP`, `what is 2+2` leaves the frame unaccounted.
 Nothing privileges it. No mechanism reads its spans, nothing masks a learnt
 site for it, and at an equal grade the declared order decides, as for every
 candidate: a corpus that learnt `2+2 → 5` answers `5`, since the cover, earlier
-in the order, explains the same bytes at the same price.
+in the order, explains the same bytes at the same price. A computed span is a
+function of its bytes alone, so each answer is a `piece` and composes with the
+rest of the question like any piece: `ice 2+2` → `cold 4`.
 
 ## Provenance
 

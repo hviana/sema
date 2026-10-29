@@ -20,11 +20,13 @@ export interface MechanismHost extends AluHost {
   readonly step: number;
 }
 
-/** One answer: the result bytes, the query spans they explain, the work. */
+/** One answer: the result bytes, the query spans they explain, the work, and
+ *  that it is a piece — a function of its span's bytes alone. */
 export interface MechanismAnswer {
   bytes: Uint8Array;
   accounted: Array<[number, number]>;
   moves: number;
+  piece: true;
 }
 
 /** A factory for the ALU's mechanism under a host.  The mechanism keeps its
@@ -64,6 +66,7 @@ export function aluMechanism(opts: AluOptions = {}) {
           bytes: u.bytes,
           accounted: [[u.i, u.j]],
           moves: host.step,
+          piece: true as const,
         }));
       },
     };

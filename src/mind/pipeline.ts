@@ -33,29 +33,18 @@ import {
 } from "./traverse.js";
 import { windowIndex, witness } from "./evidence.js";
 import { indexOf } from "../bytes.js";
+import { compose, type GroundedPiece } from "./composition.js";
 import {
   type MechanismResult,
   type PipelineMechanism,
   Precomputed,
 } from "./pipeline-mechanism.js";
-// Re-exports: cover's pre-resolution helpers, kept importable from the
-// pipeline module (their historical home).
-export { offerConcepts, offerConnectors } from "./mechanisms/cover.js";
-
 // ── think — the main inference pipeline ─────────────────────────────────────
 
-/** Sema's own mechanisms' tags; any other registered mechanism names its own
- *  act.  Reported throughout, compared nowhere. */
-export type Provenance =
-  | "cast"
-  | "join"
-  | "cover"
-  | "extract"
-  | "reference"
-  | "recall"
-  | "recall-echo"
-  | "prefix"
-  | (string & {});
+/** The tag of the act that grounded an answer: each mechanism names its own
+ *  (`PipelineMechanism.provenance`), and the decider's composition is
+ *  `compose`.  Reported throughout, compared nowhere. */
+export type Provenance = string;
 
 export interface Thought {
   bytes: Uint8Array;
@@ -96,33 +85,17 @@ export interface NarrowDecisionData {
   margin: number;
 }
 
-/** Structured payload of the "regimePrediction" rationale step — the R8
- *  observation exposed as data. After the first mechanism (cover, which
- * mechanism-market.md runs first) grounds or abstains, the market's whole
- * outcome is already determined by the one cost ladder: the consensus climb
- * runs exactly when `worthRunning(2 * STEP)` is true — CAST (floor 2·STEP) is
- * the cheapest mechanism that first-touches it, and confluence (3·STEP) /
- * extraction (CONCEPT+STEP) are only reached after CAST is. An incumbent at or
- * below that floor prunes CAST and, with it, the climb (retrieval); anything
- * above — or no incumbent — runs the full market and the climb (composition).
- * Purely observational; never read by inference. */
-export interface RegimePredictionData {
-  version: 1;
-  /** retrieval | composition — the two regimes R1 measured as a ~100× cost
-   *  step. */
+/** Structured payload of the "regime" rationale step: which of the two
+ *  regimes R1 measured as a ~100× cost step this response took — read off the
+ *  response, not predicted from any mechanism's floor.  Composition is the
+ *  response whose market ran the consensus climb; retrieval decided without
+ *  it.  Purely observational; never read by inference. */
+export interface RegimeData {
+  version: 2;
   regime: "retrieval" | "composition";
-  /** The incumbent's grade once the first mechanism's turn is over (it ran, or
-   *  it was skipped), or null when nothing has grounded — `best === null`,
-   *  which is composition with no incumbent. */
+  /** The grade the market's incumbent reached, or null when nothing
+   *  grounded. */
   incumbentGrade: number | null;
-  /** The cheapest composition floor in grade units (`grade(2 * STEP)` = 2,
-   *  CAST's floor) — the bar the incumbent must sit at or below for the
-   *  consensus climb to be skipped. */
-  climbFloorGrade: number;
-  /** The lowest grade reached by a mechanism run AHEAD of a dearer one (see
-   *  the grounding loop), when one ran and grounded: a bound below
-   *  `climbFloorGrade` makes the regime retrieval whatever the incumbent. */
-  boundGrade?: number;
 }
 
 /** Think: a single lightest-derivation exploration of the Sema graph.
@@ -198,6 +171,7 @@ export async function think(
     used?: ReadonlySet<number>;
     accounted: ReadonlyArray<[number, number]>;
     complete?: boolean;
+    piece?: boolean;
     /** Bytes of this candidate's ANSWER that came from spans nothing
      *  recognised — query words carried through verbatim (see
      *  {@link liftedScaffolding}).  Absent means none/unreported. */
@@ -249,63 +223,6 @@ export async function think(
   const worthRunning = (floor: number) =>
     best === null || grade(floor) < grade(best.weight);
 
-  // REGIME PREDICTION (R8) — observational only. Once the FIRST mechanism has
-  // had its turn (cover, which mechanism-market.md places first and floors at
-  // 0), the market's outcome is already determined by the one cost ladder: the
-  // consensus climb runs exactly when `worthRunning(2 * STEP)` is true — CAST
-  // (floor 2·STEP) is the cheapest mechanism that first-touches it, so an
-  // incumbent at or below grade 2 prunes CAST and, with it, confluence (3·STEP)
-  // and extraction (CONCEPT+STEP) (retrieval); anything above — or no incumbent
-  // — runs the full market and the climb (composition). The predicate is
-  // `worthRunning`, the same function the loop itself uses — nothing is
-  // computed here that the engine had not already computed, and nothing is read
-  // back by inference.
-  //
-  // EMITTED BEFORE THE SECOND MECHANISM'S FLOOR, never after some mechanism's
-  // run: a "prediction" published after the fact could assert "the climb will
-  // not run" about a climb that already ran — which is what happens whenever
-  // the first mechanism is SKIPPED (null floor or pruned) and the block sits at
-  // the end of the first mechanism that actually ran.  Emitting on entry to
-  // iteration 1 makes the claim true by construction, whatever the first
-  // mechanism did, and keeps the payload identical on the ordinary path (the
-  // incumbent cannot change between the two positions).
-  let regimeReported = false;
-  const reportRegime = () => {
-    if (regimeReported) return;
-    regimeReported = true;
-    const climbFloorGrade = grade(2 * STEP);
-    // TS narrows `best` to null in the outer flow (it cannot see the closure
-    // assignments in `consider`) — cast back, the same read-back as `decided`
-    // below.
-    const incumbent = best as Candidate | null;
-    const incumbentGrade = incumbent === null ? null : grade(incumbent.weight);
-    const regime: "retrieval" | "composition" = worthDeclared(2 * STEP)
-      ? "composition"
-      : "retrieval";
-    ctx.trace?.step(
-      "regimePrediction",
-      [rItem(query, "query")],
-      [],
-      regime === "retrieval"
-        ? (incumbentGrade !== null && incumbentGrade <= climbFloorGrade
-          ? `retrieval regime — incumbent grade ${incumbentGrade} ≤ climb floor ${climbFloorGrade}, `
-          : `retrieval regime — grade ${bound} already reached by a mechanism run ahead, below climb floor ${climbFloorGrade}, `) +
-          `so no mechanism floored above that grade runs; CAST will not climb`
-        : `composition regime — ${
-          incumbentGrade === null
-            ? "no incumbent (nothing grounded)"
-            : `incumbent grade ${incumbentGrade}`
-        } above climb floor ${climbFloorGrade}, so the full market and climb run`,
-      undefined,
-      {
-        version: 1,
-        regime,
-        incumbentGrade,
-        climbFloorGrade,
-        ...(bound !== Infinity ? { boundGrade: bound } : {}),
-      } satisfies RegimePredictionData,
-    );
-  };
   // Phase 3: grounding loop
   // Per-mechanism accounting (src/meter.ts).  The market's whole premise is
   // that mechanisms compete on one cost scale — so the profiling read-out is
@@ -471,10 +388,7 @@ export async function think(
   };
   for (let mi = 0; mi < mechanisms.length; mi++) {
     const mech = mechanisms[mi];
-    if (mi > 0) {
-      await runAhead(mi);
-      reportRegime();
-    }
+    if (mi > 0) await runAhead(mi);
     const floor = await floorOf(mi, worthDeclared);
     if (floor === null) {
       ctx.trace?.step(
@@ -520,6 +434,7 @@ export async function think(
         used: r.used,
         accounted: r.accounted,
         complete: r.complete,
+        piece: r.piece,
         scaffolding: r.scaffolding,
       });
     }
@@ -543,15 +458,83 @@ export async function think(
           used: r.used,
           accounted: r.accounted,
           complete: r.complete,
+          piece: r.piece,
           scaffolding: r.scaffolding,
         });
       }
     }
   }
-  // A market of ONE mechanism never reaches iteration 1; the step is still
-  // emitted exactly once per think(), so a consumer never has to ask whether
-  // the list was long enough for the prediction to exist.
-  reportRegime();
+  // PIECES OF INFERENCE COMBINE.  A candidate declared a piece (its answer
+  // a function of its one stretch alone, `MechanismResult.piece`) is a piece
+  // of the question, whatever mechanism produced it.  When the incumbent
+  // leaves bytes unexplained that a piece explains, the question is composed
+  // again — its recognised sites and every piece, in the one
+  // lightest-derivation search (composition.ts) — so a piece is fused,
+  // spliced, joined, followed or recomposed exactly as a learnt form is,
+  // priced by the moves it took.  The composition is one more candidate.
+  if (best !== null) {
+    const held = best as Candidate;
+    const owed = unexplainedSpans(query.length, held.accounted);
+    const pieces: GroundedPiece[] = [];
+    for (const c of candidates) {
+      if (c.piece !== true) continue;
+      // Its accounted spans, merged: a piece grounds one stretch.
+      const [stretch, ...more] = unexplainedSpans(
+        query.length,
+        unexplainedSpans(query.length, c.accounted),
+      );
+      if (stretch === undefined || more.length > 0) continue;
+      pieces.push({
+        i: stretch[0],
+        j: stretch[1],
+        bytes: c.bytes,
+        moves: c.moves,
+      });
+    }
+    if (
+      pieces.some(({ i, j }) => owed.some(([a, b]) => i < b && a < j))
+    ) {
+      if (meter) meter.compositions++;
+      const results = meter
+        ? await meter.time("compose", () => compose(ctx, query, pre, pieces))
+        : await compose(ctx, query, pre, pieces);
+      for (const r of results) {
+        const before = best;
+        consider({
+          bytes: r.bytes,
+          provenance: "compose",
+          weight: weigh(r.accounted, r.moves),
+          moves: r.moves,
+          used: r.used,
+          accounted: r.accounted,
+          complete: r.complete,
+          scaffolding: r.scaffolding,
+        });
+        if (meter && best !== before) meter.composedGroundings++;
+      }
+    }
+  }
+  // THE REGIME, as the response took it: whether its market ran the consensus
+  // climb.  Read off the response, so it names no mechanism and holds
+  // whatever the market's members are.
+  {
+    const incumbent = best as Candidate | null;
+    const regime = pointsShown() ? "composition" : "retrieval";
+    ctx.trace?.step(
+      "regime",
+      [rItem(query, "query")],
+      [],
+      `${regime} regime — the consensus climb ${
+        pointsShown() ? "ran" : "did not run"
+      } in this response`,
+      undefined,
+      {
+        version: 2,
+        regime,
+        incumbentGrade: incumbent === null ? null : grade(incumbent.weight),
+      } satisfies RegimeData,
+    );
+  }
 
   // (TS cannot see the closure assignments into `best` and narrows it to its
   // initial null, so the read-back needs the assertion.)

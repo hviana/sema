@@ -45,6 +45,19 @@ export interface Leaf {
   node: number | null;
 }
 
+/** A stretch of the question another inference already grounded: its answer
+ *  bytes over `[i, j)`, the node they name when the store holds them, and what
+ *  the grounding cost.  It enters the search as a recognised completion, like
+ *  a learnt terminal answer, so every rule that composes, decomposes, fuses,
+ *  splices or joins a recognised piece applies to it — whatever grounded it. */
+export interface Piece {
+  i: number;
+  j: number;
+  bytes: Uint8Array;
+  node?: number;
+  cost: number;
+}
+
 // ── the deduction system the graph exploration runs on ───────────────────
 //
 // Three item kinds drive one lightest-derivation search over the Sema graph
@@ -514,6 +527,9 @@ export class GraphSearch {
      *  the rationale instead of stopping at the first layer.  Off by default, so
      *  the search pays nothing when no one inspects. */
     onDerivation?: (steps: DerivationStep[]) => void,
+    /** Stretches of the query already grounded (see {@link Piece}): axioms of
+     *  the top cover only, never of a nested completion. */
+    pieces?: ReadonlyArray<Piece>,
   ): { segs: Seg[]; cost: number; moves: number } | null {
     // Top-level entry: reset the per-call recursion state, then run the one
     // {@link solve} routine that both the query and any produced composite go
@@ -529,7 +545,7 @@ export class GraphSearch {
     if (connectors) connectors.asked.clear();
     const solved = this.solve(
       queryLen,
-      { sites, leaves, splits },
+      { sites, leaves, splits, pieces },
       concepts,
       substitutions,
       connectors,
@@ -569,6 +585,7 @@ export class GraphSearch {
       sites: ReadonlyArray<Site>;
       leaves: ReadonlyArray<Leaf>;
       splits: ReadonlySet<number>;
+      pieces?: ReadonlyArray<Piece>;
     },
     concepts: ConceptLicence,
     substitutions?: ReadonlyMap<number, Uint8Array>,
@@ -633,6 +650,7 @@ export class GraphSearch {
         joins,
         substitutions,
         connectors,
+        recognition.pieces,
       );
       const stats = meter ? { pops: 0, pushes: 0 } : undefined;
       derivation = lightestDerivation(system, stats);
@@ -712,6 +730,7 @@ export class GraphSearch {
     joins: JoinLicense,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ConnectorLicence,
+    pieces?: ReadonlyArray<Piece>,
   ): DeductionSystem<GItem> {
     const W = this.maxGroup; // fusible span ceiling (shortest composite bound)
     const atomsAreHubs = atomIsHub(this.store.edgeSourceCount(), W);
@@ -833,6 +852,20 @@ export class GraphSearch {
               via: false,
             },
             cost: 0,
+          };
+        }
+        for (const p of pieces ?? []) {
+          yield {
+            item: {
+              kind: "out",
+              i: p.i,
+              j: p.j,
+              bytes: p.bytes,
+              cover: true,
+              rec: true,
+              node: p.node,
+            },
+            cost: p.cost,
           };
         }
       },

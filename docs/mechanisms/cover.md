@@ -2,9 +2,9 @@
 
 `cover` answers by graph search. Its axioms are the question's own recognised
 sites, and its goal is the lightest derivation that covers the question's bytes
-and follows their continuations (`src/mind/mechanisms/cover.ts`, `GraphSearch`).
-It runs first: a cover backed by a computation becomes an incumbent near zero
-cost, and prunes the rest of the market through the ordinary floor check
+and follows their continuations (`src/mind/composition.ts`, `GraphSearch`): the
+composition with no pieces. It runs first, floored at zero. The decider runs the
+same composition again with every piece the market grounded
 (`mechanism-market.md`).
 
 ## Matcher — recognition sites

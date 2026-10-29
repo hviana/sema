@@ -347,6 +347,10 @@ export class Meter {
   /** Cover sites dropped as FRAGMENTS whose several continuations the question
    *  names none of (mechanisms/cover.ts). */
   unaskedFragments = 0;
+  /** Compositions the decider ran over the pieces the market grounded, and
+   *  those that won (pipeline.ts, `compose`). */
+  compositions = 0;
+  composedGroundings = 0;
   /** Canon probes REFUSED because the canon budget ran out — the one thing the
    *  budget does that nothing could see.  The budget itself is derived
    *  (`bytes.length · chainReach(W)²`, recognition.ts), and the cheap exact route

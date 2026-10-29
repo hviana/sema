@@ -1,7 +1,7 @@
 // 90-connector-read-cap.test.mjs — the "already answered" probe must read by
 // the QUERY, not by the corpus.
 //
-// `offerConnectors` (src/mind/mechanisms/cover.ts) drops a site whose
+// `offerConnectors` (src/mind/composition.ts) drops a site whose
 // continuation already appears elsewhere in the query — stale transcript
 // evidence, whose bridges would only be discarded later.  The test is a
 // substring search, so it needs the candidate's bytes; it used to reconstruct
@@ -46,7 +46,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
-import { offerConnectors } from "../dist/src/mind/mechanisms/cover.js";
+import { offerConnectors } from "../dist/src/mind/composition.js";
 
 /** Learnt CONTINUATIONS far longer than the query that will be asked — the
  *  shape the cap governs: an uncapped probe reconstructs each one in full

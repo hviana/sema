@@ -79,7 +79,7 @@ corpus-determined, not interchangeable (`determinism.md`).
 | Perceive / resolve / read primitives | `src/mind/primitives.ts`                                                                           |
 | Store domain logic / SQLite adapter  | `src/store.ts`, `src/store-sqlite.ts`                                                              |
 | Mechanism contract + `Precomputed`   | `src/mind/pipeline-mechanism.ts`                                                                   |
-| Grounding decider (`think`)          | `src/mind/pipeline.ts`                                                                             |
+| Grounding decider (`think`)          | `src/mind/pipeline.ts`; the composition of pieces in `src/mind/composition.ts`                      |
 | Grounding mechanisms (one file each) | `src/mind/mechanisms/*.ts`; the ALU's own in `src/alu/src/mechanism.ts`; registered in `src/mechanisms.ts` |
 | Weighted deduction + cost ladder     | `src/mind/graph-search.ts` (engine in `src/derive/`)                                               |
 | Match/project family                 | `src/mind/match.ts`                                                                                |

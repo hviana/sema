@@ -69,7 +69,8 @@ The ALU is a plain class (`alu.ts`) that exposes
 ComputedSpan[]`. A `ComputedSpan` is `{ i, j, bytes }`: a
 half-open byte range and the result computed for it. `aluMechanism`
 (`mechanism.ts`) makes each one an answer of a host's mechanism: its bytes, the
-span it explains, one move. Sema registers it like any mechanism
+span it explains, one move, and that it is a piece — a function of its span
+alone, which the host may compose with the rest of the question. Sema registers it like any mechanism
 (`docs/mechanisms/alu.md`).
 
 **The host port.** At construction the ALU receives its `AluHost`, four

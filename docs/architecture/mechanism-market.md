@@ -28,6 +28,7 @@ interface MechanismResult {
   scaffolding?;
   provenance?;
   complete?;
+  piece?; // the answer is a function of its one accounted stretch alone
 }
 ```
 
@@ -49,6 +50,15 @@ weight = moves + PASS · unaccounted    grade = ⌊weight / STEP⌋
 The lowest grade wins. At equal grade, fewer `scaffolding` bytes win, then the
 earlier mechanism in the declared order.
 
+**Pieces combine.** A candidate whose answer is a function of its one accounted
+stretch alone declares it a `piece`. When the incumbent leaves bytes unexplained
+that a piece explains, the decider composes the question again
+(`composition.ts`): its recognised sites and every piece enter the one
+lightest-derivation search, where a piece is fused, followed, spliced, joined or
+recomposed as a learnt form is, at the moves it took. The composition is one
+more candidate (`compose`): `ice 2+2` → `cold 4`. An answer read off the whole
+question is no piece of it (`test/160`).
+
 ## Four constraints
 
 1. **Decoupled.** No mechanism imports another or asks what already decided.
@@ -65,6 +75,7 @@ earlier mechanism in the declared order.
    - `complete`, a continuation reached by identity, which nothing after
      grounding may extend;
    - `used`, the anchors it speaks for;
+   - `piece`, an answer of its one stretch alone, which composes;
    - `provenance`.
 
    The decider honours all of these without knowing who set them.

@@ -698,6 +698,13 @@ export interface MechanismResult {
    *  fact that answered it and into an unrelated "Hello! How can I assist you
    *  today?" conversational turn. */
   complete?: boolean;
+  /** A PIECE OF THE QUESTION: the answer depends on its one accounted stretch
+   *  alone — it would be the same inside any question holding those bytes —
+   *  so the decider may compose it with the question's other pieces
+   *  (composition.ts).  An answer read off the whole question (by its gist,
+   *  its frame, its other instances) answers the question, not a stretch of
+   *  it, and stays whole.  Declared, never asked who declared it. */
+  piece?: boolean;
 }
 
 // ── PipelineMechanism ────────────────────────────────────────────────────────
