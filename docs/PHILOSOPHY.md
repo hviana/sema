@@ -119,11 +119,15 @@ the two agree, it is corroboration, not echo.
 locality the name destroyed. An index over the vectors (RaBitQ-IVF) finds the
 near ones among millions in one query. But a vector is a lossy summary, and its
 score is an estimate. So the space proposes and the structure decides
-(`exact-vs-approximate.md`). The bars are set against the space's own chance:
-random vectors are nearly orthogonal, with noise `1/√D`, so a resemblance counts
-at `3/√D`, and two halos share a concept at `0.5 + 0.5/√D` (`thresholds.md`).
-The single exception is the store's near-merge at deposit, bounded to one window
-of difference.
+(`exact-vs-approximate.md`). This departs from the VSA literature, where the
+vector carries the content itself: Sema keeps the content exact in the DAG, so a
+vector earns its place only where the structure is blind (nearness of form, of
+use, of role), and much of what the literature asks of vectors (unbinding,
+n-gram bags, second order over form) the structure already answers exactly. The
+bars are set against the space's own chance: random vectors are nearly
+orthogonal, with noise `1/√D`, so a resemblance counts at `3/√D`, and two halos
+share a concept at `0.5 + 0.5/√D` (`thresholds.md`). The single exception is the
+store's near-merge at deposit, bounded to one window of difference.
 
 **Two memories.** The deposits are a record: verbatim, enumerable, each with
 provenance. The halos are a statistic accumulated over that record. This is the
