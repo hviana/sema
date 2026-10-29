@@ -233,6 +233,7 @@ export async function think(
   const rec = meter
     ? meter.timeSync("recognise", () => recognise(ctx, query))
     : recognise(ctx, query);
+  ctx._edgeAsked.sites = rec.sites;
 
   // Phase 1: collect computed spans from mechanisms that implement parse()
   const computed = meter

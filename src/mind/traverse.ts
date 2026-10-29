@@ -950,14 +950,83 @@ export function answersOtherQuestions(
   if (asked === null || queryLen - siteLen < ctx.space.maxGroup) return false;
   const nx = ctx.store.nextFirst(id, 2);
   if (nx.length === 0) return false;
-  if (!heldWithin(ctx, id) && !subjectOfSeveral(ctx, id)) return false;
+  const absent = asksAbsentRelation(ctx, id);
+  if (!heldWithin(ctx, id) && !subjectOfSeveral(ctx, id) && !absent) {
+    return false;
+  }
   if (
-    nx.length < 2 && ctx.store.learntWhole(id) &&
+    nx.length < 2 && ctx.store.learntWhole(id) && !absent &&
     !scaffoldingForm(ctx, id, siteLen)
   ) {
     return false;
   }
   return namedContinuations(ctx, id, asked) === null;
+}
+
+/** THE QUESTION ASKS A RELATION THE FORM DOES NOT HOLD.  A relation is a form
+ *  the corpus writes at the end of other subjects' questions: ` director`
+ *  ends `The Paw director`, and leads to that film's director.  When the
+ *  question spells one beside the form, and no context establishing a fact
+ *  of the form writes it, every fact the form holds answers another question:
+ *  `Who is the director of Burt Reynolds?` voiced his citizenship.  A form
+ *  learnt whole keeps its one continuation only for a question that asks no
+ *  relation it lacks.  Read only where the form ends the question, from the
+ *  question's recognised sites; at most `chainReach(W)` predecessors per fact
+ *  and per relation. */
+export function asksAbsentRelation(ctx: MindContext, id: number): boolean {
+  const sites = ctx._edgeAsked?.sites;
+  if (sites === undefined) return false;
+  const W = ctx.space.maxGroup;
+  const allowance = chainReach(W);
+  const form = read(ctx, id);
+  const raw = ctx._edgeAsked!.raw;
+  const at = indexOf(raw, form, 0);
+  if (at < 0) return false;
+  // The form must END the question, up to sub-window glue (`?`, `'s`): a
+  // question that goes on past it asks of what the form leads to — `the place
+  // of death of Juan Carlos Gumucio's wife` — a chain the walk names hop by
+  // hop, its relation held by the hop that ends it.
+  if (raw.length - (at + form.length) >= W) return false;
+  const cap = phraseCap(raw.length, W);
+  const establishing = (fact: number): Uint8Array[] =>
+    ctx.store.prevFirst(fact, allowance)
+      .filter((p) => p !== id)
+      .map((p) => read(ctx, p, cap));
+  // The form's own facts, by the contexts that establish them.
+  const own = ctx.store.nextFirst(id, allowance).flatMap(establishing);
+  return sites.some((s) => {
+    if (s.payload < 0 || s.end - s.start < W) return false;
+    if (s.start < at + form.length && at < s.end) return false; // the form
+    // Some other SUBJECT's question is that subject, learnt whole, and then
+    // the relation: `The Paw` + ` director`.  The relation is read as the
+    // question writes it: the stored question's tail that the question
+    // spells up to the site's end (a site may be a piece of it, `ctor`).  The
+    // glue between subject and relation — up to W − 1 bytes, below the fold's
+    // identity scale — belongs to neither.  A form that only ends other
+    // questions (` from?`, a dialogue's `… are you from?`) is no relation.
+    const asked = raw.subarray(0, s.end);
+    const fact = ctx.store.nextFirst(s.payload, 1)[0];
+    if (fact === undefined) return false;
+    for (const p of establishing(fact)) {
+      let k = 0;
+      while (
+        k < p.length && k < asked.length &&
+        p[p.length - 1 - k] === asked[asked.length - 1 - k]
+      ) k++;
+      if (k < s.end - s.start || k >= p.length) continue;
+      const head = p.length - k;
+      let subject = false;
+      for (let glue = 0; glue < W && glue < head && !subject; glue++) {
+        const id = resolve(ctx, p.subarray(0, head - glue));
+        subject = id !== null && ctx.store.learntWhole(id);
+      }
+      if (!subject) continue;
+      // …and none of the form's own facts is established writing it.
+      const relation = p.subarray(head);
+      return !own.some((q) => indexOf(q, relation, 0) >= 0);
+    }
+    return false;
+  });
 }
 
 /** AN ANSWER TO ANOTHER QUESTION, VOICED BY ANOTHER ROAD: `answer` is a

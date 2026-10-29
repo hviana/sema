@@ -21,10 +21,11 @@ overlapping a computed span is masked: computation wins by masking, not by price
 
 - **The site must lead somewhere.** It has a continuation or a halo
   (`leadsSomewhere`).
-- **A fragment needs to be asked.** A site that answers other questions
-  (`answersOtherQuestions`, `evidence.md`) is dropped unless the question names
-  one of its continuations. Otherwise the cover accounts the fragment's bytes as
-  explained by a stranger's answer (`unaskedFragments`).
+- **A site needs to be asked.** A site that answers other questions (a
+  fragment, a subject of several questions, a form asked a relation it lacks:
+  `answersOtherQuestions`, `evidence.md`) is dropped unless the question names
+  one of its continuations. Otherwise the cover accounts its bytes as explained
+  by a stranger's answer (`unaskedFragments`).
 - **Scaffolding accounts for nothing.** A span made only of hub windows
   (`scaffoldSpans`) is not accounted (`evidence.md`).
 

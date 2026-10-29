@@ -375,13 +375,16 @@ fragments with several.
   while the derivation still owes something, and the closure law decides it by
   carrying.
 - `answersOtherQuestions` (`traverse.ts`): a fragment (a form inside others,
-  with several continuations or one it only inherited), or a subject of several
+  with several continuations or one it only inherited), a subject of several
   questions (each continuation also established by a context holding it and
-  more: `Ronald Neame date of birth`), that leaves a window of the question
-  outside it leads somewhere only if the question names a continuation, a use
-  only when licensed. Its pieces go with it, and no anchor or precedent voices
-  its continuations (`answersUnasked`; `test/154.21`). Read by cover, CAST,
-  recall and reference.
+  more: `Ronald Neame date of birth`), or a form ending the question and asked a
+  relation it holds no fact of (`asksAbsentRelation`: the question spells `
+  director`, which a whole subject's question ends with — `The Paw director` —
+  and no context establishing the form's facts writes it), that leaves a window
+  of the question outside it leads somewhere only if the question names a
+  continuation. Its pieces go with it, and no anchor or precedent voices its
+  continuations (`answersUnasked`; `test/154.21`, `154.22`). Read by cover,
+  CAST, recall and reference.
 - recall's anchor, fusion roots, CAST schemas: a co-instance is never voiced or
   fused; a comparison names each side by a run no other context holds.
 

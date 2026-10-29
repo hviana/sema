@@ -419,6 +419,9 @@ export interface MindContext extends GraphSearchHost {
       index: WindowIndex;
       points?: readonly number[];
       forms?: readonly number[];
+      /** What recognition read in the question: its stored forms that lead
+       *  somewhere, with their spans (`asksAbsentRelation`). */
+      sites?: readonly Site[];
     }
     | null;
   _edgeChoice: Map<number, number>;

@@ -23,6 +23,7 @@ import { twoQuanta } from "../../geometry.js";
 import { indexOf } from "../../bytes.js";
 import {
   answersOtherQuestions,
+  asksAbsentRelation,
   subjectOfSeveral,
   askedEvidence,
   canonHeldPoints,
@@ -337,9 +338,14 @@ export const coverMechanism: PipelineMechanism = {
   // instances' relations every pick reads: a site the question holds under
   // its equivalence (`canonSites`), on the sites the run itself stands on.
   readsPoints(ctx, query, pre) {
-    // A subject of several questions refused before the points may be named
-    // by its use once they are shown (traverse.ts, `subjectOfSeveral`).
-    if (pre.rec.sites.some((s) => subjectOfSeveral(ctx, s.payload))) {
+    // A site refused before the points — a subject of several questions, or
+    // one asked a relation it lacks — may be named by its use once they are
+    // shown (traverse.ts, `subjectOfSeveral`, `asksAbsentRelation`).
+    if (
+      pre.rec.sites.some((s) =>
+        subjectOfSeveral(ctx, s.payload) || asksAbsentRelation(ctx, s.payload)
+      )
+    ) {
       return true;
     }
     if (canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length === 0) {

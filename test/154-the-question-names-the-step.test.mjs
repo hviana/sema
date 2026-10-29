@@ -52,6 +52,9 @@
 //   154.21 a subject of several questions answers none it is not asked by
 //         name: not through the cover, an anchor, a precedent or a piece of
 //         its name; asked by name, or alone, it answers.
+//   154.22 a question that asks a relation the form holds no fact of is not
+//         answered by the form's one fact; asked its own relation, or alone,
+//         the form answers.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -974,5 +977,49 @@ test("154.21 a subject of several questions answers none it is not asked by name
     "The date of birth of Ronald Neame is 23 April 1911.",
   );
   assert.notEqual(await mind.respondText("Ronald Neame"), "");
+  await mind.store.close();
+});
+
+test("154.22 a relation the form holds no fact of is not answered by its one fact", async () => {
+  // `Burt Reynolds` holds one fact, his citizenship, and the corpus writes
+  // ` director` after other subjects (`The Paw director`).  Asked who directed
+  // him, the one fact answered another question: the citizenship was voiced.
+  // (Enough films for ` director` to recur, as it does in any real corpus.)
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  await mind.ingest(deposits([
+    ["The Paw", "director", "Hans Steinhoff"],
+    ["Sharky's Machine", "director", "Burt Reynolds"],
+    ["Late Extra", "director", "Albert Parker"],
+    ["Watan", "director", "Mehboob Khan"],
+    ["Forbidden Love", "director", "Erik Lund"],
+    ["Burt Reynolds", "country of citizenship", "American"],
+  ]));
+  const refused = [];
+  const asked = await mind.respondText(
+    "Who is the director of Burt Reynolds?",
+    (st) => {
+      if (st.mechanism.at(-1) === "unaskedFragments") {
+        for (const x of st.inputs ?? []) refused.push(x.text);
+      }
+    },
+  );
+  assert.ok(refused.includes("Burt Reynolds"), "the subject is refused");
+  assert.notEqual(
+    asked,
+    "The country of citizenship of Burt Reynolds is American.",
+    "its one fact answers another question",
+  );
+  // Asked a relation it holds, or asked alone, the form answers.
+  assert.equal(
+    await mind.respondText("Who is the director of The Paw?"),
+    "The director of The Paw is Hans Steinhoff.",
+  );
+  assert.equal(
+    await mind.respondText("Burt Reynolds"),
+    "The country of citizenship of Burt Reynolds is American.",
+  );
   await mind.store.close();
 });
