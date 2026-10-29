@@ -216,6 +216,7 @@ without evidence is a failure, not a pass. Any failure ⇒ revert and return to 
 | 7 | No store change and no new index, unless exceptionally justified.                                                                                                                        |
 | 8 | Every code change is reflected in the `.md` files (excluding the root README and the licences) — see below.                                                                              |
 | 9 | Machinery is byte-oriented and text-agnostic: no rule may assume words, whitespace, case, script or any other property of text — only bytes.                                             |
+| 10 | Improve the system, not the harness: a gain must hold on cases the change never saw (a fresh draw of the same class), or it fits the gate, not the capability.                          |
 
 **Criterion 8, how.** Those files hold the minimum text needed to understand the
 whole. They must describe current behaviour. Do not rewrite them: they contain
