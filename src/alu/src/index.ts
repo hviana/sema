@@ -17,6 +17,7 @@ export {
   type Domain,
   formatReal,
   int,
+  isFiniteValue,
   isNd,
   isNumeric,
   joinDomain,

@@ -87,10 +87,13 @@ only the paths that depend on meaning stay silent.
 `text.ts`) finds two kinds of computation:
 
 - **Infix arithmetic** (`2+3*4`), read with precedence climbing and independent
-  of any chunking, so a multi-digit number is always read whole.
+  of any chunking. One numeral grammar (`numeralEnd`) serves the scanner, the
+  evaluator and `parseValue`; a sign is the numeral's where an operand is
+  expected (`-3+5`, `2^-1`).
 - **Operations named by meaning,** where a term's gist lands on a learnt anchor
   registered as an operation's meaning. A term is a whole token: what a numeral
-  was cut from (the `nd` of `2nd`) names nothing.
+  was cut from (the `nd` of `2nd`) names nothing. Over symbols alone, a result
+  no resonance grounded is no computation, nor is a value that is no number.
 
 **Asynchronous reads are resolved before the synchronous kernel runs.**
 `prefetchResonance` resolves operations by meaning. Opposites are resolved on

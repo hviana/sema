@@ -23,6 +23,7 @@
 // working without the caller having to spell out the variable.
 
 import type { InfixSyntax, OperationRegistry } from "./operation.js";
+import { isDigitByte, isSpaceByte, numeralEnd } from "./text.js";
 
 /** Apply a scalar kernel op by canonical name to numeric arguments, returning a
  *  number.  The expression evaluator routes every step through this, so the
@@ -38,15 +39,14 @@ export interface Token {
   value?: number;
 }
 
-const isDigit = (c: string) => c >= "0" && c <= "9";
+const isDigit = (c: string) => isDigitByte(c.charCodeAt(0));
 // A "letter" for identifier purposes is any non-ASCII rune or an ASCII letter —
 // so a variable or function name may be written in any script (multimodal /
 // multilingual), not just A–Z.  Operator glyphs (registered symbolic forms)
 // are claimed BEFORE identifiers, so "·" and "≤" never read as names.
 const isLetter = (c: string) =>
   (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c.charCodeAt(0) > 127;
-const isSpace = (c: string) =>
-  c === " " || c === "\t" || c === "\n" || c === "\r";
+const isSpace = (c: string) => isSpaceByte(c.charCodeAt(0));
 
 /** Tokenize an expression string: numerals (the irreducible floor), operator
  *  tokens (matched longest-first against `operators` — the registry's own
@@ -66,25 +66,8 @@ export function tokenize(
       i++;
       continue;
     }
-    if (isDigit(c) || (c === "." && i + 1 < s.length && isDigit(s[i + 1]))) {
-      let j = i;
-      let seenDot = false;
-      while (j < s.length) {
-        if (isDigit(s[j])) j++;
-        else if (s[j] === "." && !seenDot) {
-          seenDot = true;
-          j++;
-        } else break;
-      }
-      // optional exponent
-      if (j < s.length && (s[j] === "e" || s[j] === "E")) {
-        let k = j + 1;
-        if (k < s.length && (s[k] === "+" || s[k] === "-")) k++;
-        if (k < s.length && isDigit(s[k])) {
-          while (k < s.length && isDigit(s[k])) k++;
-          j = k;
-        }
-      }
+    const j = numeralEnd((k) => s.charCodeAt(k), s.length, i);
+    if (j > i) {
       const text = s.slice(i, j);
       const num = Number(text);
       if (!Number.isFinite(num)) return null;

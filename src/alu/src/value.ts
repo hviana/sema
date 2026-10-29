@@ -41,6 +41,8 @@
 // The module is pure: it knows nothing of SEMA, the store, or the search.  The
 // only host coupling is the injected ValueCodec, whose default lives here.
 
+import { isSignByte, numeralEnd } from "./text.js";
+
 /** Which stratum a {@link Value} belongs to.  Four scalar domains + the
  *  recursive container `nd`. */
 export type Domain = "bit" | "int" | "real" | "symbol" | "nd";
@@ -77,6 +79,13 @@ export const tagOf = (v: Value): Domain => v.domain;
  *  if every element is numeric (it is a container; reduce it to a scalar). */
 export function isNumeric(v: Value): boolean {
   return v.domain === "bit" || v.domain === "int" || v.domain === "real";
+}
+
+/** Whether a value is a value at all: no real in it is NaN or infinite.  A
+ *  computation that ends in one computed nothing (`sqrt -4`, `1/0`). */
+export function isFiniteValue(v: Value): boolean {
+  if (v.domain === "real") return Number.isFinite(v.x);
+  return v.domain !== "nd" || v.items.every(isFiniteValue);
 }
 
 /** Whether a value is the n-dimensional container. */
@@ -210,10 +219,6 @@ const ASCII = {
   },
 };
 
-/** A decimal numeral, sign, optional fraction, optional exponent — the syntax
- *  {@link parseScalar} accepts as a number.  Anything else is a symbol. */
-const NUMERAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
-
 /** Concatenate byte arrays — used to build an nd literal's encoding without
  *  routing a (possibly non-ASCII, multimodal) symbol's bytes through a string. */
 function concatBytes(arrs: Uint8Array[]): Uint8Array {
@@ -228,11 +233,14 @@ function concatBytes(arrs: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/** Parse a SCALAR span: a clean integer numeral → exact int, a fractional/
- *  exponent numeral → real, anything else → a symbol carrying `bytes` verbatim.
- *  Strict, so it never hijacks a form that merely begins with a digit. */
+/** Parse a SCALAR span: a clean integer numeral (optionally signed; the
+ *  grammar is `numeralEnd`'s) → exact int, a fractional/exponent numeral →
+ *  real, anything else → a symbol carrying `bytes` verbatim.  Strict, so it
+ *  never hijacks a form that merely begins with a digit. */
 function parseScalar(bytes: Uint8Array, s: string): Value {
-  if (s.length > 0 && NUMERAL.test(s)) {
+  const from = s.length > 0 && isSignByte(s.charCodeAt(0)) ? 1 : 0;
+  const at = (k: number) => s.charCodeAt(k);
+  if (s.length > from && numeralEnd(at, s.length, from) === s.length) {
     if (/[.eE]/.test(s)) {
       const x = Number(s);
       if (Number.isFinite(x)) return real(x);

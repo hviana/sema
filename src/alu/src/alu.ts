@@ -36,6 +36,7 @@
 import {
   asReal,
   decimalCodec,
+  isFiniteValue,
   nd,
   parseValue,
   real,
@@ -65,11 +66,13 @@ import {
 } from "./parser.js";
 import {
   CLOSE,
-  DOT,
-  isDigitByte,
   isSepByte,
+  isSignByte,
+  isSpaceByte,
   matchBracket,
+  numeralEnd,
   OPEN,
+  PAREN_CLOSE,
   trimEnd,
   trimStart,
 } from "./text.js";
@@ -287,9 +290,11 @@ export class Alu {
 
   /** Scan a byte span for operand (numeric) and operator (symbolic) spans.  A
    *  pure, deterministic left-to-right lexer: at each position take a numeral if
-   *  one starts there, else the longest symbolic operator form, else skip one
-   *  byte.  Numerals and operator symbols are disjoint character classes, so the
-   *  two never overlap. */
+   *  one starts there (the one grammar, `numeralEnd`), else the longest
+   *  symbolic operator form, else skip one byte.  A sign glued to a numeral is
+   *  the numeral's own where an operand is expected — nothing before it, or
+   *  before it something that ends no operand and closes no bracket — so
+   *  "-3+5" is 2 and "3 - -2" is 5, while "7-3" subtracts. */
   scan(bytes: Uint8Array): {
     operands: OperandSpan[];
     operators: OperatorSpan[];
@@ -297,28 +302,19 @@ export class Alu {
     const operands: OperandSpan[] = [];
     const operators: OperatorSpan[] = [];
     const n = bytes.length;
+    const at = (k: number) => bytes[k];
+    const expectsOperand = (i: number): boolean => {
+      let p = i - 1;
+      while (p >= 0 && isSpaceByte(bytes[p])) p--;
+      return p < 0 || (operands.at(-1)?.j !== p + 1 &&
+        bytes[p] !== PAREN_CLOSE && bytes[p] !== CLOSE);
+    };
     let i = 0;
     while (i < n) {
-      const c = bytes[i];
-      // A numeral: a run of digits, with at most one interior decimal point that
-      // is itself flanked by digits (so a trailing "." is left to the operators
-      // / skip path, not swallowed).
-      if (
-        isDigitByte(c) || (c === DOT && i + 1 < n && isDigitByte(bytes[i + 1]))
-      ) {
-        let j = i;
-        let seenDot = false;
-        while (j < n) {
-          if (isDigitByte(bytes[j])) {
-            j++;
-          } else if (
-            bytes[j] === DOT && !seenDot && j + 1 < n &&
-            isDigitByte(bytes[j + 1])
-          ) {
-            seenDot = true;
-            j++;
-          } else break;
-        }
+      const signed = isSignByte(bytes[i]) && expectsOperand(i) &&
+        numeralEnd(at, n, i + 1) > i + 1;
+      const j = numeralEnd(at, n, signed ? i + 1 : i);
+      if (j > i + (signed ? 1 : 0)) {
         operands.push({ i, j, value: parseValue(bytes.subarray(i, j)) });
         i = j;
         continue;
@@ -465,7 +461,8 @@ export class Alu {
         this.rt,
         this.makeEvalExpr(),
       );
-      return ctx.apply(name, operands);
+      const out = ctx.apply(name, operands);
+      return isFiniteValue(out) ? out : null;
     } catch (err) {
       // The "rule does not fire" contract — but never invisibly: the counter
       // and lastApplyError let a debugger distinguish a routine decline from

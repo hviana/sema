@@ -15,6 +15,47 @@ export const isDigitByte = (c: number): boolean => c >= 0x30 && c <= 0x39;
 /** The decimal point of a numeral. */
 export const DOT = 0x2e; // "."
 
+/** A numeral's sign: its own when it stands where an operand is expected. */
+export const isSignByte = (c: number): boolean => c === 0x2b || c === 0x2d;
+
+/** An exponent marker ("e" / "E"), read only between a numeral's digits. */
+const isExponentByte = (c: number): boolean => c === 0x65 || c === 0x45;
+
+/** THE NUMERAL GRAMMAR: the end of the unsigned decimal numeral starting at
+ *  `i` — digits, at most one interior point flanked by digits, an optional
+ *  exponent (marker, optional sign, digits) — or `i` when none starts there.
+ *  The scanner, the expression lexer and the value reader all read numerals
+ *  through it, so a numeral one reads is a numeral all read.  `at(k)` is the
+ *  byte at `k` of an `n`-byte span. */
+export function numeralEnd(
+  at: (k: number) => number,
+  n: number,
+  i: number,
+): number {
+  const digit = (k: number) => k < n && isDigitByte(at(k));
+  const point = (k: number) => k < n && at(k) === DOT && digit(k + 1);
+  let j = i;
+  while (digit(j)) j++;
+  if (point(j)) {
+    j++;
+    while (digit(j)) j++;
+  }
+  if (j === i) return i;
+  if (j < n && isExponentByte(at(j))) {
+    let k = j + 1;
+    if (k < n && isSignByte(at(k))) k++;
+    if (digit(k)) {
+      while (digit(k)) k++;
+      j = k;
+    }
+  }
+  return j;
+}
+
+/** Grouping brackets of the expression grammar. */
+export const PAREN_OPEN = 0x28; // "("
+export const PAREN_CLOSE = 0x29; // ")"
+
 /** The explicit list container's delimiters — the canonical nd spelling the
  *  codec emits, so a computed list feeds straight back in as an operand. */
 export const OPEN = 0x5b; // "["

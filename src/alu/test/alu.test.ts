@@ -488,6 +488,38 @@ test("a term flush against a numeral is the rest of its run and names no operati
   assert.equal(dec(q.bytes), "84");
 });
 
+test("one numeral grammar: what the value reader takes, the scanner and the evaluator read whole", async () => {
+  const u = new Alu();
+  const one = u.scan(enc("1e3"));
+  assert.equal(one.operands.length, 1);
+  assert.deepEqual(one.operands[0].value, parseValue(enc("1e3")));
+  assert.equal(dec((await u.parse(enc("1e3+1")))[0].bytes), "1001");
+  assert.equal(dec((await u.parse(enc("1e-3*1000")))[0].bytes), "1");
+});
+
+test("a sign is the numeral's own where an operand is expected", async () => {
+  const u = new Alu();
+  const at = async (q: string) => (await u.parse(enc(q))).map((c) => [q.slice(c.i, c.j), dec(c.bytes)]);
+  assert.deepEqual(await at("-3+5"), [["-3+5", "2"]]);
+  assert.deepEqual(await at("3 - -2"), [["3 - -2", "5"]]);
+  assert.deepEqual(await at("2^-1"), [["2^-1", "0.5"]]);
+  // After an operand or a closing bracket it is the infix operator.
+  assert.deepEqual(await at("7-3"), [["7-3", "4"]]);
+  assert.deepEqual(await at("(1+2)-3"), [["(1+2)-3", "0"]]);
+  // A value that is no number computed nothing: the rule does not fire.
+  assert.deepEqual(await at("sqrt -4"), []);
+  assert.deepEqual(await at("1/0"), []);
+});
+
+test("over symbols alone, a result no resonance grounded is no computation", async () => {
+  const u = new Alu();
+  // A list of the query's own words, the rank of a word: nothing grounded.
+  assert.deepEqual(await u.parse(enc("nd Baronet die?")), []);
+  assert.deepEqual(await u.parse(enc("the depth of the sea")), []);
+  // Numbers are what the kernel knows by itself.
+  assert.equal(dec((await u.parse(enc("nd 1 2")))[0].bytes), "[1,2]");
+});
+
 test("the mechanism's floor parses nothing when one move cannot beat the incumbent", async () => {
   let asked = 0;
   const host = {

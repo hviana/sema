@@ -49,8 +49,8 @@ import {
   withOppositesOnDemand,
 } from "./resonance.js";
 import { int, real, symbol, symbolSpans, type Value } from "./value.js";
-import { nonSpaceRuns } from "./text.js";
-import { bytesEqual, latin1 } from "../../bytes.js";
+import { nonSpaceRuns, PAREN_CLOSE, PAREN_OPEN } from "./text.js";
+import { latin1 } from "../../bytes.js";
 
 /** A half-open byte range. */
 export interface Span {
@@ -342,7 +342,6 @@ export class QueryParser {
     query: Uint8Array,
     tokens: Token[],
   ): Array<[number, number]> {
-    const OPEN = 0x28, CLOSE = 0x29;
     const bracketPrefix = (t: Token, b: number): number => {
       if (t.kind !== "term") return 0;
       let n = 0;
@@ -357,7 +356,7 @@ export class QueryParser {
     let k = 0;
     while (k < tokens.length) {
       const first = tokens[k];
-      if (first.kind !== "operand" && !allOf(first, OPEN)) {
+      if (first.kind !== "operand" && !allOf(first, PAREN_OPEN)) {
         k++;
         continue;
       }
@@ -373,7 +372,7 @@ export class QueryParser {
         const t = tokens[m];
         if (prevJ >= 0 && !bridged(prevJ, t.i)) break;
         if (expectOperand) {
-          if (allOf(t, OPEN)) {
+          if (allOf(t, PAREN_OPEN)) {
             depth += t.j - t.i;
             brackets++;
           } else if (t.kind === "operand") {
@@ -384,7 +383,7 @@ export class QueryParser {
             }
           } else break;
         } else {
-          const c = bracketPrefix(t, CLOSE);
+          const c = bracketPrefix(t, PAREN_CLOSE);
           if (c > 0 && depth > 0) {
             const take = Math.min(c, depth);
             depth -= take;
@@ -536,9 +535,11 @@ export class QueryParser {
    *   • WORD-INFIX — an under-supplied operator borrows the numeric operand
    *     immediately BEFORE it (within reach), so "7 minus 2" applies
    *     subtract(7, 2) exactly as "7 - 2" would: a synonym is notation too.
-   *   • GROUNDED-ONLY SYMBOLS — when every operand is a symbol, a result that
-   *     merely echoes an operand means resonance grounded nothing (an inverse
-   *     with no learnt opposition), and the rule stays silent rather than
+   *   • GROUNDED-ONLY SYMBOLS — when every operand is a symbol, what the
+   *     kernel knows of them is what resonance grounds (an opposite the
+   *     corpus learnt).  A result that read none only rearranged the query's
+   *     own bytes — the list "[Baronet,die?]", the rank 0 of "depth of", an
+   *     inverse echoing its operand — so the rule stays silent rather than
    *     invent meaning.  Numeric identities ("max 3 7" → "7") are real
    *     results and pass.
    *
@@ -584,17 +585,21 @@ export class QueryParser {
     const symbols = picked.flatMap((t, k) =>
       t.kind === "term" ? [args[k]] : []
     );
+    let grounded = false;
     const bytes = await withOppositesOnDemand(
-      this.resonance,
+      {
+        ...this.resonance,
+        opposite: async (b) => {
+          const o = await this.resonance.opposite(b);
+          grounded ||= o !== null;
+          return o;
+        },
+      },
       symbols,
       (resonance) => this.alu.applyBytes(name, args, resonance),
     );
     if (bytes === null) return null;
-    if (
-      symbols.length === args.length && args.some((a) => bytesEqual(bytes, a))
-    ) {
-      return null; // an all-symbol result echoing an operand grounded nothing
-    }
+    if (symbols.length === args.length && !grounded) return null;
     return { i: start, j: picked[picked.length - 1].j, bytes };
   }
 
