@@ -1,9 +1,18 @@
 # Mechanism Market — Many Ways of Thinking, One Price
 
-> **Law:** every grounding mechanism, Sema's own, the ALU or a caller's, speaks
-> one interface (`mind/pipeline-mechanism.ts`) and joins through one factory. The decider (`think`,
-> `mind/pipeline.ts`) weighs every candidate in one currency and never asks
-> which mechanism produced it.
+> **Law — universal inference isonomy:** every piece of inference logic — the
+> decider's, the composition's, the reasoning after grounding, and any added
+> later — applies alike to every mechanism, Sema's own, the ALU or a caller's,
+> and reads only what a candidate declares, never which mechanism produced it.
+> Every mechanism joins through one factory and speaks one interface
+> (`mind/pipeline-mechanism.ts`); the decider (`think`, `mind/pipeline.ts`)
+> weighs every candidate in one currency.
+
+A path, a precedence or a rule that one mechanism alone reaches, enjoys or is
+named in breaks the law, whatever logic holds it. Instances it refused: the
+ALU's own `parse` path and its "computation always wins" masking, a further
+topic answered by one procedure instead of the market, a regime read off one
+mechanism's floor (`test/18`, `test/160`, `test/93`).
 
 A question can be answered in several ways that are not interchangeable: compose
 it, carry structure between woven forms, intersect conditions, read a frame,

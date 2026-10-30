@@ -85,6 +85,15 @@ const CORPUS = [
 const mk = (seed) =>
   new Mind({ seed, store: new SQliteStore({ path: ":memory:" }) });
 
+// WHERE PRIMARY STANDS.  A further topic is the run of the question around
+// its point that primary's grounding did not price, answered by the market
+// (reasoning.ts, `fusionLayer`): so each case says where primary stands.
+// Primary over `2+2 equals what` leaves `red circle then ` to the binding
+// root (answered `answer alpha`); primary over `red circle` leaves the echo
+// independent, with an answerable run — only the gate can refuse it.
+const AT_SUM = [[16, 31]];
+const AT_BINDING = [[0, 10]];
+
 async function setup() {
   const m = mk(1);
   await m.ingest(CORPUS);
@@ -142,10 +151,10 @@ test("fuseAttention: 2 clusters, low breadth — dispersion alone is enough (gap
   const out = dec(
     (await fuseAttention(m, q, {
       product: primary,
-      accounted: [],
+      accounted: AT_SUM,
       remainder: [],
       cost: 0,
-    }, pre)).product,
+    }, pre, AT_SUM)).product,
   );
   assert.equal(
     out,
@@ -178,10 +187,10 @@ test("fuseAttention: 1 cluster, dominant breadth — dominance alone is enough (
   const out = dec(
     (await fuseAttention(m, q, {
       product: primary,
-      accounted: [],
+      accounted: AT_SUM,
       remainder: [],
       cost: 0,
-    }, pre)).product,
+    }, pre, AT_SUM)).product,
   );
   assert.equal(
     out,
@@ -213,10 +222,10 @@ test("fuseAttention: 1 cluster, low breadth — neither measure saves it (the li
   const out = dec(
     (await fuseAttention(m, q, {
       product: primary,
-      accounted: [],
+      accounted: AT_BINDING,
       remainder: [],
       cost: 0,
-    }, pre)).product,
+    }, pre, AT_BINDING)).product,
   );
   assert.equal(
     out,
@@ -250,22 +259,27 @@ async function sharedPlacesCase(contextText, query) {
     .find((s) => s.start === 0 && s.end === contextText.length)?.payload;
   m.endResponse();
   assert.ok(anchor !== undefined, "the context must be a stored form");
+  // The point stands on the query's closing phrase, the place both contexts
+  // share; primary stands on `then 2+2 equals`, a quantum away, so the run
+  // the market answers for the point is the question's close.
+  const close = query.indexOf("Thank you");
   const root = {
     anchor,
     vote: 1,
     idfVote: 1,
     peak: 1,
-    start: 0,
+    start: close,
     end: q.length,
     clusters: 1,
     breadth: 0.1,
   };
+  const at = [[11, 28]];
   const placeholder = { ...root, start: q.length, end: q.length };
   const primary = enc("PRIMARYANCHORTEXT");
   const out = dec(
     (await fuseAttention(m, q, {
       product: primary,
-      accounted: [],
+      accounted: at,
       remainder: [],
       cost: 0,
     }, {
@@ -274,7 +288,7 @@ async function sharedPlacesCase(contextText, query) {
         ranked: [placeholder, root],
       }),
       guide: gistOf(m, q),
-    })).product,
+    }, at)).product,
   );
   await m.store.close();
   return { out, primary: dec(primary) };

@@ -512,6 +512,21 @@ export async function climbAttentionAll(
   return computeAttention(ctx, query, k, mode);
 }
 
+/** A RUN'S POINTS ARE THE QUESTION'S, within it: `read` (a climb over the
+ *  whole question) keeping the points whose span lies in `[a, b)`, in the
+ *  run's own coordinates, weighed as the question weighed them.  A run of the
+ *  question is climbed once, with the question (`MindContext.groundStretch`). */
+export function attentionWithin(
+  read: AttentionRead,
+  a: number,
+  b: number,
+): AttentionRead {
+  const within = (xs: Attention[]) =>
+    xs.filter((x) => x.start >= a && x.end <= b)
+      .map((x) => ({ ...x, start: x.start - a, end: x.end - a }));
+  return { roots: within(read.roots), ranked: within(read.ranked) };
+}
+
 // ── Pipeline ──────────────────────────────────────────────────────────────
 
 export async function computeAttention(

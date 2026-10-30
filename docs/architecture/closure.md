@@ -57,7 +57,13 @@ phases: each runs to its own end, in order, and is never revisited.
   (`engages`) is not entered, and pays no offer and no meter phase.
 - **The pipeline's post-grounding stage is this engine,** with two layers. The
   walk (`walkLayer`) absorbs forward or pivots. The fusion (`fusionLayer`) makes
-  one composed transition, and engages only while the derivation is open.
+  one composed transition, and engages only while the derivation is open. Each
+  further topic is the run around its point that primary did not price,
+  answered by the whole market (`groundStretch`), as the first topic was. A
+  run is grounded once, on the question's own recognition and climb within it
+  (`recognitionWithin`, `attentionWithin`), and never fuses again: its own
+  further topics are the question's. The topics cost the mechanisms' own work,
+  never a second reading or a nesting.
 
 ## What the law decides, and what it does not
 

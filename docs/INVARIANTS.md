@@ -1,6 +1,6 @@
 # INVARIANTS — Where Each Law Lives and What Pins It
 
-`AGENTS.md` §2 names the five invariants every change keeps. This table routes
+`AGENTS.md` §2 names the six invariants every change keeps. This table routes
 all fifteen laws (numbered as in `INDEX.md`) to the code that defines them and
 the tests that fail when they break.
 
@@ -11,7 +11,7 @@ the tests that fail when they break.
 | 3  | Exact decides          | `primitives.ts` (`resolve`), `match.ts` (`locate`, `alignGraded`), `traverse.ts` (`substitutionGrade`), `role.ts`, `resonance.ts`, `attention.ts` | `test/49`, `test/51`, `test/56`, `test/71`        |
 | 4  | One cost currency      | `graph-search.ts` (`MICRO`…`PASS`), `src/derive` (min, +), `attention.ts` (`poolVotes`, +, +), `pipeline.ts` (`weigh`)                            | `test/04`, `test/55`, `test/151`                  |
 | 5  | Match → project → gate | `match.ts`                                                                                                                                        | `test/31`, `test/47`, `test/76-reference-binding` |
-| 6  | Mechanism market       | `pipeline-mechanism.ts` (`PipelineMechanism`, `Precomputed`), `pipeline.ts` (`think`, `worthRunning`)                                             | `test/04`, `test/93`, `test/153`                  |
+| 6  | Inference isonomy      | `mechanisms.ts`, `pipeline-mechanism.ts` (`PipelineMechanism`, `Precomputed`), `pipeline.ts` (`think`, `worthRunning`), `composition.ts`          | `test/04`, `test/93`, `test/153`, `test/160`      |
 | 7  | Commonality            | `traverse.ts` (`reachOf`, `hubWindows`), `geometry.ts` (`dominates`, `AGREEMENT`), `cast.ts` (`depth[]`), `bridge.ts` (rarity)                    | `test/17`, `test/34`, `test/73`                   |
 | 8  | Bounded reads          | `store.ts` (`*First`, `containersSlice`, `has*`, `bytesPrefix`, `chainRun`), `traverse.ts` (`hubBound`, `hubCap`)                                 | `test/14`, `test/89`, `test/90`, `test/119`       |
 | 9  | Store                  | `store.ts` (`AbstractStore`, `intern`), `store-sqlite.ts`, `mind.ts` (`rebuildDerived`)                                                           | `test/02`, `test/08`, `test/36-bloom`             |

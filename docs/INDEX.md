@@ -37,7 +37,7 @@ Sema is one system, stated four ways:
 | 3  | `exact-vs-approximate.md` | scores propose, bytes dispose; ladders are exact first; a transfer needs a licence                                 |
 | 4  | `cost-model.md`           | one currency: `MICRO < STEP < CONCEPT < PASS`, and the price is the unexplained question                           |
 | 5  | `match-project.md`        | a mechanism is `(matcher, direction, gate)` over one family; the gate belongs to the consumer                      |
-| 6  | `mechanism-market.md`     | one interface, one price; never compute what cannot change the decision                                            |
+| 6  | `mechanism-market.md`     | universal inference isonomy: every logic alike for every mechanism; one interface, one price                       |
 | 7  | `commonality.md`          | frame against filler is read over a named population: corpus, cohort or places, never substituted                  |
 | 8  | `bounded-reads.md`        | no per-query read grows with `N`; the store enforces `hubBound = ⌈√N⌉`                                             |
 | 9  | `store.md`                | a node is named by its content; the base keeps what was given, all else is derived from it and rebuilt             |

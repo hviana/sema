@@ -207,7 +207,7 @@ without evidence is a failure, not a pass. Any failure ⇒ revert and return to 
 | # | Criterion                                                                                                                                                                                |
 | - | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 | Official instrumentation only (`inspectRationale`, `meter.ts`). Any further need improves **those** instruments — no parallel channel, no ad-hoc logging.                                |
-| 2 | Sema's principles, foundations and the five invariants hold (`docs/INVARIANTS.md`).                                                                                                      |
+| 2 | Sema's principles, foundations and the six invariants hold (`docs/INVARIANTS.md`), universal inference isonomy among them.                                                               |
 | 3 | No behavioural regression. Not the same as keeping all behaviour identical — see `docs/failures/tempting-but-wrong.md`.                                                                  |
 | 4 | No prohibitive cost increase. Prefer better complexity (superlinear → linear → sublinear). Nothing may depend on corpus size (`test/14-scaling`).                                        |
 | 5 | Every fix carries one test that proves the need irrefutably — quality over count, no accidental pass (`tempting-but-wrong.md`), in the matching numbered `test/` suite (`AGENTS.md` §5). |

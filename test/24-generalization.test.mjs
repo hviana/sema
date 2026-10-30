@@ -276,7 +276,10 @@ test("3.1 — the second topic is fused on its OWN wording, never on a sub-windo
   const m = await twoTopicMind();
   let anchors = null;
   const got = await m.respondText(TWO_TOPIC_QUERY, (s) => {
-    if (s.mechanism.at(-1) === "climbConsensus" && s.data?.anchors) {
+    // The question's own climb — a further topic's market climbs its stretch,
+    // in the stretch's coordinates, under a nested `think`.
+    const outer = s.mechanism.filter((x) => x === "think").length === 1;
+    if (outer && s.mechanism.at(-1) === "climbConsensus" && s.data?.anchors) {
       anchors = s.data.anchors;
     }
   });

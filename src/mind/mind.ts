@@ -21,7 +21,7 @@ import { BoundedMap, type Store } from "../store.js";
 import { SQliteStore } from "../store-sqlite.js";
 import { type MindConfig, resolveConfig } from "../config.js";
 import { type Canon, canonHash, textCanon, textEdgeTrim } from "../canon.js";
-import { bytesEqual, concat2 } from "../bytes.js";
+import { bytesEqual, concat2, latin1 } from "../bytes.js";
 import { GraphSearch, type Leaf, type Site, STEP } from "./graph-search.js";
 import type { ExtensionHost } from "../extension.js";
 import { defaultMechanisms } from "../mechanisms.js";
@@ -146,9 +146,15 @@ import {
   leadsSomewhere,
 } from "./traverse.js";
 import { follow } from "./match.js";
-import { recognise, segment, thingsIn } from "./recognition.js";
+import {
+  recognise,
+  recognitionWithin,
+  segment,
+  thingsIn,
+} from "./recognition.js";
 import { meaningOf } from "./resonance.js";
 import {
+  attentionWithin,
   climbAttention as climbAttentionFn,
   naturalBreak as naturalBreakFn,
 } from "./attention.js";
@@ -694,6 +700,61 @@ export class Mind implements MindContext {
       bytes: voiced,
       provenance: thought.provenance,
     };
+  }
+
+  async groundStretch(
+    query: Uint8Array,
+    [a, b]: readonly [number, number],
+  ): Promise<Uint8Array | null> {
+    // THE RUN IS READ WITH THE QUESTION, never again: its recognition and its
+    // climb are the question's within it (`recognitionWithin`,
+    // `attentionWithin`), and what is a function of bytes alone — perception,
+    // canonical resolution — is the question's memo.  The nested question
+    // pays only for what is its own.  The turn's state starts fresh.
+    const stretch = query.subarray(a, b);
+    const key = latin1(stretch);
+    const recognised = this.recogniseMemo?.get(latin1(query));
+    const climbed = this.climbMemo?.get(latin1(query));
+    const outer = {
+      climbMemo: this.climbMemo,
+      recogniseMemo: this.recogniseMemo,
+      _resolvedSubtrees: this._resolvedSubtrees,
+      answeredSpans: this.answeredSpans,
+      currentTurnStart: this.currentTurnStart,
+      _edgeGuide: this._edgeGuide,
+      _edgeAsked: this._edgeAsked,
+      _edgeChoice: this._edgeChoice,
+      _prevSeen: this._prevSeen,
+    };
+    this.climbMemo = new Map();
+    if (climbed !== undefined) {
+      this.climbMemo.set(
+        key,
+        new Map(
+          [...climbed].map(([mode, read]) => [mode, attentionWithin(read, a, b)]),
+        ),
+      );
+    }
+    this.recogniseMemo = new Map(this.recogniseMemo ?? []);
+    if (recognised !== undefined) {
+      this.recogniseMemo.set(
+        key,
+        recognitionWithin(this, recognised, query, a, b),
+      );
+    }
+    this._resolvedSubtrees = null;
+    this.answeredSpans = [];
+    this.currentTurnStart = 0;
+    this._edgeGuide = null;
+    this._edgeAsked = null;
+    this._edgeChoice = new Map();
+    this._prevSeen = null;
+    try {
+      return (await think(this, stretch, this.mechanisms, false))?.bytes ??
+        null;
+    } finally {
+      Object.assign(this, outer);
+    }
   }
 
   /** Answer ONE self-contained input.

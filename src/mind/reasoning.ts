@@ -16,7 +16,7 @@ import {
   otherInstance,
 } from "./traverse.js";
 import { unspoken, type WindowIndex, windowIndex } from "./evidence.js";
-import { containsSpan, follow, project } from "./match.js";
+import { containsSpan, follow } from "./match.js";
 import { joinWithBridge, pivotInto } from "./resonance.js";
 import {
   closed,
@@ -662,6 +662,7 @@ export function fusionLayer(
     ];
     const qv = pre.guide; // once, not per root
     const rest = forest.slice(1).filter(independentOfPrimary);
+    const grounded = new Set<number>();
     if (rest.length === 0) return null;
     const t = ctx.trace?.enter("fuseAttention", [
       rItem(primary, "primary"),
@@ -764,7 +765,19 @@ export function fusionLayer(
         );
         continue;
       }
-      const g = await project(ctx, root.anchor, qv);
+      // A FURTHER TOPIC IS ANSWERED BY THE MARKET, as the question's first is:
+      // its stretch of the question — the run around this point that
+      // primary's grounding did not price (a root's own span is only its
+      // strongest window) — grounded by whichever mechanism grounds it, never
+      // by one procedure chosen for it.  Each run is grounded once, however
+      // many points stand in it, on the question's own reading of it
+      // (`groundStretch`), and never fuses again (`think`'s `fuses`).
+      const owed = unexplainedSpans(query.length, primarySpans).find((
+        [a, b],
+      ) => a < root.end && root.start < b && b - a < query.length);
+      if (owed === undefined || grounded.has(owed[0])) continue;
+      const g = await ctx.groundStretch(query, owed);
+      grounded.add(owed[0]);
       if (g === null || g.length === 0) continue;
       if (pieces.some((p) => indexOf(p.bytes, g, 0) >= 0)) continue;
       pieces.push({ start: root.start, bytes: g });

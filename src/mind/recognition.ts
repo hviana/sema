@@ -123,6 +123,42 @@ export function recognise(
   return recogniseImpl(ctx, bytes);
 }
 
+/** A RUN'S FORMS ARE THE QUESTION'S, within it: `rec` (the recognition of
+ *  `query`) read over `[a, b)` in the run's own coordinates — the sites wholly
+ *  inside, the leaves cut at the run's edges (a cut leaf is the node its bytes
+ *  resolve to, if any), the boundaries inside.  A run of the question is read
+ *  once, with the question (`MindContext.groundStretch`). */
+export function recognitionWithin(
+  ctx: MindContext,
+  rec: Recognition,
+  query: Uint8Array,
+  a: number,
+  b: number,
+): Recognition {
+  const inside = (p: number) => p >= a && p < b;
+  const sites: Site[] = rec.sites
+    .filter((s) => s.start >= a && s.end <= b)
+    .map((s) => ({ ...s, start: s.start - a, end: s.end - a }));
+  const leaves: Leaf[] = [];
+  for (const lf of rec.leaves) {
+    const start = Math.max(lf.start, a), end = Math.min(lf.end, b);
+    if (start >= end) continue;
+    const whole = start === lf.start && end === lf.end;
+    const bytes = whole ? lf.bytes : query.subarray(start, end);
+    leaves.push({
+      start: start - a,
+      end: end - a,
+      bytes,
+      node: whole ? lf.node : resolve(ctx, bytes),
+    });
+  }
+  const shift = (ps: Set<number>) =>
+    new Set([...ps].filter(inside).map((p) => p - a));
+  const starts = shift(rec.starts);
+  starts.add(0);
+  return { sites, leaves, splits: shift(rec.splits), starts };
+}
+
 function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   if (ctx.meter) {
     ctx.meter.recognitions++;

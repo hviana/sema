@@ -111,6 +111,11 @@ export async function think(
   ctx: MindContext,
   query: Uint8Array,
   mechanisms: readonly PipelineMechanism[],
+  /** False when `query` is a further topic's run of a question already being
+   *  fused (`MindContext.groundStretch`): that run's own further topics are
+   *  points of the question that asked it, which its fusion reads once.  Read
+   *  again inside, each is fused twice and the nesting deepens per topic. */
+  fuses = true,
 ): Promise<Thought | null> {
   if (query.length === 0) return null;
 
@@ -844,10 +849,12 @@ export async function think(
     ctx.space.maxGroup,
     [
       walkLayer(ctx, query, preConsumed, pre, voiced),
-      {
-        ...fusionLayer(ctx, query, pre, state.accounted),
-        engages: (d: DerivationState) => !closed(d),
-      },
+      ...(fuses
+        ? [{
+          ...fusionLayer(ctx, query, pre, state.accounted),
+          engages: (d: DerivationState) => !closed(d),
+        }]
+        : []),
     ],
     meter ? (name, walk) => meter.time(name, walk) : undefined,
   );

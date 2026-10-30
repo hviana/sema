@@ -47,7 +47,7 @@ except `../bytes.ts` (ALU); Sema reaches them via `DeductionSystem`,
 
 ## 2. Invariants — routing table
 
-Five invariants. Violate one and the system degrades silently — tests pin them.
+Six invariants. Violate one and the system degrades silently — tests pin them.
 
 | # | Invariant                           | Rule                                                                                                                                                   | Where it lives                                                                              |
 | - | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
@@ -56,6 +56,7 @@ Five invariants. Violate one and the system degrades silently — tests pin them
 | 3 | Exact decides, approximate proposes | Vector scores (`resonate`) rank only; identity via content-addressed lookup (`resolve`/`findLeaf`/`canonResolve`); graded ladders are exact tier first | `docs/architecture/exact-vs-approximate.md` → `src/mind/primitives.ts`, `src/mind/match.ts` |
 | 4 | One cost currency                   | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`; compare at `STEP` grade                                            | `docs/architecture/cost-model.md` → `src/mind/graph-search.ts`, `src/derive/`               |
 | 5 | Bounded reads                       | No per-query read grows with N; cap is `hubBound = √N` enforced at the store via `LIMIT` reads, existence probes, and `bytesPrefix` caps               | `docs/architecture/bounded-reads.md` → `src/store.ts`, `src/mind/traverse.ts`               |
+| 6 | Universal inference isonomy         | Every inference logic, present or future, applies alike to every mechanism and reads only what a candidate declares — never which mechanism produced it; none has a path, precedence or rule of its own | `docs/architecture/mechanism-market.md` → `src/mechanisms.ts`, `src/mind/pipeline.ts`, `src/mind/composition.ts` |
 
 Cross-cutting contracts (single-definition, imported everywhere):
 `contentLevels` in `src/geometry.ts` is the one boundary rule;

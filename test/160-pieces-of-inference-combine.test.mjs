@@ -57,3 +57,37 @@ test("160.3 an answer read off the whole question is no piece of it", async () =
   assert.equal(await m.respondText("the answer is 2+2"), "correct");
   await m.store.close();
 });
+
+test("160.4 a further topic is the market's answer to its own run of the question", async () => {
+  // The fusion chooses the question's further topics (reasoning.ts); each is
+  // answered by the market — every mechanism — over the run around its point
+  // that primary did not price, never by one procedure chosen for topics.
+  const corpus = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    ["The tallest tower in Paris", "The tallest tower in Paris is the Eiffel Tower"],
+  ];
+  const m = new Mind({ seed: 7 });
+  await m.ingest(corpus);
+  const asked = [];
+  const ground = m.groundStretch.bind(m);
+  m.groundStretch = async (q, run) => {
+    const r = await ground(q, run);
+    asked.push([
+      new TextDecoder().decode(q.subarray(run[0], run[1])),
+      r && new TextDecoder().decode(r),
+    ]);
+    return r;
+  };
+  const q = "2+2 and the Eiffel Tower";
+  const first = await m.respondText(q);
+  assert.deepEqual(asked, [[
+    " and the Eiffel Tower",
+    "The tallest tower in Paris is the Eiffel Tower",
+  ]]);
+  assert.ok(first.endsWith("The tallest tower in Paris is the Eiffel Tower"));
+  // The nested question leaves the outer one's state as it found it.
+  assert.equal(await m.respondText(q), first);
+  await m.store.close();
+});

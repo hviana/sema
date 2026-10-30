@@ -426,6 +426,16 @@ export interface MindContext extends GraphSearchHost {
     | null;
   _edgeChoice: Map<number, number>;
   _prevSeen: Set<number> | null;
+  /** THE MARKET'S ANSWER TO A RUN `[a, b)` of the question in flight: the
+   *  same `think`, the same mechanisms, under a question state of its own, the
+   *  outer question's restored after; the run's recognition and climb are the
+   *  question's within it, never read again.  A run's answer is a function of
+   *  its bytes alone, whatever mechanism grounds it — how a further topic of
+   *  the question is answered (reasoning.ts, `fusionLayer`). */
+  groundStretch(
+    query: Uint8Array,
+    run: readonly [number, number],
+  ): Promise<Uint8Array | null>;
   /** Session cache of node-id → perceived gist, for candidate scoring
    *  ({@link chooseAmong} in the reverse projection's recall path re-gists up to
    *  √N contexts per pick — the measured bottleneck there).  `chooseNext` does

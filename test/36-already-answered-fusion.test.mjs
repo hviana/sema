@@ -83,6 +83,10 @@ test("fuseAttention: a root whose continuation is already answered in the query 
 
   const guide = gistOf(m, q);
   const primary = enc("PRIMARYANCHORTEXT");
+  // Primary stands on `-greet` [11,17): a further topic is the run around its
+  // point that primary did not price, answered by the market — `greet reply`
+  // would be answered `reply-greet` were the gate not to refuse it, and
+  // ` then red then circle` is answered `answer alpha`.
   // forest[0] is never independently projected (see reasoning.ts: it is
   // treated as already primary's own source) — a placeholder keeps BOTH
   // real roots in `rest`, where this filter actually applies.
@@ -99,10 +103,10 @@ test("fuseAttention: a root whose continuation is already answered in the query 
   const out = dec(
     (await fuseAttention(m, q, {
       product: primary,
-      accounted: [],
+      accounted: [[11, 17]],
       remainder: [],
       cost: 0,
-    }, pre)).product,
+    }, pre, [[11, 17]])).product,
   );
   assert.ok(
     !out.includes("reply-greet"),
@@ -118,9 +122,10 @@ test("fuseAttention: a root whose continuation is already answered in the query 
 test("fuseAttention: ordinary multi-topic fusion (no embedded answers) is completely unaffected", async () => {
   const m = mk(1);
   await m.ingest(CORPUS);
-  const q = enc("red then circle");
+  // Primary stands on `so on` [19,25), leaving the binding its own run.
+  const q = enc("red then circle and so on");
   const roots = await m.climbAttention(q, 24);
-  assert.equal(roots.length, 1, "expected the single joint binding root");
+  assert.ok(roots.length >= 1, "expected the joint binding root");
   // Force a second, independent inclusion path by
   // reusing the SAME root twice at different synthetic positions, neither
   // of which has an embedded answer — a pure regression check that the
@@ -140,10 +145,10 @@ test("fuseAttention: ordinary multi-topic fusion (no embedded answers) is comple
   const out = dec(
     (await fuseAttention(m, q, {
       product: primary,
-      accounted: [],
+      accounted: [[19, 25]],
       remainder: [],
       cost: 0,
-    }, pre)).product,
+    }, pre, [[19, 25]])).product,
   );
   assert.ok(
     out.includes("answer alpha"),
@@ -166,10 +171,16 @@ test("fuseAttention: a confined point whose strongest evidence is below one wind
       "Who is the uncle of Auberon Herbert (Landowner)?",
       "The sibling of Aubrey Herbert is George Herbert.",
     ],
+    // What the market answers for the point's run: both points below stand
+    // in that one run, so the window is the only thing that differs.
+    ["(1971 Film)?", "A film of 1971."],
   ]);
   const q = enc(
     "Where was the place of death of the director of film Kathputli (1971 Film)?",
   );
+  // Primary priced the question up to `Kathputli`; the point's run is the
+  // close, ` (1971 Film)?`.
+  const KATHPUTLI = new TextDecoder().decode(q).indexOf(" (1971");
   const uncle = m.resolve(
     enc("Who is the uncle of Auberon Herbert (Landowner)?"),
   );
@@ -197,21 +208,21 @@ test("fuseAttention: a confined point whose strongest evidence is below one wind
     return dec(
       (await fuseAttention(m, q, {
         product: enc("The director of Kathputli is Brij."),
-        accounted: [],
+        accounted: [[0, KATHPUTLI]],
         remainder: [],
         cost: 0,
-      }, pre)).product,
+      }, pre, [[0, KATHPUTLI]])).product,
     );
   };
   const below = await fuse(point(q.length - 2, q.length));
   assert.ok(
-    !below.includes("Aubrey"),
+    !below.includes("1971."),
     `a point whose strongest evidence is \`)?\` must not fuse in, got "${below}"`,
   );
   // The same point with a window of evidence is judged by the other measures.
   const window = await fuse(point(q.length - 6, q.length));
   assert.ok(
-    window.includes("Aubrey"),
+    window.includes("1971."),
     `the control fuses, so the window is what decided, got "${window}"`,
   );
   await m.store.close();
