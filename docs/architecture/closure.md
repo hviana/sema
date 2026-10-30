@@ -5,10 +5,9 @@
 > asker left unaccounted.
 
 **Why.** Every tier that decides whether to continue (the chart's frontier, the
-market, the walk after grounding, fusion, the mechanisms' own gates) asks this
-one law, and none re-spells a condition it owns. Without the law a derivation
-could wander: restate what it already said, cycle, or extend into facts nobody
-asked for.
+market, the walk, fusion, the mechanisms' gates) asks this one law and
+re-spells none of its conditions. Without it a derivation could restate itself,
+cycle, or extend into facts nobody asked for.
 
 ## The unit — `DerivationState` (`src/mind/derivation.ts`)
 
@@ -21,10 +20,9 @@ asked for.
 | `fixed`     | a declared fixpoint: the query _is_ the context, so no transition is offered        |
 | `used`      | the anchors the product speaks for; an empty set declares that it voices nothing    |
 
-There is no identity field, no frontier, no producer and no count. What the
-derivation _reached_ and _spent_ belongs to the layer, which holds the structure
-and hands the law its witnesses (`contains`, `moves`). The law never probes the
-store.
+No identity field, frontier, producer or count: what the derivation _reached_
+and _spent_ is the layer's, which holds the structure and hands the law its
+witnesses (`contains`, `moves`). The law never probes the store.
 
 ## The transition
 
@@ -41,29 +39,24 @@ No state is built by hand anywhere else (`test/137.7`).
   trusting the window alone (`test/138`).
 - **A step the question did not name pays from what it still owes.** Naming is
   the evidence law (`evidence.md`).
-- **The law owns no search, so it cannot prevent a cycle.** That belongs to the
-  layer, which holds the structure. A fusion the law refuses is not taken, and
-  there is no hand-built fallback.
+- **The law owns no search, so it cannot prevent a cycle;** the layer, which
+  holds the structure, does. A fusion the law refuses is not taken, with no
+  hand-built fallback.
 
 ## The engine — `closeOver`
 
 `closeOver(state, query, W, layers)` closes a derivation layer by layer. A layer
-(`ClosureLayer`) is a named offer with its own instrumentation. Layers are
-phases: each runs to its own end, in order, and is never revisited.
+(`ClosureLayer`) is a named, instrumented offer, and a phase: each runs to its
+own end, in order, and is never revisited.
 
-- **"Not fixed" is checked first.** A fixed state admits no transition, so no
-  layer is entered.
+- **"Not fixed" is checked first.** A fixed state enters no layer.
 - **Engagement is the layer's.** A layer with nothing to offer a state
   (`engages`) is not entered, and pays no offer and no meter phase.
 - **The pipeline's post-grounding stage is this engine,** with two layers. The
   walk (`walkLayer`) absorbs forward or pivots. The fusion (`fusionLayer`) makes
-  one composed transition, and engages only while the derivation is open. Each
-  further topic is the run around its point that primary did not price,
-  answered by the whole market (`groundStretch`), as the first topic was. A
-  run is grounded once, on the question's own recognition and climb within it
-  (`recognitionWithin`, `attentionWithin`), and never fuses again: its own
-  further topics are the question's. The topics cost the mechanisms' own work,
-  never a second reading or a nesting.
+  one composed transition while the derivation is open. Each further topic, the
+  run primary left around its point, is grounded once by the market
+  (`groundStretch`) on the question's own reading of it, and never fuses again.
 
 ## What the law decides, and what it does not
 
@@ -95,9 +88,9 @@ Three limits were proved and deliberately left out:
 
 ## Layering
 
-`derivation.ts` imports only `../bytes.js` and sits below `graph-search.ts`,
-`match.ts`, `rationale.ts` and `pipeline.ts`. The span algebra
-(`unexplainedSpans` and its relatives) lives here as the law's vocabulary.
+`derivation.ts` imports only `../bytes.js`, below `graph-search.ts`, `match.ts`,
+`rationale.ts` and `pipeline.ts`, and holds the span algebra
+(`unexplainedSpans` and kin), the law's vocabulary.
 
 ## Pins
 

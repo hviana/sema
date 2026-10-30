@@ -443,6 +443,31 @@ test("inference: input is processed at a roughly constant KB/s (linear, not quad
   );
 });
 
+// A further topic of a long input is the market's answer to its run, and that
+// nested question never fuses topics of its own: they are the question's.
+// Nesting, the 1 KB input below grounded a run inside a run (depth 2) — and,
+// read afresh at each level, six deep (126 groundings, 22 s instead of 0.5 s).
+test("inference: a further topic never nests (one market per run)", async () => {
+  const store = new SQliteStore({ path: ":memory:" });
+  const mind = new Mind({ seed: 7, store, profile: true });
+  await mind.ingest(corpus(200, "infcorp200"));
+  let depth = 0, deepest = 0;
+  const ground = mind.groundStretch.bind(mind);
+  mind.groundStretch = async (q, run) => {
+    deepest = Math.max(deepest, ++depth);
+    try {
+      return await ground(q, run);
+    } finally {
+      depth--;
+    }
+  };
+  await mind.respond(unknownInput(1024));
+  const topics = mind.lastCost.counters.topicGroundings;
+  await mind.store.close();
+  assert.equal(topics, 1, "the input's further topic is grounded");
+  assert.equal(deepest, 1, "a topic's run grounds no topic of its own");
+});
+
 // =========================================================================
 // INFERENCE — correctness preserved while scaling
 // =========================================================================

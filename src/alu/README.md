@@ -64,17 +64,15 @@ whole.
 
 ## How it joins a host
 
-The ALU is a plain class (`alu.ts`) that exposes
-`parse(query) →
-ComputedSpan[]`. A `ComputedSpan` is `{ i, j, bytes }`: a
-half-open byte range and the result computed for it. `aluMechanism`
-(`mechanism.ts`) makes each one an answer of a host's mechanism: its bytes, the
-span it explains, one move, and that it is a piece — a function of its span
-alone, which the host may compose with the rest of the question. Sema registers it like any mechanism
+The ALU is a plain class (`alu.ts`) exposing `parse(query) → ComputedSpan[]`,
+each `{ i, j, bytes }`: a half-open byte range and its result. `aluMechanism`
+(`mechanism.ts`) makes each a host mechanism's answer: its bytes, the span
+it explains, one move, and a piece (a function of its span alone, which the
+host may compose). Sema registers it like any mechanism
 (`docs/mechanisms/alu.md`).
 
 **The host port.** At construction the ALU receives its `AluHost`, four
-neutral capabilities that know nothing about the ALU:
+neutral capabilities:
 `meaningOf(bytes, anchors)`, `continuation(bytes)`, `segment(bytes)` and
 `reach`; its mechanism also reads `step`, the price of one move. The ALU adapts them into its own `AluResonance` (`resonance.ts`):
 

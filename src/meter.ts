@@ -381,6 +381,9 @@ export class Meter {
    *  Its own rationale step reports the fusion; this is the untraced view, and
    *  its cost is one bridging edge: `fuseRuns · STEP`. */
   fuseRuns = 0;
+  /** Runs of the question the fusion asked the market to ground, one per run
+   *  (reasoning.ts, `groundStretch`): each costs the mechanisms' work on it. */
+  topicGroundings = 0;
   /** Steps the post-grounding EXTENSION took — pivots plus forward-absorbs.
    *  `pivotSteps` counts only the former, so before this the extension's COST was
    *  not computable at all.  With it, the price of extending the answer is

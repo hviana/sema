@@ -60,7 +60,12 @@ import {
 } from "./junction.js";
 import type { Vec } from "../vec.js";
 import { indexOf, latin1, sharedEnds } from "../bytes.js";
-import { restates, unionSpans, windowSpans } from "./derivation.js";
+import {
+  restates,
+  spansWithin,
+  unionSpans,
+  windowSpans,
+} from "./derivation.js";
 import type { RationaleItem } from "./rationale.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
 
@@ -521,10 +526,10 @@ export function attentionWithin(
   a: number,
   b: number,
 ): AttentionRead {
-  const within = (xs: Attention[]) =>
-    xs.filter((x) => x.start >= a && x.end <= b)
-      .map((x) => ({ ...x, start: x.start - a, end: x.end - a }));
-  return { roots: within(read.roots), ranked: within(read.ranked) };
+  return {
+    roots: spansWithin(read.roots, a, b),
+    ranked: spansWithin(read.ranked, a, b),
+  };
 }
 
 // ── Pipeline ──────────────────────────────────────────────────────────────

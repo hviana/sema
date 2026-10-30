@@ -150,6 +150,16 @@ export function spanGap(a: Span, b: Span): number {
   return a[1] <= b[0] ? b[0] - a[1] : b[1] <= a[0] ? a[0] - b[1] : 0;
 }
 
+/** The items lying wholly in `[a, b)`, in that run's own coordinates. */
+export function spansWithin<T extends { start: number; end: number }>(
+  items: readonly T[],
+  a: number,
+  b: number,
+): T[] {
+  return items.filter((x) => x.start >= a && x.end <= b)
+    .map((x) => ({ ...x, start: x.start - a, end: x.end - a }));
+}
+
 /** The `[start, end)` gaps of `[0, queryLen)` NOT covered by `accounted` — the
  *  union-of-spans reading the ladder prices at PASS per byte, and the raw
  *  material every closure decision measures.  Clipped to the question, sorted

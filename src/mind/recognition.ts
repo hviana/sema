@@ -28,6 +28,7 @@ import { atomIsHub, boundFor } from "../geometry.js";
 import { chainReach, flatId, windowIds } from "./canonical.js";
 import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import { isChunk, type Sema } from "../sema.js";
+import { spansWithin } from "./derivation.js";
 import type { Leaf, Site } from "./graph-search.js";
 
 /** Decompose a byte stream into every stored form that leads somewhere
@@ -136,9 +137,7 @@ export function recognitionWithin(
   b: number,
 ): Recognition {
   const inside = (p: number) => p >= a && p < b;
-  const sites: Site[] = rec.sites
-    .filter((s) => s.start >= a && s.end <= b)
-    .map((s) => ({ ...s, start: s.start - a, end: s.end - a }));
+  const sites = spansWithin(rec.sites, a, b);
   const leaves: Leaf[] = [];
   for (const lf of rec.leaves) {
     const start = Math.max(lf.start, a), end = Math.min(lf.end, b);

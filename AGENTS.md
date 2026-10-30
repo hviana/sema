@@ -56,17 +56,16 @@ Six invariants. Violate one and the system degrades silently — tests pin them.
 | 3 | Exact decides, approximate proposes | Vector scores (`resonate`) rank only; identity via content-addressed lookup (`resolve`/`findLeaf`/`canonResolve`); graded ladders are exact tier first | `docs/architecture/exact-vs-approximate.md` → `src/mind/primitives.ts`, `src/mind/match.ts` |
 | 4 | One cost currency                   | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`; compare at `STEP` grade                                            | `docs/architecture/cost-model.md` → `src/mind/graph-search.ts`, `src/derive/`               |
 | 5 | Bounded reads                       | No per-query read grows with N; cap is `hubBound = √N` enforced at the store via `LIMIT` reads, existence probes, and `bytesPrefix` caps               | `docs/architecture/bounded-reads.md` → `src/store.ts`, `src/mind/traverse.ts`               |
-| 6 | Universal inference isonomy         | Every inference logic, present or future, applies alike to every mechanism and reads only what a candidate declares — never which mechanism produced it; none has a path, precedence or rule of its own | `docs/architecture/mechanism-market.md` → `src/mechanisms.ts`, `src/mind/pipeline.ts`, `src/mind/composition.ts` |
+| 6 | Universal inference isonomy         | Every inference logic, now or later, treats all mechanisms alike, reading only what a candidate declares | `docs/architecture/mechanism-market.md` → `src/mechanisms.ts`, `src/mind/pipeline.ts` |
 
 Cross-cutting contracts (single-definition, imported everywhere):
 `contentLevels` in `src/geometry.ts` is the one boundary rule;
-`src/mind/derivation.ts` is the closure law and its engine (`closeOver`);
-`src/mind/canonical.ts` is the canonical segmentation contract;
-`src/mind/junction.ts` is the shared content-addressed ascent; `Precomputed` in
-`src/mind/pipeline-mechanism.ts` is the per-response memo; `src/meter.ts` is the
-write-only work accounting surface. See `docs/INDEX.md` and
-`factored-machinery.md` for the contract table and ownership. Tie-breaks are
-corpus-determined, not interchangeable (`determinism.md`).
+`src/mind/derivation.ts` the closure law, its engine (`closeOver`) and the span
+algebra; `src/mind/canonical.ts` the canonical segmentation;
+`src/mind/junction.ts` the shared content-addressed ascent; `Precomputed`
+(`src/mind/pipeline-mechanism.ts`) the per-response memo; `src/meter.ts` the
+write-only work accounting. Ownership: `docs/INDEX.md`, `factored-machinery.md`.
+Tie-breaks are corpus-determined, not interchangeable (`determinism.md`).
 
 ## 3. Where things live
 
@@ -80,7 +79,7 @@ corpus-determined, not interchangeable (`determinism.md`).
 | Perceive / resolve / read primitives | `src/mind/primitives.ts`                                                                           |
 | Store domain logic / SQLite adapter  | `src/store.ts`, `src/store-sqlite.ts`                                                              |
 | Mechanism contract + `Precomputed`   | `src/mind/pipeline-mechanism.ts`                                                                   |
-| Grounding decider (`think`)          | `src/mind/pipeline.ts`; the composition of pieces in `src/mind/composition.ts`                      |
+| Grounding decider (`think`)          | `src/mind/pipeline.ts`; pieces composed in `src/mind/composition.ts`                               |
 | Grounding mechanisms (one file each) | `src/mind/mechanisms/*.ts`; the ALU's own in `src/alu/src/mechanism.ts`; registered in `src/mechanisms.ts` |
 | Weighted deduction + cost ladder     | `src/mind/graph-search.ts` (engine in `src/derive/`)                                               |
 | Match/project family                 | `src/mind/match.ts`                                                                                |
@@ -105,11 +104,10 @@ methods; `mind.ts` is a thin assembly.
 ### Add a grounding mechanism or extension
 
 Implement `PipelineMechanism` (`floor` → admissible bound or `null`; `run` →
-candidates with `bytes`/`accounted`/`moves` + optional
-`scaffolding`/`complete`/`used`/`provenance`). Register via
-`new Mind({ mechanisms: [...defaultMechanisms, host => yourMechanism(host)] })`. Verify the
-four market constraints (decoupled, declared competence, visible budget,
-evidence travels). → `docs/architecture/mechanism-market.md`
+candidates: `bytes`/`accounted`/`moves`, optional
+`scaffolding`/`complete`/`used`/`piece`/`provenance`). Register it with
+`new Mind({ mechanisms: [...defaultMechanisms, yours] })`; verify the four
+market constraints. → `docs/architecture/mechanism-market.md`
 
 ### Add an ALU operation
 
@@ -158,11 +156,10 @@ and the `inspectRationale` callback on `respond`/`respondText`/`respondTurn`.
 When a change needs to be seen, measured, or proved, EXTEND THEM: a counter in
 `meter.ts` (the one place a counter name exists), a step or note where the
 mechanism emits it (`src/mind/trace.ts` holds the move vocabulary). A gap in
-instrumentation is a defect IN the instrumentation: close it there, once, so the
-next person sees it too. Never add a parallel channel for a single investigation
-— no ad-hoc logging or timing probes left in `src/` (`performance.now()` belongs
-in `meter.ts`, not at a call site), no private per-layer counter where a
-`meter.ts` field belongs, and no trace channel of your own: a callback threaded
+instrumentation is a defect IN it: close it there, once. Never add a parallel
+channel — no ad-hoc logging or timing probes in `src/` (`performance.now()`
+belongs in `meter.ts`), no private counter where a `meter.ts` field belongs,
+and no trace channel of your own: a callback threaded
 through a call chain must FEED the rationale, the way `GraphSearch`'s
 `onDerivation` feeds `traceDerivation`. (`store.ts`'s
 `danglingReads`/`compactFailures` and the `console.warn`s that report them stay:

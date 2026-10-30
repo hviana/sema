@@ -776,6 +776,7 @@ export function fusionLayer(
         [a, b],
       ) => a < root.end && root.start < b && b - a < query.length);
       if (owed === undefined || grounded.has(owed[0])) continue;
+      if (ctx.meter) ctx.meter.topicGroundings++;
       const g = await ctx.groundStretch(query, owed);
       grounded.add(owed[0]);
       if (g === null || g.length === 0) continue;

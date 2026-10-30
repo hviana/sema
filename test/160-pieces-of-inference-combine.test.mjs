@@ -91,3 +91,32 @@ test("160.4 a further topic is the market's answer to its own run of the questio
   assert.equal(await m.respondText(q), first);
   await m.store.close();
 });
+
+test("160.5 a further topic is read with the question: no second climb", async () => {
+  // The run's points are the question's within it (`attentionWithin`): the
+  // nested question climbs nothing the question did not.  Read afresh, each
+  // topic cost a climb of its own (and never nests: test/14).
+  const corpus = [
+    ["What is the capital of France", "The capital of France is Paris"],
+    ["Paris", "Paris is famous for the Eiffel Tower"],
+    ["2+2", "2+2 equals 4"],
+    ["The tallest tower in Paris", "The tallest tower in Paris is the Eiffel Tower"],
+  ];
+  const q = "2+2 and the Eiffel Tower";
+  const run = async (topics) => {
+    const m = new Mind({ seed: 7, profile: true });
+    await m.ingest(corpus);
+    if (!topics) m.groundStretch = async () => null;
+    const a = await m.respondText(q);
+    const c = m.lastCost.counters;
+    await m.store.close();
+    return { a, climbs: c.climbs, regions: c.climbRegions, topics: c.topicGroundings, fused: c.fuseRuns ?? 0 };
+  };
+  const [withTopic, without] = [await run(true), await run(false)];
+  assert.equal(withTopic.a, "2+2 equals 4The tallest tower in Paris is the Eiffel Tower");
+  assert.equal(withTopic.topics, 1);
+  assert.equal(withTopic.fused, 1);
+  assert.equal(withTopic.climbs, without.climbs);
+  assert.equal(withTopic.regions, without.regions);
+});
+
