@@ -2,9 +2,9 @@
 
 `reference` learns a frame from worked examples and voices its slot with the
 bytes the asker put in that position (`src/mind/mechanisms/reference.ts`). It
-asserts _position_, not the equivalence a substitution asserts. The voiced bytes
-are the asker's, so they cannot fabricate corpus knowledge; the relation claimed
-about them can, and the licence withholds it.
+asserts _position_, not equivalence. The voiced bytes are the asker's, so they
+cannot fabricate corpus knowledge; the relation claimed about them can, and the
+licence withholds it.
 
 ## Matcher — the frame inventory
 
@@ -30,16 +30,16 @@ restates the question, unless it IS the asker's referent.
 
 The inventory forms that lead somewhere, share a window and cover most of the
 question's discriminating bytes (scaffolding is nobody's evidence,
-`commonality.md`) are **precedents**, insertions and deletions included: each
-votes for its own continuation, said verbatim, never the asker's bytes. A
-continuation holding a precedent's own filler (at window scale) is a carriage or
-a fact about it, and the reading abstains (`Run gcc hello.c`,
-`… hello is
-"Bonjour"`). The answer is the one a majority of precedents lead to; no majority is silence,
-and so is another question's answer about one of the question's subjects
-(`answersUnasked`). `AGREEMENT` votes or more derive it (`reference`); one
-precedent cannot show that what varies does not decide the answer (France says
-nothing about Peru), and is said as the nearest stored form, under `recall`.
+`commonality.md`) are **precedents**; with none, the tops the question witnesses
+in most of their bytes (`evidence.md`). Each votes for its own continuation,
+said verbatim. A continuation holding a precedent's filler (at window scale) is
+a carriage or a fact about it: the reading abstains (`Run gcc hello.c`,
+`… hello is "Bonjour"`). The answer is the majority's; no majority is silence,
+and so is a subject's answer to another question when the precedents share no
+window beyond it (`answersUnasked`). `AGREEMENT` votes or more derive it
+(`reference`); one precedent cannot show that what varies does not decide the
+answer (France says nothing about Peru): said as the nearest stored form
+(`recall`) if near.
 
 ## Cost
 
@@ -60,4 +60,4 @@ against, and the vote), `precedentLicence` and `unaskedPrecedent`.
 
 - `test/76-reference-binding` — carried, absorbed and refused frames; the
   multi-slot licence; `complete`; answered spans; a fact filed under its filler;
-  precedents that agree, outvote, tie, or stand alone.
+  precedents that agree, outvote, tie, stand alone or lie in the question.

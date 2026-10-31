@@ -731,7 +731,9 @@ export class Mind implements MindContext {
       this.climbMemo.set(
         key,
         new Map(
-          [...climbed].map(([mode, read]) => [mode, attentionWithin(read, a, b)]),
+          [...climbed].map((
+            [mode, read],
+          ) => [mode, attentionWithin(read, a, b)]),
         ),
       );
     }

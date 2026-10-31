@@ -145,9 +145,10 @@ reports.push(mind.lastCost); // formatReport(sumReports(reports)) at the end
 ```
 
 Assert honest silence on the bytes (`""`): `decision` stays `null` whenever
-fewer than two candidates stood, answered or not. If the gate ever needs what the instruments do not show, close it
-**in the instrumentation** (`AGENTS.md` §6), never with a private probe in the
-harness. Close the store (`await mind.store.close()`) so a run ends clean.
+fewer than two candidates stood, answered or not. If the gate ever needs what
+the instruments do not show, close it **in the instrumentation** (`AGENTS.md`
+§6), never with a private probe in the harness. Close the store
+(`await mind.store.close()`) so a run ends clean.
 
 ```bash
 npm run build && node bench/gate.mjs && node bench/fast.mjs
@@ -204,18 +205,18 @@ A cycle that produces only 3 when 1 or 2 was reachable has failed.
 Attack the diff against every criterion. State the evidence per row; a row
 without evidence is a failure, not a pass. Any failure ⇒ revert and return to 4.
 
-| # | Criterion                                                                                                                                                                                |
-| - | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | Official instrumentation only (`inspectRationale`, `meter.ts`). Any further need improves **those** instruments — no parallel channel, no ad-hoc logging.                                |
-| 2 | Sema's principles, foundations and the six invariants hold (`docs/INVARIANTS.md`), universal inference isonomy among them.                                                               |
-| 3 | No behavioural regression. Not the same as keeping all behaviour identical — see `docs/failures/tempting-but-wrong.md`.                                                                  |
-| 4 | No prohibitive cost increase. Prefer better complexity (superlinear → linear → sublinear). Nothing may depend on corpus size (`test/14-scaling`).                                        |
-| 5 | Every fix carries one test that proves the need irrefutably — quality over count, no accidental pass (`tempting-but-wrong.md`), in the matching numbered `test/` suite (`AGENTS.md` §5). |
-| 6 | Clean code: OO practice, conventions and design patterns, sitting in — or spread across — the right layers, with no logical, semantic or conceptual duplication.                         |
-| 7 | No store change and no new index, unless exceptionally justified.                                                                                                                        |
-| 8 | Every code change is reflected in the `.md` files (excluding the root README and the licences) — see below.                                                                              |
-| 9 | Machinery is byte-oriented and text-agnostic: no rule may assume words, whitespace, case, script or any other property of text — only bytes.                                             |
-| 10 | Improve the system, not the harness: a gain must hold on cases the change never saw (a fresh draw of the same class), or it fits the gate, not the capability.                          |
+| #  | Criterion                                                                                                                                                                                |
+| -- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1  | Official instrumentation only (`inspectRationale`, `meter.ts`). Any further need improves **those** instruments — no parallel channel, no ad-hoc logging.                                |
+| 2  | Sema's principles, foundations and the six invariants hold (`docs/INVARIANTS.md`), universal inference isonomy among them.                                                               |
+| 3  | No behavioural regression. Not the same as keeping all behaviour identical — see `docs/failures/tempting-but-wrong.md`.                                                                  |
+| 4  | No prohibitive cost increase. Prefer better complexity (superlinear → linear → sublinear). Nothing may depend on corpus size (`test/14-scaling`).                                        |
+| 5  | Every fix carries one test that proves the need irrefutably — quality over count, no accidental pass (`tempting-but-wrong.md`), in the matching numbered `test/` suite (`AGENTS.md` §5). |
+| 6  | Clean code: OO practice, conventions and design patterns, sitting in — or spread across — the right layers, with no logical, semantic or conceptual duplication.                         |
+| 7  | No store change and no new index, unless exceptionally justified.                                                                                                                        |
+| 8  | Every code change is reflected in the `.md` files (excluding the root README and the licences) — see below.                                                                              |
+| 9  | Machinery is byte-oriented and text-agnostic: no rule may assume words, whitespace, case, script or any other property of text — only bytes.                                             |
+| 10 | Improve the system, not the harness: a gain must hold on cases the change never saw (a fresh draw of the same class), or it fits the gate, not the capability.                           |
 
 **Criterion 8, how.** Those files hold the minimum text needed to understand the
 whole. They must describe current behaviour. Do not rewrite them: they contain

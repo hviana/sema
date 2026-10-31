@@ -23,14 +23,14 @@ import { twoQuanta } from "../geometry.js";
 import { indexOf } from "../bytes.js";
 import {
   answersOtherQuestions,
-  asksAbsentRelation,
-  subjectOfSeveral,
   askedEvidence,
+  asksAbsentRelation,
   canonHeldPoints,
   guidedFirst,
   hubBound,
   offsetCanon,
   scaffoldSpans,
+  subjectOfSeveral,
 } from "./traverse.js";
 import { conceptHop } from "./match.js";
 import { bridge } from "./resonance.js";
@@ -368,9 +368,7 @@ export async function compose(
             s.end,
           ])
         ),
-        ...grounded.map((p) =>
-          rItem(p.bytes, "piece", p.node, [p.i, p.j])
-        ),
+        ...grounded.map((p) => rItem(p.bytes, "piece", p.node, [p.i, p.j])),
       ],
       recognised === undefined ? undefined : [recognised],
     );

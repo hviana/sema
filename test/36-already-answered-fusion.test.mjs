@@ -101,12 +101,18 @@ test("fuseAttention: a root whose continuation is already answered in the query 
   // fusion consumes and returns the derivation STATE; these cases exercise the
   // mechanism's own gates, so the state is the minimum one for them.
   const out = dec(
-    (await fuseAttention(m, q, {
-      product: primary,
-      accounted: [[11, 17]],
-      remainder: [],
-      cost: 0,
-    }, pre, [[11, 17]])).product,
+    (await fuseAttention(
+      m,
+      q,
+      {
+        product: primary,
+        accounted: [[11, 17]],
+        remainder: [],
+        cost: 0,
+      },
+      pre,
+      [[11, 17]],
+    )).product,
   );
   assert.ok(
     !out.includes("reply-greet"),
@@ -143,12 +149,18 @@ test("fuseAttention: ordinary multi-topic fusion (no embedded answers) is comple
   // fusion consumes and returns the derivation STATE; these cases exercise the
   // mechanism's own gates, so the state is the minimum one for them.
   const out = dec(
-    (await fuseAttention(m, q, {
-      product: primary,
-      accounted: [[19, 25]],
-      remainder: [],
-      cost: 0,
-    }, pre, [[19, 25]])).product,
+    (await fuseAttention(
+      m,
+      q,
+      {
+        product: primary,
+        accounted: [[19, 25]],
+        remainder: [],
+        cost: 0,
+      },
+      pre,
+      [[19, 25]],
+    )).product,
   );
   assert.ok(
     out.includes("answer alpha"),
@@ -206,12 +218,18 @@ test("fuseAttention: a confined point whose strongest evidence is below one wind
       guide,
     };
     return dec(
-      (await fuseAttention(m, q, {
-        product: enc("The director of Kathputli is Brij."),
-        accounted: [[0, KATHPUTLI]],
-        remainder: [],
-        cost: 0,
-      }, pre, [[0, KATHPUTLI]])).product,
+      (await fuseAttention(
+        m,
+        q,
+        {
+          product: enc("The director of Kathputli is Brij."),
+          accounted: [[0, KATHPUTLI]],
+          remainder: [],
+          cost: 0,
+        },
+        pre,
+        [[0, KATHPUTLI]],
+      )).product,
     );
   };
   const below = await fuse(point(q.length - 2, q.length));

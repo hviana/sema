@@ -33,7 +33,7 @@ another question's answer, as the asker's:
 - an anchor that is the question with one piece swapped, unlicensed
   (`unlicensedSwap`, `exact-vs-approximate.md`): `… largest planet …` is no
   answer to `… largest ocean …`, while `sea-level` is `sea level`;
-- an answer to another question about one of the question's subjects
+- an unasked answer about a subject the anchor shares nothing past
   (`answersOtherQuestions`, `answersUnasked`; trace `unaskedAnchor`).
 
 Putting the asker's referent there is `reference`'s job: it needs the corpus's

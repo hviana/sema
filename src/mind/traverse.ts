@@ -1035,18 +1035,40 @@ export function asksAbsentRelation(ctx: MindContext, id: number): boolean {
  *  mechanism that reaches the same fact through an anchor or a precedent
  *  voices the same unasked pick — `What nationality was Nicolás Echevarría?`
  *  elected `Nicolás Echevarría date of birth`, and a precedent carried Brian
- *  Gibson's death date for `When was Brian Gibson (director) born?`.  At most
- *  one hub-bounded continuation read per such site. */
+ *  Gibson's death date for `When was Brian Gibson (director) born?`.
+ *
+ *  UNLESS THE QUESTION NAMES THE ROAD.  The contexts the mechanism read the
+ *  answer from (`establishing`) are what establish it; when they share a
+ *  discriminating window with the question beyond the site, the question asks
+ *  more than its subject and names them: `LANTERNA SUPERIOR DT …` shares
+ *  ` SUPERIOR D` with `LANTERNA SUPERIOR DA CABINE …`, where `LANTERNA` alone
+ *  leads to the same class among others.  At most one hub-bounded
+ *  continuation read per such site. */
 export function answersUnasked(
   ctx: MindContext,
   query: Uint8Array,
   sites: ReadonlyArray<{ start: number; end: number; payload: number }>,
   answer: Uint8Array,
+  establishing: ReadonlyArray<Uint8Array> = [],
 ): boolean {
   const id = resolve(ctx, answer);
   if (id === null) return false;
+  const W = ctx.space.maxGroup;
+  const asked = [windowIndex(query, W)];
+  const shared = unionSpans(
+    establishing.flatMap((b) => witness(b, asked, W).spans),
+  );
+  const frame = shared.length > 0 ? scaffoldSpans(ctx, query) : [];
+  const named = (s: number, e: number): boolean =>
+    spanBytes(
+      unexplainedSpans(query.length, [
+        ...frame,
+        [s, e],
+        ...unexplainedSpans(query.length, shared),
+      ]),
+    ) >= W;
   return sites.some((st) =>
-    st.payload >= 0 &&
+    st.payload >= 0 && !named(st.start, st.end) &&
     answersOtherQuestions(ctx, st.payload, query.length, st.end - st.start) &&
     ctx.store.nextFirst(st.payload, hubBound(ctx)).includes(id)
   );

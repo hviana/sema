@@ -32,11 +32,11 @@ import { existsSync, unlinkSync } from "node:fs";
 
 import {
   AbstractStore,
+  DERIVED_META_KEYS,
   flatBytesKids,
   type NodeId,
   type NodeRec,
   packKids,
-  DERIVED_META_KEYS,
   type Store,
   unpackKids,
 } from "./store.js";
@@ -450,7 +450,9 @@ export class SQliteStore extends AbstractStore implements Store {
       this.derived = this.sqlite;
     } else {
       this.derived = this.configure(
-        new DatabaseSync(sp === ":memory:" ? ":memory:" : `${stem}.derived.sqlite`),
+        new DatabaseSync(
+          sp === ":memory:" ? ":memory:" : `${stem}.derived.sqlite`,
+        ),
       );
     }
     this.derived.exec(SCHEMA_DERIVED);
@@ -1488,7 +1490,11 @@ export class SQliteStore extends AbstractStore implements Store {
         "ORDER BY id",
     );
     scan.setReturnArrays(true);
-    for (const [id, kids] of scan.iterate() as IterableIterator<[number, Uint8Array]>) {
+    for (
+      const [id, kids] of scan.iterate() as IterableIterator<
+        [number, Uint8Array]
+      >
+    ) {
       cb(id, unpackKids(kids));
     }
   }
@@ -1513,7 +1519,11 @@ export class SQliteStore extends AbstractStore implements Store {
   protected _dbEachHalo(cb: (id: NodeId, vec: Uint8Array) => void): void {
     const scan = this.sqlite!.prepare("SELECT id, vec FROM halo ORDER BY id");
     scan.setReturnArrays(true);
-    for (const [id, vec] of scan.iterate() as IterableIterator<[number, Uint8Array]>) {
+    for (
+      const [id, vec] of scan.iterate() as IterableIterator<
+        [number, Uint8Array]
+      >
+    ) {
       cb(id, vec);
     }
   }

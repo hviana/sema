@@ -6,7 +6,12 @@
 import { addInto, normalize, Vec, zeros } from "../vec.js";
 import { bindSeat, companySignature, isChunk, Sema } from "../sema.js";
 import type { Input, MindContext } from "./types.js";
-import { foldTree, inputBytes, perceiveDeposit, resolve } from "./primitives.js";
+import {
+  foldTree,
+  inputBytes,
+  perceiveDeposit,
+  resolve,
+} from "./primitives.js";
 import { canonicalWindows, flatId } from "./canonical.js";
 import { flatBytesKids } from "../store.js";
 import { rItem, rNode } from "./trace.js";

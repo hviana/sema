@@ -65,15 +65,14 @@ form is knowledge only if it continues somewhere or keeps company.
 
 ## The record and what is derived from it
 
-> **The store keeps what was given. Everything else is derived from it,
-> rebuilt from it alone, and never testifies.**
+> **The store keeps what was given. Everything else is derived from it, rebuilt
+> from it alone, and never testifies.**
 
 - **Base** — written by ingestion alone: the nodes; the edges in learnt order,
   deposited and suffix-inherited; the wholes; the halos, one accumulator per
   episode in arrival order; the metadata.
-- **Derived** — rebuilt from the base: the reverse index (`kid`),
-  containment, the canonical index, the sketches, the filters, and the gist and
-  halo indexes.
+- **Derived** — rebuilt from the base: the reverse index (`kid`), containment,
+  the canonical index, the sketches, the filters, and the gist and halo indexes.
 
 The base is what nothing else can replay: the halo depends on the order and the
 repetition of episodes, and the edges' order breaks ties, so neither is derived.
@@ -152,8 +151,8 @@ Maintenance is incremental:
   the `haloMass`/`hasHalo` contract, survival across a reopen, what a deposit
   learnt whole, near dedup (onto a whole form, kept apart by the bar, alike at
   every batch size, off with `nearDedup: false`), and the layers: the derived
-  one rebuilt from the base answers byte for byte, and catches up when behind
-  or lost.
+  one rebuilt from the base answers byte for byte, and catches up when behind or
+  lost.
 - `test/36-bloom` — the filters' exactness and persistence; their positions read
   the whole hash.
 - `test/153.4` — the span prober answers exactly what `findFlatBranch` answers.

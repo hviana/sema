@@ -18,10 +18,10 @@ import { gistOf, read, resolve } from "../primitives.js";
 import { indexOf } from "../../bytes.js";
 import {
   allWindowsAreScaffolding,
-  corpusN,
-  hubBound,
   answersOtherQuestions,
   answersUnasked,
+  corpusN,
+  hubBound,
   otherInstance,
   unlicensedSwap,
   writesTheQuestion,
@@ -361,7 +361,9 @@ export async function recallByResonance(
           forest[0].anchor,
           query.length,
           anchorBytes.length,
-        ) || (g !== null && answersUnasked(ctx, query, pre.rec.sites, g))
+        ) ||
+        (g !== null &&
+          answersUnasked(ctx, query, pre.rec.sites, g, [anchorBytes]))
       );
       if (co !== null) {
         ctx.trace?.step(

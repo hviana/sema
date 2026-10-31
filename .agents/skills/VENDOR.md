@@ -9,8 +9,8 @@ which refreshes them with plain `git` + `cp` (step 1 of its SKILL.md).
 | Field    | Value                                                          |
 | -------- | -------------------------------------------------------------- |
 | upstream | `https://github.com/K-Dense-AI/scientific-agent-skills.git`    |
-| commit   | `593377bb048752abb0152deab9fbb1083a6087df`                     |
-| pulled   | 2026-10-20                                                     |
+| commit   | `5f2bc0341354fd5590aef76a533ada1e1e5b4e62`                     |
+| pulled   | 2026-10-30                                                     |
 | skills   | `arbor` · `hypothesis-generation` · `scientific-brainstorming` |
 
 `start-research` is Sema's own and is not vendored.

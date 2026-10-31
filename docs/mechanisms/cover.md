@@ -19,8 +19,8 @@ stands where its member does (`role.ts`): `father` is no film `Father`.
 
 - **The site must lead somewhere.** It has a continuation or a halo
   (`leadsSomewhere`).
-- **A site needs to be asked.** A site that answers other questions (a
-  fragment, a subject of several questions, a form asked a relation it lacks:
+- **A site needs to be asked.** A site that answers other questions (a fragment,
+  a subject of several questions, a form asked a relation it lacks:
   `answersOtherQuestions`, `evidence.md`) is dropped unless the question names
   one of its continuations. Otherwise the cover accounts its bytes as explained
   by a stranger's answer (`unaskedFragments`).

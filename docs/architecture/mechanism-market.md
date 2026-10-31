@@ -17,7 +17,8 @@ keeps all of them and lets the evidence choose.
 
 ```ts
 interface PipelineMechanism {
-  name; provenance;
+  name;
+  provenance;
   floor(ctx, query, pre, worthRunning): Promise<number | null>; // a bound never above the cost, or null: cannot apply
   run(ctx, query, pre): Promise<MechanismResult[]>;
   readsPoints?(ctx, query, pre): boolean; // what a rerun would read off the climb's points
@@ -26,7 +27,10 @@ interface MechanismResult {
   bytes;
   accounted: Array<[number, number]>; // spans of the query explained
   moves: number; // work done, on the cost ladder
-  used?; scaffolding?; complete?; provenance?;
+  used?;
+  scaffolding?;
+  complete?;
+  provenance?;
   piece?; // an answer of its one accounted stretch alone
 }
 ```
@@ -62,38 +66,38 @@ piece used as a learnt form is: `ice 2+2` → `cold 4`.
    `hubBound`, or `Precomputed.k = 2·recallQueryK` (`bounded-reads.md`).
 4. **Evidence travels.** A candidate carries `accounted` and `moves`, and
    optionally `scaffolding` (answer bytes lifted from unrecognised spans; only
-   breaks ties), `complete` (a continuation reached by identity, which
-   nothing after grounding may extend), `used` (the anchors it speaks for),
-   `piece` (which composes) and `provenance`, honoured whoever set them.
+   breaks ties), `complete` (a continuation reached by identity, which nothing
+   after grounding may extend), `used` (the anchors it speaks for), `piece`
+   (which composes) and `provenance`, honoured whoever set them.
 
 ## Two disciplines
 
-**Never compute what cannot change the decision.** Every `floor` runs before
-any `run`, and a mechanism runs only if
+**Never compute what cannot change the decision.** Every `floor` runs before any
+`run`, and a mechanism runs only if
 `worthRunning(floor) = best === null || grade(floor) < grade(best)`. A `floor`
 that would first touch an expensive shared analysis (`attention()`, `weave()`,
 `resonance()`) asks `worthRunning` first, and returns its uninvested bound if it
 would lose (`cast.ts` and `extraction.ts` are the references).
 
 **Look at a cheaper bound first.** Before a mechanism touches anything, every
-later one with a strictly lower floor grade runs ahead, cheapest first;
-the lowest grade they reach skips every mechanism floored above it
+later one with a strictly lower floor grade runs ahead, cheapest first; the
+lowest grade they reach skips every mechanism floored above it
 (`meter.mechanismsBounded`). The decision stays the declared order's: candidates
 above the bound lose to the winner, mechanisms at or below it meet the decision
 they would in order, and equal floors are never skipped. Never extra work: on
 the 31.7M-node store a grade-1 recall run ahead of CAST's climb answers a
 lowercased Persian turn in 1.2 s, not 18.0 s.
 
-A result read before the consensus climb (run ahead, or the cover's) missed
-its points, so other instances of the question could not name its pick
+A result read before the consensus climb (run ahead, or the cover's) missed its
+points, so other instances of the question could not name its pick
 (`evidence.md`). Once the climb ran, it is read again (`mechanismReruns`) only
 where the reading would differ: instances carry a relation
 (`readsOffInstances`), or the mechanism declares what it reads off the points
 (`readsPoints`: the cover admits a site held under its equivalence,
 `Man At Bath`, or a subject of several questions). Recall's
-`The place of birth of John Lennon is Liverpool.` owes 49 bytes before the climb,
-28 after. Rerunning on every climb read 26% more bytes on the 31.7M-node store
-(cover and recall rerun on 52 of 100 2Wiki questions), changing no answer.
+`The place of birth of John Lennon is Liverpool.` owes 49 bytes before the
+climb, 28 after. Rerunning on every climb read 26% more bytes on the 31.7M-node
+store (cover and recall rerun on 52 of 100 2Wiki questions), changing no answer.
 
 ## Accounting rules
 

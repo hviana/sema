@@ -5,9 +5,9 @@
 > asker left unaccounted.
 
 **Why.** Every tier that decides whether to continue (the chart's frontier, the
-market, the walk, fusion, the mechanisms' gates) asks this one law and
-re-spells none of its conditions. Without it a derivation could restate itself,
-cycle, or extend into facts nobody asked for.
+market, the walk, fusion, the mechanisms' gates) asks this one law and re-spells
+none of its conditions. Without it a derivation could restate itself, cycle, or
+extend into facts nobody asked for.
 
 ## The unit — `DerivationState` (`src/mind/derivation.ts`)
 
@@ -89,8 +89,8 @@ Three limits were proved and deliberately left out:
 ## Layering
 
 `derivation.ts` imports only `../bytes.js`, below `graph-search.ts`, `match.ts`,
-`rationale.ts` and `pipeline.ts`, and holds the span algebra
-(`unexplainedSpans` and kin), the law's vocabulary.
+`rationale.ts` and `pipeline.ts`, and holds the span algebra (`unexplainedSpans`
+and kin), the law's vocabulary.
 
 ## Pins
 

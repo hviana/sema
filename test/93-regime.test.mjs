@@ -33,7 +33,10 @@ async function regimeOf(corpus, q) {
 
 test("1. a fully-grounding query is retrieval: no climb ran", async () => {
   const d = await regimeOf(
-    [["who wrote romeo and juliet", "William Shakespeare wrote Romeo and Juliet."]],
+    [[
+      "who wrote romeo and juliet",
+      "William Shakespeare wrote Romeo and Juliet.",
+    ]],
     "who wrote romeo and juliet",
   );
   assert.equal(d.regime, "retrieval");
@@ -70,7 +73,10 @@ test("4. the regime is observational — an untraced response is byte-identical"
 
 test("5. a fully-covered multi-move query still climbs, and says so", async () => {
   const d = await regimeOf(
-    [["abcdefgh", "ABCDEFGH"], ["ijklmnop", "IJKLMNOP"], ["qrstuvwx", "QRSTUVWX"]],
+    [["abcdefgh", "ABCDEFGH"], ["ijklmnop", "IJKLMNOP"], [
+      "qrstuvwx",
+      "QRSTUVWX",
+    ]],
     "abcdefghijklmnopqrstuvwx",
   );
   assert.equal(d.regime, "composition");

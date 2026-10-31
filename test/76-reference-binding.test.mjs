@@ -723,3 +723,160 @@ test("PRECEDENT: an answer holding the precedent's own filler is never voiced", 
   }
   await m.store.close();
 });
+
+test("PRECEDENT: a subject's answer is asked when the precedents share more than the subject", async () => {
+  // A dense corpus of recombined descriptions: each class has its own words,
+  // every description draws two of them and two attributes shared by all
+  // classes, in any order.  A class word is the subject of many forms, so it
+  // leads to its class — and the precedents' answer is that class.  Refusing
+  // it as another question's answer about the subject (`answersUnasked`) is
+  // right only when the precedents share nothing with the question beyond the
+  // subject (`When did Brian Gibson die?` for `… born?`); here they share
+  // further class words and attributes, and every such refusal was a right
+  // answer turned into silence.
+  let s = 7;
+  const rnd = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = (xs) => xs[Math.floor(rnd() * xs.length)];
+  const syl = [
+    "ka",
+    "ro",
+    "mi",
+    "tu",
+    "ve",
+    "lo",
+    "sa",
+    "ne",
+    "pi",
+    "du",
+    "ga",
+    "fo",
+    "ri",
+    "ze",
+    "bu",
+    "ta",
+  ];
+  const word = (n) =>
+    Array.from({ length: n }, () => pick(syl)).join("").toUpperCase();
+  const attrs = Array.from({ length: 40 }, () => word(2));
+  const classes = Array.from({ length: 16 }, (_, i) => ({
+    code: String(10000000 + i * 7919),
+    words: Array.from({ length: 5 }, () => word(3)),
+  }));
+  const shuffle = (xs) => {
+    for (let i = xs.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [xs[i], xs[j]] = [xs[j], xs[i]];
+    }
+    return xs;
+  };
+  const desc = (c) =>
+    shuffle([
+      pick(c.words),
+      pick(c.words),
+      pick(attrs),
+      pick(attrs),
+      String(Math.floor(rnd() * 90) + 10) + pick(["MM", "CM", "ML", "KG"]),
+    ]).join(" ");
+  const corpus = [];
+  for (const c of classes) {
+    for (let i = 0; i < 30; i++) corpus.push([desc(c), c.code]);
+  }
+  shuffle(corpus);
+  const questions = [];
+  for (let i = 0; i < 40; i++) {
+    const c = pick(classes);
+    questions.push([desc(c), c.code]);
+  }
+  const m = await mindWith(corpus);
+  let refused = 0, bound = 0, wrong = 0;
+  for (const [q, code] of questions) {
+    const steps = [];
+    const r = await m.respond(q, (st) => steps.push(st.mechanism.at(-1)));
+    if (steps.includes("unaskedPrecedent")) refused++;
+    if (steps.includes("bindPrecedent")) {
+      bound++;
+      if (clean(r?.bytes) !== code) wrong++;
+    }
+  }
+  assert.equal(refused, 0);
+  assert.ok(bound > 0 && wrong <= 1, `bound ${bound}, wrong ${wrong}`);
+  await m.store.close();
+});
+
+test("PRECEDENT: a question wider than every stored form is read by the forms it holds", async () => {
+  // Each question is a new description of a known class followed by codes the
+  // corpus never saw (`2415: FILTRO DE AR` against `FILTRO DE AR (R)`): no
+  // stored form covers most of it, so read from the question's side alone
+  // every one is silence.  The evidence law reads the other side — the question
+  // witnesses most of several deposited descriptions, and they agree.
+  let s = 11;
+  const rnd = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = (xs) => xs[Math.floor(rnd() * xs.length)];
+  const syl = [
+    "ka",
+    "ro",
+    "mi",
+    "tu",
+    "ve",
+    "lo",
+    "sa",
+    "ne",
+    "pi",
+    "du",
+    "ga",
+    "fo",
+    "ri",
+    "ze",
+    "bu",
+    "ta",
+  ];
+  const word = (n) =>
+    Array.from({ length: n }, () => pick(syl)).join("").toUpperCase();
+  const attrs = Array.from({ length: 40 }, () => word(2));
+  const classes = Array.from({ length: 16 }, (_, i) => ({
+    code: String(10000000 + i * 7919),
+    words: Array.from({ length: 4 }, () => word(3)),
+  }));
+  const shuffle = (xs) => {
+    for (let i = xs.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [xs[i], xs[j]] = [xs[j], xs[i]];
+    }
+    return xs;
+  };
+  const desc = (c) =>
+    shuffle([pick(c.words), pick(c.words), pick(attrs)]).join(" ");
+  const al = [..."ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"];
+  const code = () => Array.from({ length: 7 }, () => pick(al)).join("");
+  const corpus = [];
+  for (const c of classes) {
+    for (let i = 0; i < 20; i++) corpus.push([desc(c), c.code]);
+  }
+  shuffle(corpus);
+  const m = await mindWith(corpus);
+  let bound = 0, wrong = 0;
+  for (let i = 0; i < 40; i++) {
+    const c = pick(classes);
+    const steps = [];
+    const r = await m.respond(
+      `${desc(c)} ${code()} ${code()}`,
+      (st) => steps.push(st.mechanism.at(-1)),
+    );
+    if (steps.includes("bindPrecedent")) {
+      bound++;
+      if (clean(r?.bytes) !== c.code) wrong++;
+    }
+  }
+  assert.ok(bound >= 20 && wrong <= 1, `bound ${bound}, wrong ${wrong}`);
+  await m.store.close();
+});

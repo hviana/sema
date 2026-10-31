@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 import {
   addBits,
   Alu,
-  aluMechanism,
   type AluHost,
+  aluMechanism,
   type AluResonance,
   asReal,
   compareBits,
@@ -515,7 +515,8 @@ test("one numeral grammar: what the value reader takes, the scanner and the eval
 
 test("a sign is the numeral's own where an operand is expected", async () => {
   const u = new Alu();
-  const at = async (q: string) => (await u.parse(enc(q))).map((c) => [q.slice(c.i, c.j), dec(c.bytes)]);
+  const at = async (q: string) =>
+    (await u.parse(enc(q))).map((c) => [q.slice(c.i, c.j), dec(c.bytes)]);
   assert.deepEqual(await at("-3+5"), [["-3+5", "2"]]);
   assert.deepEqual(await at("3 - -2"), [["3 - -2", "5"]]);
   assert.deepEqual(await at("2^-1"), [["2^-1", "0.5"]]);

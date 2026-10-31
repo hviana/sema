@@ -374,17 +374,18 @@ fragments with several.
 - the walk (`reasoning.ts`): a named pivot moves; an unnamed one is offered only
   while the derivation still owes something, and the closure law decides it by
   carrying.
-- `answersOtherQuestions` (`traverse.ts`): a fragment (a form inside others,
-  with several continuations or one it only inherited), a subject of several
-  questions (each continuation also established by a context holding it and
-  more: `Ronald Neame date of birth`), or a form ending the question and asked a
-  relation it holds no fact of (`asksAbsentRelation`: the question spells `
-  director`, which a whole subject's question ends with — `The Paw director` —
-  and no context establishing the form's facts writes it), that leaves a window
-  of the question outside it leads somewhere only if the question names a
-  continuation. Its pieces go with it, and no anchor or precedent voices its
-  continuations (`answersUnasked`; `test/154.21`, `154.22`). Read by cover,
-  CAST, recall and reference.
+- `answersOtherQuestions` (`traverse.ts`): a fragment (inside others; several
+  continuations or one only inherited), a subject of several questions (each
+  continuation also established by a context holding more,
+  `Ronald Neame date of birth`), or a form ending the question and asked a
+  relation it holds no fact of (`asksAbsentRelation`: `director` ends
+  `The Paw director`, no context establishing the form's facts writing it),
+  leaving out a question window, leads somewhere only if the question names a
+  continuation. Its pieces go with it; no anchor or precedent sharing no window
+  past it voices them (`answersUnasked`; `test/154.21`, `154.22`, `76`). Read by
+  cover, CAST, recall, reference.
+- `bindPrecedent`: with no form near the question, the tops it mostly witnesses
+  are precedents.
 - recall's anchor, fusion roots, CAST schemas: a co-instance is never voiced or
   fused; a comparison names each side by a run no other context holds.
 

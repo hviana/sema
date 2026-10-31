@@ -25,11 +25,13 @@
 // Goodman 1955).
 //
 // THE PRECEDENTS, WHEN NO FRAME LICENSES.  The stored forms covering most of
-// the question's discriminating bytes vote for their own continuations, said
+// the question's discriminating bytes — or, when none does, the deposited forms
+// the question witnesses most of — vote for their own continuations, said
 // verbatim and only when they hold nothing the precedent varies in — nothing is
 // carried, so the frame's positions do not matter.  A majority of AGREEMENT or
-// more is a derivation; a lone precedent is the nearest stored form and is said
-// as that, under recall's provenance; no majority is silence (`bindPrecedent`).
+// more is a derivation; a lone near precedent is the nearest stored form and is
+// said as that, under recall's provenance; no majority is silence
+// (`bindPrecedent`).
 //
 // WHAT KIND OF ACT THIS IS.  bridge.ts refuses this shape and is right to:
 // `attestedQ` demands the query-side span be corpus-attested, because a
@@ -43,10 +45,16 @@ import type { MindContext } from "../types.js";
 import type { FrameInstance } from "../match.js";
 import { distinct, follow, substituteAll } from "../match.js";
 import { resolve } from "../primitives.js";
-import { answersUnasked, hubBound, scaffoldSpans } from "../traverse.js";
+import {
+  answersUnasked,
+  heldWithin,
+  hubBound,
+  scaffoldSpans,
+} from "../traverse.js";
 import { AGREEMENT, dominates, twoQuanta } from "../../geometry.js";
 import { bytesEqual, indexOf } from "../../bytes.js";
-import { restates } from "../derivation.js";
+import { restates, spanBytes } from "../derivation.js";
+import { windowIndex, witness } from "../evidence.js";
 import { STEP } from "../graph-search.js";
 import type {
   MechanismResult,
@@ -239,6 +247,16 @@ async function bindFrame(
  *  apart, so coverage is read past the bytes `scaffoldSpans` claims.  An
  *  insertion or deletion is a difference like any other: nothing is carried.
  *
+ *  WHEN NONE IS NEAR, THE QUESTION MAY HOLD ITS PRECEDENTS.  `2415: FILTRO DE
+ *  AR` is the deposit `FILTRO DE AR (R)` and a code: wider than every stored
+ *  form, covered by none.  The evidence law reads the other direction
+ *  (evidence.md): the question WITNESSES a form holding most of its bytes, in
+ *  any order — and only a deposited one, a top (`heldWithin`): a piece
+ *  inherits its wholes' edges, so `ACAO` held in any question names a
+ *  stranger's code.  These stand only where no form is near, so they never
+ *  outvote the nearer reading, and one alone says nothing: a form inside the
+ *  question is not near it.
+ *
  *  WHAT IS SAID is one precedent's continuation, verbatim, and only while no
  *  precedent's continuation holds what it varies in (`Run gcc hello.c`, `the
  *  way to say hello is "Bonjour"`): that is a carriage or a fact about the
@@ -273,7 +291,10 @@ async function bindPrecedent(
   };
   const discriminating = query.length - inScaffold(0, query.length);
   if (discriminating < W) return null; // the question is all frame
-  const precedents: FrameInstance[] = [];
+  const nearest: FrameInstance[] = [];
+  const held: FrameInstance[] = [];
+  const asked = [windowIndex(query, W)];
+  let best = 0;
   for (const inst of await pre.frames()) {
     if (inst.slots.length === 0 || !ctx.store.hasNext(inst.id)) continue;
     if (!inst.matched.some(([a, b]) => b - a >= W)) continue;
@@ -281,9 +302,28 @@ async function bindPrecedent(
       (n, [a, b]) => n + (b - a) - inScaffold(a, b),
       0,
     );
-    if (dominates(shared, discriminating)) precedents.push(inst);
+    best = Math.max(best, shared);
+    if (dominates(shared, discriminating)) nearest.push(inst);
+    else if (!heldWithin(ctx, inst.id)) {
+      const unheld = spanBytes(witness(inst.bytes, asked, W).residue);
+      if (dominates(inst.bytes.length - unheld, inst.bytes.length)) {
+        held.push(inst);
+      }
+    }
   }
-  if (precedents.length === 0) return null;
+  const precedents = nearest.length > 0 ? nearest : held;
+  if (precedents.length === 0) {
+    ctx.trace?.step(
+      "precedentLicence",
+      [],
+      [],
+      "refused — no form covers most of the question's discriminating " +
+        "bytes, and none it holds is mostly held",
+      undefined,
+      { version: 1, discriminating, bestShared: best },
+    );
+    return null;
+  }
 
   const votes: Array<{ bytes: Uint8Array; by: FrameInstance[] }> = [];
   for (const inst of precedents) {
@@ -316,8 +356,25 @@ async function bindPrecedent(
     );
     return null;
   }
+  if (winner.by.length < AGREEMENT && nearest.length === 0) {
+    ctx.trace?.step(
+      "precedentLicence",
+      [rItem(winner.bytes, "proposed by 1")],
+      [],
+      "refused — a lone precedent the question holds but does not resemble",
+    );
+    return null;
+  }
   if (restates(query, winner.bytes, 0, { proper: true })) return null;
-  if (answersUnasked(ctx, query, pre.rec.sites, winner.bytes)) {
+  if (
+    answersUnasked(
+      ctx,
+      query,
+      pre.rec.sites,
+      winner.bytes,
+      winner.by.map((p) => p.bytes),
+    )
+  ) {
     ctx.trace?.step(
       "unaskedPrecedent",
       [rItem(winner.bytes, "carried")],

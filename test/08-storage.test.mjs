@@ -1128,7 +1128,10 @@ test("the derived layer is rebuilt from the base alone, and answers the same", a
   const pairs = [
     ["The Paw director", "The director of The Paw is Hans Steinhoff."],
     ["The Paw", "The director of The Paw is Hans Steinhoff."],
-    ["Hans Steinhoff place of birth", "The place of birth of Hans Steinhoff is Marienberg."],
+    [
+      "Hans Steinhoff place of birth",
+      "The place of birth of Hans Steinhoff is Marienberg.",
+    ],
     ["Hans Steinhoff", "The place of birth of Hans Steinhoff is Marienberg."],
     ["What is the capital of France?", "The capital of France is Paris."],
     ["How are you today?", "I'm doing great, thanks for asking."],
@@ -1184,7 +1187,9 @@ test("the derived layer is rebuilt from the base alone, and answers the same", a
     for (const q of asks) before.push(await mind.respondText(q));
     await mind.store.close();
     const was = read();
-    assert.ok(was.kid.length > 0 && was.canon.length > 0 && was.contain.size > 0);
+    assert.ok(
+      was.kid.length > 0 && was.canon.length > 0 && was.contain.size > 0,
+    );
 
     mind = new Mind({ seed: 7, store: new SQliteStore({ path: stem, D }) });
     await mind.rebuildDerived();
@@ -1221,7 +1226,10 @@ test("a derived layer behind the base, or lost, catches up and answers the same"
     ["The Paw", "The director of The Paw is Hans Steinhoff."],
   ];
   const second = [
-    ["Hans Steinhoff place of birth", "The place of birth of Hans Steinhoff is Marienberg."],
+    [
+      "Hans Steinhoff place of birth",
+      "The place of birth of Hans Steinhoff is Marienberg.",
+    ],
     ["Hans Steinhoff", "The place of birth of Hans Steinhoff is Marienberg."],
     ["How are you today?", "I'm doing great, thanks for asking."],
   ];

@@ -56,7 +56,7 @@ Six invariants. Violate one and the system degrades silently — tests pin them.
 | 3 | Exact decides, approximate proposes | Vector scores (`resonate`) rank only; identity via content-addressed lookup (`resolve`/`findLeaf`/`canonResolve`); graded ladders are exact tier first | `docs/architecture/exact-vs-approximate.md` → `src/mind/primitives.ts`, `src/mind/match.ts` |
 | 4 | One cost currency                   | Single ladder `MICRO`/`STEP`/`CONCEPT`/`PASS`; `weight = moves + PASS·unaccounted`; compare at `STEP` grade                                            | `docs/architecture/cost-model.md` → `src/mind/graph-search.ts`, `src/derive/`               |
 | 5 | Bounded reads                       | No per-query read grows with N; cap is `hubBound = √N` enforced at the store via `LIMIT` reads, existence probes, and `bytesPrefix` caps               | `docs/architecture/bounded-reads.md` → `src/store.ts`, `src/mind/traverse.ts`               |
-| 6 | Universal inference isonomy         | Every inference logic, now or later, treats all mechanisms alike, reading only what a candidate declares | `docs/architecture/mechanism-market.md` → `src/mechanisms.ts`, `src/mind/pipeline.ts` |
+| 6 | Universal inference isonomy         | Every inference logic, now or later, treats all mechanisms alike, reading only what a candidate declares                                               | `docs/architecture/mechanism-market.md` → `src/mechanisms.ts`, `src/mind/pipeline.ts`       |
 
 Cross-cutting contracts (single-definition, imported everywhere):
 `contentLevels` in `src/geometry.ts` is the one boundary rule;
@@ -69,32 +69,32 @@ Tie-breaks are corpus-determined, not interchangeable (`determinism.md`).
 
 ## 3. Where things live
 
-| Concept                              | File(s)                                                                                            |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Public surface / assembly            | `src/index.ts`, `src/mind/mind.ts`                                                                 |
-| Config (capacities, budgets, seed)   | `src/config.ts`                                                                                    |
-| Derived thresholds, fold, Hilbert    | `src/geometry.ts`                                                                                  |
-| Content canonicalizer (injected)     | `src/canon.ts`                                                                                     |
-| Vector primitives, alphabet, seats   | `src/vec.ts`, `src/alphabet.ts`, `src/sema.ts`                                                     |
-| Perceive / resolve / read primitives | `src/mind/primitives.ts`                                                                           |
-| Store domain logic / SQLite adapter  | `src/store.ts`, `src/store-sqlite.ts`                                                              |
-| Mechanism contract + `Precomputed`   | `src/mind/pipeline-mechanism.ts`                                                                   |
-| Grounding decider (`think`)          | `src/mind/pipeline.ts`; pieces composed in `src/mind/composition.ts`                               |
+| Concept                              | File(s)                                                                                                    |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Public surface / assembly            | `src/index.ts`, `src/mind/mind.ts`                                                                         |
+| Config (capacities, budgets, seed)   | `src/config.ts`                                                                                            |
+| Derived thresholds, fold, Hilbert    | `src/geometry.ts`                                                                                          |
+| Content canonicalizer (injected)     | `src/canon.ts`                                                                                             |
+| Vector primitives, alphabet, seats   | `src/vec.ts`, `src/alphabet.ts`, `src/sema.ts`                                                             |
+| Perceive / resolve / read primitives | `src/mind/primitives.ts`                                                                                   |
+| Store domain logic / SQLite adapter  | `src/store.ts`, `src/store-sqlite.ts`                                                                      |
+| Mechanism contract + `Precomputed`   | `src/mind/pipeline-mechanism.ts`                                                                           |
+| Grounding decider (`think`)          | `src/mind/pipeline.ts`; pieces composed in `src/mind/composition.ts`                                       |
 | Grounding mechanisms (one file each) | `src/mind/mechanisms/*.ts`; the ALU's own in `src/alu/src/mechanism.ts`; registered in `src/mechanisms.ts` |
-| Weighted deduction + cost ladder     | `src/mind/graph-search.ts` (engine in `src/derive/`)                                               |
-| Match/project family                 | `src/mind/match.ts`                                                                                |
-| Graph traversal, corpus scale        | `src/mind/traverse.ts`                                                                             |
-| Witnessed evidence (`witness`)       | `src/mind/evidence.ts`                                                                             |
-| Closure law and engine (`closeOver`) | `src/mind/derivation.ts`                                                                           |
-| Post-grounding walk, fusion, voicing | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                                                |
-| Canonical windows                    | `src/mind/canonical.ts`                                                                            |
-| Consensus climb + attention          | `src/mind/attention.ts`                                                                            |
-| Substitution bridge (recall tier)    | `src/mind/bridge.ts`                                                                               |
-| Recognition / junction / resonance   | `src/mind/recognition.ts`, `src/mind/role.ts`, `src/mind/junction.ts`, `src/mind/resonance.ts`     |
-| Learning / ingestion                 | `src/mind/learning.ts`, `src/ingest-cache.ts`                                                      |
-| Rationale / trace / meter            | `src/mind/rationale.ts`, `src/mind/trace.ts`, `src/meter.ts`                                       |
-| Extension host types                 | `src/extension.ts`                                                                                 |
-| Sublibraries (own READMEs)           | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                                                       |
+| Weighted deduction + cost ladder     | `src/mind/graph-search.ts` (engine in `src/derive/`)                                                       |
+| Match/project family                 | `src/mind/match.ts`                                                                                        |
+| Graph traversal, corpus scale        | `src/mind/traverse.ts`                                                                                     |
+| Witnessed evidence (`witness`)       | `src/mind/evidence.ts`                                                                                     |
+| Closure law and engine (`closeOver`) | `src/mind/derivation.ts`                                                                                   |
+| Post-grounding walk, fusion, voicing | `src/mind/reasoning.ts`, `src/mind/articulation.ts`                                                        |
+| Canonical windows                    | `src/mind/canonical.ts`                                                                                    |
+| Consensus climb + attention          | `src/mind/attention.ts`                                                                                    |
+| Substitution bridge (recall tier)    | `src/mind/bridge.ts`                                                                                       |
+| Recognition / junction / resonance   | `src/mind/recognition.ts`, `src/mind/role.ts`, `src/mind/junction.ts`, `src/mind/resonance.ts`             |
+| Learning / ingestion                 | `src/mind/learning.ts`, `src/ingest-cache.ts`                                                              |
+| Rationale / trace / meter            | `src/mind/rationale.ts`, `src/mind/trace.ts`, `src/meter.ts`                                               |
+| Extension host types                 | `src/extension.ts`                                                                                         |
+| Sublibraries (own READMEs)           | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                                                               |
 
 Mind functions are free functions over `MindContext` (`src/mind/types.ts`), not
 methods; `mind.ts` is a thin assembly.
@@ -158,12 +158,11 @@ When a change needs to be seen, measured, or proved, EXTEND THEM: a counter in
 mechanism emits it (`src/mind/trace.ts` holds the move vocabulary). A gap in
 instrumentation is a defect IN it: close it there, once. Never add a parallel
 channel — no ad-hoc logging or timing probes in `src/` (`performance.now()`
-belongs in `meter.ts`), no private counter where a `meter.ts` field belongs,
-and no trace channel of your own: a callback threaded
-through a call chain must FEED the rationale, the way `GraphSearch`'s
-`onDerivation` feeds `traceDerivation`. (`store.ts`'s
-`danglingReads`/`compactFailures` and the `console.warn`s that report them stay:
-session-lifetime HEALTH counters, not per-response work.)
+belongs in `meter.ts`), no private counter where a `meter.ts` field belongs, and
+no trace channel of your own: a callback threaded through a call chain must FEED
+the rationale, the way `GraphSearch`'s `onDerivation` feeds `traceDerivation`.
+(`store.ts`'s `danglingReads`/`compactFailures` and the `console.warn`s that
+report them stay: session-lifetime HEALTH counters, not per-response work.)
 
 ## 7. Dependencies and licensing
 
