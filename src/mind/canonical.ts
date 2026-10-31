@@ -41,13 +41,6 @@ export function canonicalWindows(W: number): [number, number] {
   return [W - 1, W];
 }
 
-/** The READ side's chain reach: how many leaf ids a canonical chain may grow
- *  to from one position — W², the deepest two-level composite the write side's
- *  windows can spell. */
-export function chainReach(W: number): number {
-  return W * W;
-}
-
 /** THE FLAT NODE over a byte span — the node the write side interns for a
  *  whole deposit and for each canonical window — or null when none was
  *  interned.  One content-addressed probe; the store's negative filter refuses

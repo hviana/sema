@@ -223,13 +223,15 @@ test("VSA company grounds a differently-spelled synonym without a lexical unit i
 // without that decision, `biggest` and `largest` (no context holds both)
 // bundled the SAME company: every superlative question reached through the
 // shared chunks, a synonym strength of exactly 1 — vicinity counted as use,
-// and the substitution licence vacuous.
+// and the substitution licence vacuous.  A context holding only a WINDOW of the
+// span is vicinity too (`gest`, `ied ` of `married` in every `died`): read by
+// the contexts holding each span, the two share no company here (−0.02); the
+// equivalence is the corpus's to show (the next test).
 test("a span's distributional use reads only the contexts that hold it", async () => {
   const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
   await m.ingest(TRAIN);
   const s = spanSynonymStrength(m, enc("biggest"), enc("largest"));
-  assert.ok(s > 0, `the two do share company (got ${s})`);
-  assert.ok(s < 0.99, `but not the same company (got ${s})`);
+  assert.ok(s < 0.99, `not the same company (got ${s})`);
   await m.store.close();
 });
 

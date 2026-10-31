@@ -193,8 +193,13 @@ export interface WalkCache {
   /** id → prefix bytes read so far + whether they are the COMPLETE bytes
    *  (shorter than the cap that read them). */
   reads: Map<number, { b: Uint8Array; complete: boolean }>;
-  parents: Map<number, number[]>;
-  containers: Map<number, number[]>;
+  parents: Map<number, Page>;
+  containers: Map<number, Page>;
+}
+/** The first rows of a node's list and the limit they were read under. */
+interface Page {
+  ids: number[];
+  limit: number;
 }
 const walkCaches = new WeakMap<object, WalkCache>();
 const WALK_CACHE_MAX = 100_000;
@@ -231,19 +236,38 @@ export function cachedRead(
   cache.reads.set(id, { b, complete: b.length <= cap });
   return b;
 }
+/** A node's first `limit` rows, from the cache when the page it holds answers
+ *  that limit — a page shorter than the limit it was read under is the whole
+ *  list, and one read under a larger limit holds this one's prefix (a LIMITed
+ *  read keeps the full read's order).  Keyed by id alone, a page read under a
+ *  small fan was handed, truncated, to a walk with a larger one. */
+function cachedPage(
+  pages: Map<number, Page> | undefined,
+  id: number,
+  limit: number,
+  readPage: (limit: number) => number[],
+): number[] {
+  if (pages === undefined) return readPage(limit);
+  const hit = pages.get(id);
+  if (hit !== undefined && (hit.ids.length < hit.limit || hit.limit >= limit)) {
+    return hit.ids.length > limit ? hit.ids.slice(0, limit) : hit.ids;
+  }
+  const ids = readPage(limit);
+  pages.set(id, { ids, limit });
+  return ids;
+}
 function cachedParents(
   ctx: MindContext,
   cache: WalkCache | null,
   id: number,
   limit: number,
 ): number[] {
-  if (cache === null) return ctx.store.parentsFirst(id, limit);
-  let v = cache.parents.get(id);
-  if (v === undefined) {
-    v = ctx.store.parentsFirst(id, limit);
-    cache.parents.set(id, v);
-  }
-  return v;
+  return cachedPage(
+    cache?.parents,
+    id,
+    limit,
+    (n) => ctx.store.parentsFirst(id, n),
+  );
 }
 function cachedContainers(
   ctx: MindContext,
@@ -251,62 +275,14 @@ function cachedContainers(
   id: number,
   limit: number,
 ): number[] {
-  if (cache === null) return ctx.store.containersSlice(id, 0, limit);
-  let v = cache.containers.get(id);
-  if (v === undefined) {
-    v = ctx.store.containersSlice(id, 0, limit);
-    cache.containers.set(id, v);
-  }
-  return v;
+  return cachedPage(
+    cache?.containers,
+    id,
+    limit,
+    (n) => ctx.store.containersSlice(id, 0, n),
+  );
 }
 
-/** Tier 1 body, parameterised on already-resolved seed lists so a caller
- *  holding one side FIXED across several calls (synonym junctions) pays for
- *  that side's seeds once, not once per call.  The byte-containment check
- *  below ensures only genuine containers are returned regardless of seeds.
- *
- *  BOUNDED at corpus scale by three disciplines (profiled on a 17.7M-node
- *  store, where the unbounded form spent >90% of a query's CPU here):
- *   • PHRASE-SCALE READS — a junction container is by contract a whole the
- *     pair nearly exhausts (glue from a period to a phrase), so every visit
- *     reads at most `maxContainer + 1` bytes (`bytesPrefix` stops early).
- *     A node whose bytes exceed the cap cannot be a junction container, and
- *     its ancestors are strictly larger — the branch is PRUNED, never
- *     reconstructing a corpus-sized deposit (an oasst2 conversation) just
- *     to reject it.
- *   • EXPANSION BUDGET — at most √N·W nodes are popped in total: a √N-wide
- *     frontier (the one fan-out convention) through the ~W structural
- *     levels that separate phrase-scale content from its containers
- *     (perception trees are W-ary, so a junction container lies within a
- *     few levels of its parts).  A side too common to decide within the
- *     budget abstains here and falls through to the resonance tier (the
- *     climb's own saturation semantics).
- *
- *     REFUTED TIGHTENING (measured, 325K contexts): giving this walk
- *     edgeAncestors' cumulative LATERAL-CONE limit — abstain once the
- *     accumulated lateral entries pass √N — would cut most of the pops (47
- *     of 56 walks exceed √N lateral, and 47 exhaust the budget), but TWO OF
- *     THE FOUR walks that actually found a container had lateral spread of
- *     1425 and 1426, far past √N.  The cone limit is sound for
- *     edgeAncestors' question and wrong for this one: a junction container
- *     is legitimately reached across many containing structures.  Half the
- *     successful junctions would be lost.
- *
- * REFUTED EARLY-STOP (side-cone exhaustion, saturation.md's "real saturation"):
- *     stopping the walk the moment ONE side's upward cone is emptied is wrong,
- *     in both a hub-guarded form and a hub-flagged form.  The junction test is
- *     a BYTE containment over the UNION of the two cones, and a junction can be
- *     structurally reachable from only ONE side — the side whose seed is a
- *     FOLD sub-node of the container (test/16: "cold or hot" is reached from
- *     the window "cold", but the 3-byte answer "hot" is not a 4-byte window of
- *     it, so "hot"'s cone is empty while the junction still lies ahead in
- *     "cold"'s cone; test/34's n-ary binding fails the hub-guarded form the
- *     same way).  "One cone exhausted" therefore never proves "no junction
- *     left", and the walk must keep the √N·W budget as its NET after the
- *     per-node saturations below.
- *   • per-node hub guards — parent fan-outs beyond √N are hubs (not
- *     expanded); each node contributes at most one √N page of containers;
- *     √N collected candidates decide. */
 /** How a holders walk climbs — the parameters in which the engine's readers
  *  legitimately differ, each named once. */
 export interface HolderWalk {
@@ -399,6 +375,53 @@ export function holdersFrom<T>(
   return { found, exhausted: false };
 }
 
+/** Tier 1 body, parameterised on already-resolved seed lists so a caller
+ *  holding one side FIXED across several calls (synonym junctions) pays for
+ *  that side's seeds once, not once per call.  The byte-containment check
+ *  below ensures only genuine containers are returned regardless of seeds.
+ *
+ *  BOUNDED at corpus scale by three disciplines (profiled on a 17.7M-node
+ *  store, where the unbounded form spent >90% of a query's CPU here):
+ *   • PHRASE-SCALE READS — a junction container is by contract a whole the
+ *     pair nearly exhausts (glue from a period to a phrase), so every visit
+ *     reads at most `maxContainer + 1` bytes (`bytesPrefix` stops early).
+ *     A node whose bytes exceed the cap cannot be a junction container, and
+ *     its ancestors are strictly larger — the branch is PRUNED, never
+ *     reconstructing a corpus-sized deposit (an oasst2 conversation) just
+ *     to reject it.
+ *   • EXPANSION BUDGET — at most √N·W nodes are popped in total: a √N-wide
+ *     frontier (the one fan-out convention) through the ~W structural
+ *     levels that separate phrase-scale content from its containers
+ *     (perception trees are W-ary, so a junction container lies within a
+ *     few levels of its parts).  A side too common to decide within the
+ *     budget abstains here and falls through to the resonance tier (the
+ *     climb's own saturation semantics).
+ *
+ *     REFUTED TIGHTENING (measured, 325K contexts): giving this walk
+ *     edgeAncestors' cumulative LATERAL-CONE limit — abstain once the
+ *     accumulated lateral entries pass √N — would cut most of the pops (47
+ *     of 56 walks exceed √N lateral, and 47 exhaust the budget), but TWO OF
+ *     THE FOUR walks that actually found a container had lateral spread of
+ *     1425 and 1426, far past √N.  The cone limit is sound for
+ *     edgeAncestors' question and wrong for this one: a junction container
+ *     is legitimately reached across many containing structures.  Half the
+ *     successful junctions would be lost.
+ *
+ * REFUTED EARLY-STOP (side-cone exhaustion, saturation.md's "real saturation"):
+ *     stopping the walk the moment ONE side's upward cone is emptied is wrong,
+ *     in both a hub-guarded form and a hub-flagged form.  The junction test is
+ *     a BYTE containment over the UNION of the two cones, and a junction can be
+ *     structurally reachable from only ONE side — the side whose seed is a
+ *     FOLD sub-node of the container (test/16: "cold or hot" is reached from
+ *     the window "cold", but the 3-byte answer "hot" is not a 4-byte window of
+ *     it, so "hot"'s cone is empty while the junction still lies ahead in
+ *     "cold"'s cone; test/34's n-ary binding fails the hub-guarded form the
+ *     same way).  "One cone exhausted" therefore never proves "no junction
+ *     left", and the walk must keep the √N·W budget as its NET after the
+ *     per-node saturations below.
+ *   • per-node hub guards — parent fan-outs beyond √N are hubs (not
+ *     expanded); each node contributes at most one √N page of containers;
+ *     √N collected candidates decide. */
 export function junctionContainersFrom(
   ctx: MindContext,
   left: Uint8Array,

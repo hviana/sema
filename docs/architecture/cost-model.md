@@ -18,8 +18,8 @@ When nothing explains the question, silence is the lightest answer.
 | `CONCEPT` | `10`        | an act mediated by a halo (a synonym hop, the consensus climb), and abandoning a chain early, so that a real fixpoint always beats giving up |
 | `PASS`    | `1000`/byte | carrying a byte nothing explains. It dominates everything, so the search always prefers to recognise                                         |
 
-Only the order `MICRO < STEP < CONCEPT < PASS` matters. Any constants with that
-order give the same derivations. The market weighs candidates on the same
+The order `MICRO < STEP < CONCEPT < PASS` is the contract; ratios set horizons
+(`CONCEPT/STEP` edges cost one concept hop). The market weighs on the same
 ladder, `moves + PASS·unaccounted`, compared at `STEP` grade
 (`mechanism-market.md`).
 

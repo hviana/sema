@@ -32,15 +32,14 @@ the container-as-hub saturation in `saturation.md`).
 
 **Places: where a window occurs.**
 
-- Measure: `containersSlice(id, 0, bound + 1).length`, the chunks the window
-  overlaps: reuse, not holders (read by bytes, `heldElsewhere`).
+- Measure: `windowRarity(id, bound + 1)`, the distinct chunks the window
+  overlaps plus the forms it is a child of: the fold interns one window as a
+  chunk of one form and as a run across another's (a shared opening: one chunk,
+  54 parents). Reuse, not holders (read by bytes, `heldElsewhere`).
 - Cut: `0` anchors nothing, `≥ 2` marks reuse, and past the hub bound,
   scaffolding.
-- Read by the scaffolding readings (`hubWindows`, `scaffoldExtents`,
-  `allWindowsAreScaffolding`). Choosing the rarest window (the bridge's anchors,
-  the forms a question opens, a frame's siblings) counts both surfaces, chunks
-  and parents (`windowRarity`): the fold interns one window as a chunk of one
-  form and as a run across another's.
+- Read by `hubWindows`, `scaffoldExtents`, `allWindowsAreScaffolding` and every
+  rarest-window choice (the bridge's anchors, a frame's siblings).
 
 **Scaffolding is nobody's evidence and nobody's debt.** A window in more than
 `√N` places explains nothing, because every fact holds it. So a step cannot pay
@@ -61,5 +60,5 @@ discriminates nothing and abstracts nothing.
   reach (the reorder probe).
 - `test/34` — containment and reach-driven disambiguation.
 - `test/73` — a question made only of scaffolding is abstained from by the
-  bridge.
+  bridge; places are counted on both surfaces.
 - `test/22` — the hub floor on small stores.

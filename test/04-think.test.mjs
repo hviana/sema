@@ -268,9 +268,14 @@ test("synonym expansion via concept merge", async () => {
     seed: 7,
   });
   await m.ingest([["big", "large"]]);
-  // Ground both in the same context so they merge
-  await m.ingest(["ctx", "big"]);
-  await m.ingest(["ctx", "large"]);
+  // Ground both in the same company so they merge.  ONE shared context leaves
+  // the two halos at cosine 0.514 exact (0.447 as stored), under the concept
+  // bar 0.516: "large" stood there only while the session held an exact halo
+  // in memory and the index's estimate rounded up.  Two clear it (0.60).
+  for (const c of ["ctx", "cty"]) {
+    await m.ingest([c, "big"]);
+    await m.ingest([c, "large"]);
+  }
   // Now they're one concept — asking one recalls the other
   assert.equal(await m.respondText("large"), "large");
 });

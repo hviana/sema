@@ -44,7 +44,7 @@ Each row is a contract that broke at least once when it existed twice:
 - `instanceCap` (`geometry.ts`): the instance scale `2·len`: the cap on reading
   a form as another instance of the question.
 - `spanHalo` (`mind/traverse.ts`): a span's company: halos of the oldest
-  contexts holding its windows (a use, the bridge's synonym tier).
+  contexts its windows reach that hold it (a use, synonym tier).
 - `licensedSubstitution` / `substitutionGrade` (`mind/traverse.ts`): the licence
   of a transfer, every substitution's one grade (`exact-vs-approximate.md`).
 - `pairVariants` (`mind/junction.ts`): a pair up to synonyms: each side or both

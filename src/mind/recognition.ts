@@ -24,8 +24,8 @@ import {
   offsetCanon,
   windowRarity,
 } from "./traverse.js";
-import { atomIsHub, boundFor } from "../geometry.js";
-import { chainReach, flatId, windowIds } from "./canonical.js";
+import { atomIsHub, boundFor, chainReach } from "../geometry.js";
+import { flatId, windowIds } from "./canonical.js";
 import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import { isChunk, type Sema } from "../sema.js";
 import { spansWithin } from "./derivation.js";
@@ -303,18 +303,35 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
   // byte at a time (Store.flatSpans), each hit resolved; and the whole
   // question's edges beyond the reach.  Where the exact probe misses, the
   // canonical sweep proposes.
-  const W = ctx.space.maxGroup;
   const flatAt = store.flatSpans?.(bytes) ??
     ((start: number, end: number) => flatId(ctx, bytes.subarray(start, end)));
   const n = bytes.length;
   const reach = sweepReach(ctx);
   // Spans the exact probe did not name — what the canonical sweep asks.
-  const missed = new Set<number>();
+  // One bit per span within the reach of its start (`p·(reach+1) + e−p`), so a
+  // question of n bytes keeps n·reach bits, not a hash set of every miss —
+  // past a few hundred thousand entries the set's own upkeep outgrew the
+  // probes it recorded; the longer edge spans keep a set.
+  const near = new Uint8Array(Math.ceil((n * (reach + 1)) / 8));
+  const far = new Set<number>();
+  const missed = {
+    add: (p: number, e: number): void => {
+      const i = p * (reach + 1) + e - p;
+      if (e - p <= reach) near[i >> 3] |= 1 << (i & 7);
+      else far.add(p * (n + 1) + e);
+    },
+    has: (p: number, e: number): boolean => {
+      const i = p * (reach + 1) + e - p;
+      return e - p <= reach
+        ? (near[i >> 3] & (1 << (i & 7))) !== 0
+        : far.has(p * (n + 1) + e);
+    },
+  };
   const exact = (p: number, e: number, chained: boolean): boolean => {
     if (ctx.meter) ctx.meter.recogniseSpans++;
     const flat = flatAt(p, e);
     if (flat === null) {
-      missed.add(p * (n + 1) + e);
+      missed.add(p, e);
       return false;
     }
     // At the scale where atoms are hubs, a stored run starting off the fold's
@@ -329,7 +346,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     const id = resolveSpan(p, e);
     if (id === null) {
       if (ctx.meter) ctx.meter.bloomFalsePositives++;
-      missed.add(p * (n + 1) + e);
+      missed.add(p, e);
       return false;
     }
     // A flat entry that leads nowhere resolves to the member of its canonical
@@ -363,7 +380,7 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     const qc = canon(bytes);
     if (qc.length === n) {
       const ask = (p: number, e: number, h: number): void => {
-        if (e - p < 2 || !missed.has(p * (n + 1) + e)) return;
+        if (e - p < 2 || !missed.has(p, e)) return;
         if (ctx.meter) ctx.meter.recogniseCanonSpans++;
         if (canonFind(h).length === 0) return;
         const id = resolveSpan(p, e);
@@ -460,6 +477,13 @@ export function segment(ctx: MindContext, bytes: Uint8Array): Segment[] {
   return out;
 }
 
+/** How far recognition's exact sweep reaches from every start: `W⁴ + 2r`.
+ *  A stored form longer than this is read only at the stream's edges. */
+export function sweepReach(ctx: MindContext): number {
+  const W = ctx.space.maxGroup;
+  return chainReach(W) * W * W + 2 * ctx.space.seats.length;
+}
+
 /** THE THINGS a span of bytes holds — the one entity reader of the walk's
  *  pivot (`pivotInto`) and the engine's derive-through (`entityProposals`):
  *  every stored form recognition reads in the bytes, and in their canonical
@@ -470,13 +494,6 @@ export function segment(ctx: MindContext, bytes: Uint8Array): Segment[] {
  *  forms at O(L²) probes).  Each thing with its span in the bytes and whether
  *  the canonical spelling held it; first occurrence per node, exact spelling
  *  first, in recognition's order. */
-/** How far recognition's exact sweep reaches from every start: `W⁴ + 2r`.
- *  A stored form longer than this is read only at the stream's edges. */
-export function sweepReach(ctx: MindContext): number {
-  const W = ctx.space.maxGroup;
-  return chainReach(W) * W * W + 2 * ctx.space.seats.length;
-}
-
 export function thingsIn(
   ctx: MindContext,
   bytes: Uint8Array,

@@ -93,16 +93,11 @@
 //     suite green (358/358).
 
 import { cosine, type Vec } from "../vec.js";
-import {
-  AGREEMENT,
-  conceptThreshold,
-  dominates,
-  twoQuanta,
-} from "../geometry.js";
+import { AGREEMENT, chainReach, dominates, twoQuanta } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { exactNode } from "./primitives.js";
-import { chainReach, windowAt, windowIds } from "./canonical.js";
+import { windowAt, windowIds } from "./canonical.js";
 import { unexplainedSpans } from "./derivation.js";
 import {
   allWindowsAreScaffolding,
@@ -154,8 +149,9 @@ export function dismissedKnownContent(
 }
 
 /** Recall's corroborated-substitution bridge — see the module comment.
- *  Returns the best bridged grounding proposal, or null. */
-/** `proposed` is a THUNK, not a list: the bridge's own cheap gates (the
+ *  Returns the best bridged grounding proposal, or null.
+ *
+ *  `proposed` is a THUNK, not a list: the bridge's own cheap gates (the
  *  two-quantum query floor and the O(|query|) stored-window anchor scan) decide
  * whether ANY candidate can be aligned, and they need no proposals to do it.
  * Resolving the caller's proposals eagerly meant recall paid its exhaustive
@@ -183,7 +179,6 @@ async function bridgeImpl(
   const W = ctx.space.maxGroup;
   if (query.length < twoQuanta(W)) return null;
   const bound = hubBound(ctx);
-  const bar = conceptThreshold(ctx.store.D);
 
   const reachCap = chainReach(W);
   const diagnostics = ctx.trace

@@ -14,7 +14,12 @@ import { Sema, Space } from "../sema.js";
 import { sampleCorpus, searchCorpus } from "./corpus.js";
 import type { CorpusPair, CorpusResult } from "./corpus.js";
 import { Alphabet } from "../alphabet.js";
-import { contentFoldIncremental, Grid, reachThreshold } from "../geometry.js";
+import {
+  contentFoldIncremental,
+  Grid,
+  KEYRING_SEATS,
+  reachThreshold,
+} from "../geometry.js";
 import { keyEnds } from "./canonical.js";
 import type { ContentFold } from "../geometry.js";
 import { BoundedMap, type Store } from "../store.js";
@@ -31,12 +36,7 @@ import type {
 } from "./pipeline-mechanism.js";
 
 export type { ExtensionHost };
-import {
-  decodeText,
-  type InspectRationale,
-  Rationale,
-  type RationaleItem,
-} from "./rationale.js";
+import { decodeText, type InspectRationale, Rationale } from "./rationale.js";
 
 export type {
   InspectRationale,
@@ -126,7 +126,16 @@ interface ConversationData {
   recogniseMemo: Map<string, Recognition>;
   climbMemo: Map<string, Map<string, AttentionRead>>;
   resolvedSubtrees: WeakMap<Sema, { id: number; len: number }>;
+  /** The store state and the canonicalizer the recognition and attention
+   *  memos were read under: a write between turns, or a turn of another
+   *  modality, makes them a cache of another reading, so they are dropped
+   *  (caches.md). */
+  memoKey: object;
+  memoCanon: Canon | null;
 }
+
+/** The byte budget of the gists the store asks to re-derive (caches.md). */
+const STORED_GIST_BYTES = 16_000_000;
 
 // Mind module imports
 import type { AttentionRead, MindContext, Recognition } from "./types.js";
@@ -382,10 +391,6 @@ export class Mind implements MindContext {
     return resolveImpl(this, bytes);
   }
 
-  /** Whether a node leads somewhere — the admission predicate, delegating to
-   *  `traverse.ts`'s ONE definition (edge or halo, with its response-scoped
-   *  cache).  The search holds a bare Store and cannot reach that cache itself,
-   *  so it asks through this hook; a bare host keeps its raw-store fallback. */
   /** The canonical identity for the search (see GraphSearchHost). */
   canonResolve(bytes: Uint8Array): number | null {
     return canonResolveImpl(this, bytes);
@@ -400,6 +405,10 @@ export class Mind implements MindContext {
     this.trace?.step(name, parts.map((b) => rItem(b)), [], note);
   }
 
+  /** Whether a node leads somewhere — the admission predicate, delegating to
+   *  `traverse.ts`'s ONE definition (edge or halo, with its response-scoped
+   *  cache).  The search holds a bare Store and cannot reach that cache itself,
+   *  so it asks through this hook; a bare host keeps its raw-store fallback. */
   leadsSomewhere(id: number): boolean {
     return leadsSomewhere(this, id);
   }
@@ -427,6 +436,11 @@ export class Mind implements MindContext {
     };
   }
 
+  /** See {@link GraphSearchHost.contentKeyEnds}. */
+  contentKeyEnds(prefix: Uint8Array, tail: Uint8Array): readonly number[] {
+    return keyEnds(this, prefix, tail);
+  }
+
   /** Disambiguate among multiple learnt continuations of the same context node.
    *  Required by {@link GraphSearchHost} — the graph search calls this through the
    *  host interface when a recognised form has more than one outgoing edge.
@@ -434,11 +448,6 @@ export class Mind implements MindContext {
    *  with the most distributional evidence (highest `prevOf` count — the
    *  structural manifestation of its halo).  When evidence is equal the
    *  first-inserted edge wins. */
-  /** See {@link GraphSearchHost.contentKeyEnds}. */
-  contentKeyEnds(prefix: Uint8Array, tail: Uint8Array): readonly number[] {
-    return keyEnds(this, prefix, tail);
-  }
-
   chooseNext(node: number): number | undefined {
     return chooseNext(this, node, this._edgeGuide);
   }
@@ -495,7 +504,7 @@ export class Mind implements MindContext {
     const seedRand = rng((this.cfg.seed ^ 0x9e3779) >>> 0);
     const seats = makeKeyring(
       this.store.D,
-      Math.max(8, this.cfg.geometry.maxGroup),
+      Math.max(KEYRING_SEATS, this.cfg.geometry.maxGroup),
       seedRand,
     );
     this.space = {
@@ -514,6 +523,14 @@ export class Mind implements MindContext {
       this.space.maxGroup,
       this, // MindContext extends GraphSearchHost
     );
+    // A pending gist the store no longer holds is re-derived from the node's
+    // stored structure — the same raw fold the deposit computed (`storedGist`)
+    // — so whether it was cached changes nothing the store keeps.
+    const storedGists = new BoundedMap<number, Vec>(
+      STORED_GIST_BYTES,
+      (v) => v.byteLength,
+    );
+    this.store.setGistSource?.((id) => storedGist(this, id, storedGists));
     const host = this.extensionHost();
     for (const f of factories) this.mechanisms.push(f(host));
   }
@@ -571,6 +588,16 @@ export class Mind implements MindContext {
     conv?: ConversationData,
   ): void {
     this.trace = inspectRationale ? new Rationale(inspectRationale) : null;
+    if (
+      conv &&
+      (conv.memoKey !== this._structMemoKey ||
+        conv.memoCanon !== (canon ?? null))
+    ) {
+      conv.recogniseMemo = new Map();
+      conv.climbMemo = new Map();
+      conv.memoKey = this._structMemoKey;
+      conv.memoCanon = canon ?? null;
+    }
     this.climbMemo = conv ? conv.climbMemo : new Map();
     this.recogniseMemo = conv ? conv.recogniseMemo : new Map();
     this.perceiveMemo = conv ? conv.perceiveMemo : new Map();
@@ -947,6 +974,8 @@ export class Mind implements MindContext {
       recogniseMemo: new Map(),
       climbMemo: new Map(),
       resolvedSubtrees: new WeakMap(),
+      memoKey: this._structMemoKey,
+      memoCanon: null,
     });
     return { id };
   }

@@ -202,11 +202,8 @@ export function alignRuns(
   // the aligner's seed length.
   const quantum = Math.min(ctx.space.maxGroup, ct.length);
   if (quantum < 1 || query.length < quantum) return [];
-  const gram = (b: Uint8Array, at: number): string => {
-    let s = "";
-    for (let i = 0; i < quantum; i++) s += String.fromCharCode(b[at + i]);
-    return s;
-  };
+  const gram = (b: Uint8Array, at: number): string =>
+    latin1(b.subarray(at, at + quantum));
   const seeds = new Map<string, number[]>();
   for (let i = 0; i + quantum <= query.length; i++) {
     const k2 = gram(query, i);
@@ -931,8 +928,9 @@ export function bestHaloMate<T>(
 }
 
 /** The HALO-SIBLING matcher: the nodes that keep the same distributional
- *  company as `id`, nearest first — `resonateHalo` filtered to exclude the
- *  node itself and everything below `bar` (default: the concept threshold).
+ *  company as `id`, nearest first — `resonateHalo` proposes, and each
+ *  sibling's score is its exact company cosine, kept at `bar` (default: the
+ *  concept threshold) or above; the node itself is excluded.
  *  `halo`, when the caller has already read the node's halo row, is reused
  *  instead of refetched (one read per relation).  Returns [] for a node with
  *  no halo.  The one sibling enumeration behind the concept hop, the
@@ -963,18 +961,26 @@ export async function haloSiblings(
     const hit = memo.get(id);
     if (hit !== undefined) return hit;
   }
+  // The index proposes; the stored halos decide (exact-vs-approximate.md):
+  // its score is an estimate, refreshed only on the geometric schedule.
   const h = halo ?? ctx.store.halo(id);
-  const out = h
-    ? (await ctx.store.resonateHalo(h, ctx.cfg.haloQueryK))
-      .filter((sib) => sib.id !== id && sib.score >= bar)
-    : [];
+  const out: Hit[] = [];
+  if (h) {
+    for (const sib of await ctx.store.resonateHalo(h, ctx.cfg.haloQueryK)) {
+      const sh = sib.id === id ? null : ctx.store.halo(sib.id);
+      const score = sh === null ? -1 : cosine(h, sh);
+      if (score >= bar) out.push({ id: sib.id, score });
+    }
+    out.sort((x, y) => y.score - x.score);
+  }
   if (memo !== undefined) memo.set(id, out);
   return out;
 }
 
 /** A TEST SURFACE: exported for the tests that pin the synonym strength ladder
- *  (they are its only consumers); nothing in `src/` calls it. */
-/** Distributional synonym evidence between arbitrary byte spans. Whole words
+ *  (they are its only consumers); nothing in `src/` calls it.
+ *
+ *  Distributional synonym evidence between arbitrary byte spans. Whole words
  *  need not be independently interned: their stored W-window occurrences are
  *  lifted to episode halos, bundled, and compared. The caller chooses the
  *  derived gate appropriate to its claim (concept identity or analogy). */

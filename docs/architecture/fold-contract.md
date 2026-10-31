@@ -16,15 +16,14 @@ fold is a correctness bug, not a tuning choice.
 
 ## The boundary rule — `contentLevels`
 
-`contentLevels` is the one boundary rule, and `contentBoundaries` is its
-projection.
+`contentLevels` is the one boundary rule; `contentBoundaries` projects it.
 
-- **Cuts.** A rolling hash runs over a bounded window of the bytes, and a cut
-  falls where it vanishes. A cut is level `L` when the hash vanishes mod
-  `W^(L+1)`, so level-`L` cuts nest inside level-`(L−1)` cuts, and a level-`L`
-  span averages `W^(L+1)` bytes.
-- **Segments.** A segment runs from `W−1` bytes to `seats.length` bytes, the
-  most one flat node folds, with a forced cut at the maximum.
+- **Cuts.** A rolling hash runs over a bounded window of the bytes; a cut falls
+  where it vanishes. A cut is level `L` when the hash vanishes mod `W^(L+1)`, so
+  level-`L` cuts nest inside level-`(L−1)` cuts, and a level-`L` span holds
+  about `W^L` segments.
+- **Segments.** Content cuts fall 3+ bytes apart (`GAP + 1`, not from `W`); a
+  segment is at most `seats.length`, one flat node, cut there by force.
 - **Grouping.** `groupByLevel` groups segments by their level, never by count.
 
 **Why content, not position.** A change moves only the cut it falls inside.

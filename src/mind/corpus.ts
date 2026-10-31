@@ -34,7 +34,7 @@
 // turns it into words).
 
 import { recognise } from "./recognition.js";
-import { edgeAncestors } from "./traverse.js";
+import { corpusN, edgeAncestors } from "./traverse.js";
 import type { MindContext } from "./types.js";
 
 /** One stored experience pair, as bytes. */
@@ -121,11 +121,17 @@ export function searchCorpus(
     .sort((a, b) => b.len - a.len || a.id - b.id)
     .slice(0, ctx.cfg.corpusClimbs);
 
-  // Weight each context by how much query content reached it.
+  // Weight each context by how much query content reached it.  The climb runs
+  // at the corpus's own scale (its hub bound is √N, as every climb's is); the
+  // declared budget is how many of the contexts it reaches are taken.
   const weight = new Map<number, number>();
+  const N = corpusN(ctx);
   for (const { id, len } of byLength) {
     for (
-      const root of edgeAncestors(ctx, id, ctx.cfg.corpusContextsPerClimb).roots
+      const root of edgeAncestors(ctx, id, N).roots.slice(
+        0,
+        ctx.cfg.corpusContextsPerClimb,
+      )
     ) {
       weight.set(root, (weight.get(root) ?? 0) + len);
     }

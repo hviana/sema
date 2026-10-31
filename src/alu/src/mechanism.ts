@@ -10,7 +10,6 @@
 // mechanism's on the host's own terms: no precedence, no reading of what
 // another mechanism found.
 
-import { bytesEqual } from "../../bytes.js";
 import { Alu, type AluOptions } from "./alu.js";
 import type { AluHost, ComputedSpan } from "./parser.js";
 
@@ -34,15 +33,18 @@ export interface MechanismAnswer {
 export function aluMechanism(opts: AluOptions = {}) {
   return (host: MechanismHost) => {
     const alu = new Alu(opts, host);
-    // The floor and the run read one parse of one query — the query's
-    // bytes, kept as a copy, so a caller's reused buffer is a new query.
-    let last: { query: Uint8Array; spans: Promise<ComputedSpan[]> } | null =
-      null;
-    const spansOf = (query: Uint8Array): Promise<ComputedSpan[]> => {
-      if (last === null || !bytesEqual(last.query, query)) {
-        last = { query: query.slice(), spans: alu.parse(query) };
-      }
-      return last.spans;
+    // The floor and the run read one parse of one question: kept with the
+    // host's per-response analyses (`pre`), never across responses — a parse
+    // reads the host's resonance, which a deposit between two questions moves.
+    const parses = new WeakMap<object, Promise<ComputedSpan[]>>();
+    const spansOf = (
+      pre: unknown,
+      query: Uint8Array,
+    ): Promise<ComputedSpan[]> => {
+      if (typeof pre !== "object" || pre === null) return alu.parse(query);
+      let spans = parses.get(pre);
+      if (spans === undefined) parses.set(pre, spans = alu.parse(query));
+      return spans;
     };
     return {
       name: "alu",
@@ -55,14 +57,18 @@ export function aluMechanism(opts: AluOptions = {}) {
       async floor(
         _ctx: unknown,
         query: Uint8Array,
-        _pre: unknown,
+        pre: unknown,
         worthRunning: (floor: number) => boolean,
       ): Promise<number | null> {
         if (!worthRunning(host.step)) return host.step;
-        return (await spansOf(query)).length > 0 ? host.step : null;
+        return (await spansOf(pre, query)).length > 0 ? host.step : null;
       },
-      async run(_ctx: unknown, query: Uint8Array): Promise<MechanismAnswer[]> {
-        return (await spansOf(query)).map((u) => ({
+      async run(
+        _ctx: unknown,
+        query: Uint8Array,
+        pre?: unknown,
+      ): Promise<MechanismAnswer[]> {
+        return (await spansOf(pre, query)).map((u) => ({
           bytes: u.bytes,
           accounted: [[u.i, u.j]],
           moves: host.step,

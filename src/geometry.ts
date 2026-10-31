@@ -8,7 +8,7 @@
 //   3. The same rule recurses level after level until one root remains.
 
 import { addInto, copy, normalize, Vec, zeros } from "./vec.js";
-import { Sema, sema, Space, twoEndedSeat } from "./sema.js";
+import { bindRow, Sema, sema, Space, twoEndedSeat } from "./sema.js";
 import { Alphabet } from "./alphabet.js";
 
 // ---- geometric constants ----
@@ -123,15 +123,6 @@ export function dominates(partLen: number, wholeLen: number): boolean {
   return partLen * 2 > wholeLen;
 }
 
-/** The consensus-vote significance floor: ln(N) + 1/2, where N is the number
- *  of learnt contexts (edge sources).  A single region's IDF-weighted vote for
- *  an anchor reached through c contexts is at most ln(N/c) ≤ ln(N); the +1/2
- *  demands the pooled vote exceed what ONE maximally-specific region could
- *  contribute by half a unit — i.e. genuine corroboration beyond a lone
- *  region's echo at this corpus scale.  The ONE floor both consumers gate on:
- *  recallByResonance trusting a climb anchor, and commitVotes admitting a
- *  further point of attention.  Defined once here so the two can never
- *  drift apart.  Derived from N, never tuned. */
 /** SUPERPOSITION CAPACITY — how many quasi-orthogonal terms one vector can
  *  carry before an individual term stops being readable.  `√D`.
  *
@@ -204,6 +195,20 @@ export function phraseCap(len: number, W: number): number {
 export function instanceCap(len: number): number {
   return 2 * len;
 }
+
+/** The READ side's chain reach: how many leaf ids a canonical chain may grow
+ *  to from one position — W², the deepest two-level composite the write side's
+ *  windows can spell.  Also the floor of the read allowance
+ *  (`readAllowance` = max(√N, W²)), which the store's near dedup reads too. */
+export function chainReach(W: number): number {
+  return W * W;
+}
+
+/** THE KEYRING'S SEAT COUNT — the most children one node binds: the longest
+ *  segment and the widest group.  A capacity fixed since the first fold, not a
+ *  function of W; `Mind` raises it to W when W is larger, since the river
+ *  groups W children. */
+export const KEYRING_SEATS = 8;
 
 /** THE TWO-QUANTUM FLOOR: below `2W` bytes a span holds no perceivable unit
  *  beyond the one being matched — the least a composition, a meet or a carried
@@ -321,64 +326,15 @@ function foldSlice<T>(
 
 // ---- public API ----
 
-/** CONTENT-DEFINED FOLD BOUNDARIES — where a byte stream segments, chosen by
- *  the bytes rather than by arithmetic.
- *
- *  `riverFold` groups FIXED arity from byte 0 and permutes item k by
- *  `seats[k]`, k = index mod W, so a byte's contribution is a function of its
- *  ABSOLUTE OFFSET: the same byte run is a different vector at a different
- *  position, and the same content is a different SUBTREE.  W's size has nothing
- *  to do with it — any fixed modulus does this, and identity must not depend on
- *  W at all.
- *
- *  A rolling hash removes the dependence without touching the fold's arity: the
- *  cut lands where the hash of the recent bytes vanishes mod W, so a change
- *  upstream moves only the cut it falls inside — every downstream boundary, and
- *  therefore every downstream segment, is unchanged.  Because
- *  {@link stablePrefixFold} folds each segment independently from its own slot
- *  0, byte-identical content then produces byte-identical subtrees, and
- *  hash-consing makes it the SAME NODE ID wherever it appears.  That — not the
- *  root cosine, which should and does still move when content is added — is
- *  what recognition, cover and resolve need.
- *
- *  Measured over 400 real deposits, shifts of 1..7 bytes, downstream cuts
- *  preserved / segments byte-identical:
- *
- *      content-defined, deposit text        99.7% / 98.4%   mean seg 6.61 B
- *      content-defined, non-Latin scripts   99.6% / 98.3%   mean seg 6.43 B
- *      content-defined, random binary       99.9% / 99.2%   mean seg 6.92 B
- *      the arithmetic grid, same corpus     14.3%           (only the k≡0 mod W
- *                                                           shifts survive)
- *
- *  The three content-defined rows agreeing is the load-bearing part: this reads
- *  BYTES, never text.  Mind is not a text engine — the same fold carries grids
- *  and any other modality — so a boundary rule justified by where words or
- *  sentences fall would be importing an assumption the architecture rejects.
- *  Random binary must, and does, behave exactly like prose.
- *
- *  Every constant is derived (thresholds.md): the cut mask is W, so a cut is
- * offered once per quantum of bytes — which, composed with the minimum below,
- * puts the expected segment at minLen + W − 1 ≈ 6 B rather than at W,
- * deliberately (see the refutation recorded at `cutRate` in {@link
- * contentLevels}: a segment is the flat PHRASE-scale unit the W-ary groups are
- * built from, not a group of W children, and forcing E[len] = W costs 15
- * tests). The minimum is W−1, `canonicalWindows`'s straddle neighbour and the
- * write side's own floor for a unit; and the maximum is the KEYRING's seat
- * count, because a segment folds as ONE flat node and `fold` has exactly that
- * many seats to bind children into. Capping there is what keeps the fold light:
- * a segment of 3..seats leaves is a single node, where splitting it into
- * W-groups plus a remainder would cost two or three and the remainders barely
- * share (measured: partial-arity nodes 504 → 3,590, and total distinct nodes
- * 8,142 → 9,712, when segments folded as [W][rest]). */
 /** {@link contentBoundaries} plus, for each cut, its LEVEL — how deep in the
  *  tree that cut reaches.
  *
  *  One rolling hash serves every scale.  A cut is level 0 when its hash vanishes
  *  mod W, level 1 when mod W², and so on: level-L cuts are by construction a
  *  subset of level-(L−1) cuts, which is exactly the nesting a tree needs.  The
- *  expected span of a level-L node is therefore W^(L+1) bytes — the same growth
- *  the grid fold had, but with boundaries the content chose, so a shift moves
- *  one node at each level instead of all of them.
+ *  fraction of cuts at level L or above is W^−L, so a level-L node holds about
+ *  W^L segments — the grid fold's growth by W per level, with boundaries the
+ *  content chose, so a shift moves one node at each level instead of all.
  *
  *  Levels are read from the hash the cut was ACCEPTED at, not recomputed, so
  *  they cost nothing beyond the divisions already being done. */
@@ -389,6 +345,11 @@ function contentLevels(
 ): { cuts: number[]; levels: number[] } {
   const W = space.maxGroup;
   const maxLen = space.seats.length;
+  // The three refutations below were measured on the EARLIER rule — a
+  // shift-accumulator hash, `h = (h << 1) + byte·K`, with a `minLen` floor
+  // counted from the previous cut — which the bounded register and GAP rule
+  // further down replaced, keeping the segment distribution they protect.
+  //
   // MEASURED AND REFUTED — making E[segment] equal W.  A segment is at least
   // `minLen` bytes and then cuts with probability p, so E[len] = minLen +
   // (1−p)/p; with `h % W === 0` that is minLen + W − 1 = 6 for W = 4 (measured
@@ -476,7 +437,9 @@ function contentLevels(
   // minimum — winnowing — aligns slightly better still, 0.91-0.999, but its
   // deque costs 51 MB/s against this rule's 112 and buys nothing the
   // scrambling hash does not already give.)
-  const k = W;
+  // THE REGISTER IS A 32-BIT WORD: `h << 8 | byte` keeps the last FOUR bytes,
+  // whatever W is — the window below is four bytes by the word, not by W.
+  const k = 4;
   const cuts: number[] = [];
   const levels: number[] = [];
   const n = bytes.length;
@@ -497,6 +460,9 @@ function contentLevels(
   // a pure content property while still setting the segment scale.  Measured
   // fraction of cuts that survive a prepend, worst case over six byte types:
   // 0.441 for the original rule, 0.769 counting from `last`, 0.847 for this.
+  // GAP is that measured rule, not a function of W: content cuts fall at least
+  // GAP + 1 = 3 bytes apart (the `minLen = W − 1` it replaced kept them W
+  // apart, since it counted from the previous cut's last byte).
   const GAP = 2;
   const GAPMASK = (1 << GAP) - 1;
 
@@ -555,6 +521,54 @@ function contentLevels(
   return { cuts, levels };
 }
 
+/** CONTENT-DEFINED FOLD BOUNDARIES — where a byte stream segments, chosen by
+ *  the bytes rather than by arithmetic.
+ *
+ *  `riverFold` groups FIXED arity from byte 0 and permutes item k by
+ *  `seats[k]`, k = index mod W, so a byte's contribution is a function of its
+ *  ABSOLUTE OFFSET: the same byte run is a different vector at a different
+ *  position, and the same content is a different SUBTREE.  W's size has nothing
+ *  to do with it — any fixed modulus does this, and identity must not depend on
+ *  W at all.
+ *
+ *  A rolling hash removes the dependence without touching the fold's arity: the
+ *  cut lands where the hash of the recent bytes vanishes mod W, so a change
+ *  upstream moves only the cut it falls inside — every downstream boundary, and
+ *  therefore every downstream segment, is unchanged.  Because
+ *  {@link stablePrefixFold} folds each segment independently from its own slot
+ *  0, byte-identical content then produces byte-identical subtrees, and
+ *  hash-consing makes it the SAME NODE ID wherever it appears.  That — not the
+ *  root cosine, which should and does still move when content is added — is
+ *  what recognition, cover and resolve need.
+ *
+ *  Measured over 400 real deposits, shifts of 1..7 bytes, downstream cuts
+ *  preserved / segments byte-identical:
+ *
+ *      content-defined, deposit text        99.7% / 98.4%   mean seg 6.61 B
+ *      content-defined, non-Latin scripts   99.6% / 98.3%   mean seg 6.43 B
+ *      content-defined, random binary       99.9% / 99.2%   mean seg 6.92 B
+ *      the arithmetic grid, same corpus     14.3%           (only the k≡0 mod W
+ *                                                           shifts survive)
+ *
+ *  The three content-defined rows agreeing is the load-bearing part: this reads
+ *  BYTES, never text.  Mind is not a text engine — the same fold carries grids
+ *  and any other modality — so a boundary rule justified by where words or
+ *  sentences fall would be importing an assumption the architecture rejects.
+ *  Random binary must, and does, behave exactly like prose.
+ *
+ *  The cut mask is W, so a cut is offered once per quantum of bytes, and one is
+ * taken only where the previous GAP positions offered none — so content cuts
+ * are at least GAP + 1 = 3 bytes apart (a measured rule, not a function of
+ * W), and the expected segment is ≈ 5–7 B rather than W, deliberately (the refutations recorded in
+ * {@link contentLevels}: a segment is the flat PHRASE-scale unit the W-ary
+ * groups are built from, not a group of W children, and forcing E[len] = W
+ * costs 15 tests). The maximum is the KEYRING's seat count, because a segment
+ * folds as ONE flat node and `fold` has exactly that many seats to bind
+ * children into. Capping there is what keeps the fold light:
+ * a segment of 3..seats leaves is a single node, where splitting it into
+ * W-groups plus a remainder would cost two or three and the remainders barely
+ * share (measured: partial-arity nodes 504 → 3,590, and total distinct nodes
+ * 8,142 → 9,712, when segments folded as [W][rest]). */
 export function contentBoundaries(space: Space, bytes: Uint8Array): number[] {
   // ONE implementation of the rule.  This used to carry its own copy of the
   // rolling-hash loop, which is exactly how a write side and a read side drift
@@ -775,16 +789,6 @@ export function contentFoldIncremental(
   return { tree, fold: { edges, segs } };
 }
 
-/** Group a row of items by the level of the cut BETWEEN them: items separated
- *  by a cut of level < L belong to the same parent, and a cut of level ≥ L ends
- *  it.  Recurses upward until one root remains, so the shape at every level is
- *  the content's, not an index's.  `levels[i]` is the level of the cut that
- *  precedes item i+1 (there are items.length − 1 of them).
- *
- *  A level that fails to split (every cut below L) or that would exceed the
- *  keyring falls through to the plain river fold for that row — the fold stays
- *  total on any input, and the fallback is rare enough not to reintroduce a
- *  systematic alignment. */
 /** A content key for a folded item: a cheap hash of its gist's leading
  *  coordinates.  Used to choose a split point inside an over-long row, where
  *  the cut levels are uniformly 0 and carry no signal.  Identical subtrees
@@ -799,6 +803,16 @@ function itemKey(v: ArrayLike<number>): number {
   return h >>> 0;
 }
 
+/** Group a row of items by the level of the cut BETWEEN them: items separated
+ *  by a cut of level < L belong to the same parent, and a cut of level ≥ L ends
+ *  it.  Recurses upward until one root remains, so the shape at every level is
+ *  the content's, not an index's.  `levels[i]` is the level of the cut that
+ *  precedes item i+1 (there are items.length − 1 of them).
+ *
+ *  A level that fails to split (every cut below L) or that would exceed the
+ *  keyring falls through to the plain river fold for that row — the fold stays
+ *  total on any input, and the fallback is rare enough not to reintroduce a
+ *  systematic alignment. */
 function groupByLevel<T>(
   alg: FoldAlgebra<T>,
   space: Space,
@@ -868,26 +882,6 @@ function groupByLevel<T>(
       : riverFold(alg, space, items);
   }
   return groupByLevel(alg, space, groups, groupLevels, level + 1);
-}
-
-/** THE FOLD'S ONE BINDING: a row of vectors, each bound to its two-ended seat
- *  and superposed, unnormalized — `gist[d] += v[seat[d]]`, in row order, from
- *  zero.  Two-ended: the first half takes low seats and the second half high
- *  seats, inward from the tail of the FULL keyring, so interior items keep
- *  their seats when a leading or trailing item is perturbed.  A segment's gist
- *  is this over its bytes ({@link flatFold}), a group's over its items
- *  ({@link joinFlat}), a stored node's over its kids (`storedGist`); one order
- *  of float32 additions, so equal rows give equal bits ({@link boundCoord} is
- *  its one-coordinate twin). */
-export function bindRow(space: Space, row: ArrayLike<Vec>): Vec {
-  const n = row.length;
-  const gist = new Float32Array(space.D);
-  for (let k = 0; k < n; k++) {
-    const v = row[k];
-    const seat = space.seats[twoEndedSeat(space.seats.length, n, k)].fwd;
-    for (let d = 0; d < space.D; d++) gist[d] += v[seat[d]];
-  }
-  return gist;
 }
 
 /** Join a row of already-folded items as one unnormalized node — the same
@@ -1109,7 +1103,7 @@ function stablePrefixFold(
 }
 
 /** A stable-prefix fold's reusable state: the segment edge offsets and each
- *  segment's independently-folded root ({@link riverFoldRaw} output).  A
+ *  segment's independently-folded root ({@link contentFoldSpan} output).  A
  *  grown stream whose boundary set EXTENDS a previous fold's reuses every
  *  matching segment's Folded unchanged (segments fold independently by
  *  construction, so reuse is bit-identical to refolding) and folds only the

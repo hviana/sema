@@ -10,16 +10,16 @@ import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
 import {
   AGREEMENT,
   boundFor,
+  chainReach,
   conceptThreshold,
   dominates,
   instanceCap,
   phraseCap,
   significanceBar,
-  twoQuanta,
 } from "../geometry.js";
 import type { AncestorReach, MindContext, SaturationStop } from "./types.js";
 import { canonResolve, gistOf, perceive, read, resolve } from "./primitives.js";
-import { chainReach, flatId, windowAt, windowIds } from "./canonical.js";
+import { flatId, windowAt, windowIds } from "./canonical.js";
 // Imported at the TOP, where every other import is.  They used to sit 800 lines
 // down under a note claiming the position mattered ("before trace module is
 // loaded") — it does not: an ES module's static imports are HOISTED, so the
@@ -166,15 +166,18 @@ function getStructCache(ctx: MindContext): StructCache | null {
 }
 
 /** A derivation read off an instance, and the entities a fact holds, depend
- *  on the instance, the fact and the store — never on the question — so they
- *  are kept for the session like the climb's reach, and dropped on a write or,
- *  all together, at one byte budget.  So is the use of a stored span. */
+ *  on the instance, the fact, the store and the reading (a slot or a
+ *  description read under the response's canon) — never on the question — so
+ *  they are kept for the session like the climb's reach, and dropped on a
+ *  write, on another reading or, all together, at one byte budget.  So is the
+ *  use of a stored span. */
 interface DerivationCache {
+  canon: MindContext["canon"];
   spent: { bytes: number };
   paths: MemoMap<string, Step[][]>;
   slots: MemoMap<string, { span: [number, number]; id: number } | null>;
   converges: MemoMap<string, Array<[Arrival, Arrival]>>;
-  facts: MemoMap<number, Map<string, Step>>;
+  facts: MemoMap<string, Map<string, Step>>;
   described: MemoMap<string, Step[] | null>;
   entities: MemoMap<number, Array<{ span: [number, number]; id: number }>>;
   uses: MemoMap<string, Vec | null>;
@@ -184,12 +187,16 @@ const derivationCaches = new WeakMap<object, DerivationCache>();
 function derivationCache(ctx: MindContext): DerivationCache | null {
   if (ctx.trace !== null || ctx.climbMemo === null) return null;
   let c = derivationCaches.get(ctx._structMemoKey);
-  if (c === undefined || c.spent.bytes >= DERIVATION_MEMO_BYTES) {
+  if (
+    c === undefined || c.canon !== ctx.canon ||
+    c.spent.bytes >= DERIVATION_MEMO_BYTES
+  ) {
     const spent = { bytes: 0 };
     const steps = (n: number) => RECORD_BYTES * (n + 1);
     derivationCaches.set(
       ctx._structMemoKey,
       c = {
+        canon: ctx.canon,
         spent,
         paths: new MemoMap(
           spent,
@@ -1364,20 +1371,21 @@ function spanHaloOf(
   if (to - from < W) return null;
   if (ctx.meter) ctx.meter.spanHalos++;
   const out = zeros(ctx.store.D);
+  const span = bytes.subarray(from, to);
   const seen = new Set<number>();
   let found = false;
   for (const o of sampledWindows(from, to, W)) {
     if (ctx.meter) ctx.meter.spanHaloWindows++;
     const w = windowAt(ctx, bytes, o);
     if (w === null) continue;
-    // The climb PROPOSES holders — a window's containment rows are the chunks
-    // it overlaps, so a context reached that way may not hold it — and the
-    // context's bytes DECIDE: only a context that holds the window is its use.
-    const win = bytes.subarray(o, o + W);
+    // The window's climb PROPOSES holders, and the context's bytes DECIDE:
+    // only a context that holds the whole SPAN is its use.  A window alone is a
+    // piece of other words — `ied ` of `married` is held by every `… died …` —
+    // and lent the span their company.
     for (const c of oldestContexts(ctx, w, chainReach(W))) {
       if (seen.has(c) || !ctx.store.hasNext(c)) continue;
       seen.add(c);
-      if (indexOf(read(ctx, c), win, 0) < 0) continue;
+      if (indexOf(read(ctx, c), span, 0) < 0) continue;
       const h = ctx.store.halo(c);
       if (h === null) continue;
       const n = Math.sqrt(dot(h, h));
@@ -1953,11 +1961,14 @@ function byUse(
     held = [h[0], h[1]];
   }
   const at = held[0];
+  // A window is evidence of a use only where the corpus holds it: one no
+  // deposit holds has no company to read and no holder for the licence.
   const hub = hubWindows(ctx, q);
+  const inCorpus = windowIds(ctx, q);
   const evidence: number[] = [];
   for (let o = 0; o + W <= q.length; o++) {
     if (
-      !(o + W > at && o < held[1]) && !hub[o] &&
+      !(o + W > at && o < held[1]) && inCorpus.has(o) && !hub[o] &&
       asked.index.has(latin1(offsetCanon(ctx, q.subarray(o, o + W))))
     ) evidence.push(o);
   }
@@ -2435,6 +2446,12 @@ function closingEntity(
   return longestEntity(ctx, raw, rows, true);
 }
 
+/** What `slotSteps` reads of a slot: its entity and the steps the rest of the
+ *  slot applies to it, or an entity whose remainder determines nothing. */
+type SlotReading =
+  | { x: { span: [number, number]; id: number }; steps: Step[] }
+  | { x: { span: [number, number]; id: number }; undetermined: true };
+
 /** What a slot SAYS of its entity: the entity (the longest stored context
  *  with continuations covering the parting byte, `slotEntity`) and the steps
  *  the rest of the slot applies to it.  An entity that fills the slot, up to
@@ -2448,12 +2465,6 @@ function closingEntity(
  *  An entity found only at the slot's close (`closingEntity`) leaves the
  *  forms parting on the remainder, which must then be read, or the slot is
  *  `undetermined`.  null: the slot holds no entity to read. */
-/** What `slotSteps` reads of a slot: its entity and the steps the rest of the
- *  slot applies to it, or an entity whose remainder determines nothing. */
-type SlotReading =
-  | { x: { span: [number, number]; id: number }; steps: Step[] }
-  | { x: { span: [number, number]; id: number }; undetermined: true };
-
 function slotSteps(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -3370,8 +3381,11 @@ function factFrames(
   ctx: MindContext,
   to: { id: number; bytes: Uint8Array },
 ): Map<string, Step> {
+  // Keyed by the id AND the spelling the steps are cut around: one id can
+  // arrive spelled two ways (a near-deduplicated or canonical form).
   const memo = derivationCache(ctx);
-  const hit = memo?.facts.get(to.id);
+  const key = `${to.id}:` + latin1(to.bytes);
+  const hit = memo?.facts.get(key);
   if (hit !== undefined) return hit;
   const bound = hubBound(ctx);
   const out = new Map<string, Step>();
@@ -3383,7 +3397,7 @@ function factFrames(
       out.set(bytesKey(step.prefix, step.suffix), step);
     }
   }
-  memo?.facts.set(to.id, out);
+  memo?.facts.set(key, out);
   return out;
 }
 
@@ -4619,7 +4633,7 @@ export function allWindowsAreScaffolding(
   const bound = hubBound(ctx);
   let sawOne = false;
   for (const id of windowIds(ctx, query).values()) {
-    const rarity = ctx.store.containersSlice(id, 0, bound + 1).length;
+    const rarity = windowRarity(ctx, id, bound + 1);
     if (rarity === 0) continue;
     if (rarity <= bound) return false;
     sawOne = true;
@@ -4628,11 +4642,15 @@ export function allWindowsAreScaffolding(
 }
 
 /** Per offset of `bytes`: 1 when the W-window there is a stored form in more
- *  than √N places, the chunks it overlaps (scaffolding; see the floor below),
- *  else 0.  Memoised per
- *  byte array for the life of the store's read-only response. */
+ *  than √N places — its {@link windowRarity}, both surfaces, as every "places"
+ *  reading counts them (scaffolding; see the floor below) — else 0.  Memoised
+ *  per byte array while the store is unwritten. */
 export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
-  const hit = hubWindowMemo.get(bytes);
+  let memo = hubWindowMemo.get(ctx._structMemoKey);
+  if (memo === undefined) {
+    hubWindowMemo.set(ctx._structMemoKey, memo = new WeakMap());
+  }
+  const hit = memo.get(bytes);
   if (hit !== undefined) return hit;
   const W = ctx.space.maxGroup;
   // Floored at the write side's arity: inside ONE deposit's fold a window is
@@ -4642,12 +4660,14 @@ export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
   const bound = readAllowance(ctx);
   const hub = new Uint8Array(Math.max(0, bytes.length - W + 1));
   for (const [o, id] of windowIds(ctx, bytes)) {
-    if (ctx.store.containersSlice(id, bound, 1).length > 0) hub[o] = 1;
+    if (windowRarity(ctx, id, bound + 1) > bound) hub[o] = 1;
   }
-  hubWindowMemo.set(bytes, hub);
+  memo.set(bytes, hub);
   return hub;
 }
-const hubWindowMemo = new WeakMap<Uint8Array, Uint8Array>();
+/** Per store state (`_structMemoKey`), then per byte array: a write makes the
+ *  reading of the same bytes another one. */
+const hubWindowMemo = new WeakMap<object, WeakMap<Uint8Array, Uint8Array>>();
 
 /** The query's SCAFFOLDING CORE, as spans: the bytes every W-window over which
  *  is a hub (see {@link hubWindows}) — what is nothing but frame, where

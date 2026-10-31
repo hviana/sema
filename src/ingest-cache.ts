@@ -1,8 +1,10 @@
 // ingest-cache.ts — ingest-level cache for Mind.
 //
 // Wraps a Mind and memoises the expensive, content-determined half of ingestion:
-// turning ONE input (a context, a continuation, or a bare experience) into its
-// interned graph nodes.  Perception (riverFold) and interning are a PURE function
+// turning ONE input into its interned graph nodes.  The memo serves a pair's
+// CONTINUATION; a context and a bare experience always deposit through the
+// Mind, which tracks what they change (`_prevSeen`) and folds a growing context
+// from its cached prefix.  Perception (riverFold) and interning are a PURE function
 // of the input bytes — the same bytes always cut the same way and hash-cons to
 // the same node ids — so the result can be cached by content and reused wherever
 // those same bytes appear again, in ANY role.
@@ -12,12 +14,11 @@
 // more than at the pair level — a shared system/tool preamble in front of every
 // row, a common answer ("Yes.", a refusal) under many questions, an accumulated
 // dialogue prefix, an exactly-duplicated row.  A pair-level key sees none of these
-// (the pair as a whole is almost always unique); the input-level key catches them
-// all, and a context that recurs as a continuation (or vice versa) hits too.
+// (the pair as a whole is almost always unique); the input-level key catches the
+// repeated answers.
 //
-// On a cache hit the learning itself still runs — a pair through the Mind's own
-// `ingestPair`, a single through its own deposit — while the
-// perceive + internTree work (the dominant cost, and on a large store the dominant
+// On a cache hit the learning itself still runs — the pair through the Mind's
+// own `ingestPair` — while the continuation's perceive + internTree work (the dominant cost, and on a large store the dominant
 // VECTOR-INDEX cost too) is skipped entirely.  The interned node ids are stable
 // across eviction: a re-perceive of evicted content reproduces the same ids by
 // the store's hash-cons, so correctness never depends on a hit.
@@ -42,6 +43,7 @@ import {
 import type { Sema } from "./sema.js";
 import type { Input } from "./mind/index.js";
 import { BoundedMap } from "./store.js";
+import { latin1 } from "./bytes.js";
 import type { Vec } from "./vec.js";
 import { invalidateStructuralCaches } from "./mind/traverse.js";
 
@@ -68,8 +70,8 @@ interface Interned {
  *
  * Usage (drop-in for mind.ingest in training loops):
  *   const ci = new CachedIngest(mind);
- *   await ci.ingest(ctx, cont);       // caches both sides
- *   await ci.ingest("some text");     // caches the single text
+ *   await ci.ingest(ctx, cont);       // memoises the continuation
+ *   await ci.ingest("some text");     // deposits through the Mind
  *   await ci.ingest([[ctx, cont]]);   // array form
  *
  * All other Mind methods (respond, save, …) are accessed on `ci.mind`.
@@ -106,15 +108,9 @@ export class CachedIngest {
 
   private keyOf(input: Input): string | null {
     if (typeof input === "string") return "S:" + input;
-    if (input instanceof Uint8Array) {
-      // FNV-1a — no spread onto the call stack, safe on large binary inputs.
-      let h = 0x811c9dc5 >>> 0;
-      for (let i = 0; i < input.length; i++) {
-        h ^= input[i];
-        h = Math.imul(h, 0x01000193) >>> 0;
-      }
-      return "B:" + (h >>> 0).toString(16) + ":" + input.length;
-    }
+    // The CONTENT is the key, as for a string: a hash is a label, and two
+    // inputs sharing one would be learnt as one node.
+    if (input instanceof Uint8Array) return "B:" + latin1(input);
     return null; // Grid / Grid[] — bypass the cache
   }
 

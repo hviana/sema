@@ -619,20 +619,29 @@ test("155.14 the relation is available where an instance and a context reach one
       store: new SQliteStore({ path: ":memory:" }),
     });
     await mind.ingest([...items, ...target]);
-    const a = await mind.respondText(`Where was ${x} born?`);
+    named.byInstance = false;
+    const a = await mind.respondText(`Where was ${x} born?`, (s) => {
+      if (s.mechanism.at(-1) === "askedByCoInstance") named.byInstance = true;
+    });
     await mind.store.close();
     return a;
   };
-  const named = `The place of birth of ${x} is Wadeford.`;
-  assert.equal(await store("full"), named, "one node: available");
+  const named = { byInstance: false };
+  const fact = `The place of birth of ${x} is Wadeford.`;
+  assert.equal(await store("full"), fact, "one node: available");
+  assert.equal(named.byInstance, true, "one node: the instances name it");
   assert.equal(
     await store("respell"),
-    named,
+    fact,
     "one node, another spelling: available",
   );
-  assert.notEqual(
-    await store("split"),
-    named,
+  // Two nodes: no instance names the relation.  The question may still name
+  // it by its use (`born` used as `place of birth` is, `byUse`): that reading
+  // is the company's, not the instances'.
+  await store("split");
+  assert.equal(
+    named.byInstance,
+    false,
     "two nodes, same information: not available",
   );
 });

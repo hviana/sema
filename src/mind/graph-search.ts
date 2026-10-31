@@ -132,7 +132,8 @@ interface EntityProposals {
 //     free (cost 0) — it only re-NAMES a span, it does not advance the cover.
 //   • A concept jump (CONCEPT) is dearer than a direct edge, so a literal
 //     continuation is preferred to a synonym's.
-// Any constants with this ordering give the same lightest derivations.
+// The ordering is the contract; the ratios set how far a cheaper move may be
+// repeated before a dearer one wins (CONCEPT/STEP edges outweigh one hop).
 //
 // EXPORTED because the ladder is the ONE cost currency of the whole mind:
 // think's grounding decider (pipeline.ts) weighs every mechanism's candidate
@@ -646,7 +647,6 @@ export class GraphSearch {
         concepts,
         recognition.leaves,
         recognition.splits,
-        queryBytes,
         joins,
         substitutions,
         connectors,
@@ -726,7 +726,6 @@ export class GraphSearch {
     concepts: ConceptLicence,
     leaves: ReadonlyArray<Leaf>,
     splits: ReadonlySet<number>,
-    queryBytes: Uint8Array,
     joins: JoinLicense,
     substitutions?: ReadonlyMap<number, Uint8Array>,
     connectors?: ConnectorLicence,
@@ -1355,7 +1354,7 @@ export class GraphSearch {
       {
         let off = 0;
         for (const k of nrec.kids) {
-          const len = this.store.bytesPrefix(k, ALL).length;
+          const len = this.store.contentLen(k);
           if (!seenSpans.has(`${off}:${off + len}`) && len > 0) {
             structural.push({
               start: off,

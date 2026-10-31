@@ -169,3 +169,28 @@ test("browsing is deterministic, and `from` moves the window", async () => {
   );
   await mind.store.close();
 });
+
+test("a climb runs at the corpus's scale; the declared budget takes its contexts", async () => {
+  // `corpusContextsPerClimb` is how many contexts one climb contributes.  Read
+  // as the corpus size instead, it made the climb's hub bound ⌈√6⌉ = 3: a form
+  // held by six contexts in a corpus of sixty-seven saturated at the third and
+  // the search found none of them.
+  const mind = new Mind({
+    seed: 7,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  const pairs = [["the capital of France", "Paris is the capital of France."]];
+  for (const p of ["quiz", "exam", "test", "class", "trivia", "fact"]) {
+    pairs.push([`${p}: the capital of France`, `${p} answer: Paris`]);
+  }
+  for (let i = 0; i < 60; i++) {
+    pairs.push([`filler fact number ${i} about item ${i * 13}`, `reply ${i}`]);
+  }
+  await mind.ingest(pairs);
+  const result = mind.searchCorpus(enc.encode("the capital of France"), 6);
+  const holders = result.pairs.filter((p) =>
+    /^\w+: the capital of France$/.test(asText(p.context))
+  );
+  assert.ok(holders.length >= 3, `holders found: ${holders.length}`);
+  await mind.store.close();
+});

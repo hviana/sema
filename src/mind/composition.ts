@@ -24,13 +24,11 @@ import { indexOf } from "../bytes.js";
 import {
   answersOtherQuestions,
   askedEvidence,
-  asksAbsentRelation,
   canonHeldPoints,
   guidedFirst,
   hubBound,
   offsetCanon,
   scaffoldSpans,
-  subjectOfSeveral,
 } from "./traverse.js";
 import { conceptHop } from "./match.js";
 import { bridge } from "./resonance.js";
@@ -426,9 +424,7 @@ export async function compose(
     // out of both the framing decision and the final concatenation — the
     // OTHER spans a derivation chose are independent evidence and must not
     // be discarded along with the stale one.
-    const restated = segs.filter((s) =>
-      segRestatesQuery(s, query, query.length, W)
-    );
+    const restated = segs.filter((s) => segRestatesQuery(s, query, W));
     if (restated.length > 0) {
       ctx.trace?.step(
         "restatedSpan",
@@ -497,7 +493,7 @@ export async function compose(
     const scaffold = scaffoldSpans(ctx, query);
     const accounted: Array<[number, number]> = segs
       .filter((s) =>
-        s.rec && !segRestatesQuery(s, query, query.length, W) &&
+        s.rec && !segRestatesQuery(s, query, W) &&
         !scaffold.some(([a, b]) => a <= s.i && s.j <= b)
       )
       .map((s) => [s.i, s.j]);

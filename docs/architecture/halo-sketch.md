@@ -60,13 +60,12 @@ excluded-as-hub.
 contributes less than `1/√D`, the estimator's noise, and dilutes every accepted
 term.
 
-## Storage — exact in session, quantized at rest
+## Storage — the 2-bit row is the halo
 
-| Layer     | Form                                                                                                                    |
-| --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| session   | `Float32Array` accumulator, exact and additive (`pourHalo`)                                                             |
-| durable   | 2-bit Lloyd–Max quantizer: decision at ±0.9816σ, levels ±0.4528σ / ±1.5104σ, σ = norm/√D. Correlation ≥ 0.88 with exact |
-| ANN index | 1-bit RaBitQ, answering only "which halos are near this one?"                                                           |
+| Layer     | Form                                                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| durable   | 2-bit Lloyd–Max quantizer: decision at ±0.9816σ, levels ±0.4528σ / ±1.5104σ, σ = norm/√D. A pour decodes the row, adds and re-encodes |
+| ANN index | 1-bit RaBitQ, answering only "which halos are near this one?"                                                                         |
 
 A halo re-enters the index when its mass is at most 4 or a power of two, so
 index writes are `O(log mass)`.

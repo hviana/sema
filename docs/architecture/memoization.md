@@ -15,7 +15,6 @@ shared evidence lives.
 **Eager**, populated before any `floor` or `run`:
 
 - `rec`, the recognition;
-- `computed`, every mechanism's `parse` spans;
 - `guide`, the query gist;
 - `k = 2·recallQueryK`.
 
@@ -38,17 +37,17 @@ it first (`meter.md`).
 
 ## Mind memos — `beginResponse` → `endResponse` (`mind/mind.ts`)
 
-`respond` takes fresh maps. `respondTurn` reuses the conversation's maps, which
-are content-keyed across turns.
+`respond` takes fresh maps. `respondTurn` reuses the conversation's maps,
+content-keyed, until a write or another canon.
 
-| Memo                                                   | Key                   | Lifetime                                       |
-| ------------------------------------------------------ | --------------------- | ---------------------------------------------- |
-| `perceiveMemo`                                         | bytes + boundary set  | response or conversation                       |
-| `recogniseMemo`, `climbMemo`                           | bytes                 | response or conversation                       |
-| `canonMemo`                                            | bytes                 | response, when a `canon` is set                |
-| `_resolvedSubtrees`                                    | tree node (`WeakMap`) | conversation                                   |
-| `_edgeChoice` (the pick memo), `_edgeAsked`            | node / question       | response; cleared at the end                   |
-| `sharedReachMemo`, probes, derivations (`traverse.ts`) | node / form           | on write, or whole at its budget (`caches.md`) |
+| Memo                                                   | Key                   | Lifetime                                         |
+| ------------------------------------------------------ | --------------------- | ------------------------------------------------ |
+| `perceiveMemo`                                         | bytes + boundary set  | response or conversation                         |
+| `recogniseMemo`, `climbMemo`                           | bytes                 | response or conversation                         |
+| `canonMemo`                                            | bytes                 | response, when a `canon` is set                  |
+| `_resolvedSubtrees`                                    | tree node (`WeakMap`) | conversation                                     |
+| `_edgeChoice` (the pick memo), `_edgeAsked`            | node / question       | response; cleared at the end                     |
+| `sharedReachMemo`, probes, derivations (`traverse.ts`) | node / form           | write, canon (derivations), budget (`caches.md`) |
 
 Elsewhere a per-response memo is a `WeakMap` keyed by the response's lifecycle
 object (`climbMemo`), so it dies with the response: the bridge, halo siblings,
@@ -65,9 +64,9 @@ A traced response must emit every step and still give the same answer.
 - **Bypassed under trace:** the pick memo (`guidedNext`), `sharedReachMemo` and
   the derivation memos. Each is fresh or absent, and `chooseNext` recomputes the
   same pick from the store and the question.
-- **Always consulted:** `perceiveMemo`, `recogniseMemo` and `climbMemo`.
-  Bypassing `recogniseMemo` re-runs recognition over a warm subtree cache and
-  emits 5 sites instead of 31: a change in the answer, not just a slowdown.
+- **Always consulted:** `perceiveMemo`, `recogniseMemo` and `climbMemo`: their
+  absence costs time only (recognition gives the same sites over a warm subtree
+  cache, `test/42`), and a trace must touch nothing but the trace.
 - **A pick made before the climb's points is provisional:** the pick memo is
   cleared when they arrive, since a co-instance read from them may name a step
   or outrank what witnessing named. Keeping it made traced and untraced

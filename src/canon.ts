@@ -58,6 +58,11 @@ function unicodeCanon(bytes: Uint8Array): Uint8Array {
   return enc.encode(s);
 }
 
+/** ASCII whitespace as the canonicalizer reads it: the ASCII members of the
+ *  regex `\s` — TAB, LF, VT, FF, CR and SPACE. */
+const asciiSpace = (b: number): boolean =>
+  b === 0x20 || (b >= 0x09 && b <= 0x0d);
+
 function isAscii(bytes: Uint8Array): boolean {
   for (let i = 0; i < bytes.length; i++) if (bytes[i] >= 0x80) return false;
   return true;
@@ -75,16 +80,15 @@ function asciiCanon(bytes: Uint8Array): Uint8Array {
   const n = bytes.length;
   const out = new Uint8Array(n);
   let o = 0;
-  const ws = (b: number) => b === 0x20 || (b >= 0x09 && b <= 0x0d);
   for (let i = 0; i < n;) {
     const b = bytes[i];
-    if (!ws(b)) {
+    if (!asciiSpace(b)) {
       out[o++] = b >= 0x41 && b <= 0x5a ? b + 0x20 : b;
       i++;
       continue;
     }
     let j = i;
-    while (j < n && ws(bytes[j])) j++;
+    while (j < n && asciiSpace(bytes[j])) j++;
     if (i > 0 && j < n) out[o++] = 0x20;
     else for (let k = i; k < j; k++) out[o++] = bytes[k];
     i = j;
@@ -123,11 +127,9 @@ export function canonHash(key: Uint8Array): number {
  *  there is no neighbour — nothing precedes byte 0, nothing follows the last
  *  byte — so that hazard cannot arise, and only there. */
 export function textEdgeTrim(bytes: Uint8Array): Uint8Array {
-  const space = (b: number) =>
-    b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d;
   let from = 0;
   let to = bytes.length;
-  while (from < to && space(bytes[from])) from++;
-  while (to > from && space(bytes[to - 1])) to--;
+  while (from < to && asciiSpace(bytes[from])) from++;
+  while (to > from && asciiSpace(bytes[to - 1])) to--;
   return from === 0 && to === bytes.length ? bytes : bytes.subarray(from, to);
 }

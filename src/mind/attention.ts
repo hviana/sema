@@ -66,7 +66,7 @@ import {
   unionSpans,
   windowSpans,
 } from "./derivation.js";
-import type { RationaleItem } from "./rationale.js";
+import { decodeText, type RationaleItem } from "./rationale.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -478,7 +478,9 @@ export async function climbAttentionAll(
   // respondTurn().
   if (ctx.climbMemo) {
     const contentKey = latin1(query);
-    const modeKey = `${k}:${mode}`;
+    // Every input the climb reads beyond the bytes: `k`, the mode, and where
+    // the conversation's current turn starts (crossRegionVotes).
+    const modeKey = `${k}:${mode}:${ctx.currentTurnStart}`;
     let byRead = ctx.climbMemo.get(contentKey);
     if (byRead === undefined) {
       ctx.climbMemo.set(contentKey, byRead = new Map());
@@ -2404,10 +2406,6 @@ function betterProposal(
   return (a.rightSiblingId ?? -1) < (b.rightSiblingId ?? -1);
 }
 
-/** The final approximate tier: compose every retained structural variant,
- *  ANN-query each, merge proposals by candidate id, and validate the winner
- *  through the SAME structural gates every other tier answers to (saturation,
- *  roots, IDF, contrastive margin).  Returns null when nothing survives. */
 /** {@link structuralResonance}, charged to its own profiling phase — it is
  *  the halo-mediated arm of the cross-region ladder and the one part of it
  *  that resonates. */
@@ -2426,6 +2424,10 @@ async function meteredStructuralResonance(
     : await structuralResonance(...args);
 }
 
+/** The final approximate tier: compose every retained structural variant,
+ *  ANN-query each, merge proposals by candidate id, and validate the winner
+ *  through the SAME structural gates every other tier answers to (saturation,
+ *  roots, IDF, contrastive margin).  Returns null when nothing survives. */
 export async function structuralResonance(
   ctx: MindContext,
   query: Uint8Array,
@@ -2689,7 +2691,7 @@ async function crossRegionVotes(
   );
 
   const dec = (b: Uint8Array): string =>
-    new TextDecoder().decode(b).replace(/\s+/g, " ").trim();
+    decodeText(b).replace(/\s+/g, " ").trim();
   const cache = walkCache(ctx);
   // One junctionSeeds per candidate for the WHOLE pairing loop — a candidate
   // recurs in up to |cand|−1 pairs, and its seeds are a pure function of its

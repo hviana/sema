@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS kid (
 -- the single-blob row's flaw: merging new parents into ONE row re-wrote the
 -- child's WHOLE list per flush — quadratic in a hot window's corpus-sized
 -- fan-in.  Transient duplicates may exist across pages until a base merge;
--- readers dedup (containers()) or tolerate repeats by contract (slices).
+-- the store's readers (containers(), containersSlice()) dedup.
 -- The (child, seq) key is packed into the INTEGER PRIMARY KEY (rowid) as
 -- child·2^8 + seq — exact in a JS double for every valid id, and a child's
 -- pages are one contiguous rowid range.  The geometric merge bounds live page
@@ -323,15 +323,12 @@ export class SQliteStore extends AbstractStore implements Store {
   private _insertEdge: any = null;
   private _selNext: any = null;
   private _selPrev: any = null;
-  private _setMeta: any = null;
-  private _getMeta: any = null;
   private _insCanon: any = null;
   private _selCanon: any = null;
   private _cntCanon: any = null;
   private _insSketch: any = null;
   private _selSketch: any = null;
   private _selContentFrom: any = null;
-  private _delMeta: any = null;
   private _insSnapshot: any = null;
   private _selSnapshot: any = null;
 
@@ -965,22 +962,6 @@ export class SQliteStore extends AbstractStore implements Store {
       if (out.length >= limit) break;
     }
     return out;
-  }
-
-  private _selContainCount: any = null;
-  protected _dbGetContainCount(child: NodeId): number {
-    if (!this._selContainCount) {
-      // Stored ENTRY count (transient duplicates included) — consistent with
-      // what the slice streams, which is all the seam math needs.
-      this._selContainCount = this.derived!.prepare(
-        "SELECT COALESCE(SUM(length(parents)), 0) / 4 AS n " +
-          "FROM contain WHERE id >= ? AND id < ?",
-      );
-    }
-    const base = child * SQliteStore.SEQ_SPAN;
-    return (this._selContainCount.get(base, base + SQliteStore.SEQ_SPAN) as {
-      n: number;
-    }).n;
   }
 
   protected _dbGetContainParents(child: NodeId): NodeId[] {

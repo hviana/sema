@@ -7,7 +7,7 @@ import { rItem, rNode } from "./trace.js";
 import { bytesEqual, indexOf, latin1 } from "../bytes.js";
 import type { Attention, MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
-import { instanceCap } from "../geometry.js";
+import { dominates, instanceCap } from "../geometry.js";
 import {
   guidedFirst,
   hubBound,
@@ -701,7 +701,7 @@ export function fusionLayer(
       // time-management advice on two 3-byte scraps of `I was chatting with a
       // friend and…` (`h a`, `d a`), two places by count.
       if (
-        root.breadth <= 0.5 &&
+        !dominates(root.breadth, 1) &&
         (root.end - root.start < quantum ||
           (root.clusters < 2 &&
             sharedPlaces(read(ctx, root.anchor), query, quantum) < 2))

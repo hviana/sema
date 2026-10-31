@@ -163,8 +163,8 @@ test("segmentation reads bytes, not text — random binary behaves like prose", 
 });
 
 test("segment lengths stay within the write side's declared unit scale", () => {
-  // The minimum is W−1 (canonicalWindows' straddle neighbour, the write side's
-  // own floor for a unit) and the maximum is the keyring's seat count, because
+  // Content cuts fall at least GAP + 1 = 3 bytes apart, but a forced split or
+  // the stream's end can leave less; the maximum is the keyring's seat count, because
   // a segment folds as ONE flat node and `fold` has exactly that many seats.
   // A segment outside that range cannot be bound into seats at all.
   const maxLen = space.seats.length;

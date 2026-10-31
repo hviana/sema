@@ -5,7 +5,7 @@
 // resonate; far-apart values are quasi-orthogonal.
 
 import { addInto, copy, normalize, randomUnit, rng, Vec } from "./vec.js";
-import type { AlphabetConfig } from "./config.js";
+import { type AlphabetConfig, DEFAULT_CONFIG } from "./config.js";
 
 export class Alphabet {
   readonly vecs: Vec[] = [];
@@ -13,8 +13,8 @@ export class Alphabet {
 
   constructor(seed: number, D: number, config?: Partial<AlphabetConfig>) {
     this.config = {
-      roughness: config?.roughness ?? 0.65,
-      seedMask: config?.seedMask ?? 0xa1fa17,
+      roughness: config?.roughness ?? DEFAULT_CONFIG.alphabet.roughness,
+      seedMask: config?.seedMask ?? DEFAULT_CONFIG.alphabet.seedMask,
     };
     const rand = rng((seed ^ this.config.seedMask) >>> 0);
     const refine = (parent: Vec): Vec => {

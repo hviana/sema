@@ -18,7 +18,7 @@ import {
   junctionSynonyms,
   walkCache,
 } from "./junction.js";
-import { recognise, thingsIn } from "./recognition.js";
+import { thingsIn } from "./recognition.js";
 
 // ── The bridge — the junction between two adjacent results ──────────────────
 //
@@ -147,8 +147,11 @@ export async function bridge(
   let memo: Map<string, Uint8Array | null> | undefined;
   let memoKey: string | undefined;
   if (ctx.climbMemo !== null) {
-    memo = bridgeMemo.get(ctx.climbMemo);
-    if (memo === undefined) bridgeMemo.set(ctx.climbMemo, memo = new Map());
+    // Per guide: the pick among several junctions reads the question's gist
+    // (`pickJunction`), and a conversation's memos outlive one question.
+    const life = ctx._edgeGuide ?? ctx.climbMemo;
+    memo = bridgeMemo.get(life);
+    if (memo === undefined) bridgeMemo.set(life, memo = new Map());
     // KEYED ON BYTES, NOT ON TEXT.  This key used to be built with
     // `decodeText`, which decodes lossily AND strips NUL — so it is not
     // injective on raw bytes, and a cache key that is not injective returns

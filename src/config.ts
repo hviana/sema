@@ -62,15 +62,11 @@ export interface StoreConfig {
    *  resonance target (gains a continuation edge or a halo); until then its gist
    *  waits here. A deposit links/pours a node right after interning it, so the
    *  working set is one deposit's nodes — a modest budget captures ~all of it.
-   *  An eviction only means a node is reached by the structural DAG climb instead
-   *  of by direct resonance — a little recall reach, never correctness. */
+   *  A miss re-derives the gist from the node's stored structure, so the
+   *  budget costs time only. */
   pendingGistBytes: number;
-  /** Max bytes of EXACT halo accumulators kept in memory (D·4 each). The
-   *  durable halo row is 2-bit quantized; this cache keeps the accumulators a
-   *  session is actively pouring into at full precision, so within-session
-   *  accumulate-then-compare (concept formation as it happens) never
-   *  round-trips through the quantizer. An eviction or a reopen reads the
-   *  2-bit row — the fidelity every cross-session consumer already gets. */
+  /** Max bytes of halos kept in memory for reads (D·4 each).  A miss reads
+   *  the stored halo again. */
   haloCacheBytes: number;
   /** Size, in MiB, of each `rabitq-ivf` `VectorDatabase`'s memory budget
    *  (forwarded as its `cacheSizeMb` — its SQLite page cache).  A PURE latency
@@ -86,10 +82,10 @@ export interface StoreConfig {
    *  it, so every probe pays a file read.  A PURE latency knob — correctness
    *  and result identical at any value. */
   sqliteCacheMb: number;
-  /** Max entries in the skipped-interior LRU set.  Interiors that
-   *  {@link Store.indexSubtree} has already visited (indexed or skipped) are
-   *  remembered here so subsequent calls prune their subtrees.  Session-local
-   *  (regenerable). */
+  /** Max entries of the indexed-id and walked-subtree records: an indexed id
+   *  skips a durable index probe, a walked subtree (one a completed
+   *  `indexSubtree` walk indexed whole) is pruned.  A miss re-probes or
+   *  re-walks. */
   coveredIdsMax: number;
   /** Max bytes of transparent-chain runs ({@link Store.chainRun}) cached for
    *  the store's lifetime (~4 bytes per chain node).  Valid until any write

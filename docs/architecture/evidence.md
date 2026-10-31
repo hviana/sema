@@ -326,19 +326,19 @@ reader (`describedSteps`) obeys the same law. Limits:
 
 ## A step named by its use — `byUse`
 
-Where neither reading names a step, the question may name it by use: in
-`In which town did Z pass away?`, `pass away` is used as `end` is in `Z end`. A
-span's use is the halos of the contexts its windows reach (at most `W` windows,
-each by its `chainReach(W)` oldest contexts). The candidates are exact: the
-node's continuations, and the establishing contexts holding it, whose rest is
-the relation. The unsaid run free of scaffolding that tells them apart best
-ranks them, its best ahead of the next by `significanceBar`: a ranking floor,
-not a test of chance, since uses are bundles of halos sharing the corpus's
-common company (unrelated runs clear it on 3–4% of single contexts, 11–15% of
-bundles of 4–16). The use is evidence only where the corpus licenses it
-(`substitutionGrade` 2). Unlicensed, it only ranks, on the whole question for
-its own thing (`heldEntity`) with two continuations or more. On the walk (a node
-reached, not written) and for a single continuation, only a licensed use names
+Else a question may name a step by use: in `In which town did Z pass away?`,
+`pass away` is used as `end` is in `Z end`. A span's use is the halos of the
+contexts holding it that its windows reach (at most `W` windows, each by its
+`chainReach(W)` oldest). The candidates are exact: the node's continuations, and
+the establishing contexts holding it, whose rest is the relation. The unsaid run
+of stored windows, free of scaffolding, telling them apart best ranks them, its
+best ahead of the next by `significanceBar`: a ranking floor, not a test of
+chance, since uses are bundles of halos sharing the corpus's common company
+(unrelated runs clear it on 3–4% of single contexts, 11–15% of bundles of 4–16).
+The use is evidence only where the corpus licenses it (`substitutionGrade` 2).
+Unlicensed, it only ranks, on the whole question for its own thing
+(`heldEntity`) with two continuations or more. On the walk (a node reached, not
+written) and for a single continuation, only a licensed use names
 (`test/154.15`): the licence is asked of the pair the company chose.
 
 A fragment that answers other questions is set aside before the cover takes it

@@ -500,7 +500,6 @@ export function spliceAll(segs: Seg[]): Uint8Array | null {
 export function segRestatesQuery(
   s: Seg,
   query: Uint8Array,
-  queryLen: number,
   W: number,
 ): boolean {
   if (!s.rec) return false;
@@ -513,13 +512,6 @@ export function segRestatesQuery(
   return restates(query, s.bytes, W, { proper: true });
 }
 
-/** Lift the answer out of the cover for think: the recognised region, free of
- *  the asker's surrounding (unrecognised) framing — and free of any chosen
- *  span that only RESTATES content the query already contains (see {@link
- *  segRestatesQuery}).  A restating span is excluded from both the framing
- *  (lo/hi) decision and the final concatenation: it is stale, not a second
- *  answer, but the OTHER spans a derivation chose are independent evidence
- *  and must not be discarded along with it. */
 /** The spans {@link liftAnswer} actually concatenates, in order — the answer
  *  before it is joined.  Exposed so a caller can ask what the lifted answer is
  *  MADE OF without re-deriving the selection: in particular how much of it is
@@ -542,7 +534,7 @@ export function liftAnswerParts(
   query: Uint8Array,
   W: number,
 ): Seg[] {
-  const restated = segs.map((s) => segRestatesQuery(s, query, queryLen, W));
+  const restated = segs.map((s) => segRestatesQuery(s, query, W));
   const candidates: number[] = [];
   for (let k = 0; k < segs.length; k++) {
     if (segs[k].rec && !restated[k]) candidates.push(k);
@@ -628,6 +620,13 @@ export function liftedScaffolding(
   return n;
 }
 
+/** Lift the answer out of the cover for think: the recognised region, free of
+ *  the asker's surrounding (unrecognised) framing — and free of any chosen
+ *  span that only RESTATES content the query already contains (see {@link
+ *  segRestatesQuery}).  A restating span is excluded from both the framing
+ *  (lo/hi) decision and the final concatenation: it is stale, not a second
+ *  answer, but the OTHER spans a derivation chose are independent evidence
+ *  and must not be discarded along with it. */
 export function liftAnswer(
   segs: Seg[],
   queryLen: number,

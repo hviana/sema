@@ -263,3 +263,32 @@ test("a comparison seat the question holds window for window is not voiced", asy
   assert.match(got, /Paris/);
   assert.match(got, /Jupiter/);
 });
+
+test("halo siblings are decided by the stored halos, not the index's estimate", async () => {
+  // The halo index proposes siblings; its score is a RaBitQ estimate, and its
+  // entry is refreshed only on the geometric mass schedule.  The concept bar
+  // is a claim of identity of company, so the stored halos decide it: every
+  // sibling carries its exact cosine, at the bar or above.
+  const { conceptThreshold, cosine } = await import("../dist/src/index.js");
+  const { haloSiblings } = await import("../dist/src/mind/match.js");
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest([
+    ["What is the capital of France?", "The capital of France is Paris."],
+    ["What is the capital of Italy?", "The capital of Italy is Rome."],
+    ["What is the capital of Spain?", "The capital of Spain is Madrid."],
+    ["Who wrote Hamlet?", "Hamlet was written by William Shakespeare."],
+    ["Who wrote the Iliad?", "The Iliad was written by Homer."],
+  ]);
+  const bar = conceptThreshold(m.store.D);
+  let seen = 0;
+  for (const s of ["The capital of France is Paris.", "Who wrote Hamlet?"]) {
+    const id = resolve(m, enc(s));
+    for (const sib of await haloSiblings(m, id)) {
+      const exact = cosine(m.store.halo(id), m.store.halo(sib.id));
+      assert.ok(Math.abs(sib.score - exact) < 1e-6, `${sib.score} vs ${exact}`);
+      assert.ok(exact >= bar, `${exact} < ${bar}`);
+      seen++;
+    }
+  }
+  assert.ok(seen > 0, "no sibling read");
+});

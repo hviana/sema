@@ -55,6 +55,10 @@
 //   154.22 a question that asks a relation the form holds no fact of is not
 //         answered by the form's one fact; asked its own relation, or alone,
 //         the form answers.
+//   154.23 a run is read where the corpus holds it: 154.13 answers at any
+//         flush cadence.
+//   154.24 a span's use is the company of the contexts holding the span: a
+//         window shared with another word (`ied `) lends it nothing.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -1022,4 +1026,85 @@ test("154.22 a relation the form holds no fact of is not answered by its one fac
     "The country of citizenship of Burt Reynolds is American.",
   );
   await mind.store.close();
+});
+
+test("154.23 a run is read where the corpus holds it, at any flush cadence", async () => {
+  // 154.13's world.  The question's run ran on to `ss away?`, whose last
+  // window no deposit holds — no company to read, no holder to license it —
+  // so the use stood only where repeated containment rows (the flush cadence)
+  // marked those windows hubs and cut the run to ` awa`: at the default
+  // batchSize, never at 1.  A window is evidence where the corpus holds it.
+  const SYL = ["ba", "ko", "ri", "ten", "mar", "lo", "vi", "sun", "del", "ga"];
+  const name = (n) =>
+    `${SYL[n % 10][0].toUpperCase()}${SYL[n % 10].slice(1)}${
+      SYL[(3 * n + 7) % 10]
+    } ${SYL[(7 * n + 1) % 10][0].toUpperCase()}${
+      SYL[(7 * n + 1) % 10].slice(1)
+    }${SYL[Math.floor(n / 10) % 10]}`;
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const fact = (x, r, t) => `${x} — ${r}: ${t}.`;
+  const items = [];
+  for (let i = 1; i <= 40; i++) {
+    const x = name(i), o = towns[i % 5], e = towns[(3 * i + 1) % 5];
+    items.push([x, fact(x, "origin", o)], [x, fact(x, "end", e)]);
+    items.push([`${x} origin`, fact(x, "origin", o)]);
+    items.push([`${x} end`, fact(x, "end", e)]);
+    items.push([`Where was ${x} born?`, fact(x, "origin", o)]);
+    items.push([`Where did ${x} die?`, fact(x, "end", e)]);
+    items.push([`Did ${x} pass away in ${e}?`, fact(x, "end", e)]);
+  }
+  const z = name(41), f = name(42);
+  for (const [x, r, t] of [[z, "origin", "Fenmoor"], [z, "end", "Gladwick"]]) {
+    items.push([x, fact(x, r, t)], [`${x} ${r}`, fact(x, r, t)]);
+  }
+  items.push([z, fact(z, "father", f)], [`${z} father`, fact(z, "father", f)]);
+  for (const [r, t] of [["origin", "Harrowgate"], ["end", "Ivybridge"]]) {
+    items.push([f, fact(f, r, t)], [`${f} ${r}`, fact(f, r, t)]);
+  }
+  const answer = async (batchSize) => {
+    const store = new SQliteStore({ path: ":memory:", batchSize });
+    const m = new Mind({ seed: 7, store });
+    await m.ingest(items);
+    const a = await m.respondText(
+      `In which town did the father of ${z} pass away?`,
+    );
+    await store.close();
+    return a;
+  };
+  for (const batchSize of [1, 256]) {
+    assert.match(
+      await answer(batchSize),
+      /end: Ivybridge/,
+      `batch ${batchSize}`,
+    );
+  }
+});
+
+test("154.24 a span's use is the company of what holds the span, not of its windows", async () => {
+  // `married ` and ` died ` share the window `ied `.  Read by its windows'
+  // holders, the use of `married ` took every `… died …` context's company
+  // (cosine 0.58 with ` died `): on 2Wiki, `Who was Alain Robbe-Grillet
+  // married to?` named his date of death.  Read by the contexts holding the
+  // span, the two are apart and `married ` keeps its own company.
+  const { cosine, significanceBar } = await import("../dist/src/index.js");
+  const { spanHalo } = await import("../dist/src/mind/traverse.js");
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const items = [];
+  for (let i = 0; i < 30; i++) {
+    items.push([`Kel${i} died in ${towns[i % 5]}`, `burial ${i}`]);
+    items.push([`Ana${i} married Bo${i}`, `wedding ${i}`]);
+  }
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(items);
+  const enc = (s) => new TextEncoder().encode(s);
+  const married = spanHalo(m, enc("Who was Zed married to?"), 12, 20);
+  const died = spanHalo(m, enc("Zed died in Ashgrove"), 3, 9);
+  const again = spanHalo(m, enc("Ana3 married Bo3"), 4, 12);
+  const bar = significanceBar(m.store.D);
+  assert.ok(
+    cosine(married, died) < bar,
+    `married ~ died ${cosine(married, died)}`,
+  );
+  assert.ok(cosine(married, again) >= bar, "married keeps its own company");
+  await m.store.close();
 });

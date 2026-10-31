@@ -32,9 +32,9 @@
 
 import { addInto, cosine, Vec } from "../vec.js";
 import { bindSeat, companySignature } from "../sema.js";
-import { phraseCap, significanceBar } from "../geometry.js";
+import { chainReach, phraseCap, significanceBar } from "../geometry.js";
 import { indexOf } from "../bytes.js";
-import { chainReach, windowIds } from "./canonical.js";
+import { windowIds } from "./canonical.js";
 import { read } from "./primitives.js";
 import { oldestContexts, windowRarity } from "./traverse.js";
 import type { MindContext } from "./types.js";

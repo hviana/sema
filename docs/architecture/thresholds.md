@@ -1,15 +1,15 @@
 # Thresholds — Derived, Never Tuned
 
 > **Law:** every decision cutoff is a formula over the vector dimension `D`, the
-> perception window `W` (`maxGroup`) or the corpus size `N`. `config.ts` holds
-> capacities and budgets only: cache bytes, batch sizes, index parameters, query
-> `k` and the seed. It never holds a threshold.
+> perception window `W` (`maxGroup`) or the corpus size `N`, and the formula
+> must say what the cutoff means: one that only reproduces a number at one `W`,
+> `D` or `N` is a coincidence, not a derivation. `config.ts` holds capacities
+> and budgets only, never a threshold.
 
 **Why.** A kept memory grows, and a fixed number silently changes meaning as
 `N`, `D` or a span's length changes. A derived bar is measured against the
-medium's own chance and scale, so there is no development set to overfit and no
-calibration that expires with new data. With nothing fitted, a wrong answer
-indicts a law, never a parameter.
+medium's own chance and scale, so nothing is fitted to data or expires with it.
+With nothing fitted, a wrong answer indicts a law, never a parameter.
 
 ## Three sources of scale
 
@@ -51,9 +51,9 @@ Three length scales live in `geometry.ts`: `phraseCap(len, W) = len·W` (a
 question's frame around another filler) and `twoQuanta(W) = 2W` (the least a
 composition, a meet or a carried slot stands on).
 
-The vector bars are compared against RaBitQ estimates, not exact cosines. That
-is benign for inequality gates over broad regions, and it is why no bar ever
-decides identity (`exact-vs-approximate.md`).
+The vector bars meet RaBitQ estimates, not exact cosines: benign for inequality
+gates over broad regions, and why no bar ever decides identity
+(`exact-vs-approximate.md`).
 
 The formulas live in `src/geometry.ts`, `src/mind/traverse.ts` (corpus scale)
 and `src/mind/canonical.ts` (windows). A new bar is added there, never to
@@ -72,8 +72,8 @@ pooled climb votes, where each region contributes at most `ln(N/c) ≤ ln N`, so
 `ln N + ½` asks for corroboration beyond one maximally specific region.
 `chooseNext`'s support count is different: it is bounded by retellings of one
 fact and does not grow with `N`. Gating that count by `consensusFloor` must
-eventually fail: at N≈325K it refuses a 2-against-1-1-1 corroboration, and the
-answer falls back to a noisy concept hop.
+eventually fail: at N≈325K it refuses a 2-against-1-1-1 corroboration, falling
+back to a noisy concept hop.
 
 ## Pins
 

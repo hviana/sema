@@ -181,3 +181,25 @@ test("scaffolding-only is a property of the query, not of one mechanism", async 
 
   await m.store.close();
 });
+
+test("a window's places are counted on both surfaces: a shared opening is scaffolding", async () => {
+  // `Wher` opens 54 questions, each folding it as its first chunk: ONE chunk
+  // overlaps it, and it is the child of 54 forms.  Counted by containers
+  // alone it read as rare (1 place); the places a window is held are both
+  // surfaces, as `windowRarity` counts them, so it is frame.
+  const { hubWindows } = await import("../dist/src/mind/traverse.js");
+  const towns = ["Ashgrove", "Brindle", "Coldmere", "Dunmarsh", "Elmstead"];
+  const items = [];
+  for (let i = 0; i < 60; i++) {
+    const x = `Person${i}`;
+    items.push([`Where was ${x} born?`, `${x} was born in ${towns[i % 5]}.`]);
+  }
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(items);
+  const hub = hubWindows(
+    m,
+    new TextEncoder().encode("Where was Person61 born?"),
+  );
+  assert.equal(hub[0], 1, "the shared opening is scaffolding");
+  await m.store.close();
+});

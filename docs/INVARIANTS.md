@@ -7,7 +7,7 @@ the tests that fail when they break.
 | #  | Law                    | Defined in                                                                                                                                        | Pins                                              |
 | -- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | 1  | Determinism            | `config.ts` (`seed`), `alphabet.ts`, `traverse.ts` (`guidedFirst`, `chooseNext`)                                                                  | `test/20`, `test/42`                              |
-| 2  | Derived thresholds     | `geometry.ts` (`atomReach`), `traverse.ts` (`corpusN`, `hubBound`), `canonical.ts` (`chainReach`)                                                 | `test/40`, `test/64`, `test/78`                   |
+| 2  | Derived thresholds     | `geometry.ts` (`atomReach`, `chainReach`), `traverse.ts` (`corpusN`, `hubBound`)                                                                  | `test/40`, `test/64`, `test/78`                   |
 | 3  | Exact decides          | `primitives.ts` (`resolve`), `match.ts` (`locate`, `alignGraded`), `traverse.ts` (`substitutionGrade`), `role.ts`, `resonance.ts`, `attention.ts` | `test/49`, `test/51`, `test/56`, `test/71`        |
 | 4  | One cost currency      | `graph-search.ts` (`MICRO`…`PASS`), `src/derive` (min, +), `attention.ts` (`poolVotes`, +, +), `pipeline.ts` (`weigh`)                            | `test/04`, `test/55`, `test/151`                  |
 | 5  | Match → project → gate | `match.ts`                                                                                                                                        | `test/31`, `test/47`, `test/76-reference-binding` |
@@ -22,8 +22,8 @@ the tests that fail when they break.
 | 14 | Closure                | `derivation.ts` (`admissible`, `advance`, `closeOver`)                                                                                            | `test/133`–`151`                                  |
 | 15 | Witnessed evidence     | `evidence.ts` (`witness`, `windowIndex`), `traverse.ts` (`chooseNext`, `answersOtherQuestions`, `coInstanceFiller`, `scaffoldExtents`)            | `test/154`–`159`, `test/76-reference-binding`     |
 
-Caches (`caches.md`: every acceleration is a `BoundedMap`, and a miss
-re-derives) are pinned by `test/91` and `test/96`.
+Caches (`caches.md`: a copy of durable state; no hit, miss or budget changes an
+answer): `test/91`, `test/96`.
 
 ## Honest silence
 

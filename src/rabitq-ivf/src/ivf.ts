@@ -238,7 +238,6 @@ export class IvfIndex {
   private sDelChunk!: StatementSync;
   private sSelVmap!: StatementSync;
   private sInsVmap!: StatementSync;
-  private sUpdVmap!: StatementSync;
   private sDelVmap!: StatementSync;
   private sUpsCent!: StatementSync;
   private sMeta!: StatementSync;
@@ -428,9 +427,6 @@ export class IvfIndex {
     this.sSelVmap.setReturnArrays(true);
     this.sInsVmap = this.db.prepare(
       "INSERT INTO vmap (ext, id, cid, seq, slot) VALUES (?, ?, ?, ?, ?)",
-    );
-    this.sUpdVmap = this.db.prepare(
-      "UPDATE vmap SET cid = ?, seq = ?, slot = ? WHERE ext = ?",
     );
     this.sDelVmap = this.db.prepare("DELETE FROM vmap WHERE ext = ?");
     this.sUpsCent = this.db.prepare(

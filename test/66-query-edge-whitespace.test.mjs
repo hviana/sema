@@ -56,6 +56,12 @@ test("1. textEdgeTrim drops only the outer spacing run", () => {
   assert.equal(textEdgeTrim(b), b);
 });
 
+test("1b. the edge trim reads whitespace as the canonicalizer does", () => {
+  // One module, one reading: canon folds every ASCII member of `\s` (VT and FF
+  // too), and the trim beside it read only four of the six.
+  assert.equal(trim("\v\fice\f\v"), "ice");
+});
+
 test("2. a form trained WITH edge whitespace still answers when asked exactly", async () => {
   // The asymmetry regression: trimming the query but not the store would make
   // this query miss its own deposited form.

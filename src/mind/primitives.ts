@@ -4,9 +4,8 @@
 //   Read     — node → bytes   (read)
 
 import { Vec } from "../vec.js";
-import { Sema } from "../sema.js";
+import { bindRow, Sema } from "../sema.js";
 import {
-  bindRow,
   bytesToTree,
   contentFoldIncremental,
   contentIdentity,

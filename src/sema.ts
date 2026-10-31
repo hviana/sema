@@ -1,13 +1,10 @@
 import {
-  addInto,
   normalize,
   Permutation,
   permute,
-  permuteInto,
   randomUnit,
   rng,
   Vec,
-  zeros,
 } from "./vec.js";
 
 /** The one structure. A node's vector is the gist of its whole subtree; it also
@@ -38,9 +35,6 @@ export interface Space {
   rand: () => number;
   maxGroup: number;
 }
-
-// Reusable permute buffer for fold.
-let _foldBuf: Vec | null = null;
 
 /** Bind one vector into a seat — the elementary half of fold. Used to index an
  *  episode from either side and to pour a partner into a form's halo. */
@@ -84,7 +78,9 @@ export function twoEndedSeat(
 // stores.
 
 const _sigCache = new WeakMap<Space, Map<number, Vec>>();
-const SIG_CACHE_MAX = 65_536;
+/** The signatures' byte budget (caches.md): D·4 bytes each, dropped whole at
+ *  the budget — a miss re-draws one from the node id. */
+const SIG_CACHE_BYTES = 64_000_000;
 
 /** The company signature of node `id` — the halo's pour unit (see above). */
 export function companySignature(space: Space, id: number): Vec {
@@ -93,29 +89,38 @@ export function companySignature(space: Space, id: number): Vec {
   const hit = cache.get(id);
   if (hit) return hit;
   const v = randomUnit(space.D, rng((id ^ 0x9e3779b9) >>> 0));
-  if (cache.size >= SIG_CACHE_MAX) cache.clear(); // flat cap; regeneration is cheap
+  if (cache.size * space.D * 4 >= SIG_CACHE_BYTES) cache.clear();
   cache.set(id, v);
   return v;
 }
 
-/** fold — combine ordered children into one gist.
- *  Each child is turned in the same two-ended coordinate frame used by the
- *  perception tree, then superposed and normalized. */
+/** THE FOLD'S ONE BINDING: a row of vectors, each bound to its two-ended seat
+ *  and superposed, unnormalized — `gist[d] += v[seat[d]]`, in row order, from
+ *  zero.  Two-ended: the first half takes low seats and the second half high
+ *  seats, inward from the tail of the FULL keyring, so interior items keep
+ *  their seats when a leading or trailing item is perturbed.  A segment's gist
+ *  is this over its bytes (geometry.ts `flatFold`), a group's over its items
+ *  (`joinFlat`), a stored node's over its kids (`storedGist`), a window's
+ *  ({@link fold}, normalized); one order of float32 additions, so equal rows
+ *  give equal bits (geometry.ts `boundCoord` is its one-coordinate twin). */
+export function bindRow(space: Space, row: ArrayLike<Vec>): Vec {
+  const n = row.length;
+  const gist = new Float32Array(space.D);
+  for (let k = 0; k < n; k++) {
+    const v = row[k];
+    const seat = space.seats[twoEndedSeat(space.seats.length, n, k)].fwd;
+    for (let d = 0; d < space.D; d++) gist[d] += v[seat[d]];
+  }
+  return gist;
+}
+
+/** fold — combine ordered children into one gist: {@link bindRow}, then the
+ *  root's one normalize. */
 export function fold(space: Space, kids: Vec[]): Vec {
   if (kids.length > space.seats.length) {
     throw new Error(
       `fold: ${kids.length} children but the keyring has only ${space.seats.length} seats`,
     );
   }
-  const out = zeros(space.D);
-  if (!_foldBuf || _foldBuf.length !== space.D) {
-    _foldBuf = new Float32Array(space.D);
-  }
-  const buf = _foldBuf;
-  for (let i = 0; i < kids.length; i++) {
-    const slot = twoEndedSeat(space.seats.length, kids.length, i);
-    permuteInto(buf, kids[i], space.seats[slot].fwd);
-    addInto(out, buf);
-  }
-  return normalize(out);
+  return normalize(bindRow(space, kids));
 }

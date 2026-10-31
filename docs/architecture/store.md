@@ -19,7 +19,7 @@ with distinct content, and every span the fold produced is addressable.
 
 ## Interning — dedup, then same bytes, then near, then mint
 
-`intern` runs four steps, in order:
+`intern` runs four steps:
 
 1. **Exact dedup.** `findLeaf` or `findBranch` looks for equal content: a cache
    first, then a durable probe, so dedup survives a cold cache or a resumed run.
@@ -50,7 +50,7 @@ decisions at ten times the training time).
   `prevCount(dst)` counts distinct contexts, never repetitions.
 - **Containment.** `addContainer(child, parent)` buffers per child, and the
   flush appends packed pages (`_dbAppendContain`) without rewriting the list.
-  `containersSlice` pages through it.
+  `containersSlice` pages its distinct parents.
 - **Gist index** (content) and **halo index** (company): RaBitQ-IVF ANN over
   node ids. Gists wait in `_pendingGist` until `indexSubtree` promotes them in
   batches; halos persist 2-bit quantized (`halo-sketch.md`).
