@@ -31,13 +31,14 @@ with distinct content, and every span the fold produced is addressable.
    deposit learnt whole (`learntWhole`), decided alike at any batch size, flush
    schedule or session (`nearDedupTarget`). **Proposed by structure:** a
    near-duplicate reuses every chunk away from its one-window difference, so its
-   target is a parent of the branch's first or last existing kid: each end reads
-   its `chainReach(W)` oldest parents once, kept by the length each `kid` row
-   carries, so the cost is constant in the corpus. **Decided by bytes, then the
-   bar:** identical except one span of at most `W` bytes (`differsByOneWindow`),
-   and the gist clears the length-aware `identityBar` (`X date of birth` is not
-   `X date of death`). This is the only place two different contents share an
-   id; `nearDedup: false` keeps every distinct byte sequence its own node.
+   target is a learnt whole holding the branch's first or last existing kid,
+   within `W` of its length: an end past the hub bound is a template's chunk and
+   passed by one probe; any other reads that band once (`whole_kid`). **Decided
+   by bytes, then the bar:** identical except one span of at most `W` bytes
+   (`differsByOneWindow`), and the gist clears the length-aware `identityBar`
+   (`X date of birth` is not `X date of death`). This is the only place two
+   different contents share an id; `nearDedup: false` keeps every distinct byte
+   sequence its own node.
 4. **Mint** a new id.
 
 Refuted: near targets from the unflushed write buffer (the flush schedule
@@ -69,9 +70,9 @@ form is knowledge only if it continues somewhere or keeps company.
 - **Base** — written by ingestion alone: the nodes; the edges in learnt order,
   deposited and suffix-inherited; the wholes; the halos, one accumulator per
   episode in arrival order; the metadata.
-- **Derived** — rebuilt from the base: the reverse index (`kid`, parent
-  lengths), containment, the canonical index, the sketches, the filters, and the
-  gist and halo indexes.
+- **Derived** — rebuilt from the base: the reverse index (`kid`, and the wholes'
+  by length), containment, the canonical index, the sketches, the filters, and
+  the gist and halo indexes.
 
 The base is what nothing else can replay: the halo depends on the order and the
 repetition of episodes, and the edges' order breaks ties, so neither is derived.

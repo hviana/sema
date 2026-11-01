@@ -126,14 +126,19 @@ CREATE TABLE IF NOT EXISTS bloom (
 -- (~2x smaller than a heap table + idx_kid_child). The composite primary key also
 -- gives free (child,parent) dedup, so a child repeated within one branch's kids
 -- never writes a duplicate row.
--- plen is the PARENT's content length, written with the row: the near dedup
--- keeps only parents within a length budget (store.ts nearDedupTarget), and
--- reading the length here spares a record read per parent.
 CREATE TABLE IF NOT EXISTS kid (
   child  INTEGER NOT NULL,
   parent INTEGER NOT NULL,
-  plen   INTEGER NOT NULL,
   PRIMARY KEY (child, parent)
+) WITHOUT ROWID;
+-- The kid rows of the forms a deposit learnt WHOLE, keyed by the whole's
+-- length: the near dedup's proposals (store.ts nearDedupTarget) — the wholes
+-- holding a kid, within a length band — are one range read.  ~3% of kid's rows.
+CREATE TABLE IF NOT EXISTS whole_kid (
+  child INTEGER NOT NULL,
+  len   INTEGER NOT NULL,
+  whole INTEGER NOT NULL,
+  PRIMARY KEY (child, len, whole)
 ) WITHOUT ROWID;
 -- CONTAINMENT: the chunks a sub-span flat branch OVERLAPS (inside one, or across
 -- a boundary), for children that are not among any parent's kids list.  The
@@ -530,11 +535,15 @@ export class SQliteStore extends AbstractStore implements Store {
         [number, Uint8Array]
       >
     ) {
-      const plen = this.contentLen(id);
       for (const c of unpackKids(kids)) {
         if (c < 0 && c >= -256) continue;
-        this._dbInsertKid(c, id, plen);
+        this._dbInsertKid(c, id);
       }
+    }
+    const wholes = this.sqlite!.prepare("SELECT id FROM whole WHERE id >= ?");
+    wholes.setReturnArrays(true);
+    for (const [id] of wholes.iterate(covered) as IterableIterator<[number]>) {
+      this.recordWholeKids(id);
     }
     this._dbCommitTx();
   }
@@ -769,32 +778,40 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // -- Kid (structural parent) edges --
 
-  protected _dbInsertKid(child: NodeId, parent: NodeId, plen: number): void {
+  protected _dbInsertKid(child: NodeId, parent: NodeId): void {
     if (!this._insertKid) {
       this._insertKid = this.derived!.prepare(
-        "INSERT OR IGNORE INTO kid (child, parent, plen) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO kid (child, parent) VALUES (?, ?)",
       );
     }
-    this._insertKid.run(child, parent, plen);
+    this._insertKid.run(child, parent);
   }
 
-  private _selParentsSized: any = null;
-  protected _dbGetParentsSized(
-    id: NodeId,
-    limit: number,
+  private _insWholeKid: any = null;
+  protected _dbInsertWholeKid(child: NodeId, len: number, whole: NodeId): void {
+    if (!this._insWholeKid) {
+      this._insWholeKid = this.derived!.prepare(
+        "INSERT OR IGNORE INTO whole_kid (child, len, whole) VALUES (?, ?, ?)",
+      );
+    }
+    this._insWholeKid.run(child, len, whole);
+  }
+
+  private _selWholesSized: any = null;
+  protected _dbGetWholesSized(
+    child: NodeId,
     lo: number,
     hi: number,
-  ): Array<[NodeId, number]> {
-    if (!this._selParentsSized) {
-      this._selParentsSized = this.derived!.prepare(
-        "SELECT parent, plen FROM (SELECT parent, plen FROM kid " +
-          "WHERE child = ? LIMIT ?) WHERE plen BETWEEN ? AND ?",
+  ): NodeId[] {
+    if (!this._selWholesSized) {
+      this._selWholesSized = this.derived!.prepare(
+        "SELECT whole FROM whole_kid WHERE child = ? AND len BETWEEN ? AND ?",
       );
-      this._selParentsSized.setReturnArrays(true);
+      this._selWholesSized.setReturnArrays(true);
     }
-    return this._selParentsSized.all(id, limit, lo, hi) as Array<
-      [NodeId, number]
-    >;
+    return (this._selWholesSized.all(child, lo, hi) as Array<[NodeId]>).map(
+      (r) => r[0],
+    );
   }
 
   protected _dbGetParents(id: NodeId): NodeId[] {
@@ -1395,7 +1412,8 @@ export class SQliteStore extends AbstractStore implements Store {
    *  and opened empty. */
   protected _dbClearDerived(): void {
     this.derived!.exec(
-      "DELETE FROM kid; DELETE FROM contain; DELETE FROM bloom; " +
+      "DELETE FROM kid; DELETE FROM whole_kid; DELETE FROM contain; " +
+        "DELETE FROM bloom; " +
         "DELETE FROM canon; DELETE FROM canon_bloom; DELETE FROM sketch;",
     );
     for (const key of DERIVED_META_KEYS) this._dbDeleteMeta(key);

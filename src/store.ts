@@ -30,7 +30,7 @@
 
 import { addInto, copy, dot, normalize, Vec } from "./vec.js";
 import type { StoreConfig } from "./config.js";
-import { chainReach, identityBar } from "./geometry.js";
+import { boundFor, chainReach, identityBar } from "./geometry.js";
 import type { Meter } from "./meter.js";
 import { concatBytes, latin1, sharedEnds } from "./bytes.js";
 
@@ -851,24 +851,24 @@ export abstract class AbstractStore implements Store {
   ): NodeId | null;
 
   // -- Kid (structural parent) edges --
-  protected abstract _dbInsertKid(
+  protected abstract _dbInsertKid(child: NodeId, parent: NodeId): void;
+  /** One kid row of a learnt whole of `len` bytes. */
+  protected abstract _dbInsertWholeKid(
     child: NodeId,
-    parent: NodeId,
-    plen: number,
+    len: number,
+    whole: NodeId,
   ): void;
+  /** Every learnt whole holding `child` whose length lies in `[lo, hi]`: a
+   *  range read of that band, never of the child's other parents. */
+  protected abstract _dbGetWholesSized(
+    child: NodeId,
+    lo: number,
+    hi: number,
+  ): NodeId[];
   protected abstract _dbGetParents(id: NodeId): NodeId[];
   /** LIMITed variant of the parent read — same statement, `LIMIT ?`.  Must
    *  NOT be implemented by materialising and slicing. */
   protected abstract _dbGetParentsFirst(id: NodeId, limit: number): NodeId[];
-  /** Of the first `limit` parents, in stored order, those whose content
-   *  length lies in `[lo, hi]`, each with that length.  The length filter
-   *  runs in the store, on at most `limit` rows. */
-  protected abstract _dbGetParentsSized(
-    id: NodeId,
-    limit: number,
-    lo: number,
-    hi: number,
-  ): Array<[NodeId, number]>;
   /** Whether `id` has more than `n` parents; the default reads them out. */
   protected _dbParentsExceed(id: NodeId, n: number): boolean {
     return this._dbGetParentsFirst(id, n + 1).length > n;
@@ -1859,7 +1859,7 @@ export abstract class AbstractStore implements Store {
     //    corrupts bytes), onto a form a deposit learnt WHOLE, decided the same
     //    way whatever the batch size, flush schedule or session
     //    (`nearDedupTarget`).
-    // A branch's length: the near dedup's budget, and its kid rows' plen.
+    // A branch's length: the near dedup's band, and the length memo's entry.
     let blen = 0;
     if (kids) { for (const k of kids) blen += this.contentLen(k); }
     if (leaf === null && this.nearDedup) {
@@ -1900,12 +1900,11 @@ export abstract class AbstractStore implements Store {
       // reverse index, so the WHOLE cache drops (writes come in training
       // bursts where the cache is cold anyway; queries rebuild it lazily).
       this._chainMemo.clear();
-      // Its length rides on its kid rows (the near dedup's budget reads it
-      // there), and is memoized: it is known.
+      // Its length is known: memoized.
       this._lenCache.set(id, blen);
       for (const c of kids) {
         if (c < 0 && c >= -256) continue;
-        this._dbInsertKid(c, id, blen);
+        this._dbInsertKid(c, id);
         // The 1→2 parent TRANSITION happens here and only here (hash-cons
         // means an existing branch never re-inserts kid rows, so parent sets
         // grow exclusively through fresh mints): the child just became a
@@ -1933,14 +1932,17 @@ export abstract class AbstractStore implements Store {
    *  every chunk away from the difference (the fold cuts by content), so the
    *  form it duplicates is a PARENT of this branch's first or last existing
    *  kid — one of them is unchanged — and its length is within W of the
-   *  branch's.  Each end reads its `chainReach(W)` oldest parents once, kept
-   *  by that length in the store: two reads, constant in the corpus.  A
-   *  branch of fresh kids — nearly every one — reads nothing.  (Climbing
-   *  ancestors W levels deep, each node up to the hub bound, grew with the
-   *  corpus and never proposed a merged target past the first level; a probe
-   *  of the content index per minted branch made training ten times slower;
-   *  scanning only the unflushed write buffer made the flush schedule decide
-   *  identity.)
+   *  branch's.  An end shared by more parents than the hub bound is a
+   *  template's chunk — what holds it is a sibling, not a duplicate
+   *  (`filler-12` is not `filler-13`, test/71) — and is passed by ONE point
+   *  probe; any other end reads the wholes holding it in that length band
+   *  once (`whole_kid`), a range costing the band.  A branch of fresh kids —
+   *  nearly every one — reads nothing.  (Climbing ancestors W levels deep
+   *  grew with the corpus and decided no merge past the first level in 20k
+   *  rows; an end's `chainReach(W)` oldest parents lost one there, the 43rd
+   *  of 72; a probe of the content index per minted branch made training ten
+   *  times slower; scanning only the unflushed write buffer made the flush
+   *  schedule decide identity.)
    *
    *  DECIDED BY BYTES, THEN BY THE BAR.  A proposal must be a form a deposit
    *  learnt WHOLE, identical but for one span of at most W bytes, and its gist
@@ -1957,17 +1959,17 @@ export abstract class AbstractStore implements Store {
     const W = this._maxGroup;
     const existing = kids.filter((k) => k >= 0 && this.get(k) !== null);
     if (existing.length === 0) return null;
+    const fan = Math.max(boundFor(this.edgeSourceCount()), chainReach(W));
     const found = new Set<NodeId>();
     for (const end of new Set([existing[0], existing[existing.length - 1]])) {
+      if (this._dbParentsExceed(end, fan)) {
+        if (this.meter) this.meter.nearDedupHubs++;
+        continue;
+      }
       if (this.meter) this.meter.nearDedupParentReads++;
-      const ps = this._dbGetParentsSized(
-        end,
-        chainReach(W),
-        blen - W,
-        blen + W,
-      );
+      const ps = this._dbGetWholesSized(end, blen - W, blen + W);
       if (this.meter) this.meter.nearDedupParentRows += ps.length;
-      for (const [p] of ps) if (this.learntWhole(p)) found.add(p);
+      for (const p of ps) found.add(p);
     }
     if (this.meter) this.meter.nearDedupProposals += found.size;
     const near = [...found].sort((a, b) => a - b).filter((id) =>
@@ -2380,12 +2382,12 @@ export abstract class AbstractStore implements Store {
     // The same rows the mint writes: one per stored child, byte atoms never
     // (a byte belongs to nearly every branch, see `_dbInsertKid`'s caller).
     this._dbEachBranch((id, kids) => {
-      const plen = this.contentLen(id);
       for (const c of kids) {
         if (c < 0 && c >= -256) continue;
-        this._dbInsertKid(c, id, plen);
+        this._dbInsertKid(c, id);
       }
     });
+    this._dbEachWhole((id) => this.recordWholeKids(id));
     this._dbCommitTx();
     this._dbRebuildFilter();
   }
@@ -2594,6 +2596,19 @@ export abstract class AbstractStore implements Store {
     await this._ensureReady();
     this._dbBeginTx();
     this._dbMarkWhole(id);
+    this.recordWholeKids(id);
+  }
+
+  /** A learnt whole's kid rows, keyed by its length (`whole_kid`): what the
+   *  near dedup proposes from.  Byte atoms never, as in `kid`. */
+  protected recordWholeKids(id: NodeId): void {
+    const kids = this.get(id)?.kids;
+    if (!kids) return;
+    const len = this.contentLen(id);
+    for (const c of kids) {
+      if (c < 0 && c >= -256) continue;
+      this._dbInsertWholeKid(c, len, id);
+    }
   }
 
   halo(id: NodeId): Vec | null {

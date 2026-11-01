@@ -318,11 +318,11 @@ test("near dedup is the same whatever the batch size or session, and `nearDedup:
   assert.equal(await run({ nearDedup: false }), false, "disabled: both kept");
 });
 
-test("near dedup reads each end kid's parents once — nothing above them", async () => {
+test("near dedup reads each end kid's wholes once — nothing above them", async () => {
   // A near-duplicate is a PARENT of the branch's first or last kid.  The
   // proposal used to climb ancestors W levels deep, each node up to the hub
   // bound: here 1 + 15 reads and 240 rows, growing with the corpus.  Two ends,
-  // one LIMITed read each, keep it constant.
+  // one range read each, keep it to the wholes in the length band.
   const { Meter } = await import("../dist/src/index.js");
   const s = memStore();
   const next = vecs(21);
@@ -332,8 +332,13 @@ test("near dedup reads each end kid's parents once — nothing above them", asyn
       [X, await s.putLeaf(enc(`p${i}`), next())],
       next(),
     );
+    await s.markWhole(P);
     for (let j = 0; j < 15; j++) {
-      await s.putBranch([P, await s.putLeaf(enc(`q${j}`), next())], next());
+      const Q = await s.putBranch(
+        [P, await s.putLeaf(enc(`q${j}`), next())],
+        next(),
+      );
+      await s.markWhole(Q);
     }
   }
   const m = new Meter();
@@ -341,14 +346,75 @@ test("near dedup reads each end kid's parents once — nothing above them", asyn
   await s.putBranch([X, await s.putLeaf(enc("z1"), next())], next());
   s.meter = null;
   assert.equal(m.nearDedupParentReads, 2, "two end kids: two reads");
-  assert.ok(m.nearDedupParentRows <= 15, `rows: ${m.nearDedupParentRows}`);
+  assert.equal(m.nearDedupParentRows, 15, "the 15 wholes in the band only");
   await s.close();
 });
 
-test("near dedup keeps only parents within its length budget, read off the kid row", async () => {
-  // A parent longer than the branch + W is neither a target nor a way up to
-  // one.  Its length used to cost a record read per parent; the kid row
-  // carries it (`plen`), so the store returns only the parents that fit.
+test("near dedup finds its target however many parents an end kid has", async () => {
+  // Reading an end kid's 16 oldest parents lost a merge on a real corpus: the
+  // target was the 43rd of 72, under a hub bound of 131.  The proposal reads
+  // by length, not by age.  A thousand contexts set the bound at 32.
+  const s = memStore();
+  const next = vecs(24);
+  const L = async (c) => s.putLeaf(enc(c), next());
+  for (let i = 0; i < 1000; i++) {
+    await s.link(await L(`c${i}`), await L(`d${i}`));
+  }
+  const [p, q, r, t, u, v, x] = await Promise.all(
+    ["p", "q", "r", "t", "u", "v", "x"].map(L),
+  );
+  const k1 = await s.putBranch([p, q], next());
+  for (let i = 0; i < 30; i++) {
+    await s.putBranch([k1, await L(`older-${i}-xxxxxxxxxx`)], next());
+  }
+  const k2 = await s.putBranch([r, t], next());
+  const k3 = await s.putBranch([u, v], next());
+  const g = normalize(next());
+  const whole = await s.putBranch([k1, k2, k3], g);
+  await s.markWhole(whole);
+  s.indexTarget(whole);
+  // One byte apart in its LAST chunk: only the crowded first kid leads to it.
+  const k3x = await s.putBranch([u, x], next());
+  const gNear = normalize(g.map((y, i) => y + (i === 0 ? 1e-4 : 0)));
+  const near = await s.putBranch([k1, k2, k3x], gNear);
+  assert.equal(near, whole, "the 31st parent is still proposed, and merged");
+  await s.close();
+});
+
+test("near dedup passes a template's shared chunk: its wholes are siblings, not duplicates", async () => {
+  // `filler-12` and `filler-13` are one window apart, and a short form's
+  // identity bar is low: through their shared `filler-` they merged, and the
+  // two facts became one.  An end held by more parents than the hub bound is
+  // a template's chunk, passed by one probe.
+  const { Meter } = await import("../dist/src/index.js");
+  const s = memStore();
+  const next = vecs(25);
+  const X = await s.putLeaf(enc("filler-"), next());
+  const gists = [];
+  for (let i = 10; i < 30; i++) {
+    const g = normalize(next());
+    gists.push(g);
+    const w = await s.putBranch([X, await s.putLeaf(enc(`${i}`), next())], g);
+    await s.markWhole(w);
+    s.indexTarget(w);
+  }
+  const m = new Meter();
+  s.meter = m;
+  const near = normalize(gists[0].map((y, i) => y + (i === 0 ? 1e-4 : 0)));
+  const sibling = await s.putBranch(
+    [X, await s.putLeaf(enc("31"), next())],
+    near,
+  );
+  s.meter = null;
+  assert.equal(m.nearDedupHubs, 1, "the shared chunk is a hub");
+  assert.equal(m.nearDedupMerges, 0, "filler-31 stays its own form");
+  assert.ok(sibling >= 0);
+  await s.close();
+});
+
+test("near dedup keeps only wholes within its length budget", async () => {
+  // A whole longer than the branch + W is not its near-duplicate: the range
+  // read returns none of them.
   const { Meter } = await import("../dist/src/index.js");
   const s = memStore();
   const next = vecs(22);
@@ -358,7 +424,7 @@ test("near dedup keeps only parents within its length budget, read off the kid r
       enc(`a long tail of forty bytes, number ${i}..`),
       next(),
     );
-    await s.putBranch([X, long], next());
+    await s.markWhole(await s.putBranch([X, long], next()));
   }
   const m = new Meter();
   s.meter = m;
@@ -367,7 +433,7 @@ test("near dedup keeps only parents within its length budget, read off the kid r
   assert.equal(
     m.nearDedupParentRows,
     0,
-    "every parent is too long: none is read",
+    "every whole is too long: none is read",
   );
   await s.close();
 });

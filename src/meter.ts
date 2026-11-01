@@ -97,11 +97,13 @@ export class Meter {
   // ── Store: structure (parents / containment) ────────────────────────────
   /** `parents` + `parentsFirst` — materialising parent reads. */
   parentReads = 0;
-  /** Parent reads the near dedup issued to PROPOSE a target by shared
-   *  structure (store.ts `nearDedupTarget`): at most one per end kid. */
+  /** Reads the near dedup issued to PROPOSE a target by shared structure
+   *  (store.ts `nearDedupTarget`): one range read per end kid. */
   nearDedupParentReads = 0;
-  /** Parent ROWS those reads returned, already kept by length. */
+  /** The wholes those reads returned, already in the length band. */
   nearDedupParentRows = 0;
+  /** End kids passed as hubs (more parents than the hub bound). */
+  nearDedupHubs = 0;
   /** Whole forms the climb proposed (length window + learnt whole). */
   nearDedupProposals = 0;
   /** Proposals that passed the byte test — each set is scored by ONE
