@@ -30,7 +30,7 @@
 
 import { addInto, copy, dot, normalize, Vec } from "./vec.js";
 import type { StoreConfig } from "./config.js";
-import { boundFor, chainReach, identityBar } from "./geometry.js";
+import { chainReach, identityBar } from "./geometry.js";
 import type { Meter } from "./meter.js";
 import { concatBytes, latin1, sharedEnds } from "./bytes.js";
 
@@ -860,13 +860,14 @@ export abstract class AbstractStore implements Store {
   /** LIMITed variant of the parent read — same statement, `LIMIT ?`.  Must
    *  NOT be implemented by materialising and slicing. */
   protected abstract _dbGetParentsFirst(id: NodeId, limit: number): NodeId[];
-  /** The first `limit` parents, in stored order, keeping only those whose
-   *  content length is at most `maxLen`, each with that length.  The
-   *  length filter runs in the store, not on rows read out. */
-  protected abstract _dbGetParentsWithin(
+  /** Of the first `limit` parents, in stored order, those whose content
+   *  length lies in `[lo, hi]`, each with that length.  The length filter
+   *  runs in the store, on at most `limit` rows. */
+  protected abstract _dbGetParentsSized(
     id: NodeId,
-    maxLen: number,
     limit: number,
+    lo: number,
+    hi: number,
   ): Array<[NodeId, number]>;
   /** Whether `id` has more than `n` parents; the default reads them out. */
   protected _dbParentsExceed(id: NodeId, n: number): boolean {
@@ -1627,9 +1628,9 @@ export abstract class AbstractStore implements Store {
   }
 
   /** {@link Store.chainRun}'s walk, node at a time through the existing
-   *  probes.  Adapters with a set-based query engine should override with a
-   *  single server-side descent (the SQLite adapter uses a recursive CTE). */
-  protected _chainWalk(id: NodeId, cap: number): NodeId[] {
+   *  probes: parents (derived) and edges (base) live in two files, so no one
+   *  statement sees both as this session wrote them. */
+  private _chainWalk(id: NodeId, cap: number): NodeId[] {
     const run = [id];
     let n = id;
     while (run.length < cap) {
@@ -1930,15 +1931,16 @@ export abstract class AbstractStore implements Store {
    *
    *  PROPOSED BY STRUCTURE.  A near-duplicate differing in one window reuses
    *  every chunk away from the difference (the fold cuts by content), so the
-   *  form it duplicates is an ancestor of this branch's EXISTING kids; with at
-   *  most one window changed, the first or the last existing kid is unchanged.
-   *  Both are climbed by the kid index, pruned by length (an ancestor longer
-   *  than the branch + W cannot be its near-duplicate, and its own ancestors
-   *  are longer still), each node's parents read up to the hub bound.  A branch
-   *  of fresh kids — nearly every one — climbs nothing.  (A probe of the
-   *  content index per minted branch decides the same and made training ten
-   *  times slower; scanning only the unflushed write buffer made the flush
-   *  schedule decide identity.)
+   *  form it duplicates is a PARENT of this branch's first or last existing
+   *  kid — one of them is unchanged — and its length is within W of the
+   *  branch's.  Each end reads its `chainReach(W)` oldest parents once, kept
+   *  by that length in the store: two reads, constant in the corpus.  A
+   *  branch of fresh kids — nearly every one — reads nothing.  (Climbing
+   *  ancestors W levels deep, each node up to the hub bound, grew with the
+   *  corpus and never proposed a merged target past the first level; a probe
+   *  of the content index per minted branch made training ten times slower;
+   *  scanning only the unflushed write buffer made the flush schedule decide
+   *  identity.)
    *
    *  DECIDED BY BYTES, THEN BY THE BAR.  A proposal must be a form a deposit
    *  learnt WHOLE, identical but for one span of at most W bytes, and its gist
@@ -1955,39 +1957,20 @@ export abstract class AbstractStore implements Store {
     const W = this._maxGroup;
     const existing = kids.filter((k) => k >= 0 && this.get(k) !== null);
     if (existing.length === 0) return null;
-    const cap = blen + W;
-    const fan = Math.max(boundFor(this.edgeSourceCount()), chainReach(W));
-    const seen = new Set<NodeId>();
-    const found: NodeId[] = [];
-    let frontier = [...new Set([existing[0], existing[existing.length - 1]])];
-    for (const k of frontier) seen.add(k);
-    for (let depth = 0; depth < W && frontier.length > 0; depth++) {
-      const next: NodeId[] = [];
-      for (const x of frontier) {
-        // A hub — shared by too much to tell — is known by ONE point probe
-        // past its fan, never by reading its fan of rows out to count them.
-        if (this._dbParentsExceed(x, fan)) {
-          if (this.meter) this.meter.nearDedupHubs++;
-          continue;
-        }
-        // Only parents within the length budget leave the store: a longer one
-        // is neither a target nor a way up to one (its ancestors are longer
-        // still), and a row that carries its parent's length needs no record
-        // read to say so.
-        if (this.meter) this.meter.nearDedupParentReads++;
-        const ps = this._dbGetParentsWithin(x, cap, fan);
-        if (this.meter) this.meter.nearDedupParentRows += ps.length;
-        for (const [p, len] of ps) {
-          if (seen.has(p)) continue;
-          seen.add(p);
-          if (len >= blen - W && this.learntWhole(p)) found.push(p);
-          next.push(p);
-        }
-      }
-      frontier = next;
+    const found = new Set<NodeId>();
+    for (const end of new Set([existing[0], existing[existing.length - 1]])) {
+      if (this.meter) this.meter.nearDedupParentReads++;
+      const ps = this._dbGetParentsSized(
+        end,
+        chainReach(W),
+        blen - W,
+        blen + W,
+      );
+      if (this.meter) this.meter.nearDedupParentRows += ps.length;
+      for (const [p] of ps) if (this.learntWhole(p)) found.add(p);
     }
-    if (this.meter) this.meter.nearDedupProposals += found.length;
-    const near = found.sort((a, b) => a - b).filter((id) =>
+    if (this.meter) this.meter.nearDedupProposals += found.size;
+    const near = [...found].sort((a, b) => a - b).filter((id) =>
       this.differsByOneWindow(kids, id, W)
     );
     if (near.length === 0) return null;

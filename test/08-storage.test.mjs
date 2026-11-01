@@ -318,28 +318,30 @@ test("near dedup is the same whatever the batch size or session, and `nearDedup:
   assert.equal(await run({ nearDedup: false }), false, "disabled: both kept");
 });
 
-test("near dedup names a hub by ONE probe past its fan — none of its parents is read", async () => {
-  // The climb skips a child shared by more parents than its fan.  It used to
-  // learn that by reading fan + 1 parent rows and throwing them away — on a
-  // trained store the bulk of the near dedup's parent rows, and a cost that
-  // grows with the corpus.  A point probe past the fan decides the same.
+test("near dedup reads each end kid's parents once — nothing above them", async () => {
+  // A near-duplicate is a PARENT of the branch's first or last kid.  The
+  // proposal used to climb ancestors W levels deep, each node up to the hub
+  // bound: here 1 + 15 reads and 240 rows, growing with the corpus.  Two ends,
+  // one LIMITed read each, keep it constant.
   const { Meter } = await import("../dist/src/index.js");
   const s = memStore();
   const next = vecs(21);
-  const X = await s.putLeaf(enc("shared-chunk"), next());
-  for (let i = 0; i < 300; i++) {
-    await s.putBranch(
-      [X, await s.putLeaf(enc(`tail-${i}-xx`), next())],
+  const X = await s.putLeaf(enc("shared"), next());
+  for (let i = 0; i < 15; i++) {
+    const P = await s.putBranch(
+      [X, await s.putLeaf(enc(`p${i}`), next())],
       next(),
     );
+    for (let j = 0; j < 15; j++) {
+      await s.putBranch([P, await s.putLeaf(enc(`q${j}`), next())], next());
+    }
   }
-  const Z = await s.putLeaf(enc("fresh-zz"), next());
   const m = new Meter();
   s.meter = m;
-  await s.putBranch([X, Z], next());
+  await s.putBranch([X, await s.putLeaf(enc("z1"), next())], next());
   s.meter = null;
-  assert.equal(m.nearDedupHubs, 1, "the shared chunk is a hub");
-  assert.equal(m.nearDedupParentRows, 0, "and none of its 300 parents is read");
+  assert.equal(m.nearDedupParentReads, 2, "two end kids: two reads");
+  assert.ok(m.nearDedupParentRows <= 15, `rows: ${m.nearDedupParentRows}`);
   await s.close();
 });
 
@@ -362,7 +364,6 @@ test("near dedup keeps only parents within its length budget, read off the kid r
   s.meter = m;
   await s.putBranch([X, await s.putLeaf(enc("zz"), next())], next());
   s.meter = null;
-  assert.equal(m.nearDedupHubs, 0, "ten parents: not a hub, so it is climbed");
   assert.equal(
     m.nearDedupParentRows,
     0,
@@ -1181,21 +1182,6 @@ test("a deposit records what it learnt whole, apart from the company the halo ke
       const store = new SQliteStore({ path: stem, D });
       const m = new Mind({ D, seed: 7, store });
       assert.ok(store.learntWhole(m.resolve(enc.encode(bare))), "it persists");
-      await store.close();
-    }
-    // A store written before wholes were recorded kept company on its wholes
-    // alone: on open, its halo rows are read as its wholes, once.
-    {
-      const { DatabaseSync } = await import("node:sqlite");
-      const db = new DatabaseSync(stem + ".sqlite");
-      db.exec(
-        "DROP TABLE whole; DELETE FROM meta WHERE key = 'whole.recorded';",
-      );
-      db.close();
-      const store = new SQliteStore({ path: stem, D });
-      const m = new Mind({ D, seed: 7, store });
-      assert.ok(store.learntWhole(m.resolve(enc.encode(ctx))));
-      assert.ok(!store.learntWhole(m.resolve(enc.encode(bare))));
       await store.close();
     }
   } finally {

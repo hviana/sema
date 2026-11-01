@@ -31,13 +31,13 @@ with distinct content, and every span the fold produced is addressable.
    deposit learnt whole (`learntWhole`), decided alike at any batch size, flush
    schedule or session (`nearDedupTarget`). **Proposed by structure:** a
    near-duplicate reuses every chunk away from its one-window difference, so its
-   target is an ancestor of the branch's first or last existing kid, climbed by
-   parents up to the hub bound and pruned by the length each `kid` row carries.
-   **Decided by bytes, then the bar:** identical except one span of at most `W`
-   bytes (`differsByOneWindow`), and the gist clears the length-aware
-   `identityBar` (`X date of birth` is not `X date of death`). This is the only
-   place two different contents share an id; `nearDedup: false` keeps every
-   distinct byte sequence its own node.
+   target is a parent of the branch's first or last existing kid: each end reads
+   its `chainReach(W)` oldest parents once, kept by the length each `kid` row
+   carries, so the cost is constant in the corpus. **Decided by bytes, then the
+   bar:** identical except one span of at most `W` bytes (`differsByOneWindow`),
+   and the gist clears the length-aware `identityBar` (`X date of birth` is not
+   `X date of death`). This is the only place two different contents share an
+   id; `nearDedup: false` keeps every distinct byte sequence its own node.
 4. **Mint** a new id.
 
 Refuted: near targets from the unflushed write buffer (the flush schedule
@@ -54,8 +54,7 @@ decides identity) or the content index per mint (ten times the training time).
   node ids. Gists wait in `_pendingGist` until `indexSubtree` promotes them in
   batches; halos persist 2-bit quantized (`halo-sketch.md`).
 - **Wholes.** A deposit records what it learnt whole (`markWhole`): context,
-  continuation, bare experience; `learntWhole` probes it. An older store's halo
-  rows are read as its wholes, once, on open.
+  continuation, bare experience; `learntWhole` probes it.
 - **Sketches.** `sketchGet`/`sketchPut` hold derived state: a miss costs time,
   never correctness.
 
@@ -76,19 +75,17 @@ form is knowledge only if it continues somewhere or keeps company.
 
 The base is what nothing else can replay: the halo depends on the order and the
 repetition of episodes, and the edges' order breaks ties, so neither is derived.
-A layered store keeps each layer in its own file: `<stem>.sqlite` (the base
-alone) and `<stem>.derived.sqlite`, beside the two `.vec` indexes.
-`Mind.rebuildDerived` drops the derived layer and derives it again: exact
-structures come back identical (containment as every whole's windows: a superset
-of what ingestion's shortcuts recorded, save a deposit near dedup merged, whose
-bytes the base no longer holds), the vector indexes come back with the same
-vectors per id, not the same clusters, and the store answers byte for byte
-(`test/08`). The two files never commit as one: the base commits first, so a
-crash leaves the derived layer behind (`derived.base`), never ahead of it. The
-open re-derives the reverse index; `Mind.repairDerived`, run before every
-ingest, the containment of the deposits it had not seen, or all of it when the
-file was lost. A store written before the layers were separated keeps both in
-one file and opens as it is.
+Each layer has its own file: `<stem>.sqlite` (the base alone) and
+`<stem>.derived.sqlite`, beside the two `.vec` indexes. `Mind.rebuildDerived`
+drops the derived layer and derives it again: exact structures come back
+identical (containment as every whole's windows: a superset of what ingestion's
+shortcuts recorded, save a deposit near dedup merged, whose bytes the base no
+longer holds), the vector indexes come back with the same vectors per id, not
+the same clusters, and the store answers byte for byte (`test/08`). The two
+files never commit as one: the base commits first, so a crash leaves the derived
+layer behind (`derived.base`), never ahead of it. The open re-derives the
+reverse index; `Mind.repairDerived`, run before every ingest, the containment of
+the deposits it had not seen, or all of it when the file was lost.
 
 ## Probes that do not grow with N
 

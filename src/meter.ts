@@ -98,13 +98,10 @@ export class Meter {
   /** `parents` + `parentsFirst` — materialising parent reads. */
   parentReads = 0;
   /** Parent reads the near dedup issued to PROPOSE a target by shared
-   *  structure (store.ts `nearDedupTarget`) — its own cost, apart from the
-   *  climbs. */
+   *  structure (store.ts `nearDedupTarget`): at most one per end kid. */
   nearDedupParentReads = 0;
-  /** Parent ROWS those reads returned — the climb's real volume. */
+  /** Parent ROWS those reads returned, already kept by length. */
   nearDedupParentRows = 0;
-  /** Climbed nodes skipped as hubs (more parents than the fan). */
-  nearDedupHubs = 0;
   /** Whole forms the climb proposed (length window + learnt whole). */
   nearDedupProposals = 0;
   /** Proposals that passed the byte test — each set is scored by ONE

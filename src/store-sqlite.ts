@@ -28,7 +28,7 @@
 //     own files on every write — no separate serialisation step is needed.
 
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, unlinkSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 
 import {
   AbstractStore,
@@ -277,14 +277,8 @@ export class SQliteStore extends AbstractStore implements Store {
   private halos: VectorDatabase | null = null; // CACHE:   halo gists
 
   private sqlite: DatabaseSync | null = null;
-  /** The derived layer's connection: `<stem>.derived.sqlite`, or the base
-   *  connection itself for a store written before the layers were separated
-   *  (one file holding both, opened as it is). */
+  /** The derived layer's connection: `<stem>.derived.sqlite`. */
   private derived: DatabaseSync | null = null;
-  /** Whether the derived layer has its own file (and so its own commits). */
-  private get layered(): boolean {
-    return this.derived !== null && this.derived !== this.sqlite;
-  }
 
   // Deferred write transaction guard.
   private _inTx = false;
@@ -434,28 +428,13 @@ export class SQliteStore extends AbstractStore implements Store {
   protected async _dbOpen(): Promise<void> {
     const stem = this.opts.path ?? ":memory:";
     const sp = stem === ":memory:" ? ":memory:" : `${stem}.sqlite`;
-
-    // A store written before the layers were separated keeps its derived
-    // tables in the base file: opened as it is, one file, one connection.
-    let legacy = false;
-    if (sp !== ":memory:" && existsSync(sp)) {
-      const probe = new DatabaseSync(sp, { readOnly: true });
-      legacy = probe.prepare(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kid'",
-      ).get() !== undefined;
-      probe.close();
-    }
     this.sqlite = this.configure(new DatabaseSync(sp));
     this.sqlite.exec(SCHEMA_BASE);
-    if (legacy) {
-      this.derived = this.sqlite;
-    } else {
-      this.derived = this.configure(
-        new DatabaseSync(
-          sp === ":memory:" ? ":memory:" : `${stem}.derived.sqlite`,
-        ),
-      );
-    }
+    this.derived = this.configure(
+      new DatabaseSync(
+        sp === ":memory:" ? ":memory:" : `${stem}.derived.sqlite`,
+      ),
+    );
     this.derived.exec(SCHEMA_DERIVED);
 
     // Recover D from a previous run so loadFromStore() can bootstrap with any
@@ -472,18 +451,6 @@ export class SQliteStore extends AbstractStore implements Store {
         const d = Number(row.val);
         if (Number.isInteger(d) && d > 0) this._D = d;
       }
-    }
-
-    // A store written before wholes were recorded kept company on its wholes
-    // alone, so its halo rows ARE its wholes: recorded once, then stamped.
-    if (
-      this.sqlite.prepare("SELECT 1 FROM meta WHERE key = 'whole.recorded'")
-        .get() === undefined
-    ) {
-      this.sqlite.exec(
-        "BEGIN; INSERT OR IGNORE INTO whole (id) SELECT id FROM halo WHERE mass > 0; " +
-          "INSERT INTO meta (key, val) VALUES ('whole.recorded', '1'); COMMIT;",
-      );
     }
 
     // Recover maxGroup from meta so indexSubtree uses the training-time value.
@@ -544,12 +511,11 @@ export class SQliteStore extends AbstractStore implements Store {
    *  Store.derivedLag}); null when current. */
   private _derivedFrom: number | null = null;
 
-  /** On open: a layered store whose derived layer last saw fewer nodes than
+  /** On open: a store whose derived layer last saw fewer nodes than
    *  the base holds re-derives what the store alone can — the reverse index of
    *  the nodes it has not seen — and records where the rest (containment,
    *  read off the deposits' trees) must resume. */
   private _derivedCatchUp(): void {
-    if (!this.layered) return;
     const covered = Number(this._dbGetMeta("derived.base") ?? 0);
     if (covered >= this._nextId) return;
     this._derivedFrom = covered;
@@ -581,7 +547,6 @@ export class SQliteStore extends AbstractStore implements Store {
   /** {@link Store.markDerivedCurrent} */
   override markDerivedCurrent(): void {
     this._derivedFrom = null;
-    if (!this.layered) return;
     this._dbBeginTx();
     this._dbCommitTx(); // stamps derived.base with the current node count
   }
@@ -664,8 +629,10 @@ export class SQliteStore extends AbstractStore implements Store {
       this.halos.close();
       this.halos = null;
     }
-    if (this.layered) this.derived!.close();
-    this.derived = null;
+    if (this.derived) {
+      this.derived.close();
+      this.derived = null;
+    }
     if (this.sqlite) {
       this.sqlite.close();
       this.sqlite = null;
@@ -677,7 +644,7 @@ export class SQliteStore extends AbstractStore implements Store {
   protected _dbBeginTx(): void {
     if (this._inTx || !this.sqlite) return;
     this.sqlite.exec("BEGIN");
-    if (this.layered) this.derived!.exec("BEGIN");
+    this.derived!.exec("BEGIN");
     this._inTx = true;
   }
 
@@ -691,12 +658,10 @@ export class SQliteStore extends AbstractStore implements Store {
     this._canonBloomPersist();
     this._inTx = false; // clear first so a throw can't wedge us mid-commit
     this.sqlite.exec("COMMIT");
-    if (this.layered) {
-      if (this._derivedFrom === null) {
-        this._dbSetMeta("derived.base", String(this._nextId));
-      }
-      this.derived!.exec("COMMIT");
+    if (this._derivedFrom === null) {
+      this._dbSetMeta("derived.base", String(this._nextId));
     }
+    this.derived!.exec("COMMIT");
   }
 
   // -- Node CRUD --
@@ -813,19 +778,21 @@ export class SQliteStore extends AbstractStore implements Store {
     this._insertKid.run(child, parent, plen);
   }
 
-  private _selParentsWithin: any = null;
-  protected _dbGetParentsWithin(
+  private _selParentsSized: any = null;
+  protected _dbGetParentsSized(
     id: NodeId,
-    maxLen: number,
     limit: number,
+    lo: number,
+    hi: number,
   ): Array<[NodeId, number]> {
-    if (!this._selParentsWithin) {
-      this._selParentsWithin = this.derived!.prepare(
-        "SELECT parent, plen FROM kid WHERE child = ? AND plen <= ? LIMIT ?",
+    if (!this._selParentsSized) {
+      this._selParentsSized = this.derived!.prepare(
+        "SELECT parent, plen FROM (SELECT parent, plen FROM kid " +
+          "WHERE child = ? LIMIT ?) WHERE plen BETWEEN ? AND ?",
       );
-      this._selParentsWithin.setReturnArrays(true);
+      this._selParentsSized.setReturnArrays(true);
     }
-    return this._selParentsWithin.all(id, maxLen, limit) as Array<
+    return this._selParentsSized.all(id, limit, lo, hi) as Array<
       [NodeId, number]
     >;
   }
@@ -864,41 +831,6 @@ export class SQliteStore extends AbstractStore implements Store {
       );
     }
     return this._selParentBeyond.get(id, n) !== undefined;
-  }
-
-  private _selChain: any = null;
-
-  /** {@link Store.chainRun}'s walk as ONE recursive CTE: the whole
-   *  transparent chain (no edge in or out, exactly one parent) is descended
-   *  inside SQLite — per-node work is the same three indexed probes as the
-   *  base class's loop, but without a JS↔SQLite round trip per node, which
-   *  dominates on the deep single-structure scaffolding this read exists
-   *  for. */
-  protected override _chainWalk(id: NodeId, cap: number): NodeId[] {
-    // The walk reads parents (derived) beside edges (base).  With the layers
-    // in two files no one SQL statement sees both as this session wrote them,
-    // so the base class's loop of the same three probes walks it.
-    if (this.layered) return super._chainWalk(id, cap);
-    if (!this._selChain) {
-      this._selChain = this.sqlite!.prepare(
-        `WITH RECURSIVE chain(n, d) AS (
-           SELECT ?, 0
-           UNION ALL
-           SELECT (SELECT parent FROM kid WHERE child = chain.n LIMIT 1),
-                  chain.d + 1
-           FROM chain
-           WHERE chain.d < ?
-             AND NOT EXISTS (SELECT 1 FROM edge WHERE src = chain.n)
-             AND NOT EXISTS (SELECT 1 FROM edge WHERE dst = chain.n)
-             AND (SELECT count(*)
-                    FROM (SELECT 1 FROM kid WHERE child = chain.n LIMIT 2)
-                 ) = 1
-         )
-         SELECT n FROM chain ORDER BY d`,
-      );
-    }
-    return (this._selChain.all(id, cap - 1) as Array<{ n: number }>)
-      .map((r) => r.n);
   }
 
   /** Width of the seq band inside the packed contain rowid: rowid =

@@ -27,18 +27,18 @@ O(1) over a persistent cursor. It has two settings:
 
 ## Store caches — budgets in `StoreConfig` (`src/config.ts`)
 
-| Cache                        | Field                        | Default budget              | Eviction         | A miss costs                            |
-| ---------------------------- | ---------------------------- | --------------------------- | ---------------- | --------------------------------------- |
-| dedup keys                   | `_leafKey` / `_branchKey`    | `dedupCacheMax`, 1M entries | lru              | a durable content probe                 |
-| flat-branch hits             | `_flatKey`                   | `dedupCacheMax`             | lru + clock      | a hashed probe                          |
-| reconstructed bytes          | `_bytesCache`                | `bytesCacheMax`, 20 MB      | smallest + clock | a subtree walk                          |
-| content length               | `_lenCache`                  | `bytesCacheMax`             | lru + clock      | a capped walk                           |
-| node records                 | `_recCache`                  | `recCacheBytes`, 10 MB      | lru + clock      | a row read                              |
-| pending gists                | `_pendingGist`               | `pendingGistBytes`, 16 MB   | lru              | a re-fold of the stored node            |
-| halos read                   | `_haloNorm`                  | `haloCacheBytes`, 16 MB     | lru              | reading the stored halo                 |
-| indexed ids, walked subtrees | `_indexedIds` / `_walkedIds` | `coveredIdsMax`, 100K       | lru              | a re-probe, a re-walk                   |
-| transparent chains           | `_chainMemo`                 | `chainCacheBytes`, 16 MB    | lru              | one CTE; dropped when a write breaks it |
-| ingest memo                  | `CachedIngest._memo`         | `ingestCacheBytes`, 50 MB   | lru              | a re-fold (the ids are hash-consed)     |
+| Cache                        | Field                        | Default budget              | Eviction         | A miss costs                           |
+| ---------------------------- | ---------------------------- | --------------------------- | ---------------- | -------------------------------------- |
+| dedup keys                   | `_leafKey` / `_branchKey`    | `dedupCacheMax`, 1M entries | lru              | a durable content probe                |
+| flat-branch hits             | `_flatKey`                   | `dedupCacheMax`             | lru + clock      | a hashed probe                         |
+| reconstructed bytes          | `_bytesCache`                | `bytesCacheMax`, 20 MB      | smallest + clock | a subtree walk                         |
+| content length               | `_lenCache`                  | `bytesCacheMax`             | lru + clock      | a capped walk                          |
+| node records                 | `_recCache`                  | `recCacheBytes`, 10 MB      | lru + clock      | a row read                             |
+| pending gists                | `_pendingGist`               | `pendingGistBytes`, 16 MB   | lru              | a re-fold of the stored node           |
+| halos read                   | `_haloNorm`                  | `haloCacheBytes`, 16 MB     | lru              | reading the stored halo                |
+| indexed ids, walked subtrees | `_indexedIds` / `_walkedIds` | `coveredIdsMax`, 100K       | lru              | a re-probe, a re-walk                  |
+| transparent chains           | `_chainMemo`                 | `chainCacheBytes`, 16 MB    | lru              | a walk; dropped when a write breaks it |
+| ingest memo                  | `CachedIngest._memo`         | `ingestCacheBytes`, 50 MB   | lru              | a re-fold (the ids are hash-consed)    |
 
 - `_bytesCache` never caches a truncated prefix.
 - The ANN read caches (`_resonateCache`, `_resonateHaloCache`) are keyed by
