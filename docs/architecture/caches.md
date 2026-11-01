@@ -22,8 +22,8 @@ O(1) over a persistent cursor. It has two settings:
 **`recency`, how use is recorded:**
 
 - `"reorder"`, the default — exact LRU.
-- `"clock"` — a use bit, a fraction of the hot-path time (`_bytesCache`,
-  `_recCache`); a worse victim only costs a re-read.
+- `"clock"` — a use bit, a fraction of the hot-path time (the table's "clock"
+  rows); a worse victim only costs a re-read.
 
 ## Store caches — budgets in `StoreConfig` (`src/config.ts`)
 
@@ -32,7 +32,7 @@ O(1) over a persistent cursor. It has two settings:
 | dedup keys                   | `_leafKey` / `_branchKey`    | `dedupCacheMax`, 1M entries | lru              | a durable content probe                 |
 | flat-branch hits             | `_flatKey`                   | `dedupCacheMax`             | lru + clock      | a hashed probe                          |
 | reconstructed bytes          | `_bytesCache`                | `bytesCacheMax`, 20 MB      | smallest + clock | a subtree walk                          |
-| content length               | `_lenCache`                  | `bytesCacheMax`             | lru              | a capped walk                           |
+| content length               | `_lenCache`                  | `bytesCacheMax`             | lru + clock      | a capped walk                           |
 | node records                 | `_recCache`                  | `recCacheBytes`, 10 MB      | lru + clock      | a row read                              |
 | pending gists                | `_pendingGist`               | `pendingGistBytes`, 16 MB   | lru              | a re-fold of the stored node            |
 | halos read                   | `_haloNorm`                  | `haloCacheBytes`, 16 MB     | lru              | reading the stored halo                 |

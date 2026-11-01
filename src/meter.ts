@@ -97,9 +97,21 @@ export class Meter {
   // ── Store: structure (parents / containment) ────────────────────────────
   /** `parents` + `parentsFirst` — materialising parent reads. */
   parentReads = 0;
-  /** Parent rows the near dedup read to PROPOSE a target by shared structure
-   *  (store.ts `nearDedupTarget`) — its own cost, apart from the climbs. */
+  /** Parent reads the near dedup issued to PROPOSE a target by shared
+   *  structure (store.ts `nearDedupTarget`) — its own cost, apart from the
+   *  climbs. */
   nearDedupParentReads = 0;
+  /** Parent ROWS those reads returned — the climb's real volume. */
+  nearDedupParentRows = 0;
+  /** Climbed nodes skipped as hubs (more parents than the fan). */
+  nearDedupHubs = 0;
+  /** Whole forms the climb proposed (length window + learnt whole). */
+  nearDedupProposals = 0;
+  /** Proposals that passed the byte test — each set is scored by ONE
+   *  content-index query. */
+  nearDedupNear = 0;
+  /** Branches the near dedup merged onto an existing whole form. */
+  nearDedupMerges = 0;
   /** `hasParents` — indexed existence probe. */
   parentProbes = 0;
   /** `chainRun` — one bounded transparent-chain climb. */

@@ -851,11 +851,23 @@ export abstract class AbstractStore implements Store {
   ): NodeId | null;
 
   // -- Kid (structural parent) edges --
-  protected abstract _dbInsertKid(child: NodeId, parent: NodeId): void;
+  protected abstract _dbInsertKid(
+    child: NodeId,
+    parent: NodeId,
+    plen: number,
+  ): void;
   protected abstract _dbGetParents(id: NodeId): NodeId[];
   /** LIMITed variant of the parent read — same statement, `LIMIT ?`.  Must
    *  NOT be implemented by materialising and slicing. */
   protected abstract _dbGetParentsFirst(id: NodeId, limit: number): NodeId[];
+  /** The first `limit` parents, in stored order, keeping only those whose
+   *  content length is at most `maxLen`, each with that length.  The
+   *  length filter runs in the store, not on rows read out. */
+  protected abstract _dbGetParentsWithin(
+    id: NodeId,
+    maxLen: number,
+    limit: number,
+  ): Array<[NodeId, number]>;
   /** Whether `id` has more than `n` parents; the default reads them out. */
   protected _dbParentsExceed(id: NodeId, n: number): boolean {
     return this._dbGetParentsFirst(id, n + 1).length > n;
@@ -1156,7 +1168,12 @@ export abstract class AbstractStore implements Store {
       "smallest",
       "clock",
     );
-    this._lenCache = new BoundedMap(config.bytesCacheMax, () => 16);
+    this._lenCache = new BoundedMap(
+      config.bytesCacheMax,
+      () => 16,
+      "lru",
+      "clock",
+    );
     this._recCache = new BoundedMap(
       config.recCacheBytes,
       (r) => (r.leaf?.byteLength ?? 0) + (r.kids?.length ?? 0) * 4 + 12,
@@ -1747,9 +1764,10 @@ export abstract class AbstractStore implements Store {
    *  A no-op when the node is already indexed or its gist is evicted from
    *  the pending cache — a future re-encounter will retry. */
   private promoteBridge(id: NodeId): void {
-    // A LIMITed probe: this runs once per kid insert on the MINT hot path,
-    // and a shared child's full parent set grows with the corpus.
-    if (this._dbGetParentsFirst(id, 2).length < 2) return;
+    // One point probe past the first parent: this runs once per kid insert
+    // on the MINT hot path, and a shared child's parent set grows with the
+    // corpus.
+    if (!this._dbParentsExceed(id, 1)) return;
     this.indexGist(id);
   }
 
@@ -1840,8 +1858,11 @@ export abstract class AbstractStore implements Store {
     //    corrupts bytes), onto a form a deposit learnt WHOLE, decided the same
     //    way whatever the batch size, flush schedule or session
     //    (`nearDedupTarget`).
+    // A branch's length: the near dedup's budget, and its kid rows' plen.
+    let blen = 0;
+    if (kids) { for (const k of kids) blen += this.contentLen(k); }
     if (leaf === null && this.nearDedup) {
-      const near = this.nearDedupTarget(kids!, gist);
+      const near = this.nearDedupTarget(kids!, gist, blen);
       if (near !== null) {
         if (key.length <= DEDUP_KEY_MAX) cache.set(key, near);
         return near;
@@ -1878,9 +1899,12 @@ export abstract class AbstractStore implements Store {
       // reverse index, so the WHOLE cache drops (writes come in training
       // bursts where the cache is cold anyway; queries rebuild it lazily).
       this._chainMemo.clear();
+      // Its length rides on its kid rows (the near dedup's budget reads it
+      // there), and is memoized: it is known.
+      this._lenCache.set(id, blen);
       for (const c of kids) {
         if (c < 0 && c >= -256) continue;
-        this._dbInsertKid(c, id);
+        this._dbInsertKid(c, id, blen);
         // The 1→2 parent TRANSITION happens here and only here (hash-cons
         // means an existing branch never re-inserts kid rows, so parent sets
         // grow exclusively through fresh mints): the child just became a
@@ -1923,12 +1947,14 @@ export abstract class AbstractStore implements Store {
    *  without it, and ten answers were lost).  The bar reads ONE place — the
    *  content index, the write buffer flushed into it first (rare: only a
    *  branch that has a proposal), scored by its one estimator. */
-  private nearDedupTarget(kids: NodeId[], gist: Vec): NodeId | null {
+  private nearDedupTarget(
+    kids: NodeId[],
+    gist: Vec,
+    blen: number,
+  ): NodeId | null {
     const W = this._maxGroup;
     const existing = kids.filter((k) => k >= 0 && this.get(k) !== null);
     if (existing.length === 0) return null;
-    let blen = 0;
-    for (const k of kids) blen += this.contentLen(k);
     const cap = blen + W;
     const fan = Math.max(boundFor(this.edgeSourceCount()), chainReach(W));
     const seen = new Set<NodeId>();
@@ -1938,24 +1964,34 @@ export abstract class AbstractStore implements Store {
     for (let depth = 0; depth < W && frontier.length > 0; depth++) {
       const next: NodeId[] = [];
       for (const x of frontier) {
+        // A hub — shared by too much to tell — is known by ONE point probe
+        // past its fan, never by reading its fan of rows out to count them.
+        if (this._dbParentsExceed(x, fan)) {
+          if (this.meter) this.meter.nearDedupHubs++;
+          continue;
+        }
+        // Only parents within the length budget leave the store: a longer one
+        // is neither a target nor a way up to one (its ancestors are longer
+        // still), and a row that carries its parent's length needs no record
+        // read to say so.
         if (this.meter) this.meter.nearDedupParentReads++;
-        const ps = this._dbGetParentsFirst(x, fan + 1);
-        if (ps.length > fan) continue; // a hub: shared by too much to tell
-        for (const p of ps) {
+        const ps = this._dbGetParentsWithin(x, cap, fan);
+        if (this.meter) this.meter.nearDedupParentRows += ps.length;
+        for (const [p, len] of ps) {
           if (seen.has(p)) continue;
           seen.add(p);
-          const len = this.contentLen(p, cap + 1);
-          if (len > cap) continue;
           if (len >= blen - W && this.learntWhole(p)) found.push(p);
           next.push(p);
         }
       }
       frontier = next;
     }
+    if (this.meter) this.meter.nearDedupProposals += found.length;
     const near = found.sort((a, b) => a - b).filter((id) =>
       this.differsByOneWindow(kids, id, W)
     );
     if (near.length === 0) return null;
+    if (this.meter) this.meter.nearDedupNear += near.length;
     if (this._contentBuffer.length > 0) this.flushContent();
     const bar = identityBar(this.D, W, blen);
     const scored = new Map<NodeId, number>();
@@ -1966,7 +2002,12 @@ export abstract class AbstractStore implements Store {
         this.efSearch,
       )
     ) scored.set(h.id, 1 - h.distance);
-    for (const id of near) if ((scored.get(id) ?? -1) >= bar) return id;
+    for (const id of near) {
+      if ((scored.get(id) ?? -1) >= bar) {
+        if (this.meter) this.meter.nearDedupMerges++;
+        return id;
+      }
+    }
     return null;
   }
 
@@ -2356,9 +2397,10 @@ export abstract class AbstractStore implements Store {
     // The same rows the mint writes: one per stored child, byte atoms never
     // (a byte belongs to nearly every branch, see `_dbInsertKid`'s caller).
     this._dbEachBranch((id, kids) => {
+      const plen = this.contentLen(id);
       for (const c of kids) {
         if (c < 0 && c >= -256) continue;
-        this._dbInsertKid(c, id);
+        this._dbInsertKid(c, id, plen);
       }
     });
     this._dbCommitTx();

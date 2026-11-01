@@ -32,17 +32,16 @@ with distinct content, and every span the fold produced is addressable.
    schedule or session (`nearDedupTarget`). **Proposed by structure:** a
    near-duplicate reuses every chunk away from its one-window difference, so its
    target is an ancestor of the branch's first or last existing kid, climbed by
-   parents up to the hub bound and pruned by length. **Decided by bytes, then
-   the bar:** identical except one span of at most `W` bytes
-   (`differsByOneWindow`), and the gist clears the length-aware `identityBar`
-   (`X date of birth` is not `X date of death`). This is the only place two
-   different contents share an id; `nearDedup: false` keeps every distinct byte
-   sequence its own node.
+   parents up to the hub bound and pruned by the length each `kid` row carries.
+   **Decided by bytes, then the bar:** identical except one span of at most `W`
+   bytes (`differsByOneWindow`), and the gist clears the length-aware
+   `identityBar` (`X date of birth` is not `X date of death`). This is the only
+   place two different contents share an id; `nearDedup: false` keeps every
+   distinct byte sequence its own node.
 4. **Mint** a new id.
 
-Refuted: near targets from the unflushed write buffer only (the flush schedule
-decides identity), or from the content index for every minted branch (the same
-decisions at ten times the training time).
+Refuted: near targets from the unflushed write buffer (the flush schedule
+decides identity) or the content index per mint (ten times the training time).
 
 ## Relations on the nodes
 
@@ -71,8 +70,9 @@ form is knowledge only if it continues somewhere or keeps company.
 - **Base** — written by ingestion alone: the nodes; the edges in learnt order,
   deposited and suffix-inherited; the wholes; the halos, one accumulator per
   episode in arrival order; the metadata.
-- **Derived** — rebuilt from the base: the reverse index (`kid`), containment,
-  the canonical index, the sketches, the filters, and the gist and halo indexes.
+- **Derived** — rebuilt from the base: the reverse index (`kid`, parent
+  lengths), containment, the canonical index, the sketches, the filters, and the
+  gist and halo indexes.
 
 The base is what nothing else can replay: the halo depends on the order and the
 repetition of episodes, and the edges' order breaks ties, so neither is derived.

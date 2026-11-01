@@ -126,9 +126,13 @@ CREATE TABLE IF NOT EXISTS bloom (
 -- (~2x smaller than a heap table + idx_kid_child). The composite primary key also
 -- gives free (child,parent) dedup, so a child repeated within one branch's kids
 -- never writes a duplicate row.
+-- plen is the PARENT's content length, written with the row: the near dedup
+-- keeps only parents within a length budget (store.ts nearDedupTarget), and
+-- reading the length here spares a record read per parent.
 CREATE TABLE IF NOT EXISTS kid (
   child  INTEGER NOT NULL,
   parent INTEGER NOT NULL,
+  plen   INTEGER NOT NULL,
   PRIMARY KEY (child, parent)
 ) WITHOUT ROWID;
 -- CONTAINMENT: the chunks a sub-span flat branch OVERLAPS (inside one, or across
@@ -560,9 +564,10 @@ export class SQliteStore extends AbstractStore implements Store {
         [number, Uint8Array]
       >
     ) {
+      const plen = this.contentLen(id);
       for (const c of unpackKids(kids)) {
         if (c < 0 && c >= -256) continue;
-        this._dbInsertKid(c, id);
+        this._dbInsertKid(c, id, plen);
       }
     }
     this._dbCommitTx();
@@ -799,13 +804,30 @@ export class SQliteStore extends AbstractStore implements Store {
 
   // -- Kid (structural parent) edges --
 
-  protected _dbInsertKid(child: NodeId, parent: NodeId): void {
+  protected _dbInsertKid(child: NodeId, parent: NodeId, plen: number): void {
     if (!this._insertKid) {
       this._insertKid = this.derived!.prepare(
-        "INSERT OR IGNORE INTO kid (child, parent) VALUES (?, ?)",
+        "INSERT OR IGNORE INTO kid (child, parent, plen) VALUES (?, ?, ?)",
       );
     }
-    this._insertKid.run(child, parent);
+    this._insertKid.run(child, parent, plen);
+  }
+
+  private _selParentsWithin: any = null;
+  protected _dbGetParentsWithin(
+    id: NodeId,
+    maxLen: number,
+    limit: number,
+  ): Array<[NodeId, number]> {
+    if (!this._selParentsWithin) {
+      this._selParentsWithin = this.derived!.prepare(
+        "SELECT parent, plen FROM kid WHERE child = ? AND plen <= ? LIMIT ?",
+      );
+      this._selParentsWithin.setReturnArrays(true);
+    }
+    return this._selParentsWithin.all(id, maxLen, limit) as Array<
+      [NodeId, number]
+    >;
   }
 
   protected _dbGetParents(id: NodeId): NodeId[] {

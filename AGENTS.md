@@ -27,6 +27,7 @@ Hard facts:
 - **ES modules with explicit `.js` extensions** in imports. Keep the convention.
 - **Determinism is the product.** Same seed + same deposit order + same query ⇒
   byte-identical answer.
+- **No backward compatibility** unless explicitly requested.
 
 Mental model, top to bottom:
 

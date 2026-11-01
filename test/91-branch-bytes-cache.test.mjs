@@ -543,3 +543,22 @@ test("a reopened store answers as the session that wrote it", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a content-length hit records its use without rewriting the memo", async () => {
+  // The near dedup asks lengths by the thousand per deposit.  Under exact-LRU
+  // recency every hit was a Map delete + re-insert, measured at 32.8 ms of a
+  // 141.5 ms deposit on a 40,000-row store (23%).  A length is a pure function
+  // of the store, so the memo is transparent: a hit sets a use bit, and the
+  // memo's order — what its eviction walks — stays as it was written.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest("one deposit with a handful of chunks to measure");
+  const s = m.store;
+  const order = () => [...s._lenCache.m.keys()];
+  const ids = order().filter((id) => id >= 0);
+  assert.ok(ids.length > 2, "the deposit memoized its lengths");
+  const before = order();
+  // Hit them newest-first: under reordering recency that reverses the memo.
+  for (const id of ids.reverse()) s.contentLen(id);
+  assert.deepEqual(order(), before, "hits leave the memo's order untouched");
+  await s.close();
+});

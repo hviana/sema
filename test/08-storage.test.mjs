@@ -318,6 +318,59 @@ test("near dedup is the same whatever the batch size or session, and `nearDedup:
   assert.equal(await run({ nearDedup: false }), false, "disabled: both kept");
 });
 
+test("near dedup names a hub by ONE probe past its fan — none of its parents is read", async () => {
+  // The climb skips a child shared by more parents than its fan.  It used to
+  // learn that by reading fan + 1 parent rows and throwing them away — on a
+  // trained store the bulk of the near dedup's parent rows, and a cost that
+  // grows with the corpus.  A point probe past the fan decides the same.
+  const { Meter } = await import("../dist/src/index.js");
+  const s = memStore();
+  const next = vecs(21);
+  const X = await s.putLeaf(enc("shared-chunk"), next());
+  for (let i = 0; i < 300; i++) {
+    await s.putBranch(
+      [X, await s.putLeaf(enc(`tail-${i}-xx`), next())],
+      next(),
+    );
+  }
+  const Z = await s.putLeaf(enc("fresh-zz"), next());
+  const m = new Meter();
+  s.meter = m;
+  await s.putBranch([X, Z], next());
+  s.meter = null;
+  assert.equal(m.nearDedupHubs, 1, "the shared chunk is a hub");
+  assert.equal(m.nearDedupParentRows, 0, "and none of its 300 parents is read");
+  await s.close();
+});
+
+test("near dedup keeps only parents within its length budget, read off the kid row", async () => {
+  // A parent longer than the branch + W is neither a target nor a way up to
+  // one.  Its length used to cost a record read per parent; the kid row
+  // carries it (`plen`), so the store returns only the parents that fit.
+  const { Meter } = await import("../dist/src/index.js");
+  const s = memStore();
+  const next = vecs(22);
+  const X = await s.putLeaf(enc("chunk"), next());
+  for (let i = 0; i < 10; i++) {
+    const long = await s.putLeaf(
+      enc(`a long tail of forty bytes, number ${i}..`),
+      next(),
+    );
+    await s.putBranch([X, long], next());
+  }
+  const m = new Meter();
+  s.meter = m;
+  await s.putBranch([X, await s.putLeaf(enc("zz"), next())], next());
+  s.meter = null;
+  assert.equal(m.nearDedupHubs, 0, "ten parents: not a hub, so it is climbed");
+  assert.equal(
+    m.nearDedupParentRows,
+    0,
+    "every parent is too long: none is read",
+  );
+  await s.close();
+});
+
 // =========================================================================
 // 4 — GIST INDEX: a node is findable by its own meaning
 // =========================================================================

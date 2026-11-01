@@ -116,6 +116,7 @@ import {
   DB_PATH,
   SEED,
   SQLITE_CACHE_MB,
+  STORE_BATCH,
   VECTOR_CACHE_MB,
 } from "./config.js";
 import { createRuntime } from "./runtime.js";
@@ -141,6 +142,7 @@ async function main(): Promise<void> {
     D,
     vectorCacheMb: VECTOR_CACHE_MB,
     sqliteCacheMb: SQLITE_CACHE_MB,
+    batchSize: STORE_BATCH,
   });
 
   // The store IS the model: memories, progress, and metadata all persist in
