@@ -39,6 +39,7 @@ import { CONCEPT, STEP } from "../graph-search.js";
 import { bytesEqual, indexOf, latin1, sharedEnds } from "../../bytes.js";
 import {
   AGREEMENT,
+  cohortFrame,
   dominates,
   instanceCap,
   phraseCap,
@@ -331,8 +332,7 @@ export async function counterfactualTransfer(
   // AND those structures are a majority of all aligned structures.
   // Per-byte:  frame(i) ⇔ depth[i] > AGREEMENT ∧ dominates(depth[i], aligned)
   // Per-run:   usable(r) ⇔ ¬dominates(framedCount, runLen)
-  const isFrame = (i: number): boolean =>
-    depth[i] > AGREEMENT && dominates(depth[i], aligned);
+  const isFrame = (i: number): boolean => cohortFrame(depth[i], aligned);
   const framedCount = (qs: number, qe: number): number => {
     let n = 0;
     for (let i = qs; i < qe; i++) if (isFrame(i)) n++;

@@ -46,9 +46,17 @@
 //   155.12 no CAST schema transfers through a co-instance of the question;
 //   155.13 a sample past the hub reads every side of the frame;
 //   155.14 what makes the relation available is convergence: an instance and an
-//         establishing context reaching ONE fact node.  The same information
-//         with the instance's fact respelled (two nodes) names nothing;
-//         respelled on both sides (one node) names as before (evidence.md).
+//         establishing context reaching ONE fact node, or, respelled on one
+//         side (two nodes), a fact of the filler holding the instance's
+//         answer (evidence.md);
+//   155.15 a respelled answer names the relation only where no instance
+//         contradicts it: an answer no fact holds names nothing, a
+//         counterexample refutes a coincident relation, and a cohort leaving
+//         two relations standing names none; spelled answer-first, or in
+//         another case, too;
+//   155.16 the other direction: the instances' restatements spell the
+//         relation as a fact, naming a node no context states it of, under
+//         the same contest.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -635,13 +643,149 @@ test("155.14 the relation is available where an instance and a context reach one
     fact,
     "one node, another spelling: available",
   );
-  // Two nodes: no instance names the relation.  The question may still name
-  // it by its use (`born` used as `place of birth` is, `byUse`): that reading
-  // is the company's, not the instances'.
-  await store("split");
+  // Two nodes, the same participants: the instances are read by what they
+  // answer — a fact of the filler holding it (`relationFrames`).
   assert.equal(
-    named.byInstance,
-    false,
-    "two nodes, same information: not available",
+    await store("split"),
+    fact,
+    "two nodes, same participants: available",
   );
+  assert.equal(named.byInstance, true, "two nodes: named by the answer");
+});
+
+test("155.15 a respelled answer names the relation only where no instance contradicts it", async () => {
+  // Every instance is answered `Y was born in P.` while `Y place of birth`
+  // establishes `The place of birth of Y is P.`: two nodes, the same
+  // participants.  `Y residence` may establish a fact holding P too — a
+  // relation that only coincides.  The target's residence is deposited BEFORE
+  // its birth fact, so a tie broken by deposit order voices the residence.
+  const people = ["Rira Balaz", "Defo Kumyta", "Sulo Tamev"];
+  const places = ["Gelmford", "Hosumere", "Pankridge"];
+  const x = "Pezo Zofub";
+  const others = Array.from(
+    { length: 12 },
+    (
+      _,
+      i,
+    ) => [`Lokem Tavu${String.fromCharCode(97 + i)}`, "occupation", "cooper"],
+  );
+  const ask = async (mode) => {
+    const items = [...deposits(others)];
+    people.forEach((y, i) => {
+      items.push(...deposits([[y, "occupation", "mason"]]));
+      // correlated: the last instance lives elsewhere — a counterexample;
+      // confounded: every instance lives where it was born.
+      if (mode === "correlated" || mode === "confounded") {
+        const lives = mode === "correlated" && i === people.length - 1
+          ? "Ostwick"
+          : places[i];
+        items.push(...deposits([[y, "residence", lives]]));
+      }
+      if (mode === "first") {
+        // The corpus spells the answer FIRST: what every answer shares at its
+        // end (`.`) is frame, not part of the place.
+        const f = `${places[i]} is the birthplace of ${y}.`;
+        items.push([`${y} birthplace`, f], [y, f]);
+      } else items.push(...deposits([[y, "place of birth", places[i]]]));
+      // scrambled: the answer names a place no fact of Y holds; case: the
+      // same place in another case (the response's equivalence).
+      const p = mode === "scrambled"
+        ? ["Quarnby", "Velstead", "Ombrook"][i]
+        : mode === "case"
+        ? places[i].toLowerCase()
+        : places[i];
+      items.push([`Where was ${y} born?`, `${y} was born in ${p}.`]);
+    });
+    items.push(...deposits([[x, "residence", "Lumere"]]));
+    if (mode === "first") {
+      const f = `Wadeford is the birthplace of ${x}.`;
+      items.push([`${x} birthplace`, f], [x, f]);
+    } else items.push(...deposits([[x, "place of birth", "Wadeford"]]));
+    items.push(...deposits([[x, "occupation", "weaver"]]));
+    const mind = new Mind({
+      seed: 7,
+      store: new SQliteStore({ path: ":memory:" }),
+    });
+    await mind.ingest(items);
+    let byInstance = false;
+    const a = await mind.respondText(`Where was ${x} born?`, (s) => {
+      if (s.mechanism.at(-1) === "askedByCoInstance") byInstance = true;
+    });
+    await mind.store.close();
+    return { a, byInstance };
+  };
+  const birth = `The place of birth of ${x} is Wadeford.`;
+  const lives = `The residence of ${x} is Lumere.`;
+  const split = await ask("split");
+  assert.equal(split.a, birth, "the respelled answer names the relation");
+  assert.equal(split.byInstance, true, "named by the instances");
+  const first = await ask("first");
+  assert.equal(
+    first.a,
+    `Wadeford is the birthplace of ${x}.`,
+    "an answer the corpus spells first",
+  );
+  assert.equal(first.byInstance, true, "named by the instances too");
+  const lower = await ask("case");
+  assert.equal(lower.a, birth, "an answer equal under the equivalence");
+  const scrambled = await ask("scrambled");
+  assert.equal(scrambled.byInstance, false, "an answer no fact holds: none");
+  const correlated = await ask("correlated");
+  assert.equal(correlated.a, birth, "the counterexample refutes residence");
+  assert.equal(correlated.byInstance, true, "and the instances name birth");
+  const confounded = await ask("confounded");
+  assert.equal(confounded.byInstance, false, "two relations stand: none named");
+  assert.notEqual(confounded.a, lives, "a coincidence is never voiced");
+});
+
+test("155.16 a node is named by its fact spelled as the instances restate theirs", async () => {
+  // Each instance is answered `The place of birth of Y is P.` — one node with
+  // `Y place of birth` — and Y also states `Y was born in P.`.  The target
+  // states its birth only that way: no context spells the relation around it.
+  const people = ["Rira Balaz", "Defo Kumyta", "Sulo Tamev"];
+  const places = ["Gelmford", "Hosumere", "Pankridge"];
+  const x = "Pezo Zofub";
+  const ask = async (mode) => {
+    const items = [];
+    people.forEach((y, i) => {
+      items.push(...deposits([[y, "occupation", "mason"]]));
+      if (mode !== "plain") {
+        const lives = mode === "correlated" && i === people.length - 1
+          ? "Ostwick"
+          : places[i];
+        items.push(...deposits([[y, "residence", lives]]));
+      }
+      items.push(...deposits([[y, "place of birth", places[i]]]));
+      items.push([y, `${y} was born in ${places[i]}.`]);
+      items.push([
+        `Where was ${y} born?`,
+        `The place of birth of ${y} is ${places[i]}.`,
+      ]);
+    });
+    // The coincident relation first: a tie broken by deposit order voices it.
+    if (mode !== "plain") items.push(...deposits([[x, "residence", "Lumere"]]));
+    items.push([x, `${x} was born in Wadeford.`]);
+    const mind = new Mind({
+      seed: 7,
+      store: new SQliteStore({ path: ":memory:" }),
+    });
+    await mind.ingest(items);
+    let byInstance = false;
+    const a = await mind.respondText(`Where was ${x} born?`, (s) => {
+      if (s.mechanism.at(-1) === "askedByCoInstance") byInstance = true;
+    });
+    await mind.store.close();
+    return { a, byInstance };
+  };
+  const born = `${x} was born in Wadeford.`;
+  const plain = await ask("plain");
+  assert.equal(plain.a, born, "the fact spelled as the instances restate");
+  assert.equal(plain.byInstance, true, "named by the instances");
+  const correlated = await ask("correlated");
+  assert.equal(correlated.a, born, "the counterexample refutes residence");
+  assert.equal(correlated.byInstance, true, "and the instances name birth");
+  // The instances cannot tell the two spellings apart and name none; what
+  // the approximate readings then voice is theirs, not the instances'.
+  const confounded = await ask("confounded");
+  assert.equal(confounded.byInstance, false, "two spellings stand: none");
 });

@@ -123,6 +123,15 @@ export function dominates(partLen: number, wholeLen: number): boolean {
   return partLen * 2 > wholeLen;
 }
 
+/** THE COHORT'S CUT (commonality.md): a byte is FRAME when more than
+ *  AGREEMENT of the `aligned` structures cover it and they are most of them —
+ *  what a cohort shares, against what one member shares by coincidence.  The
+ *  one cut CAST reads over its weave and an instance reading over the slot it
+ *  parts. */
+export function cohortFrame(depth: number, aligned: number): boolean {
+  return depth > AGREEMENT && dominates(depth, aligned);
+}
+
 /** SUPERPOSITION CAPACITY — how many quasi-orthogonal terms one vector can
  *  carry before an individual term stops being readable.  `√D`.
  *

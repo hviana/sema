@@ -43,7 +43,19 @@
 //   159.10 a slot parts at the longest run both forms part into two things
 //         at, not where their names share letters;
 //   159.11 a co-instance's answer is never carried over to the question, not
-//         even by the substitution bridge.
+//         even by the substitution bridge;
+//   159.12 the cohort parts every instance's slot (a name sharing letters
+//         with the question's is one form's coincidence) and refutes a
+//         derivation an instance's own thing takes to a fact not holding its
+//         answer; its instances read on to the shortest unrefuted one, and
+//         with no counterexample nothing is met by it;
+//   159.13 a derivation replays through a thing that states its facts with
+//         no context spelling the step: the fact states the relation too, at
+//         the meet as at a node;
+//   159.14 …and through a thing that states a hop only as the instances'
+//         things restate it, under the cohort's contest: a coincident
+//         spelling a counterexample refutes is not read, and two standing
+//         spellings meet nothing.
 // Control: with the instances' answers scrambled, nothing meets.
 
 import { test } from "node:test";
@@ -479,4 +491,97 @@ test("159.11 a co-instance's answer is never carried over to the question", asyn
     !instances.some((o) => a.includes(o)),
     `a co-instance's answer: ${a}`,
   );
+});
+
+test("159.12 the cohort refutes a derivation one instance's own things contradict", async () => {
+  // At every instance but the last, x's patron IS the shared grandfather: the
+  // shortest derivation from x to the answer is `· patron`.  The last
+  // instance's patron is someone else — its x takes `· patron` to a fact not
+  // holding its answer, a counterexample — so the cohort refutes `· patron`
+  // and its instances read on to `· father → · father`.  The question's own
+  // patron is someone else again, deposited first.  With no counterexample
+  // (every patron the grandfather) the instances cannot tell the two, and no
+  // meet is concluded from `· patron`.
+  const run = async (counterexample) => {
+    const nm = names();
+    const items = [];
+    const inst = [0, 1, 2, 3].map(() => cousins(items, nm));
+    inst.forEach((c, i) =>
+      deposit(items, c.x, "patron", counterexample && i === 3 ? nm() : c.g)
+    );
+    inst.forEach((c) => items.push([ask(c), `The answer is ${c.g}.`]));
+    const qx = nm(), qy = nm(), qf = nm(), qm = nm(), qg = nm();
+    deposit(items, qx, "patron", nm());
+    deposit(items, qx, "father", qf);
+    deposit(items, qy, "mother", qm);
+    deposit(items, qf, "father", qg);
+    deposit(items, qm, "father", qg);
+    deposit(items, qf, "mother", nm());
+    deposit(items, qm, "mother", nm());
+    return { ...(await respond(items, ask({ x: qx, y: qy }))), qg };
+  };
+  const refuted = await run(true);
+  assert.ok(
+    refuted.met && refuted.a.includes(refuted.qg),
+    `the counterexample refutes the patron: ${refuted.a}`,
+  );
+  const confounded = await run(false);
+  assert.ok(!confounded.met, "no counterexample: nothing is met by it");
+});
+
+test("159.13 a derivation replays through facts no context spells", async () => {
+  // The question's cousins state their family bare (`[x, "The father of x is
+  // f."]`, no `x father`): the frame's lookup finds no context, and the fact
+  // itself opens with the relation (`The father of ` + x) — the rung a node's
+  // naming reads, now the replay's too.
+  const nm = names();
+  const items = [];
+  const inst = [0, 1, 2, 3].map(() => cousins(items, nm));
+  inst.forEach((c) => items.push([ask(c), `The answer is ${c.g}.`]));
+  const qx = nm(), qy = nm(), qf = nm(), qm = nm(), qg = nm();
+  const bare = (s, r, o) => items.push([s, fact(s, r, o)]);
+  bare(qx, "father", qf);
+  bare(qy, "mother", qm);
+  bare(qf, "father", qg);
+  bare(qm, "father", qg);
+  bare(qf, "mother", nm());
+  bare(qm, "mother", nm());
+  const r = await respond(items, ask({ x: qx, y: qy }));
+  assert.ok(r.met && r.a.includes(qg), `met at the grandfather: ${r.a}`);
+});
+
+test("159.14 a derivation replays through the spelling its instances restate a hop in", async () => {
+  // Every instance's x also says `x is a child of f.` beside `The father of x
+  // is f.`; the question's x says only that.  `ward` coincides with the
+  // father at every instance but the last (refuted), or at all (a tie).
+  const said = (items, s, t, o) => items.push([s, `${s} is a ${t} of ${o}.`]);
+  const run = async (mode) => {
+    const nm = names();
+    const items = [];
+    const inst = [0, 1, 2, 3].map(() => cousins(items, nm));
+    inst.forEach((c, i) => {
+      said(items, c.x, "child", c.fx);
+      if (mode !== "plain") {
+        said(items, c.x, "ward", mode === "refuted" && i === 3 ? nm() : c.fx);
+      }
+    });
+    inst.forEach((c) => items.push([ask(c), `The answer is ${c.g}.`]));
+    const qx = nm(), qy = nm(), qf = nm(), qm = nm(), qg = nm();
+    if (mode !== "plain") said(items, qx, "ward", nm());
+    said(items, qx, "child", qf);
+    deposit(items, qy, "mother", qm);
+    deposit(items, qf, "father", qg);
+    deposit(items, qm, "father", qg);
+    deposit(items, qf, "mother", nm());
+    deposit(items, qm, "mother", nm());
+    return { ...(await respond(items, ask({ x: qx, y: qy }))), qg };
+  };
+  for (const mode of ["plain", "refuted"]) {
+    const r = await run(mode);
+    assert.ok(
+      r.met && r.a.includes(r.qg),
+      `${mode}: met at the grandfather: ${r.a}`,
+    );
+  }
+  assert.ok(!(await run("tie")).met, "two standing spellings meet nothing");
 });

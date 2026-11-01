@@ -78,14 +78,14 @@ corpus's way, as a **relation frame** (`relationFrames`). A frame counts only
 where two co-instances spell it alike, the same bar `reference` holds
 (`AGREEMENT`).
 
-`byCoInstance` puts the node into each frame and looks the result up by content.
-If `Edmond T. Gréville place of birth` exists, its continuation is named. Where
-no context spells the frame around the node, because the node's fact is
-established by its bare name alone, the fact states the relation instead. The
-co-instance's fact spells it before the entity (`The place of birth of`), and
-the node's continuation that opens with those bytes followed by the node is
-named (`test/154.17`). Neither the frame nor the equivalence is stored, and
-nothing in the reading is approximate.
+`byCoInstance` puts the node into each frame and looks the result up by content:
+`Edmond T. Gréville place of birth` names its continuation. Where no context
+spells the frame around the node (its fact established by its bare name), the
+fact states the relation: the node's continuation opening with the co-instance's
+fact before its entity (`The place of birth of`) and the node is named
+(`test/154.17`). One ladder (`stepAt`) applies a step, naming or replaying:
+context, fact, then the instances' restated spelling (`restatedSpelling`).
+Nothing is stored; nothing approximate.
 
 **One measure ranks the two readings:** the question material that evidences a
 continuation. Witnessing counts the question bytes an establishing context
@@ -300,20 +300,20 @@ available is the organization, never a fact about `x`.
 
 A step at `x` is named with no new fact about `x` exactly when:
 
-- **convergence:** an instance and an establishing context reach one fact node;
+- **convergence:** an instance and an establishing context reach one fact node,
+  or a filler's derivation reaches its answer (`x`'s too, spelled alike);
 - **identity:** frame and filler are the same bytes under the response's
   equivalence;
 - **agreement:** two fillers spell the relation alike;
 - **target:** `A·x·B` is deposited.
 
-The law is pinned by the constructed worlds of `test/154`–`test/158`. The
-contrast that fixes the information: an instance's fact respelled on one side
-(two nodes) names nothing, respelled on both (one node) names. The description
-reader (`describedSteps`) obeys the same law. Limits:
+Pins: `test/154`–`158`. Respelled on one side, a fact names by its answer,
+inferred: a filler holding the relation, no fact with its answer, refutes; two
+standing (born, lives in one town): none, in `describedSteps` too. Limits:
 
-- **Identity, not meaning.** A paraphrased frame, an alias or a fact respelled
-  on one side leaves the step unavailable to every exact reading; only the use
-  (`byUse`) crosses, approximately, below the hub.
+- **Identity, not meaning.** A paraphrased frame or an alias is unavailable to
+  every exact reading; only the use (`byUse`) crosses, approximately, below the
+  hub.
 - **Strength is not represented.** Two misleading instances weigh as eight true
   ones; only `x`'s own facts tell them apart, at the lookup of `A·x·B`. What is
   named grows with experience; that one thing is named does not.
@@ -486,7 +486,7 @@ question whose premise is absent is left unanswered (2 of 2). Limits:
   the slot; it is never voiced as the answer; traced and untraced responses
   agree; neither fusion nor a comparison takes a co-instance; a form saying the
   question and more is none; the relation is available only where an instance
-  and a context reach one node (155.14).
+  and a context reach one node or unrefuted answer (155.14–16).
 - `test/157` — a derivation of any length: three and four steps (across kinds),
   each frame by its own sequence, in order; the reading or frame that explains
   more of the question names the step; what the slot says (its entity, the

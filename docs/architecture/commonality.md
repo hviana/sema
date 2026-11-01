@@ -24,11 +24,11 @@ the container-as-hub saturation in `saturation.md`).
 
 **The cohort: the structures aligned to this question.**
 
-- Measure: `depth[i]`, the number of distinct structures in the weave that cover
-  byte `i`. They are counted as distinct, never by weight.
-- Cut: `frame(i) ⇔ depth[i] > AGREEMENT ∧ dominates(depth[i], aligned)`, with
-  `AGREEMENT = 2`, because a pair is ambiguous when insertions are possible.
-- Read by CAST (`cast.ts`).
+- Measure: `depth[i]`, the distinct structures (the weave's, or instances)
+  covering byte `i`, never weight.
+- Cut (`cohortFrame`): `depth[i] > AGREEMENT ∧ dominates(depth[i], aligned)`; a
+  pair (`AGREEMENT = 2`) is ambiguous when insertions are possible.
+- Read by CAST and the two-thing reading's slot (`confluence.md`).
 
 **Places: where a window occurs.**
 

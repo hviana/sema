@@ -57,23 +57,23 @@ birthplace asked in words no stored context spells
 ## Where instances show how the constraints meet
 
 A question about two things (`Who is the shared grandfather of A and B?`) is
-read off its instances the way a one-thing question is (`evidence.md`), with the
-slot parted at the longest run the two forms share (`and`) where each side holds
-a thing learnt whole (`convergenceOf`), not where names share letters. An
-instance answered `The answer is G.` shows a CONVERGENCE: each of its things
-reaches a fact holding the answer, by a derivation of its own
-(`· father → · father` from A, `· mother → · father` from B, the shortest path
-the corpus holds). The answer is what the instance's continuation holds beyond
-the frame every instance's continuation shares (`The answer is` and `.`),
-exactly; a shared part shorter than one window is not frame. An answer that is
-itself a fact (`The father of Konrad Fenwick is Ignatius Fenwick.`) holds more
-than one thing: the run every other instance's answer holds inside it (`is`)
-parts it into pieces, as a shared run parts the slot. Where both things reach
-the whole answer, it is the instance's; else each piece both reach is a reading,
-and agreement between instances decides. The bytes around the entity stood on
-and the answer are that last fact's ANSWER FRAME (`The father of`, the entity,
-the answer). Two instances spelling the same pair of derivations and frames
-agree, whichever parting read them.
+read off its instances the way a one-thing question is (`evidence.md`), the slot
+parted where its cohort shares the question (`and`, `cohortFrame`), each side a
+thing learnt whole (`convergenceOf`). An instance answered `The answer is G.`
+shows a CONVERGENCE: each of its things reaches a fact holding the answer, by a
+derivation of its own (`· father → · father` from A, `· mother → · father` from
+B), the shortest the cohort does not refute: an instance whose own thing takes
+it, with what every meeting entity holds, to no fact holding its answer. The
+answer is what the instance's continuation holds beyond the frame every
+instance's continuation shares (`The answer is`, `.`); a shared part under one
+window is not frame. An answer that is itself a fact
+(`The father of Konrad Fenwick is Ignatius Fenwick.`) holds more than one thing:
+the run every other instance's answer holds inside it (`is`) parts it into
+pieces, as a shared run parts the slot. Where both things reach the whole
+answer, it is the instance's; else each piece both reach is a reading, and
+agreement between instances decides. The bytes around the entity stood on and
+the answer are that last fact's ANSWER FRAME. Two instances spelling the same
+pair of derivations and frames agree.
 
 At the question, each derivation is replayed from its own thing, the answer is
 read off each last fact by its frame, and the two are compared byte for byte

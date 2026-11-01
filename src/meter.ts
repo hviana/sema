@@ -337,11 +337,16 @@ export class Meter {
    *  entity that is what every instance's was there (traverse.ts,
    *  `byCoInstance`, `factFrames`). */
   conditionWithheld = 0;
+  /** Instances read into a one-thing reading's cohort: each one's answer cut
+   *  and its filler's facts read once, for the arrival by the answer, the
+   *  contest and the restated spelling (traverse.ts, `relationFrames`). */
+  answerArrivals = 0;
   /** Forms read as instances of a question about two things, their things
    *  parted around a shared run (traverse.ts, `convergenceOf`). */
   convergenceReads = 0;
   /** Co-instances read off the reach of the question's rarest frame window,
-   *  beside the climb's own points (traverse.ts, `relationFrames`). */
+   *  beside the climb's own points (traverse.ts, `relationFrames`,
+   *  `readConvergence`). */
   coInstanceSiblings = 0;
   /** Role profiles read: one span's windows bound to where they stand
    *  (role.ts, `roleIn`). */

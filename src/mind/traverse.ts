@@ -11,6 +11,7 @@ import {
   AGREEMENT,
   boundFor,
   chainReach,
+  cohortFrame,
   conceptThreshold,
   dominates,
   instanceCap,
@@ -2692,33 +2693,20 @@ function byCoInstance(
       }
     }
   };
-  const at = (prefix: Uint8Array, suffix: Uint8Array): number | null => {
-    const t = resolve(ctx, filled({ prefix, suffix }, node));
-    return t === null || t === id ? null : t;
+  // A step names at this node by the one ladder (`stepAt`).
+  const reach = (
+    step: Step,
+    fr: RelationFrame,
+    chain: boolean,
+    cond?: Map<string, Step>,
+  ): boolean => {
+    const r = stepAt(ctx, step, { id, bytes: node }, () => nx);
+    if (r === null) return false;
+    if ("context" in r) credit(fr, r.context, chain, cond);
+    else for (const n of r.facts) credit(fr, n, chain, cond, true);
+    return true;
   };
-  // THE FACT STATES THE RELATION TOO.  Where no context spells the frame
-  // around this node (`Gaston Roudès` is established by its bare name alone,
-  // so `Gaston Roudès place of birth` is nowhere), the continuation whose bytes
-  // open with the frame's FACT around the node (`The place of birth of ` +
-  // `Gaston Roudès`) is the one the instances' relation reaches — exact bytes
-  // of the node's own continuations, as the frame's lookup is.
-  const byFact = (step: Step): number | null => {
-    if (step.fact === undefined) return null;
-    const want = concatBytes([step.fact, node]);
-    for (const n of nx) {
-      if (bytesEqual(read(ctx, n, want.length), want)) return n;
-    }
-    return null;
-  };
-  for (const fr of frames) {
-    if (fr.not === id) continue;
-    const t = at(fr.prefix, fr.suffix);
-    if (t !== null) credit(fr, t, false);
-    else {
-      const n = byFact(fr);
-      if (n !== null) credit(fr, n, false, undefined, true);
-    }
-  }
+  for (const fr of frames) if (fr.not !== id) reach(fr, fr, false);
   for (const fr of chains) {
     // The FIRST step applies to the thing the question names — its own filler,
     // resolved — and step i+1 only to an entity the replay of steps 1..i from
@@ -2733,12 +2721,7 @@ function byCoInstance(
       i = fr.replay.findIndex((reached) => reached.has(id)) + 1;
       if (i === 0) continue;
     }
-    const t = at(all[i].prefix, all[i].suffix);
-    if (t !== null) credit(fr, t, true, fr.cond?.[i]);
-    else {
-      const n = byFact(all[i]);
-      if (n !== null) credit(fr, n, true, fr.cond?.[i], true);
-    }
+    reach(all[i], fr, true, fr.cond?.[i]);
   }
   // ONE MEASURE.  The frames naming a continuation rank by the question
   // material they share — the measure witnessing is ranked by — so `· father`,
@@ -2785,11 +2768,9 @@ function byCoInstance(
  *  `Z father` leads to `The father of Z is Y.` and `Y mother` to the answer),
  *  so the relation is the pair `· father`, `· mother`, followed in order from
  *  the question's own filler (`filler`). */
-interface RelationFrame {
+interface RelationFrame extends Step {
   /** The co-instances that spell the relation this way (first one traced). */
   by: number[];
-  prefix: Uint8Array;
-  suffix: Uint8Array;
   spans: Array<[number, number]>;
   /** The steps after the first, in order (a derivation of any length). */
   then?: Step[];
@@ -3013,7 +2994,38 @@ function relationFrames(
     });
     fr.held.forEach((h, i) => h.add(q, to[i]));
   };
+  // The FRAME's relation is what follows what the slot already said: an
+  // instance whose derivation does not begin with its slot's steps reads
+  // nothing, and one whose slot says it all asks for the entity it names.
+  const spellSteps = (
+    q: number,
+    co: { spans: Array<[number, number]>; open: number; close: number },
+    said: Step[],
+    steps: Array<[Step, Step[] | undefined]>,
+  ): void => {
+    for (const [one, two] of steps) {
+      const all = [one, ...(two ?? [])];
+      if (!startsWith(all, said)) continue;
+      const own = all.slice(said.length);
+      if (own.length === 0) continue;
+      spell(
+        q,
+        co,
+        own[0],
+        own.length > 1 ? own.slice(1) : undefined,
+        own.slice(0, -1).map((st) => st.to),
+      );
+    }
+  };
   const seen = new Set<number>();
+  // The instances read with a filler, and whether their derivation reached
+  // the node they are answered with.
+  const instances: Array<{
+    q: number;
+    co: { spans: Array<[number, number]>; open: number; close: number };
+    filler: { id: number; said: Step[] };
+    reached: boolean;
+  }> = [];
   let frame: Array<[number, number]> | null = null;
   let frameSize = 0;
   // Whether `q` shares a frame with the question — what the question-entity
@@ -3048,23 +3060,8 @@ function relationFrames(
       formCap,
       allowance,
     );
-    // The FRAME's relation is what follows what the slot already said: an
-    // instance whose derivation does not begin with its slot's steps reads
-    // nothing, and one whose slot says it all asks for the entity it names.
-    const said = r.filler.said;
-    for (const [one, two] of r.steps) {
-      const all = [one, ...(two ?? [])];
-      if (!startsWith(all, said)) continue;
-      const own = all.slice(said.length);
-      if (own.length === 0) continue;
-      spell(
-        q,
-        co,
-        own[0],
-        own.length > 1 ? own.slice(1) : undefined,
-        own.slice(0, -1).map((st) => st.to),
-      );
-    }
+    instances.push({ q, co, filler: r.filler, reached: r.steps.length > 0 });
+    spellSteps(q, co, r.filler.said, r.steps);
     return true;
   };
   const proposals = instanceProposals(ctx, whole!, allowance, cache);
@@ -3132,6 +3129,130 @@ function relationFrames(
       if (consider(q)) shown = true;
     }
   }
+  // ONE FACT, TWO SPELLINGS.  An instance answered `Y was born in P.` whose
+  // filler's context establishes `The place of birth of Y is P.` holds one
+  // fact as two nodes.  The instances read are a cohort: each continuation,
+  // its filler cut out, holds what every one shares there (the frame) and what
+  // differs (its answer, `P`).  A fact the filler's shortest derivation
+  // reaches holding that answer exactly — the arrival a question about two
+  // things reads too (`pathToFact`) — RESTATES it.  Two readings follow, each
+  // only where the exact one leaves the question:
+  //   - no instance's own node named a relation: the restatement's
+  //     establishing contexts spell it, as the corpus files it;
+  //   - one did: the restatement spells the relation as a FACT, so a node no
+  //     context states it of is named by its fact so spelled (`X was born in
+  //     W.`), where the frame's lookup finds nothing.
+  // A RESTATEMENT IS INFERRED, NOT FILED: shared participants also witness a
+  // relation that only coincides (born and living in one place).  So each
+  // reading is contested by the cohort: an instance whose filler holds the
+  // relation, and no fact of it holding its answer, is a counterexample (read
+  // whole: a capped read concludes nothing); a cohort that leaves two
+  // relations standing cannot tell which its answers are, and names none.
+  let restated: RelationFrame[] | undefined;
+  const exact = spelled.anyAgreed();
+  // The cohort and its restatements — read only when a reading needs them.
+  let cohortMemo: ReturnType<typeof readCohort> | undefined;
+  const readCohort = () => {
+    const bound = hubBound(ctx);
+    const cut = instances.flatMap((u) => {
+      const filler = read(ctx, u.filler.id, formCap);
+      return ctx.store.nextFirst(u.q, W).flatMap((f) => {
+        const s = stepAround(read(ctx, f, formCap + 1), filler);
+        return s === null ? [] : [{ u, f, filler, s }];
+      });
+    });
+    const cohort = cut.flatMap((c) => {
+      const others = cut.filter((o) => o.u.q !== c.u.q);
+      const answer = (["prefix", "suffix"] as const).flatMap((side) => {
+        const a = c.s[side];
+        // What the WHOLE cohort shares at an end is its frame, however
+        // short: the `.` every answer closes with is no part of `P`, which a
+        // spelling opening with the answer (`P is the birthplace of Y.`)
+        // never follows with it.
+        const at = pastShared(a, others.map((o) => o.s[side]), W, 1);
+        return at === null ? [] : [a.subarray(at[0], a.length - at[1])];
+      });
+      if (answer.length === 0) return [];
+      if (ctx.meter) ctx.meter.answerArrivals++;
+      const facts = ctx.store.nextFirst(c.u.filler.id, bound);
+      return [{ ...c, answer, facts: facts.length < bound ? facts : null }];
+    });
+    // Whether the cohort contradicts a relation (`refutes`): `factsAt` reads
+    // what it yields at an instance's filler — null where it holds none.
+    const refuted = (
+      factsAt: (c: (typeof cohort)[number]) => number[] | null,
+    ): boolean =>
+      cohort.some((c) =>
+        refutes(factsAt(c), (g) => holdsAnswer(ctx, g, c.answer, formCap))
+      );
+    return { cohort, refuted };
+  };
+  const cohortRead = () => (cohortMemo ??= readCohort());
+  if (instances.length > 1 && !exact && instances.some((u) => !u.reached)) {
+    const { cohort, refuted } = cohortRead();
+    for (const c of cohort) {
+      if (c.u.reached) continue;
+      // The ARRIVAL BY THE ANSWER a two-thing reading reads too
+      // (`pathToFact`): the shortest derivation from the thing to a fact
+      // holding what the instance answers.
+      spellSteps(
+        c.u.q,
+        c.u.co,
+        c.u.filler.said,
+        pathToFact(
+          ctx,
+          c.u.filler.id,
+          c.filler,
+          (g) => g !== c.f && holdsAnswer(ctx, g, c.answer, formCap),
+          allowance,
+          formCap,
+          c.u.q,
+        ).map(({ steps: [one, ...rest] }): [Step, Step[] | undefined] => [
+          one,
+          rest.length > 0 ? rest : undefined,
+        ]),
+      );
+    }
+    const standing = spelled.agreed().filter((fr) =>
+      fr.then !== undefined ||
+      !refuted((c) => {
+        // What the relation yields at the member's thing, by the one ladder.
+        const r = stepAt(
+          ctx,
+          fr,
+          { id: c.u.filler.id, bytes: c.filler },
+          () => c.facts ?? [],
+        );
+        if (r === null) return null;
+        const fs = "context" in r
+          ? ctx.store.nextFirst(r.context, allowance)
+          : r.facts;
+        return fs.length < allowance ? fs : null;
+      })
+    );
+    restated = standing.length === 1 ? standing : [];
+  }
+  const one = spelled.agreed().filter((fr) => fr.then === undefined);
+  if (exact && instances.length > 1 && one.length === 1) {
+    // Read only when a node's frame lookup and fact both find nothing.
+    let as: AnswerFrame | null | undefined;
+    one[0].restated = () =>
+      as ??= restatedSpelling(
+        ctx,
+        cohortRead().cohort.flatMap((c) =>
+          c.u.reached && c.answer.length === 1
+            ? [{
+              q: c.u.q,
+              stand: c.filler,
+              value: c.answer[0],
+              facts: c.facts,
+              own: [c.f],
+            }]
+            : []
+        ),
+        formCap,
+      );
+  }
   // ONE INSTANCE AGREES WITH NOTHING.  A relation is read off the corpus only
   // where two co-instances spell it the same way — the agreement `reference`
   // demands of a frame (AGREEMENT), for the same reason: a single
@@ -3143,7 +3264,7 @@ function relationFrames(
       fr.cond = fr.held.map((h) => h.facts()!);
     }
   }
-  frames.push(...spelled.agreed());
+  frames.push(...(restated ?? spelled.agreed()));
   if (ctx.trace && seen.size > 0) {
     const show = (fr: RelationFrame): string =>
       `${decodeText(fr.prefix)}·${decodeText(fr.suffix)}` +
@@ -3168,10 +3289,66 @@ function relationFrames(
       [],
       `${seen.size} form(s) read; frames ${
         [...spelled.all.values()].map(show).join("; ")
-      } — ${frames.length} spelled alike by two or more`,
+      } — ${frames.length} spelled alike by two or more` +
+        (restated === undefined
+          ? ""
+          : `, read by the answer where no instance reached its own node ` +
+            `(${spelled.agreed().length} agreed, ${restated.length} named: ` +
+            `a relation stands if no instance contradicts it, and alone)`),
     );
   }
   return frames;
+}
+
+/** Where a continuation's answer lies past what every other instance's
+ *  continuation shares with it at its two ends (the frame), as the lengths
+ *  `[before, after]` to cut — or null when less than one window is left.
+ *  A shared end shorter than `floor` is no frame: between two answers a
+ *  letter shared by chance (`…way.`, `…bury.`) stays theirs. */
+function pastShared(
+  a: Uint8Array,
+  others: Uint8Array[],
+  W: number,
+  floor = W,
+): [number, number] | null {
+  let pre = a.length, suf = a.length;
+  for (const o of others) {
+    const [i, j] = sharedEnds(a, o);
+    pre = Math.min(pre, i);
+    suf = Math.min(suf, j);
+  }
+  if (pre < floor) pre = 0;
+  if (suf < floor) suf = 0;
+  return pre + suf < a.length && a.length - pre - suf >= W ? [pre, suf] : null;
+}
+
+/** PARTIAL COMPLETENESS, the one counterexample of every reading off a
+ *  population: a member refutes a relation that applies to it — yields
+ *  `facts`, read whole (null: unread or not applying) — when none of them
+ *  holds its own answer.  An empty or capped read concludes nothing. */
+function refutes(
+  facts: number[] | null,
+  holds: (g: number) => boolean,
+): boolean {
+  return facts !== null && facts.length > 0 && !facts.some(holds);
+}
+
+/** Where fact bytes `gb` hold an answer piece, exactly under the response's
+ *  equivalence (`offsetCanon`, so the offset is the raw bytes' too); -1 when
+ *  they do not. */
+function answerAt(ctx: MindContext, gb: Uint8Array, piece: Uint8Array): number {
+  return indexOf(offsetCanon(ctx, gb), offsetCanon(ctx, piece), 0);
+}
+
+/** Whether fact `g` holds every piece of an instance's answer. */
+function holdsAnswer(
+  ctx: MindContext,
+  g: number,
+  answer: Uint8Array[],
+  formCap: number,
+): boolean {
+  const gb = read(ctx, g, formCap + 1);
+  return answer.every((p) => answerAt(ctx, gb, p) >= 0);
 }
 
 /** One step of a derivation: a frame around the entity it stands on.  A step
@@ -3183,8 +3360,12 @@ type Step = {
   to?: { id: number; bytes: Uint8Array };
   /** What the step's FACT spells before the entity (`The place of birth of `),
    *  at least one window: the relation as the fact itself states it, for an
-   *  entity no context states it of (`byCoInstance`). */
+   *  entity no context states it of (`stepAt`). */
   fact?: Uint8Array;
+  /** The relation as the instances' RESTATEMENTS spell it (`· was born in
+   *  ·.`), uncontradicted by their cohort (`restatedSpelling`) — read on
+   *  first need; the ladder's third rung (`stepAt`). */
+  restated?: () => AnswerFrame | null;
 };
 
 /** The STEP the bytes `cb` of a context are around `x`: `cb` with its first
@@ -3196,6 +3377,86 @@ function stepAround(cb: Uint8Array, x: Uint8Array): Step | null {
   return at < 0
     ? null
     : { prefix: cb.subarray(0, at), suffix: cb.subarray(at + x.length) };
+}
+
+/** WHAT A STEP REACHES FROM A THING — one ladder, for naming at a node
+ *  (`byCoInstance`) and for replaying a derivation (`replayOf`: chains, the
+ *  two-thing meet, the cohort's contest): the context the frame spells around
+ *  the thing (`Z father`), else — where no context spells it, the thing
+ *  established by its bare name alone — the thing's own facts opening with the
+ *  relation as the fact states it (`The place of birth of ` + the thing): THE
+ *  FACT STATES THE RELATION TOO — else its facts spelled as the instances
+ *  restate the step (`restated`, the third rung).  Exact bytes on every rung;
+ *  null where none holds. */
+function stepAt(
+  ctx: MindContext,
+  step: Step,
+  thing: { id: number; bytes: Uint8Array },
+  own: () => readonly number[],
+): { context: number } | { facts: number[] } | null {
+  const t = resolve(ctx, filled(step, thing.bytes));
+  if (t !== null && t !== thing.id) return { context: t };
+  if (step.fact !== undefined) {
+    const want = concatBytes([step.fact, thing.bytes]);
+    const facts = own().filter((n) =>
+      bytesEqual(read(ctx, n, want.length), want)
+    );
+    if (facts.length > 0) return { facts };
+  }
+  // …else the thing's facts spelled as the instances restate the step's.
+  const as = step.restated?.() ?? null;
+  if (as === null) return null;
+  const facts = own().filter((n) =>
+    answerIn(read(ctx, n), thing.bytes, as) !== null
+  );
+  return facts.length > 0 ? { facts } : null;
+}
+
+/** THE SPELLING A COHORT RESTATES A STEP IN — one reading for a one-thing
+ *  frame and for every hop of a derivation.  Each member stands on a thing
+ *  (`stand`) whose step reaches `value` (the answer, or the next entity), and
+ *  its other facts holding that value restate the step (the ones the rungs
+ *  before reach, `own`, excepted): each spelled around stand and value as an
+ *  ANSWER FRAME (`· was born in ·.`).  Corroborated as every reading off a
+ *  population: agreed by AGREEMENT members, refuted by a member whose stand
+ *  holds a fact so spelled none of which holds its value (`refutes`), and a
+ *  tie of standing spellings — a coincidence the cohort cannot tell apart —
+ *  names none. */
+function restatedSpelling(
+  ctx: MindContext,
+  members: Array<{
+    q: number;
+    stand: Uint8Array;
+    value: Uint8Array;
+    facts: number[] | null;
+    own: number[];
+  }>,
+  formCap: number,
+): AnswerFrame | null {
+  const spells = new Spellings<{ by: number[]; frame: AnswerFrame }>();
+  for (const m of members) {
+    for (const g of m.facts ?? []) {
+      if (m.own.includes(g)) continue;
+      const gb = read(ctx, g, formCap + 1);
+      const at = answerAt(ctx, gb, m.value);
+      if (at < 0) continue;
+      const fr = answerFrameOf(gb, m.stand, [at, at + m.value.length]);
+      if (fr !== null) {
+        spells.spell(frameKey(fr), m.q, () => ({ by: [], frame: fr }));
+      }
+    }
+  }
+  const standing = spells.agreed().filter((sp) =>
+    !members.some((m) =>
+      refutes(
+        m.facts?.filter((g) =>
+          answerIn(read(ctx, g, formCap + 1), m.stand, sp.frame) !== null
+        ) ?? null,
+        (g) => answerAt(ctx, read(ctx, g, formCap + 1), m.value) >= 0,
+      )
+    )
+  );
+  return standing.length === 1 ? standing[0].frame : null;
 }
 
 /** What a step spells around `x` — the inverse of {@link stepAround}. */
@@ -3677,9 +3938,17 @@ function replayOf(
     if (final && last === undefined) break;
     const next = new Map<number, Uint8Array>();
     for (const [e, bytes] of front) {
-      const t = resolve(ctx, filled(step, bytes));
-      if (t === null) continue;
-      for (const g of capped(ctx, t, allowance)) {
+      const r = stepAt(
+        ctx,
+        step,
+        { id: e, bytes },
+        () => capped(ctx, e, allowance),
+      );
+      if (r === null) continue;
+      const facts = "context" in r
+        ? capped(ctx, r.context, allowance)
+        : r.facts;
+      for (const g of facts) {
         if (final) {
           last!(g, bytes);
           continue;
@@ -3717,6 +3986,9 @@ function pathToFact(
   /** A context that may not spell a step: the instance itself, whose own
    *  spelling is the question's frame, not a relation. */
   except?: number,
+  /** Derivations the instances' cohort refuted: an arrival by one is no
+   *  arrival, so the search reads on to the next shortest. */
+  refused?: (steps: Step[]) => boolean,
 ): Array<{ steps: Step[]; fact: number; stand: Uint8Array }> {
   const bound = hubBound(ctx);
   let found: Array<{ steps: Step[]; fact: number; stand: Uint8Array }> = [];
@@ -3737,6 +4009,7 @@ function pathToFact(
         )
       ) {
         for (const way of s.ways) {
+          if (refused?.([...way, step])) continue;
           out.push([...way, step]);
           found.push({ steps: [...way, step], fact: g, stand: s.bytes });
         }
@@ -3913,22 +4186,80 @@ function readConvergence(
     alts: string[];
     f: Uint8Array;
   }> = [];
-  let x: ConvergenceReading["x"] | null = null;
+  // Set by `spellShown` (a closure), so not narrowed here.
+  let x = null as ConvergenceReading["x"] | null;
   // The forms are the ones `relationFrames` read as instances of this
   // question: their bytes are on the question's book.
   const book = instanceBook(whole);
-  const consider = (q: number): void => {
+  // The forms that share the question's frame, each with the runs its slot
+  // shares with the question's.
+  const forms: Array<{
+    q: number;
+    r: InstanceReading;
+    co: { spans: Array<[number, number]>; open: number; close: number };
+    runs: Array<[number, number, number]>;
+  }> = [];
+  let shownFrame: Array<[number, number]> | null = null;
+  const gather = (q: number): void => {
     const read_ = bookInstance(ctx, book, q, formCap, whole);
     if (read_ === null) return;
     const { r, co } = read_;
-    const raw = r.raw;
-    const form = offsetCanon(ctx, raw);
+    const form = offsetCanon(ctx, r.raw);
     const fs = form.subarray(co.open, form.length - co.close);
     const qs = Q.subarray(co.open, Q.length - co.close);
-    // The slot parts where the two forms share a run: the longest — and,
-    // where the question holds no two things there (names sharing letters:
-    // `… Thornbury` against `… Thornbury and …`), the next it parts at.
     const runs = sharedRuns(fs, qs, W);
+    if (runs.length === 0) return;
+    forms.push({ q, r, co, runs });
+    shownFrame ??= co.spans;
+  };
+  for (const q of proposals) gather(q);
+  // ONE REGION VOTES FOR ONE CONTEXT, so the points hold a draw of the
+  // frame's instances: the frame an instance has shown reads its siblings, as
+  // the one-thing reading does (`siblingInstances`).
+  if (shownFrame !== null) {
+    for (const q of siblingInstances(ctx, Q, shownFrame, allowance)) {
+      if (proposals.includes(q)) continue;
+      if (ctx.meter) ctx.meter.coInstanceSiblings++;
+      gather(q);
+    }
+  }
+  // THE COHORT PARTS THE SLOT (commonality.md): a byte of the question is
+  // frame where more than AGREEMENT of the forms share it and they are most of
+  // the forms read — CAST's cut, over this cohort.  A form's names sharing
+  // letters with the question's (`Juliana Ashcombe and …` against
+  // `Cedric Ashcombe and …`) is one form's coincidence, not the frame.
+  const depth = new Uint16Array(Q.length);
+  for (const f of forms) {
+    const cover = new Uint8Array(Q.length);
+    for (const [, qa, len] of f.runs) {
+      cover.fill(1, f.co.open + qa, f.co.open + qa + len);
+    }
+    for (let i = 0; i < Q.length; i++) depth[i] += cover[i];
+  }
+  const isFrame = (i: number): boolean => cohortFrame(depth[i], forms.length);
+  const consider = (form: (typeof forms)[number]): void => {
+    const { q, r, co } = form;
+    const raw = r.raw;
+    // Each shared run parts the slot only where the cohort's frame lies: its
+    // longest frame segment, at least one window, is where it parts.
+    const runs = form.runs.flatMap(
+      ([fa, qa, len]): Array<[number, number, number]> => {
+        let best: [number, number, number] | null = null;
+        for (let i = 0; i < len;) {
+          if (!isFrame(co.open + qa + i)) {
+            i++;
+            continue;
+          }
+          let j = i;
+          while (j < len && isFrame(co.open + qa + j)) j++;
+          if (j - i >= W && (best === null || j - i > best[2])) {
+            best = [fa + i, qa + i, j - i];
+          }
+          i = j;
+        }
+        return best === null ? [] : [best];
+      },
+    ).sort((a, b) => b[2] - a[2] || a[1] - b[1]);
     if (runs.length === 0) return;
     const [fa, qa, len] = runs[0];
     // What the instance shows comes first: its things, and the derivation
@@ -3951,64 +4282,26 @@ function readConvergence(
       candidates.push({ q, raw, e1, e2, key, alts, f: read(ctx, f) });
     }
   };
-  for (const q of proposals) consider(q);
-  // WHAT AN INSTANCE ANSWERS is what its continuation holds beyond the frame
-  // every instance's continuation shares (`The answer is ` … `.`) — the filler
-  // of the answers, read as a co-instance's is: frame shared, filler differs.
-  for (const c of candidates) {
-    let pre = c.f.length, suf = c.f.length;
-    for (const o of candidates) {
-      if (o.q === c.q) continue;
-      const [i, j] = sharedEnds(c.f, o.f);
-      pre = Math.min(pre, i);
-      suf = Math.min(suf, j);
-    }
-    // Less than one window of frame is no frame — a letter the answers share
-    // by chance (`…way.`, `…bury.`) stays theirs.
-    if (pre < W) pre = 0;
-    if (suf < W) suf = 0;
-    if (pre + suf >= c.f.length) continue;
-    const answer = c.f.subarray(pre, c.f.length - suf);
-    if (answer.length < W) continue;
-    // An answer that is itself a fact (`Konrad Fenwick is Ignatius Fenwick.`)
-    // holds more than one thing: the run every other instance's answer holds
-    // inside it too (` is `) parts it into pieces, as a shared run parts a
-    // slot.
-    const fillers = candidates.filter((o) => o.q !== c.q).map((o) =>
-      o.f.subarray(pre, o.f.length - suf)
-    );
-    let pieces: Uint8Array[] = [];
-    const sep = innerRunOfAll(answer, fillers, W);
-    if (sep !== null) {
-      pieces = [answer.subarray(0, sep[0]), answer.subarray(sep[1])].filter((
-        p,
-      ) => p.length >= W);
-    }
-    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${formCap}:` +
-      bytesKey(answer, ...pieces);
-    let shown = memo?.converges.get(ik);
-    if (shown === undefined) {
-      if (ctx.meter) ctx.meter.convergenceReads++;
-      shown = instanceConvergence(
-        ctx,
-        c.raw,
-        c.e1,
-        c.e2,
-        [answer, ...pieces],
-        allowance,
-        formCap,
-      );
-      memo?.converges.set(ik, shown);
-    }
-    if (shown.length === 0) continue;
+  for (const form of forms) consider(form);
+  const cohort: Array<{
+    c: (typeof candidates)[number];
+    answers: Uint8Array[];
+    shown: Array<[Arrival, Arrival]>;
+  }> = [];
+  // Spells what one instance shows, at the question's own things.
+  const spellShown = (
+    c: (typeof candidates)[number],
+    shown: Array<[Arrival, Arrival]>,
+  ): void => {
+    if (shown.length === 0) return;
     let asked = askedAt(c.key);
     for (const k of c.alts) {
       if (asked !== null) break;
       asked = askedAt(k);
       if (asked !== null) c.key = k;
     }
-    if (asked === null) continue;
-    if (c.e1.id === asked[0].id && c.e2.id === asked[1].id) continue;
+    if (asked === null) return;
+    if (c.e1.id === asked[0].id && c.e2.id === asked[1].id) return;
     // Forms part the slot where their names happen to share letters
     // (`Rains and ` against `Evans and `); the question's things are what
     // the instances are about, whichever parting read them.
@@ -4040,8 +4333,127 @@ function readConvergence(
       cv.held!.add(c.q, thingIn(ctx, a.name));
       x ??= asked;
     }
+  };
+  // WHAT AN INSTANCE ANSWERS is what its continuation holds beyond the frame
+  // every instance's continuation shares (`The answer is ` … `.`) — the filler
+  // of the answers, read as a co-instance's is: frame shared, filler differs.
+  for (const c of candidates) {
+    const cut = pastShared(
+      c.f,
+      candidates.filter((o) => o.q !== c.q).map((o) => o.f),
+      W,
+    );
+    if (cut === null) continue;
+    const [pre, suf] = cut;
+    const answer = c.f.subarray(pre, c.f.length - suf);
+    // An answer that is itself a fact (`Konrad Fenwick is Ignatius Fenwick.`)
+    // holds more than one thing: the run every other instance's answer holds
+    // inside it too (` is `) parts it into pieces, as a shared run parts a
+    // slot.
+    const fillers = candidates.filter((o) => o.q !== c.q).map((o) =>
+      o.f.subarray(pre, o.f.length - suf)
+    );
+    let pieces: Uint8Array[] = [];
+    const sep = innerRunOfAll(answer, fillers, W);
+    if (sep !== null) {
+      pieces = [answer.subarray(0, sep[0]), answer.subarray(sep[1])].filter((
+        p,
+      ) => p.length >= W);
+    }
+    const ik = `${c.q}:${c.e1.id}:${c.e2.id}:${formCap}:` +
+      bytesKey(answer, ...pieces);
+    let shown = memo?.converges.get(ik);
+    if (shown === undefined) {
+      if (ctx.meter) ctx.meter.convergenceReads++;
+      shown = instanceConvergence(
+        ctx,
+        c.raw,
+        c.e1,
+        c.e2,
+        [answer, ...pieces],
+        allowance,
+        formCap,
+      );
+      memo?.converges.set(ik, shown);
+    }
+    cohort.push({ c, answers: [answer, ...pieces], shown });
+    spellShown(c, shown);
   }
-  const frames = spelled.agreed();
+  // THE COHORT CONTESTS WHAT IT AGREED ON — partial completeness, the one
+  // counterexample of every reading off a population (`refutes`): a side's
+  // derivation is refuted by an instance whose own thing takes it, replayed
+  // whole, to facts none of which holds its answer (a patron who is every
+  // grandfather but one).  The relation contested is the derivation WITH what
+  // every instance's meeting entity holds (`HeldByAll`): a value lacking it is
+  // filtered, not a counterexample — of two shared grandparents, the surgeon
+  // is the answer on whichever side it stands.  The instances that showed a
+  // refuted derivation read on to the shortest the cohort does not refute.
+  const stepsKey = (steps: Step[]) =>
+    bytesKey(...steps.flatMap((t) => [t.prefix, t.suffix]));
+  const refused = [new Set<string>(), new Set<string>()];
+  let contested = false;
+  for (const cv of spelled.agreed()) {
+    const cond = cv.held!.facts();
+    cv.steps.forEach((steps, k) => {
+      const key = stepsKey(steps);
+      if (refused[k].has(key)) return;
+      const out = cohort.some(({ c, answers }) => {
+        const facts: number[] = [];
+        replayOf(
+          ctx,
+          (k === 0 ? c.e1 : c.e2).id,
+          steps,
+          formCap,
+          allowance,
+          [],
+          (g, stand) => {
+            if (cond !== null && cond.size > 0) {
+              const name = answerIn(read(ctx, g), stand, cv.answers[k]);
+              const t = name === null ? null : thingIn(ctx, name);
+              if (t === null || !satisfies(ctx, t.bytes, cond)) return;
+            }
+            facts.push(g);
+          },
+        );
+        return refutes(
+          facts.length < allowance ? facts : null,
+          (g) => answers.some((a) => indexOf(read(ctx, g), a, 0) >= 0),
+        );
+      });
+      if (out) {
+        refused[k].add(key);
+        contested = true;
+      }
+    });
+  }
+  if (contested) {
+    for (const m of cohort) {
+      if (
+        !m.shown.some(([a, b]) =>
+          refused[0].has(stepsKey(a.steps)) || refused[1].has(stepsKey(b.steps))
+        )
+      ) continue;
+      if (ctx.meter) ctx.meter.convergenceReads++;
+      const again = instanceConvergence(
+        ctx,
+        m.c.raw,
+        m.c.e1,
+        m.c.e2,
+        m.answers,
+        allowance,
+        formCap,
+        [
+          (st) => refused[0].has(stepsKey(st)),
+          (st) => refused[1].has(stepsKey(st)),
+        ],
+      );
+      m.shown.push(...again);
+      spellShown(m.c, again);
+    }
+  }
+  const frames = spelled.agreed().filter((cv) =>
+    cv.steps.every((st, k) => !refused[k].has(stepsKey(st)))
+  );
   for (const c of frames) {
     const all = new Uint8Array(Q.length).fill(1);
     for (const m of c.shared!) {
@@ -4055,6 +4467,56 @@ function readConvergence(
     delete c.held;
     c.explains = maskSpans(all);
     delete c.shared;
+    // EVERY HOP CARRIES THE SPELLING ITS COHORT RESTATES IT IN
+    // (`restatedSpelling`), read on first need by the ladder's third rung:
+    // a question's thing stating a hop only another way (`x is a child of f.`)
+    // is replayed through it, as a one-thing node is named.
+    const bound = hubBound(ctx);
+    c.steps.forEach((side, k) =>
+      side.forEach((step, i) => {
+        let as: AnswerFrame | null | undefined;
+        step.restated = () =>
+          as ??= restatedSpelling(
+            ctx,
+            cohort.flatMap(({ c: m, shown }) => {
+              const pair = shown.find(([a, b]) =>
+                stepsKey(a.steps) === stepsKey(c.steps[0]) &&
+                stepsKey(b.steps) === stepsKey(c.steps[1])
+              );
+              if (pair === undefined) return [];
+              const way = pair[k].steps;
+              const e = k === 0 ? m.e1 : m.e2;
+              const stand = i === 0
+                ? { id: e.id, bytes: m.raw.subarray(e.span[0], e.span[1]) }
+                : way[i - 1].to;
+              const value = i === way.length - 1
+                ? pair[k].name
+                : way[i].to?.bytes;
+              if (stand === undefined || value === undefined) return [];
+              const read_ = ctx.store.nextFirst(stand.id, bound);
+              const facts = read_.length < bound ? read_ : null;
+              const own = stepAt(
+                ctx,
+                { ...way[i], restated: undefined },
+                stand,
+                () => facts ?? [],
+              );
+              return [{
+                q: m.q,
+                stand: stand.bytes,
+                value,
+                facts,
+                own: own === null
+                  ? []
+                  : "context" in own
+                  ? ctx.store.nextFirst(own.context, bound)
+                  : own.facts,
+              }];
+            }),
+            formCap,
+          );
+      })
+    );
   }
   if (ctx.trace && spelled.all.size > 0) {
     const show = (steps: Step[]): string =>
@@ -4098,11 +4560,15 @@ function instanceConvergence(
   answers: Uint8Array[],
   allowance: number,
   formCap: number,
+  refused?: [(steps: Step[]) => boolean, (steps: Step[]) => boolean],
 ): Array<[Arrival, Arrival]> {
   const found: Array<[Arrival, Arrival]> = [];
   for (const [i, answer] of answers.entries()) {
     const at = (g: number): number => indexOf(read(ctx, g), answer, 0);
-    const ends = (e: { id: number; span: [number, number] }): Arrival[] =>
+    const ends = (
+      e: { id: number; span: [number, number] },
+      k: number,
+    ): Arrival[] =>
       pathToFact(
         ctx,
         e.id,
@@ -4110,6 +4576,8 @@ function instanceConvergence(
         (g) => at(g) >= 0,
         allowance,
         formCap,
+        undefined,
+        refused?.[k],
       ).flatMap((p) => {
         const s0 = at(p.fact);
         const fr = answerFrameOf(read(ctx, p.fact), p.stand, [
@@ -4118,9 +4586,9 @@ function instanceConvergence(
         ]);
         return fr === null ? [] : [{ steps: p.steps, frame: fr, name: answer }];
       });
-    const p1 = ends(e1);
+    const p1 = ends(e1, 0);
     if (p1.length === 0) continue;
-    for (const b of ends(e2)) for (const a of p1) found.push([a, b]);
+    for (const b of ends(e2, 1)) for (const a of p1) found.push([a, b]);
     if (i === 0 && found.length > 0) return found;
   }
   return found;
