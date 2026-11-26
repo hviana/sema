@@ -234,6 +234,9 @@ export interface Region {
    *  reason to re-derive it approximately.  A perceived sub-tree leaves this
    *  undefined; chunks get the same thing from `canonicalChunkId`. */
   id?: number;
+  /** A FOLD region's own content-addressed node, when the store holds it: the
+   *  exact anchor it votes through first (`voteRegions`). */
+  node?: number;
   /** EVIDENCE, NOT A POINT OF ATTENTION.  True for a region the query's own
    *  fold never produced — a stored form that a content-defined cut SPLIT,
    *  recovered by sliding-window lookup in collectRegions.  The store

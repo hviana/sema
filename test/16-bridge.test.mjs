@@ -310,7 +310,11 @@ test("a composed answer joins its parts with a junction learnt as an edge", asyn
   ]);
   const joins = [];
   await m.respond(
-    "What is the capital of France? And what is the largest planet?",
+    // The second question is asked in other words than it was learnt in: a
+    // question the store holds whole is a point of attention of its own (its
+    // regions vote through their own nodes), and two points are grounded
+    // apart, with no join to read a junction for.
+    "What is the capital of France? And what is the biggest planet?",
     (st) => {
       if (st.mechanism.at(-1) === "bridge" && /edge junction/.test(st.note)) {
         joins.push(st.outputs[0].text);

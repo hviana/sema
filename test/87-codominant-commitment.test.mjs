@@ -61,6 +61,13 @@ const ANALOGY = [
   ["water is frigid so water is freezing", "freezing"],
 ];
 
+// The query names the two contexts by forms the store does NOT hold as its own
+// nodes (`frigid steel` reverses what was learnt): a region the store holds
+// votes through its own node, exactly, and an exact vote has no noise for a
+// band to resolve — `steel is frigid` stopped covering the band for that
+// reason.
+const QUERY = "frigid steel";
+
 /** The climb's per-anchor commit record for one query. */
 async function commitRecord(seed, train, query) {
   const store = new SQliteStore({ path: ":memory:", D });
@@ -85,7 +92,7 @@ test("an anchor inside its band of the dominant is never refused by the floor", 
   // by that margin was exempt from both gates. Measured at 6 of 24 seeds.
   let rescued = 0;
   for (const seed of [1, 7, 8, 18, 20, 22, 23, 42]) {
-    const anchors = await commitRecord(seed, ANALOGY, "steel is frigid");
+    const anchors = await commitRecord(seed, ANALOGY, QUERY);
     const dom = anchors.find((a) => a.commit?.dominant);
     assert.ok(dom !== undefined, `seed ${seed}: no dominant anchor recorded`);
     for (const a of anchors) {
@@ -119,7 +126,7 @@ test("a band-admitted root is genuinely inside its own sqrt(k)*sigma", async () 
   // the trace's OWN recorded numbers, so a widened band cannot pass silently.
   let checked = 0;
   for (const seed of [1, 7, 20, 22]) {
-    const anchors = await commitRecord(seed, ANALOGY, "steel is frigid");
+    const anchors = await commitRecord(seed, ANALOGY, QUERY);
     const dom = anchors.find((a) => a.commit?.dominant);
     if (dom === undefined) continue;
     for (const a of anchors) {

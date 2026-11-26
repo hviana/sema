@@ -129,6 +129,44 @@ test("2. an exact chunk region is selected canonically, without an ANN query", a
 //      masked votes never inflate contributingEvidence.
 // ═══════════════════════════════════════════════════════════════════════════
 
+test("2b. a region the store holds votes through its own node, not a window inside it", async () => {
+  // The exact anchor of a chunk region used to be a W-window inside it.  On
+  // a trained store nearly every W-window is held by more than √N contexts
+  // and abstains, so a region naming ONE context exactly cast no vote unless
+  // the estimator happened to find the very node the store can address — on
+  // the 900 MB store a stored sentence asked without its last mark went
+  // silent, and with this anchor its perturbed askings went from 31 to 47
+  // answered of 94.  The fold node of the region's own bytes is the anchor.
+  const m = mk();
+  await m.ingest([
+    ["The harbour master of Port Elowen keeps the tide ledger.", "Yes."],
+    ["The lighthouse keeper of Cape Varrow trims the wick.", "At dusk."],
+    ["The ferry captain of Lake Imber counts the lanterns.", "Twice."],
+  ]);
+  const asked = "The harbour master of Port Elowen keeps the tide ledger";
+  const { steps, ans } = await trace(m, asked);
+  assert.equal(ans, "Yes.");
+  const W = m.space.maxGroup;
+  // A region whose own node decides nothing (a hub, or held by no context)
+  // keeps the window anchor; one whose node names contexts votes as itself.
+  const held = climbStep(steps).data.regions.filter((r) =>
+    r && r.chunk && r.known && r.span[1] - r.span[0] > W &&
+    r.canonicalId !== undefined
+  );
+  const own = held.filter((r) =>
+    new TextDecoder().decode(m.store.bytes(r.canonicalId)) ===
+      asked.slice(r.span[0], r.span[1])
+  );
+  assert.ok(
+    own.length > 0,
+    "no region longer than a window is anchored on its own node",
+  );
+  for (const r of own) {
+    assert.equal(r.outcome, "voted");
+    assert.equal(r.annQueried, false, "and no estimator was asked");
+  }
+});
+
 test("3/4. junction absorption widens contributingEvidence past contributingVotes", async () => {
   const m = mk(3);
   await m.ingest(ATTR_CORPUS);

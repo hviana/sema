@@ -739,6 +739,7 @@ export function collectRegions(ctx: MindContext, query: Uint8Array): Region[] {
         end,
         chunk: isChunk(n),
         known: node !== null,
+        ...(node !== null ? { node } : {}),
       });
     }
     // MEASURED AND REFUTED — subdividing a long segment into W-scale tiles.
@@ -997,13 +998,26 @@ export async function voteRegions(
     // the resonate() call for most exact regions — the single largest
     // remaining inference sink — with the anchor choice unchanged (the
     // canonical branch already ignored hits[0]).
-    let canonicalId = subWindow
+    //
+    // A REGION THE STORE HOLDS VOTES AS ITSELF.  The fold node of these bytes
+    // is content-addressed too (`collectRegions` resolved it), and its own
+    // climb — up its structural parents — is the exact reading of which
+    // contexts hold the region.  A W-window inside it is the coarser anchor:
+    // past a few thousand contexts nearly every window is a hub and abstains,
+    // so a region that names one context exactly would fall to the estimator
+    // to find the very node the store can address.  The window anchor stands
+    // where the region's own node decides nothing.
+    const own = subWindow ? undefined : regions[ri].node;
+    const ownReach = own === undefined
       ? null
-      : (chunk
-        ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
-        : (regions[ri].id ?? null));
+      : edgeAncestors(ctx, own, N, reachMemo);
+    const ownVotes = ownReach !== null && !ownReach.saturated &&
+      ownReach.roots.length > 0;
+    let canonicalId = subWindow ? null : ownVotes ? own! : (chunk
+      ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
+      : (regions[ri].id ?? null));
     let canonicalUsable = canonicalId !== null &&
-      heldWithin(ctx, canonicalId);
+      (ownVotes || heldWithin(ctx, canonicalId));
     let hits: readonly Hit[] | null = null;
     const ensureHits = async (): Promise<readonly Hit[]> => {
       if (hits === null) {
