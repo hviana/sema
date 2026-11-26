@@ -366,6 +366,8 @@ fragments with several.
   several questions, is witnessed by the question plus the node, and the
   question supplies a window the node lacks. Named picks rank first, then the
   instance and paraphrase readings, then the ladder.
+- `chainNext` (`traverse.ts`): past the first hop, a chain takes a fork's one
+  continuation or the one the question names, else ends there.
 - `askedEvidence` (`traverse.ts`): the question spans that named a pick, which a
   projecting mechanism then accounts for.
 - `preConsumed` (`pipeline.ts`): when a grounding declares no `used`: the forms

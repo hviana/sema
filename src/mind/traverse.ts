@@ -921,6 +921,24 @@ export function chooseNext(
   return best;
 }
 
+/** THE NEXT LINK OF A CHAIN — what a continuation leads to in turn, where that
+ *  is DECIDED: its only continuation, or the one the question names
+ *  ({@link askedContinuations}).  The first hop out of what the question holds
+ *  is the question's own answer, and the corpus's support may choose it
+ *  ({@link chooseNext}); a hop past it is a step nobody asked, and the most
+ *  retold of several is some other question's answer — a greeting's reply to
+ *  the reply, a translation's translation.  undefined ends the chain there:
+ *  the node is what the chain reached. */
+export function chainNext(ctx: MindContext, id: number): number | undefined {
+  const nx = ctx.store.nextFirst(id, 2);
+  if (nx.length < 2 || ctx._edgeGuide === null) return nx[0];
+  const asked = ctx._edgeAsked;
+  const named = asked === null ? null : namedContinuations(ctx, id, asked);
+  if (named !== null && named.length === 1) return named[0];
+  if (ctx.meter) ctx.meter.chainsUndecided++;
+  return undefined;
+}
+
 /** The response canonicalizer's reading of `bytes` when it keeps every offset
  *  — so a window found in the canonical bytes sits at the same place in the
  *  asker's — else the bytes themselves.  Text canon is offset-preserving on
@@ -3617,10 +3635,19 @@ function learntWholeSpans(
   const W = ctx.space.maxGroup;
   const cache = getStructCache(ctx);
   const found: Array<{ span: [number, number]; id: number }> = [];
+  // The ends are swept ASCENDING so one hash is extended a byte per probe
+  // (`Store.flatSpans`), then tried longest first: hashed afresh per span,
+  // descending, a long form paid its length on every one of its spans.
+  const flatAt = ctx.store.flatSpans?.(bytes) ??
+    ((st: number, en: number) => flatId(ctx, bytes.subarray(st, en)));
   for (let st = 0; st + W <= bytes.length; st++) {
-    for (let en = bytes.length; en - st >= W; en--) {
+    const ends: number[] = [];
+    for (let en = st + W; en <= bytes.length; en++) {
       if (!whole && en - st === bytes.length) continue;
-      if (flatId(ctx, bytes.subarray(st, en)) === null) continue;
+      if (flatAt(st, en) !== null) ends.push(en);
+    }
+    for (let k = ends.length - 1; k >= 0; k--) {
+      const en = ends[k];
       const n = resolve(ctx, bytes.subarray(st, en));
       if (
         n === null || !cachedHasNext(ctx, n, cache) ||

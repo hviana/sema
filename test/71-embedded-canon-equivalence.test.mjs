@@ -211,6 +211,64 @@ test("a canonical site stands where its member stands, or it is no site", async 
   await m.store.close();
 });
 
+test("a role refutes a canonical site only where the corpus writes its class otherwise", async () => {
+  // `Manuel Of Castile` is written by nothing but as `Manuel of Castile`: the
+  // class has one spelling, so one use.  The question frames it as no deposit
+  // does (`Where did ·'s father die?` against `The father of · is`), and that
+  // is only the question's wording — there is no other thing for the span to be.
+  // On 130 held-out 2Wiki questions 46 of 48 role refusals were of this kind.
+  const facts = [
+    ["Father", "director", "The director of Father is Wang Shuo."],
+    [
+      "Manuel of Castile",
+      "father",
+      "The father of Manuel of Castile is Ferdinand III of Castile.",
+    ],
+    [
+      "Ollanta Humala",
+      "father",
+      "The father of Ollanta Humala is Isaac Humala.",
+    ],
+    ["Hassan II", "father", "The father of Hassan II is Mohammed V."],
+    [
+      "Manuel of Castile",
+      "place of birth",
+      "The place of birth of Manuel of Castile is Carrión de los Condes.",
+    ],
+    [
+      "Ferdinand III of Castile",
+      "place of death",
+      "The place of death of Ferdinand III of Castile is Seville.",
+    ],
+  ];
+  const pairs = facts.flatMap(([x, r, f]) => [[x, f], [`${x} ${r}`, f]]);
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  await m.ingest(pairs);
+  await m.buildCanonIndex();
+  const steps = [];
+  const asked = await m.respondText(
+    "Where did Manuel Of Castile's father die?",
+    (s) => steps.push(s),
+  );
+  const of = (name, member) =>
+    steps.some((s) =>
+      s.mechanism.at(-1) === name && s.outputs.some((o) => o.text === member)
+    );
+  assert.ok(
+    of("roleKept", "Manuel of Castile"),
+    "the role disagreed, and the class is written in no other spelling",
+  );
+  assert.ok(!of("roleRefused", "Manuel of Castile"));
+  assert.equal(
+    asked,
+    "The father of Manuel of Castile is Ferdinand III of Castile.",
+  );
+  // The relation `father` IS written otherwise than the film `Father`: its
+  // refusal stands (the test above), here too.
+  assert.ok(of("roleRefused", "Father"));
+  await m.store.close();
+});
+
 test("a role agrees only where every side it is read on agrees", async () => {
   // `Mother` the film is also written inside `the Motherland`, so the bytes
   // stand after `the ` exactly where the relation does; only the right side

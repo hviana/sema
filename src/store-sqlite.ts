@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS whole_kid (
 -- a boundary), for children that are not among any parent's kids list.  The
 -- climb through them reads a window's neighbourhood.  Kept SEPARATE from kid so parents() — the structural climb — is
 -- untouched; containers() serves the climbing surface of orphan flat branches
--- durably (a session-local map would be lost on restart or ingest-cache replay).
+-- durably (a session-local map would be lost on restart).
 -- LOG-STRUCTURED PACKED PAGES: a child's parents are int32-packed blobs split
 -- across (child, seq) rows.  A flush APPENDS one page holding only the NEW
 -- parents (never reading the list back), then geometrically merges adjacent
@@ -347,7 +347,6 @@ export class SQliteStore extends AbstractStore implements Store {
       dedupCacheMax: opts.dedupCacheMax ?? d.dedupCacheMax,
       bytesCacheMax: opts.bytesCacheMax ?? d.bytesCacheMax,
       recCacheBytes: opts.recCacheBytes ?? d.recCacheBytes,
-      ingestCacheBytes: opts.ingestCacheBytes ?? d.ingestCacheBytes,
       pendingGistBytes: opts.pendingGistBytes ?? d.pendingGistBytes,
       haloCacheBytes: opts.haloCacheBytes ?? d.haloCacheBytes,
       vectorCacheMb: opts.vectorCacheMb ?? d.vectorCacheMb,

@@ -1108,3 +1108,33 @@ test("154.24 a span's use is the company of what holds the span, not of its wind
   assert.ok(cosine(married, again) >= bar, "married keeps its own company");
   await m.store.close();
 });
+
+test("154.25 a chain runs past a fork only to the continuation the question names", async () => {
+  // `the depot` leads to `the junction`, and the junction to two lines.  A hop
+  // past what the question holds is a step nobody asked: of several
+  // continuations the most retold is some other question's answer — a
+  // greeting's reply to the reply, a translation's translation.  On the
+  // trained store 4 of 10 stored contexts asked verbatim were answered with
+  // such a hop.  The chain ends at the fork, unless the question names a way.
+  const m = new Mind({
+    seed: 7,
+    profile: true,
+    store: new SQliteStore({ path: ":memory:" }),
+  });
+  await m.ingest([
+    ["the depot", "the junction"],
+    ["the junction", "the harbour line"],
+    ["the junction", "the mountain line"],
+    ["the junction harbour", "the harbour line"],
+    ["the junction mountain", "the mountain line"],
+    ["the yard", "the siding"],
+    ["the siding", "the main line"],
+  ]);
+  assert.equal(await m.respondText("the depot"), "the junction");
+  assert.ok(m.lastCost.counters.chainsUndecided > 0, "ended at the fork");
+  assert.equal(await m.respondText("the depot mountain"), "the mountain line");
+  assert.equal(await m.respondText("the depot harbour"), "the harbour line");
+  // One continuation is no choice: the chain runs to its fixpoint.
+  assert.equal(await m.respondText("the yard"), "the main line");
+  await m.store.close();
+});

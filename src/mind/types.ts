@@ -59,6 +59,8 @@ export interface GraphSearchHost {
     starts: ReadonlySet<number>;
   };
   chooseNext?(node: number): number | undefined;
+  /** The next link of a chain, where decided (traverse.ts, `chainNext`). */
+  chainNext?(node: number): number | undefined;
   /** The lengths `p` for which `prefix ‖ tail[0..p]` IS A STORED NODE, ascending
    *  — the join's candidate set, in the tail's own coordinates.  Optional: a host
    *  that cannot answer makes the join fall back to every prefix, which is exact

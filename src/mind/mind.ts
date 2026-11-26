@@ -149,6 +149,7 @@ import {
   storedGist,
 } from "./primitives.js";
 import {
+  chainNext,
   chooseNext,
   edgeAncestors as edgeAncestorsFn,
   invalidateStructuralCaches,
@@ -452,6 +453,10 @@ export class Mind implements MindContext {
     return chooseNext(this, node, this._edgeGuide);
   }
 
+  chainNext(node: number): number | undefined {
+    return chainNext(this, node);
+  }
+
   // ── construction ─────────────────────────────────────────────────────────
 
   constructor(opts?: MindOptions);
@@ -563,7 +568,7 @@ export class Mind implements MindContext {
   // ── respond ───────────────────────────────────────────────────────────
 
   /** Perceive input into a content-defined tree.  Deterministic — identical
-   *  bytes always produce an identical tree.  Public for ingest-cache. */
+   *  bytes always produce an identical tree. */
   perceive(
     input: Input,
     leafAt?: (i: number) => number | null,

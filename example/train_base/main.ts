@@ -110,7 +110,7 @@
 //   LOCAL_PATH=./base node dist/example/train_base/main.js    # offline: *.jsonl/.parquet/.jsonl.gz/.json
 //   DB_PATH=./data/sema node dist/example/train_base/main.js
 
-import { CachedIngest, Mind, SQliteStore } from "../../src/index.js";
+import { Mind, SQliteStore } from "../../src/index.js";
 import {
   D,
   DB_PATH,
@@ -165,7 +165,6 @@ async function main(): Promise<void> {
       );
     }
   }
-  const ci = new CachedIngest(mind);
   const prevD = await store.getMeta("train.D");
   const prevSeed = await store.getMeta("train.seed");
   if (
@@ -192,7 +191,7 @@ async function main(): Promise<void> {
   }
   await store.setMeta("train.startedAt", new Date().toISOString());
 
-  const ctx = createRuntime({ store, mind, ci, title: dataset });
+  const ctx = createRuntime({ store, mind, title: dataset });
   ctx.tick(true);
 
   // Reclaim the debris of any download killed mid-transfer. It occupies cache

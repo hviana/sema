@@ -1086,6 +1086,29 @@ export class GraphSearch {
         // the evidence-ranked continuation unreachable, or the derivation the
         // corpus corroborates would lose to exploration order.  Nothing is
         // reallocated: `nx` is walked with a skip-in-place for the duplicate.
+        // AN UNDECIDED FORK ENDS THE CHAIN, and ending there is no giving up:
+        // of several continuations the question names none, so the node is
+        // what the chain reached (traverse.ts, `chainNext`) — it stops here
+        // at no cost, and the fan-out is not explored.
+        if (
+          nx.length > 1 && this.host.chainNext !== undefined &&
+          this.host.chainNext(it.node) === undefined
+        ) {
+          yield {
+            premises: [it],
+            conclusion: {
+              kind: "out",
+              i: it.i,
+              j: it.j,
+              bytes: nodeBytes(it.node),
+              cover: true,
+              rec: true,
+              node: it.node,
+            },
+            cost: 0,
+          };
+          return;
+        }
         const preferred = nx.length > 1
           ? this.host.chooseNext?.(it.node)
           : undefined;

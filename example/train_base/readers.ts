@@ -21,7 +21,7 @@
 // entirely, and one that needs it fails with a sentence instead of a module
 // resolution error.
 
-import type { CachedIngest } from "../../src/index.js";
+import type { Mind } from "../../src/index.js";
 import { isEpisode, itemBytes, type TrainingItem } from "./items.js";
 import { PARQUET_BATCH_BYTES } from "./config.js";
 import { openAsBlob } from "node:fs";
@@ -47,7 +47,7 @@ export interface FileResult {
 /** Everything a reader needs from the run: where to deposit, what to count,
  *  and how to be stopped. */
 export interface ReadContext {
-  ci: CachedIngest;
+  mind: Mind;
   /** Called once per deposit with its UTF-8 content size. Returns false to
    *  stop the read (the MAX_MB cap, or a pending shutdown). */
   onExample: (contentBytes: number) => Promise<boolean>;
@@ -105,14 +105,14 @@ export type Reader = (
  *  (14-scaling.test.mjs) reports as a constant KB/s — then gates the global
  *  example count and checkpointing (returns false to stop). */
 export async function ingestItems(
-  ci: CachedIngest,
+  mind: Mind,
   items: TrainingItem[],
   onItem: (contentBytes: number) => Promise<boolean>,
   sample?: (it: TrainingItem) => void,
 ): Promise<boolean> {
   for (const it of items) {
-    if (isEpisode(it)) await ci.ingest(it.context, it.continuation);
-    else await ci.ingest(it);
+    if (isEpisode(it)) await mind.ingest(it.context, it.continuation);
+    else await mind.ingest(it);
     sample?.(it);
     if (!(await onItem(itemBytes(it)))) return false; // stop requested
   }
@@ -132,7 +132,7 @@ async function depositRow(
     return true;
   }
   res.rowsUsed++;
-  return ingestItems(rc.ci, items, async (contentBytes) => {
+  return ingestItems(rc.mind, items, async (contentBytes) => {
     res.examples++;
     return rc.onExample(contentBytes);
   }, rc.sample);

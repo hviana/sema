@@ -55,8 +55,6 @@ export interface StoreConfig {
   /** Max bytes of node-record cache (avoids repeated SQLite lookups for
    *  shared DAG nodes).  Each record is ~30-50 bytes. */
   recCacheBytes: number;
-  /** Max bytes of ingest-result cache used by {@link CachedIngest}. */
-  ingestCacheBytes: number;
   /** Max bytes of captured-but-not-yet-indexed node gists (D·4 each). A node's
    *  gist enters the content index lazily, only when it first becomes a
    *  resonance target (gains a continuation edge or a halo); until then its gist
@@ -158,7 +156,6 @@ export const DEFAULT_CONFIG: MindConfig = {
     dedupCacheMax: 1_000_000,
     bytesCacheMax: 20_000_000,
     recCacheBytes: 10_000_000,
-    ingestCacheBytes: 50_000_000,
     pendingGistBytes: 16_000_000,
     haloCacheBytes: 16_000_000,
     vectorCacheMb: 64,
@@ -208,8 +205,6 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
         DEFAULT_CONFIG.store.bytesCacheMax,
       recCacheBytes: opts.store?.recCacheBytes ??
         DEFAULT_CONFIG.store.recCacheBytes,
-      ingestCacheBytes: opts.store?.ingestCacheBytes ??
-        DEFAULT_CONFIG.store.ingestCacheBytes,
       pendingGistBytes: opts.store?.pendingGistBytes ??
         DEFAULT_CONFIG.store.pendingGistBytes,
       haloCacheBytes: opts.store?.haloCacheBytes ??

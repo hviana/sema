@@ -388,7 +388,7 @@ export interface Store {
    *  {@link parents} — the
    *  structural climb is untouched; {@link containers} serves the climbing
    *  surface of orphan flat branches durably, where a session-local side
-   *  table would be lost on restart or an ingest-cache replay.  Idempotent. */
+   *  table would be lost on restart.  Idempotent. */
   addContainer(child: NodeId, parent: NodeId): void;
   /** The chunks recorded by {@link addContainer} as overlapped by `child`. */
   containers(child: NodeId): NodeId[];
@@ -736,11 +736,6 @@ function hashOf(bytes: Uint8Array): number {
   return h >>> 0;
 }
 
-/** Fast content key (FNV-1a + length). No array spread onto the call stack. */
-function keyOf(bytes: Uint8Array): string {
-  return hashOf(bytes).toString(16) + ":" + bytes.length;
-}
-
 /** Re-index a halo only when its mass is small or a power of two — O(log mass)
  *  writes per node instead of O(mass). */
 function geometricMass(mass: number): boolean {
@@ -1056,8 +1051,8 @@ export abstract class AbstractStore implements Store {
 
   // ── Caches ─────────────────────────────────────────────────────────────
 
-  /** Exact-content dedup: content-key → node id. Intrinsic compression. */
-  protected readonly _leafKey: BoundedMap<string, NodeId>;
+  /** Exact-content dedup: a branch's kid ids → its node id.  (A leaf is one
+   *  byte, named by arithmetic: it needs no key.) */
   protected readonly _branchKey: BoundedMap<string, NodeId>;
   /** {@link findFlatBranch}'s hits, keyed by the bytes themselves (latin1 —
    *  exact, unlike the hash keys above). */
@@ -1155,7 +1150,6 @@ export abstract class AbstractStore implements Store {
     this.overfetch = config.overfetch;
     this.batchSize = config.batchSize;
     this.compactEveryNWrites = config.compactEveryNWrites;
-    this._leafKey = new BoundedMap(config.dedupCacheMax);
     this._branchKey = new BoundedMap(config.dedupCacheMax);
     this._flatKey = new BoundedMap(
       config.dedupCacheMax,
@@ -1480,12 +1474,7 @@ export abstract class AbstractStore implements Store {
   findLeaf(bytes: Uint8Array): NodeId | null {
     if (bytes.length === 1) return -(bytes[0] + 1);
     if (this.meter) this.meter.leafLookups++;
-    const key = keyOf(bytes);
-    const cached = this._leafKey.get(key);
-    if (cached !== undefined) return cached;
-    const id = this._dbFindLeaf(hashOf(bytes), bytes);
-    if (id !== null) this._leafKey.set(key, id);
-    return id;
+    return this._dbFindLeaf(hashOf(bytes), bytes);
   }
 
   /** {@link findBranch} for a run of SINGLE-BYTE leaves, addressed by the
@@ -1851,8 +1840,8 @@ export abstract class AbstractStore implements Store {
       }
     }
 
-    const cache = leaf !== null ? this._leafKey : this._branchKey;
-    const key = leaf !== null ? keyOf(leaf) : kids!.join(",");
+    const cache = leaf !== null ? null : this._branchKey;
+    const key = leaf !== null ? "" : kids!.join(",");
 
     // 2. Near dedup — BRANCHES ONLY (a leaf is one byte: exact dedup already
     //    collapses identical leaves, and near-merging distinct ones only
@@ -1865,7 +1854,7 @@ export abstract class AbstractStore implements Store {
     if (leaf === null && this.nearDedup) {
       const near = this.nearDedupTarget(kids!, gist, blen);
       if (near !== null) {
-        if (key.length <= DEDUP_KEY_MAX) cache.set(key, near);
+        if (key.length <= DEDUP_KEY_MAX) cache?.set(key, near);
         return near;
       }
     }
@@ -1913,7 +1902,7 @@ export abstract class AbstractStore implements Store {
         this.promoteBridge(c);
       }
     }
-    if (key.length <= DEDUP_KEY_MAX) cache.set(key, id);
+    if (key.length <= DEDUP_KEY_MAX) cache?.set(key, id);
     if (leaf) this._bytesCache.set(id, new Uint8Array(leaf));
     else if (flat) this._bytesCache.set(id, flat);
     // Capture the gist; it is pushed into the content index lazily, the first

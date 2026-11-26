@@ -272,7 +272,7 @@ export function walkLayer(
       );
     }
     if (curId !== null && outs.some((n) => !consumed.has(n))) {
-      const fwd = await follow(ctx, curId, qv);
+      const fwd = await follow(ctx, curId, qv, true);
       const fwdId = fwd !== null ? resolve(ctx, fwd) : null;
       if (
         fwd !== null && !bytesEqual(fwd, cur) &&

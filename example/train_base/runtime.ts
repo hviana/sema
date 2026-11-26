@@ -12,7 +12,7 @@
 // MAX_MB) and add to it (per deposit) from another module. A captured `let`
 // cannot cross that boundary; a field on a shared object can.
 
-import { type CachedIngest, type Mind, type Store } from "../../src/index.js";
+import { type Mind, type Store } from "../../src/index.js";
 import {
   CACHE_DIR,
   CHECKPOINT_BYTES,
@@ -78,7 +78,6 @@ export interface Counters {
 export interface TrainCtx {
   readonly store: Store;
   readonly mind: Mind;
-  readonly ci: CachedIngest;
   readonly progress: Progress;
   readonly state: ProgState;
   readonly counters: Counters;
@@ -171,13 +170,12 @@ export interface AcquiredFile {
 export interface RuntimeOptions {
   store: Store;
   mind: Mind;
-  ci: CachedIngest;
   /** Names the curriculum in the panel header. */
   title: string;
 }
 
 export function createRuntime(opts: RuntimeOptions): TrainCtx {
-  const { store, mind, ci } = opts;
+  const { store, mind } = opts;
 
   // ── counters & sampling ──
   const counters: Counters = {
@@ -493,7 +491,6 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
   const ctx: TrainCtx = {
     store,
     mind,
-    ci,
     progress,
     state,
     counters,
@@ -581,7 +578,7 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
         rowsTaken: rowsTakenSnap(),
       };
       return {
-        ci,
+        mind,
         onExample: ctx.onDeposit,
         sample,
         signal: shutdown.signal,

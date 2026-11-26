@@ -21,8 +21,8 @@
 //   151.2 an edge-less part's concept hop is not looked up when the whole
 //         closes the cover first;
 //   151.3 a grounding standing on the whole query pays no fusion climb;
-//   151.4 the work the cover generates does not grow with a hub's degree — the
-//         replies past the first are dominated, and the answer is unchanged.
+//   151.4 the work the cover generates does not grow with a hub's degree — a
+//         chain ends at a fork the question names nothing of, unexplored.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -103,9 +103,10 @@ test("151.3 a grounding standing on the whole query pays no fusion climb", async
   await mind.store.close();
 });
 
-/** "hello" → "hi there", then "hi there" forks across `n` replies — each a
- *  fixpoint completing the same span.  The filler raises N so the hop's READ
- *  cap (√N) admits all `n`. */
+/** "hello" → "hi there", then "hi there" forks across `n` replies.  The
+ *  question names none of them, so the chain ends at what `hello` led to
+ *  (traverse.ts, `chainNext`).  The filler raises N so the hop's READ cap (√N)
+ *  admits all `n`. */
 async function hub(n) {
   const pairs = [["hello", "hi there"]];
   for (let k = 0; k < 1200; k++) {
@@ -122,15 +123,14 @@ test("151.4 a hub's degree does not grow the work the cover generates", async ()
   const answers = [];
   for (const n of [8, 32]) {
     const mind = await hub(n);
-    // The tail is bytes nothing learnt, so the goal is PASS-priced and, before
-    // dominance, the search fused every reply with its neighbours.
+    // The tail is bytes nothing learnt, so the goal is PASS-priced.
     answers.push(await mind.respondText("hello zqxv wbjk"));
     const c = mind.lastCost.counters;
     assert.ok(
-      c.searchDominated > 0,
-      "the replies past the first are dominated",
+      c.chainsUndecided > 0,
+      "the chain ends at the fork, and no reply is explored",
     );
-    generated.push(c.searchPops - c.searchDominated);
+    generated.push(c.searchPops - (c.searchDominated ?? 0));
     await mind.store.close();
   }
   assert.equal(
@@ -139,4 +139,6 @@ test("151.4 a hub's degree does not grow the work the cover generates", async ()
     `rule-generating pops grew with the hub's degree: ${generated.join(" → ")}`,
   );
   assert.equal(answers[1], answers[0]);
+  // What `hello` led to — not the first-deposited reply to it.
+  assert.equal(answers[0], "hi there");
 });

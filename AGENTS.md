@@ -92,7 +92,7 @@ Tie-breaks are corpus-determined, not interchangeable (`determinism.md`).
 | Consensus climb + attention          | `src/mind/attention.ts`                                                                                    |
 | Substitution bridge (recall tier)    | `src/mind/bridge.ts`                                                                                       |
 | Recognition / junction / resonance   | `src/mind/recognition.ts`, `src/mind/role.ts`, `src/mind/junction.ts`, `src/mind/resonance.ts`             |
-| Learning / ingestion                 | `src/mind/learning.ts`, `src/ingest-cache.ts`                                                              |
+| Learning / ingestion                 | `src/mind/learning.ts`                                                                                     |
 | Rationale / trace / meter            | `src/mind/rationale.ts`, `src/mind/trace.ts`, `src/meter.ts`                                               |
 | Extension host types                 | `src/extension.ts`                                                                                         |
 | Sublibraries (own READMEs)           | `src/derive/`, `src/alu/`, `src/rabitq-ivf/`                                                               |

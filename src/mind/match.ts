@@ -43,6 +43,7 @@ import { windowAt } from "./canonical.js";
 import { foldTree, gistOf, perceive, read, resolve } from "./primitives.js";
 import {
   argmaxCosine,
+  chainNext,
   chooseAmong,
   chooseNext,
   guidedFirst,
@@ -1036,15 +1037,18 @@ export async function analogyStrength(
     const bar = conceptThreshold(ctx.store.D);
     const direct = cosine(ha, hb);
     if (direct >= bar) return { score: direct, halo: true };
-    const sibsA = await haloSiblings(ctx, a, ha);
-    const sibsB = await haloSiblings(ctx, b, hb);
+    // A MUTUAL SIBLING is a third node whose halo meets BOTH at the bar.  `a`'s
+    // siblings are proposed once by the index (memoised per response — the
+    // dominant is one side of every pair a comparison weighs), and each is
+    // decided against `b` by its stored halo: one index read per comparison,
+    // not one per candidate (a dialogue hub offered 976 candidates, each
+    // paying its own query: 24 s of one response).
     let best = 0;
-    for (const x of sibsA) {
+    for (const x of await haloSiblings(ctx, a)) {
       if (x.id === b) continue;
-      const y = sibsB.find((s) => s.id === x.id);
-      if (y !== undefined) {
-        best = Math.max(best, Math.min(x.score, y.score));
-      }
+      const hx = ctx.store.halo(x.id);
+      const y = hx ? cosine(hb, hx) : -1;
+      if (y >= bar) best = Math.max(best, Math.min(x.score, y));
     }
     if (best > 0) return { score: best, halo: true };
   }
@@ -1134,18 +1138,22 @@ export async function conceptHop(
 /** FORWARD projection: follow continuation edges from a node to its fixpoint.
  *  The first hop may cross a concept (halo) link — a synonym.  The rest
  *  follow direct edges.  Convergence is intrinsic: the seen set guards
- *  against cycles.  `guide` disambiguates multi-continuation nodes by
- *  resonance. */
+ *  against cycles.  `guide` disambiguates the first hop's continuations by
+ *  the corpus's support; every later hop is a chain's (`chainNext`), and so
+ *  is the first when `id` is itself something reached (`chain`), not held by
+ *  the question. */
 export async function follow(
   ctx: MindContext,
   id: number,
   guide?: Vec | null,
+  chain = false,
 ): Promise<Uint8Array | null> {
   const seen = new Set<number>([id]);
 
   // First hop: a direct edge, else a concept sibling's edge (the synonym).
-  let next = chooseNext(ctx, id, guide);
+  let next = chain ? chainNext(ctx, id) : chooseNext(ctx, id, guide);
   if (next === undefined) {
+    if (chain && ctx.store.hasNext(id)) return null;
     const hop = await conceptHop(ctx, id);
     if (hop === null) return null;
     next = hop;
@@ -1157,7 +1165,7 @@ export async function follow(
   // K−1 of them.
   while (!seen.has(next)) {
     seen.add(next);
-    const fwd = chooseNext(ctx, next, guide);
+    const fwd = chainNext(ctx, next);
     if (fwd === undefined || seen.has(fwd)) break;
     next = fwd;
   }

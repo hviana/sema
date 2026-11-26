@@ -4,7 +4,7 @@
 //               that leads somewhere (has a continuation edge or a halo).
 //   segment   — leaf-parent segmentation using the geometry's own groupings.
 import { rItem } from "./trace.js";
-import { rolesAgree } from "./role.js";
+import { rolesAgree, spelledOtherwise } from "./role.js";
 
 import type { MindContext, Recognition, Segment } from "./types.js";
 import {
@@ -257,14 +257,22 @@ function recogniseImpl(ctx: MindContext, bytes: Uint8Array): Recognition {
     const canonical = id >= 0 &&
       !bytesEqual(read(ctx, id, end - start + 1), bytes.subarray(start, end));
     if (canonical && rolesAgree(ctx, bytes, start, end, id) === false) {
-      if (ctx.meter) ctx.meter.roleRefusals++;
+      // …and a role refutes only where the class has another use to be: one
+      // the corpus writes in no spelling but the member's is the member, in
+      // a frame the corpus has not yet written around it.
+      const span = bytes.subarray(start, end);
+      const refused = spelledOtherwise(ctx, span, read(ctx, id)) !== "apart";
+      if (ctx.meter) ctx.meter[refused ? "roleRefusals" : "roleKept"]++;
       ctx.trace?.step(
-        "roleRefused",
-        [rItem(bytes.subarray(start, end), "span", undefined, [start, end])],
+        refused ? "roleRefused" : "roleKept",
+        [rItem(span, "span", undefined, [start, end])],
         [rItem(read(ctx, id), "member", id)],
-        "the span stands where the corpus never stands the member",
+        refused
+          ? "the span stands where the corpus never stands the member"
+          : "the corpus writes the span's class only as the member — its " +
+            "frame here refutes nothing",
       );
-      return;
+      if (refused) return;
     }
     sites.push({ start, end, payload: id });
   };

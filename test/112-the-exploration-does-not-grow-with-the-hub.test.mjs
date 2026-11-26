@@ -2,7 +2,8 @@
 //
 // THE OFFER IS THE CORPUS'S STRUCTURE.  A chain hop offers the continuations the
 // corpus holds, and the search pays for exploring them on the ladder (every hop
-// costs STEP).  What must NOT happen is a combinatorial explosion: the work must
+// costs STEP) — where the hop is decided: a fork the question names nothing of
+// ends the chain (evidence.md, test/154.25), so it is read and never explored.  What must NOT happen is a combinatorial explosion: the work must
 // not grow with the SQUARE of the hub's degree.
 //
 // This file used to pin an offer CAP (`exploreCap`, with its invented
@@ -77,13 +78,20 @@ test("the work does not explode with the hub's degree", async () => {
   await big.store.close();
 });
 
-test("and the hub still leads somewhere the chain can use", async () => {
+test("a chain ends at a fork the question names nothing of, and runs on where one is named", async () => {
+  // `alpha` leads to `beta`, and `beta` to forty-one things.  The question
+  // names none of them, so the chain ends at `beta` — an arbitrary reply is
+  // some other question's answer — and `alpha beta`, which already says
+  // `beta`, is left unanswered.
   const mind = await hub(40);
-  const out = (await mind.respondText(QUERY)).replace(/\0+/g, "").trim();
+  assert.equal(await mind.respondText(QUERY), "");
   assert.ok(
-    out.length > 0,
-    `the hub must still be reachable, got ${JSON.stringify(out)}`,
+    (mind.lastCost?.counters.chainsUndecided ?? 0) > 0,
+    "the chain must have ended at the undecided fork",
   );
-  assert.ok(offers(mind) > 0, "and the chain hop must have been taken");
+  assert.equal(await mind.respondText("alpha"), "beta");
+  // A fork with ONE continuation is no choice: the chain runs through it.
+  await mind.ingest([["delta", "epsilon"], ["epsilon", "zeta"]]);
+  assert.equal(await mind.respondText("delta"), "zeta");
   await mind.store.close();
 });

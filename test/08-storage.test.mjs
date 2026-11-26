@@ -44,7 +44,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CachedIngest, Mind } from "../dist/src/index.js";
+import { Mind } from "../dist/src/index.js";
 import { SQliteStore } from "../dist/src/store-sqlite.js";
 import { existsSync, rmSync, statSync } from "node:fs";
 import { normalize, randomUnit, rng } from "../dist/src/vec.js";
@@ -1164,67 +1164,6 @@ test("concepts: conflicting episodes resolve to one side, deterministically", as
     `one learnt side, got "${first}"`,
   );
   assert.equal(await train(), first, "same seed → same deterministic choice");
-});
-
-// The ingest cache is an optimisation of the deposit, never a second law: a
-// store trained through it holds exactly what mind.ingest() teaches — every
-// edge (suffix inheritance included) and every halo, vector and mass.  The
-// episodes repeat continuations (memo hits), grow a context by appending,
-// and make a suffix a known form, so each part of the pair law is exercised.
-test("a store trained through the ingest cache is the store mind.ingest trains", async () => {
-  const episodes = [
-    ["Clara Novello mother", "The mother of Clara Novello is Mary Sabilla."],
-    ["Clara Novello", "The mother of Clara Novello is Mary Sabilla."],
-    ["Peter Hale mother", "The mother of Peter Hale is Ann Hale."],
-    ["Peter Hale", "The mother of Peter Hale is Ann Hale."],
-    ["Who is the mother of Ann Hale?", "Nobody recorded."],
-    ["Who is the mother of Ann Hale?\nthe user asks again", "Nobody recorded."],
-  ];
-  const direct = new Mind({ D, seed: 7 });
-  await direct.ingest(episodes);
-  const cached = new Mind({ D, seed: 7 });
-  const ci = new CachedIngest(cached);
-  for (const [c, k] of episodes) await ci.ingest(c, k);
-  const a = direct.store, b = cached.store;
-  assert.equal(b.nodeCount(), a.nodeCount(), "the same nodes");
-  for (let id = 0; id < a.nodeCount(); id++) {
-    assert.deepEqual(b.next(id), a.next(id), `edges of node ${id}`);
-    assert.equal(b.haloMass(id), a.haloMass(id), `halo mass of node ${id}`);
-    const ha = a.halo(id), hb = b.halo(id);
-    assert.deepEqual(hb && [...hb], ha && [...ha], `halo of node ${id}`);
-  }
-});
-
-test("the ingest cache never hands one input another's node", async () => {
-  // A memo keyed by a 32-bit hash is keyed by a label, not by content: two
-  // distinct byte inputs of one length and one FNV-1a hash would share an
-  // entry, and the second would be learnt as the first.  Find such a pair (a
-  // birthday search over 7-byte strings) and teach both as continuations.
-  const fnv = (b) => {
-    let h = 0x811c9dc5 >>> 0;
-    for (const x of b) h = Math.imul(h ^ x, 0x01000193) >>> 0;
-    return h;
-  };
-  let s = 1;
-  const rnd = () =>
-    (s = Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x6d2b79f5 | 0) >>> 0;
-  const seen = new Map();
-  let a = null, b = null;
-  while (a === null) {
-    const x = new Uint8Array(7);
-    for (let i = 0; i < 7; i++) x[i] = 0x61 + (rnd() % 26);
-    const h = fnv(x), prior = seen.get(h);
-    if (prior !== undefined && prior.some((v, i) => v !== x[i])) {
-      [a, b] = [prior, x];
-    } else seen.set(h, x);
-  }
-  const mind = new Mind({ D, seed: 7 });
-  const ci = new CachedIngest(mind);
-  await ci.ingest(enc("first context"), a);
-  await ci.ingest(enc("second context"), b);
-  const r = await mind.respond(enc("second context"));
-  assert.deepEqual(r && [...r.bytes].filter((x) => x !== 0), [...b]);
-  await mind.store.close();
 });
 
 // The two wholes of an episode keep each other's company, and nothing below

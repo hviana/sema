@@ -33,10 +33,11 @@
 import { addInto, cosine, Vec } from "../vec.js";
 import { bindSeat, companySignature } from "../sema.js";
 import { chainReach, phraseCap, significanceBar } from "../geometry.js";
-import { indexOf } from "../bytes.js";
+import { bytesEqual, indexOf } from "../bytes.js";
 import { windowIds } from "./canonical.js";
+import { holdersFrom } from "./junction.js";
 import { read } from "./primitives.js";
-import { oldestContexts, windowRarity } from "./traverse.js";
+import { offsetCanon, oldestContexts, windowRarity } from "./traverse.js";
 import type { MindContext } from "./types.js";
 
 /** A role, side by side: what frames a span on its left and on its right,
@@ -109,7 +110,7 @@ function roleOf(ctx: MindContext, id: number): Role {
     .sort((a, b) => a.rarity - b.rarity)
     .slice(0, W)
     .map((w) => w.wid);
-  const reach = phraseCap(form.length, W) + ctx.space.seats.length * W;
+  const reach = roleReach(ctx, form.length);
   const role: Role = [null, null];
   const seen = new Set<number>();
   let held = 0;
@@ -136,6 +137,82 @@ function roleOf(ctx: MindContext, id: number): Role {
   return role;
 }
 const roleMemo = new WeakMap<object, Map<number, Role>>();
+
+/** How far into a holder a role is read: one occurrence of the form near its
+ *  start, and the seats beyond it. */
+function roleReach(ctx: MindContext, len: number): number {
+  const W = ctx.space.maxGroup;
+  return phraseCap(len, W) + ctx.space.seats.length * W;
+}
+
+/** Whether the corpus writes the class of `span` — its bytes under the
+ *  response's equivalence — in a SPELLING OTHER THAN `member`'s.  A role that
+ *  disagrees is evidence of another use only where the class has one: `father`
+ *  is written where the film `Father` never stands, while `Manuel Of Castile`,
+ *  written by nothing but as its member, has no other use to be — its frame is
+ *  only the question's own wording.  Holders are proposed by climbing from the
+ *  rarest window of the span's spelling and of its canonical one, and decided
+ *  by their bytes (`holdersFrom`).  THREE ANSWERS: `held`; `apart`, every
+ *  holder the climb reaches read and none writing another spelling;
+ *  `saturated`, a spelling too common to enumerate, a page left unread, or a
+ *  holder longer than a role reads — on which the caller abstains. */
+export function spelledOtherwise(
+  ctx: MindContext,
+  span: Uint8Array,
+  member: Uint8Array,
+): "held" | "apart" | "saturated" {
+  const W = ctx.space.maxGroup;
+  const allowance = chainReach(W);
+  const sp = offsetCanon(ctx, span);
+  const seeds: number[] = [];
+  for (const bytes of bytesEqual(sp, span) ? [span] : [span, sp]) {
+    if (bytes.length < W) return "saturated";
+    const ids = windowIds(ctx, bytes);
+    // A spelling with a window no deposit wrote is written nowhere.
+    if (ids.size < bytes.length - W + 1) continue;
+    let seed = -1, few = Infinity;
+    for (const wid of ids.values()) {
+      const r = windowRarity(ctx, wid, allowance + 1);
+      if (r < few) [seed, few] = [wid, r];
+    }
+    if (few > allowance) return "saturated";
+    if (!seeds.includes(seed)) seeds.push(seed);
+  }
+  const reach = roleReach(ctx, span.length);
+  const cut = { n: 0 };
+  let unread = false;
+  const { found, exhausted } = holdersFrom(
+    ctx,
+    seeds,
+    (bytes, x) => {
+      const t = bytes();
+      if (t.length > reach) unread = true;
+      const c = offsetCanon(ctx, t);
+      for (let at = indexOf(c, sp, 0); at >= 0; at = indexOf(c, sp, at + 1)) {
+        if (!bytesEqual(t.subarray(at, at + sp.length), member)) return x;
+      }
+      return null;
+    },
+    {
+      containers: true,
+      order: "bfs",
+      maxDepth: Infinity,
+      maxBytes: reach + 1,
+      prune: false,
+      fan: allowance,
+      hub: false,
+      budget: { n: allowance * W },
+      limit: 1,
+      visits: "holderVisits",
+      cut,
+    },
+  );
+  return found.length > 0
+    ? "held"
+    : exhausted || unread || cut.n > 0
+    ? "saturated"
+    : "apart";
+}
 
 /** Whether a span of the question stands where the stored form `id` stands,
  *  read on the sides both are framed on: false when ANY shared side meets

@@ -354,6 +354,13 @@ export class Meter {
   /** Canonical sites recognition refused because the span stands where the
    *  stored member never stands (role.ts, `rolesAgree`). */
   roleRefusals = 0;
+  /** Chains ended at a node with several continuations the question names none
+   *  of (traverse.ts, `chainNext`). */
+  chainsUndecided = 0;
+  /** Canonical sites kept though their role disagreed: the corpus writes the
+   *  span's class in no spelling but the member's (role.ts,
+   *  `spelledOtherwise`). */
+  roleKept = 0;
   /** Frames whose window was a hub, read as a sample of the oldest contexts
    *  holding their narrowest window (traverse.ts, `siblingInstances`). */
   siblingsSampled = 0;

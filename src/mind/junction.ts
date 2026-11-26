@@ -314,6 +314,9 @@ export interface HolderWalk {
   readonly skip?: Iterable<number>;
   /** The meter's name for one visit. */
   readonly visits?: "junctionPops" | "holderVisits";
+  /** Counts the pages that came back full: rows may lie unread past each, so
+   *  a walk that found nothing has not read every holder (role.ts). */
+  readonly cut?: { n: number };
 }
 
 /** THE HOLDERS of byte material — the one exploration of the content-addressed
@@ -345,6 +348,7 @@ export function holdersFrom<T>(
   // first-listed first only when they are pushed in reverse — ties are the
   // corpus's order (determinism.md), the same for every walk.
   const push = (ids: readonly number[], d: number): void => {
+    if (walk.cut !== undefined && ids.length >= walk.fan) walk.cut.n++;
     if (walk.hub && ids.length > walk.fan) return;
     const fresh = ids.filter((p) => !seen.has(p));
     for (const p of fresh) seen.add(p);

@@ -579,10 +579,7 @@ export async function ingestPair(
 
 /** Dispatch the public ingest input shapes onto one-input / pair handlers —
  *  THE one reading of ingest's polymorphic surface (scalar, (context,
- *  continuation) pair, or a list mixing bare inputs and pairs).  Both ingest
- *  paths — the direct one below and {@link CachedIngest} — route through
- *  this, so the shape-detection can never drift between them again (the
- *  ingest cache once re-implemented it and drifted). */
+ *  continuation) pair, or a list mixing bare inputs and pairs). */
 export async function dispatchIngest(
   input: Input | (Input | [Input, Input])[],
   second: Input | undefined,

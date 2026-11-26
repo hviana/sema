@@ -62,7 +62,9 @@ own end, in order, and is never revisited.
 
 - **The offer of a hop is a consequence.** The chart offers the corpus's
   continuations under the read cap, each a move priced `STEP`, and the search
-  decides (`test/112`).
+  decides (`test/112`). Past the first hop a fork offers only the continuation
+  the question names (`chainNext`); naming none, the chain ends there at no
+  cost, in the chart and in `follow` alike (`test/154.25`).
 - **The depth of a join is a consequence.** A join consumes the shortest tail
   prefix that names a learnt key leading somewhere, and chains until the tail is
   consumed (`test/108`). It is priced only for the facts the lightest derivation

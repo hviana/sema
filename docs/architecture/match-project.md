@@ -22,8 +22,9 @@
 
 **Project: which way to move along the store from the match.**
 
-- `follow` — forward to a fixpoint. The first hop may be a `conceptHop`, which
-  borrows a halo sibling's edge.
+- `follow` — forward to a fixpoint, or to a fork the question names nothing of
+  (`chainNext`). The first hop may be a `conceptHop`, which borrows a halo
+  sibling's edge.
 - `reverseContext` — backward, to a context.
 - `project` — forward, else backward.
 
