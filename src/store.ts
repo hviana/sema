@@ -51,10 +51,6 @@ export interface NodeRec {
  *  wholesale (repeat-query hits re-warm it; a miss only re-runs the ANN). */
 const RESONATE_CACHE_MAX = 4096;
 
-/** Longest content whose lookup hit is worth a key (`_flatKey`,
- *  `_branchKey`): past it the probe answers alone. */
-const DEDUP_KEY_MAX = 4096;
-
 /** Safety depth bound for one {@link Store.chainRun} read.  Semantics never
  *  depend on it (a truncated run ends on a still-transparent node and the
  *  climber continues from there); it only bounds a single read's size. */
@@ -1043,14 +1039,6 @@ export abstract class AbstractStore implements Store {
 
   // ── Caches ─────────────────────────────────────────────────────────────
 
-  /** {@link findBranch}'s hits for a branch of branches, keyed by its packed
-   *  kids: a response resolves the same subtrees over and over.  Only what
-   *  the store answered is kept, so a hit never differs from the probe. */
-  protected readonly _branchKey: BoundedMap<string, NodeId>;
-  /** {@link findFlatBranch}'s hits, keyed by the bytes themselves (latin1):
-   *  a response asks the same few-byte segments over and over, from every
-   *  span that contains them. */
-  protected readonly _flatKey: BoundedMap<string, NodeId>;
   /** Reconstructed-bytes read cache (regenerable), keyed by node id. */
   protected readonly _bytesCache: BoundedMap<NodeId, Uint8Array>;
   /** contentLen memo — content is immutable, so entries never invalidate. */
@@ -1131,18 +1119,6 @@ export abstract class AbstractStore implements Store {
     this.overfetch = config.overfetch;
     this.batchSize = config.batchSize;
     this.compactEveryNWrites = config.compactEveryNWrites;
-    this._branchKey = new BoundedMap(
-      config.lookupKeyMax,
-      undefined,
-      "lru",
-      "clock",
-    );
-    this._flatKey = new BoundedMap(
-      config.lookupKeyMax,
-      undefined,
-      "lru",
-      "clock",
-    );
     this._bytesCache = new BoundedMap(
       config.bytesCacheMax,
       (v) => v.byteLength,
@@ -1471,12 +1447,7 @@ export abstract class AbstractStore implements Store {
    *  answers most of those with no I/O at all, so the allocations dominated.
    *
    *  Pass a subarray: it is a view, so a caller scanning spans of a query
-   *  allocates nothing per probe that misses.  HITS ARE MEMOIZED, MISSES ARE
-   *  NOT: the negative filter answers first, so a span that is not stored
-   *  builds no key; one that may be pays a key and then usually skips the
-   *  lookup — the spans the identity fold names are segments, a few bytes
-   *  each, asked over and over by every span that contains them.  A node, once
-   *  minted, keeps its bytes and its id, so a cached hit never goes stale. */
+   *  allocates nothing per probe. */
   findFlatBranch(bytes: Uint8Array): NodeId | null {
     return this._findFlatHashed(hashOf(bytes), bytes);
   }
@@ -1523,15 +1494,7 @@ export abstract class AbstractStore implements Store {
   /** {@link findFlatBranch} past the hash: `h` must be `hashOf(bytes)`. */
   private _findFlatHashed(h: number, bytes: Uint8Array): NodeId | null {
     if (this.meter) this.meter.branchLookups++;
-    if (!this._dbFlatMayExist(h, bytes)) return null;
-    const key = bytes.length <= DEDUP_KEY_MAX ? latin1(bytes) : null;
-    if (key !== null) {
-      const hit = this._flatKey.get(key);
-      if (hit !== undefined) return hit;
-    }
-    const id = this._dbFindBranchByLeaf(h, bytes);
-    if (id !== null && key !== null) this._flatKey.set(key, id);
-    return id;
+    return this._dbFindBranchByLeaf(h, bytes);
   }
 
   /** {@link Store.flatBranchMayExist} — the backend's negative filter when it
@@ -1554,14 +1517,7 @@ export abstract class AbstractStore implements Store {
     if (flat) return this._findFlatHashed(hashOf(flat), flat);
     if (this.meter) this.meter.branchLookups++;
     const packed = packKids(kids);
-    const key = packed.length <= DEDUP_KEY_MAX ? latin1(packed) : null;
-    if (key !== null) {
-      const hit = this._branchKey.get(key);
-      if (hit !== undefined) return hit;
-    }
-    const id = this._dbFindBranchByKids(hashOf(packed), packed);
-    if (id !== null && key !== null) this._branchKey.set(key, id);
-    return id;
+    return this._dbFindBranchByKids(hashOf(packed), packed);
   }
 
   // ── Structural parents ─────────────────────────────────────────────────

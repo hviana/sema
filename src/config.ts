@@ -45,9 +45,6 @@ export interface StoreConfig {
    *  (content + halo). Higher ⇒ fewer, larger flushes into the in-memory
    *  indices and fewer write-transaction commits. */
   batchSize: number;
-  /** Max entries of each content-lookup hit memo (`findBranch`,
-   *  `findFlatBranch`).  A miss asks the store again. */
-  lookupKeyMax: number;
   /** Max bytes of reconstructed content cached in memory (regenerable).
    *  Large branch nodes cost more budget than small leaves, so the cache
    *  naturally favours cheap, frequently-hit entries. */
@@ -148,7 +145,6 @@ export const DEFAULT_CONFIG: MindConfig = {
     overfetch: 4,
     batchSize: 256,
     nearDedup: true,
-    lookupKeyMax: 1_000_000,
     bytesCacheMax: 20_000_000,
     recCacheBytes: 10_000_000,
     pendingGistBytes: 16_000_000,
@@ -193,8 +189,6 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
       overfetch: opts.store?.overfetch ?? DEFAULT_CONFIG.store.overfetch,
       batchSize: opts.store?.batchSize ?? DEFAULT_CONFIG.store.batchSize,
       nearDedup: opts.store?.nearDedup ?? DEFAULT_CONFIG.store.nearDedup,
-      lookupKeyMax: opts.store?.lookupKeyMax ??
-        DEFAULT_CONFIG.store.lookupKeyMax,
       bytesCacheMax: opts.store?.bytesCacheMax ??
         DEFAULT_CONFIG.store.bytesCacheMax,
       recCacheBytes: opts.store?.recCacheBytes ??

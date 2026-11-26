@@ -27,15 +27,14 @@ O(1) over a persistent cursor. It has two settings:
 
 ## Store caches — budgets in `StoreConfig` (`src/config.ts`)
 
-| Cache               | Field                    | Default budget            | Eviction         | A miss costs                           |
-| ------------------- | ------------------------ | ------------------------- | ---------------- | -------------------------------------- |
-| lookup hits         | `_branchKey`, `_flatKey` | `lookupKeyMax`, 1M each   | lru + clock      | a hashed probe                         |
-| reconstructed bytes | `_bytesCache`            | `bytesCacheMax`, 20 MB    | smallest + clock | a subtree walk                         |
-| content length      | `_lenCache`              | `bytesCacheMax`           | lru + clock      | a capped walk                          |
-| node records        | `_recCache`              | `recCacheBytes`, 10 MB    | lru + clock      | a row read                             |
-| pending gists       | `_pendingGist`           | `pendingGistBytes`, 16 MB | lru              | a re-fold of the stored node           |
-| walked subtrees     | `_walkedIds`             | `coveredIdsMax`, 100K     | lru              | a re-walk                              |
-| transparent chains  | `_chainMemo`             | `chainCacheBytes`, 16 MB  | lru + clock      | a walk; dropped when a write breaks it |
+| Cache               | Field          | Default budget            | Eviction         | A miss costs                           |
+| ------------------- | -------------- | ------------------------- | ---------------- | -------------------------------------- |
+| reconstructed bytes | `_bytesCache`  | `bytesCacheMax`, 20 MB    | smallest + clock | a subtree walk                         |
+| content length      | `_lenCache`    | `bytesCacheMax`           | lru + clock      | a capped walk                          |
+| node records        | `_recCache`    | `recCacheBytes`, 10 MB    | lru + clock      | a row read                             |
+| pending gists       | `_pendingGist` | `pendingGistBytes`, 16 MB | lru              | a re-fold of the stored node           |
+| walked subtrees     | `_walkedIds`   | `coveredIdsMax`, 100K     | lru              | a re-walk                              |
+| transparent chains  | `_chainMemo`   | `chainCacheBytes`, 16 MB  | lru + clock      | a walk; dropped when a write breaks it |
 
 - `_bytesCache` never caches a truncated prefix.
 - The ANN read caches (`_resonateCache`, `_resonateHaloCache`) are keyed by

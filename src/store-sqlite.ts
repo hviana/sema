@@ -344,7 +344,6 @@ export class SQliteStore extends AbstractStore implements Store {
       overfetch: opts.overfetch ?? d.overfetch,
       batchSize: opts.batchSize ?? d.batchSize,
       nearDedup: opts.nearDedup ?? d.nearDedup,
-      lookupKeyMax: opts.lookupKeyMax ?? d.lookupKeyMax,
       bytesCacheMax: opts.bytesCacheMax ?? d.bytesCacheMax,
       recCacheBytes: opts.recCacheBytes ?? d.recCacheBytes,
       pendingGistBytes: opts.pendingGistBytes ?? d.pendingGistBytes,
