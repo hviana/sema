@@ -45,11 +45,10 @@ export const CACHE_DIR = env("CACHE_DIR", join(process.cwd(), "cache"));
 export const MAX_CACHE_BYTES = Number(env("MAX_CACHE_GB", "100")) * 1e9;
 export const PROGRESS_MS = Number(env("PROGRESS_MS", "250")); // panel cadence
 
-// Index maintenance at checkpoints: compact (remove garbage), repair (fill
-// gaps), then refresh the canonical-form index (equivalence-class resolution —
-// src/canon.ts). All three are idempotent batch operations (the canon build is
-// additionally incremental via the store's `canon.upto` cursor);
-// INDEX_MAINTENANCE=0 disables.
+// Index maintenance at checkpoints: repair (fill gaps), then refresh the
+// canonical-form index (equivalence-class resolution — src/canon.ts).  Both
+// are idempotent batch operations (the canon build is additionally incremental
+// via the store's `canon.upto` cursor); INDEX_MAINTENANCE=0 disables.
 export const INDEX_MAINTENANCE = env("INDEX_MAINTENANCE", "1") !== "0";
 export const DOWNLOAD_TRIES = 5;
 

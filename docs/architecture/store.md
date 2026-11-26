@@ -127,7 +127,8 @@ Every in-memory cache is a budgeted `BoundedMap` (`caches.md`).
 Maintenance is incremental:
 
 - `compactContentIndex` removes isolated index entries written since its last
-  watermark.
+  watermark — the single-parent interiors a partial query resonates to, so a
+  store that is asked by portions is not compacted (`test/187`).
 - `repairContentIndex` re-inserts bridge nodes whose gists were evicted before
   they were indexed.
 - `buildCanonIndex` extends the canonical index from a given id.

@@ -423,9 +423,11 @@ export interface Store {
    *  experience (no edges, no halo).  These nodes are unique to one tree and
    *  bridge nothing between experiences — their index slots are wasted.
    *
-   *  This is a POST-HOC batch operation, not on the training hot path.  Run it
-   *  at checkpoints or after training to reclaim index space.  The underlying
-   *  vector DB is compacted after deletion to physically free the space.
+   *  This is a POST-HOC batch operation for an ARCHIVED store, never a
+   *  checkpoint step: the entries it removes are the ones a query naming a
+   *  portion of an experience resonates to ({@link indexSubtree}), and what
+   *  `Mind.rebuildDerived` puts back.  The underlying vector DB is compacted
+   *  after deletion to physically free the space.
    *
    *  INCREMENTAL: keep decisions are monotone (parents, edges and halos only
    *  ever grow), so entries examined by a previous pass are settled; each
