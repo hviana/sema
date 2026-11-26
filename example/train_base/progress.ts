@@ -67,20 +67,13 @@ export async function saveProgress(
   store.commit();
 }
 
-/** Run index maintenance: repair (fill gaps), then refresh the
- *  canonical-form index (see below).  Both are idempotent — running twice
- *  produces the same result as once.  Repair adds back every edge/halo-bearing
- *  node whose gist was evicted from the pending cache before it reached the
- *  content index, completing the coverage that incremental promotion alone
- *  cannot guarantee.
- *
- *  NOTHING IS REMOVED.  A checkpoint used to compact the content index first
- *  (`compactContentIndex`), which deletes the single-parent interiors of every
- *  learnt experience — the entries a query naming only a PORTION of one
- *  resonates to, and the ones `Mind.rebuildDerived` puts back.  On the 900 MB
- *  store, restoring them around 32 sampled contexts took their perturbed
- *  askings (a byte deleted, a word dropped, the last mark changed) from 31 to
- *  44 answered of 94, so a trained store must keep what its deposits indexed.
+/** Run index maintenance: compact (remove garbage), repair (fill gaps),
+ *  then refresh the canonical-form index (see below).  All three are
+ *  idempotent — running twice produces the same result as once.
+ *  Compaction frees index space first; repair then adds back every
+ *  edge/halo-bearing node whose gist was evicted from the pending cache
+ *  before it reached the content index, completing the coverage that
+ *  incremental promotion alone cannot guarantee.
  *
  *  repair runs with minParents = 0, NOT the library default of 2.  The
  *  default repairs only structural BRIDGES (≥2 parents), but this
@@ -94,13 +87,28 @@ export async function saveProgress(
  *  edge/halo bearer; the candidate set is still corpus-of-experiences-
  *  sized, so the pass stays cheap.
  *
- *  Logs the number of entries added, so a repair that keeps recovering
- *  entries is visible in the training log. */
+ *  Logs the number of entries removed/added so a run that silently degrades
+ *  (growing compaction count, or repair never recovering anything) is
+ *  visible in the training log. */
 export async function runIndexMaintenance(
   mind: Mind,
   log: (msg: string) => void,
 ): Promise<void> {
   if (!INDEX_MAINTENANCE) return;
+  try {
+    const removed = await mind.store.compactContentIndex();
+    if (removed > 0) {
+      log(
+        `  ${DIM}index compact: removed ${int(removed)} isolated entries${R}`,
+      );
+    }
+  } catch (err) {
+    log(
+      `  ${YEL}⚠ index compact failed${R}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
   try {
     const added = await mind.repairContentIndex(0);
     if (added > 0) {
@@ -122,7 +130,7 @@ export async function runIndexMaintenance(
   // idempotent by construction — the `canon.upto` meta cursor scans only
   // nodes newer than the last pass, and the (h, id) primary key ignores
   // re-inserted rows — so it composes with the resume model exactly like
-  // repair: every checkpoint (and finish) leaves the index
+  // compact/repair: every checkpoint (and finish) leaves the index
   // covering all content trained so far.
   try {
     const added = await mind.buildCanonIndex();

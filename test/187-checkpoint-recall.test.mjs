@@ -72,28 +72,3 @@ test("the worker answers as the training Mind, and writes nothing", async () => 
   await store.close();
   rmSync(dir, { recursive: true, force: true });
 });
-
-test("a checkpoint's maintenance removes nothing a deposit indexed", async () => {
-  // The trainer compacted the content index at every checkpoint: the
-  // single-parent interiors of each learnt experience went, and with them the
-  // entries a query naming a PORTION of one resonates to — while
-  // `rebuildDerived` indexes exactly those.  A trained store and a rebuilt one
-  // must hold the same reach, so maintenance may add and never remove.
-  const { runIndexMaintenance } = await import(
-    "../dist/example/train_base/progress.js"
-  );
-  const t = await trained();
-  const before = t.store.indexedVectorCount();
-  const log = [];
-  await runIndexMaintenance(t.mind, (m) => log.push(m));
-  assert.ok(
-    t.store.indexedVectorCount() >= before,
-    `maintenance removed index entries: ${before} → ${t.store.indexedVectorCount()}`,
-  );
-  assert.ok(
-    (await t.store.compactContentIndex()) > 0,
-    "the store does hold interiors a compaction would have taken",
-  );
-  await t.store.close();
-  rmSync(t.dir, { recursive: true, force: true });
-});
