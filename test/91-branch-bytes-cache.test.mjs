@@ -342,9 +342,8 @@ test("a store trained under any cache budget is the same store", async () => {
   }
   const tiny = {
     pendingGistBytes: 1,
-    haloCacheBytes: 1,
     coveredIdsMax: 1,
-    dedupCacheMax: 1,
+    lookupKeyMax: 1,
     bytesCacheMax: 1,
     recCacheBytes: 1,
     chainCacheBytes: 1,

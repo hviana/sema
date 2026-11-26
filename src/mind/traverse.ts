@@ -7,6 +7,7 @@
 // project) live in match.ts — the elementary match-and-project operation.
 
 import { addInto, cosine, dot, normalize, Vec, zeros } from "../vec.js";
+import { LifeMemo, MemoMap } from "../memo.js";
 import {
   AGREEMENT,
   boundFor,
@@ -74,23 +75,13 @@ interface StructCache {
 // together and re-derived, costing cold structural probes and never a wrong
 // answer.
 const STRUCT_MEMO_MAX = 100_000;
-const structCaches = new WeakMap<object, StructCache>();
-
-/** A session memo whose entries vary in size, budgeted in BYTES and dropped
- *  WHOLE at its budget (caches.md): each entry is charged its estimated size
- *  once, when set, so a hit costs nothing a plain Map's does not. */
-class MemoMap<K, V> extends Map<K, V> {
-  constructor(
-    readonly spent: { bytes: number },
-    private readonly sizeOf: (v: V) => number,
-  ) {
-    super();
-  }
-  override set(k: K, v: V): this {
-    if (!super.has(k)) this.spent.bytes += this.sizeOf(v);
-    return super.set(k, v);
-  }
-}
+const structCaches = new LifeMemo<StructCache>(
+  () => ({ hasNext: new Map(), prevCount: new Map(), hasParents: new Map() }),
+  (c) =>
+    c.hasNext.size >= STRUCT_MEMO_MAX ||
+    c.prevCount.size >= STRUCT_MEMO_MAX ||
+    c.hasParents.size >= STRUCT_MEMO_MAX,
+);
 
 /** A step, or any small record of byte views, as a memo charges it. */
 const RECORD_BYTES = 64;
@@ -115,7 +106,10 @@ const RECORD_BYTES = 64;
 // costing a cold climb and never a wrong answer.  The 31.7M-node battery peaks
 // near 9 MB.
 const REACH_MEMO_BYTES = 32_000_000;
-const reachCaches = new WeakMap<object, MemoMap<number, AncestorReach>>();
+const reachCaches = new LifeMemo<MemoMap<number, AncestorReach>>(
+  () => new MemoMap({ bytes: 0 }, (r) => RECORD_BYTES + 8 * r.roots.length),
+  (m) => m.spent.bytes >= REACH_MEMO_BYTES,
+);
 
 /** The reach memo this ask should use — see the note above.
  *
@@ -131,39 +125,11 @@ export function sharedReachMemo(
   ctx: MindContext,
 ): Map<number, AncestorReach> {
   if (ctx.trace !== null || ctx.climbMemo === null) return new Map();
-  let m = reachCaches.get(ctx._structMemoKey);
-  if (m === undefined) {
-    m = new MemoMap({ bytes: 0 }, (r) => RECORD_BYTES + 8 * r.roots.length);
-    reachCaches.set(ctx._structMemoKey, m);
-  } else if (m.spent.bytes >= REACH_MEMO_BYTES) {
-    m.clear();
-    m.spent.bytes = 0;
-  }
-  return m;
+  return reachCaches.of(ctx._structMemoKey);
 }
 
 function getStructCache(ctx: MindContext): StructCache | null {
-  if (ctx.climbMemo === null) return null;
-  let c = structCaches.get(ctx._structMemoKey);
-  if (c === undefined) {
-    structCaches.set(
-      ctx._structMemoKey,
-      c = {
-        hasNext: new Map(),
-        prevCount: new Map(),
-        hasParents: new Map(),
-      },
-    );
-  } else if (
-    c.hasNext.size >= STRUCT_MEMO_MAX ||
-    c.prevCount.size >= STRUCT_MEMO_MAX ||
-    c.hasParents.size >= STRUCT_MEMO_MAX
-  ) {
-    c.hasNext.clear();
-    c.prevCount.clear();
-    c.hasParents.clear();
-  }
-  return c;
+  return ctx.climbMemo === null ? null : structCaches.of(ctx._structMemoKey);
 }
 
 /** A derivation read off an instance, and the entities a fact holds, depend
@@ -184,39 +150,39 @@ interface DerivationCache {
   uses: MemoMap<string, Vec | null>;
 }
 const DERIVATION_MEMO_BYTES = 16_000_000;
-const derivationCaches = new WeakMap<object, DerivationCache>();
+const derivationCaches = new LifeMemo<DerivationCache>(
+  undefined,
+  (c) => c.spent.bytes >= DERIVATION_MEMO_BYTES,
+);
 function derivationCache(ctx: MindContext): DerivationCache | null {
   if (ctx.trace !== null || ctx.climbMemo === null) return null;
-  let c = derivationCaches.get(ctx._structMemoKey);
-  if (
-    c === undefined || c.canon !== ctx.canon ||
-    c.spent.bytes >= DERIVATION_MEMO_BYTES
-  ) {
+  const make = (): DerivationCache => {
     const spent = { bytes: 0 };
     const steps = (n: number) => RECORD_BYTES * (n + 1);
-    derivationCaches.set(
-      ctx._structMemoKey,
-      c = {
-        canon: ctx.canon,
+    return {
+      canon: ctx.canon,
+      spent,
+      paths: new MemoMap(
         spent,
-        paths: new MemoMap(
-          spent,
-          (ws) => ws.reduce((a, w) => a + steps(w.length), RECORD_BYTES),
-        ),
-        entities: new MemoMap(spent, (xs) => steps(xs.length)),
-        described: new MemoMap(spent, (xs) => steps(xs?.length ?? 0)),
-        facts: new MemoMap(spent, (m) => steps(m.size)),
-        slots: new MemoMap(spent, () => RECORD_BYTES),
-        uses: new MemoMap(spent, (v) => RECORD_BYTES + 4 * (v?.length ?? 0)),
-        converges: new MemoMap(spent, (ps) =>
-          ps.reduce(
-            (a, [x, y]) => a + steps(x.steps.length) + steps(y.steps.length),
-            RECORD_BYTES,
-          )),
-      },
-    );
-  }
-  return c;
+        (ws) => ws.reduce((a, w) => a + steps(w.length), RECORD_BYTES),
+      ),
+      entities: new MemoMap(spent, (xs) => steps(xs.length)),
+      described: new MemoMap(spent, (xs) => steps(xs?.length ?? 0)),
+      facts: new MemoMap(spent, (m) => steps(m.size)),
+      slots: new MemoMap(spent, () => RECORD_BYTES),
+      uses: new MemoMap(spent, (v) => RECORD_BYTES + 4 * (v?.length ?? 0)),
+      converges: new MemoMap(spent, (ps) =>
+        ps.reduce(
+          (a, [x, y]) => a + steps(x.steps.length) + steps(y.steps.length),
+          RECORD_BYTES,
+        )),
+    };
+  };
+  const c = derivationCaches.of(ctx._structMemoKey, make);
+  // A reading made under another canon is another reading.
+  return c.canon === ctx.canon
+    ? c
+    : derivationCaches.put(ctx._structMemoKey, make());
 }
 
 /** Invalidate every session-lifetime structural read after a write: every
@@ -1232,8 +1198,7 @@ function askedEntry(
   nx: readonly number[],
   asked: { bytes: Uint8Array; index: WindowIndex },
 ): AskedEntry {
-  let memo = askedMemo.get(asked);
-  if (memo === undefined) askedMemo.set(asked, memo = new Map());
+  const memo = askedMemo.of(asked);
   // A pick made before the climb has run is provisional: a co-instance read
   // from its points may still name one, or outrank what witnessing named.  It
   // serves until the points arrive, and is then made once more.
@@ -1249,10 +1214,9 @@ function askedEntry(
 
 /** One pick per node per question — every mechanism of a response asks the
  *  same node about the same question (the guided-pick memo's own reason). */
-const askedMemo = new WeakMap<
-  object,
+const askedMemo = new LifeMemo<
   Map<number, { entry: AskedEntry; climbed: boolean }>
->();
+>(() => new Map());
 
 function askedContinuationsImpl(
   ctx: MindContext,
@@ -1318,7 +1282,7 @@ const none = (): AskedEntry => ({ named: null, spans: new Map() });
  *  (`oldestContexts`), common or rare: a sample constant in the corpus.  Null
  *  where nothing keeps company.  A stored span's use is kept for the session
  *  (`DerivationCache`), a question's for the question. */
-const questionUses = new WeakMap<object, Map<string, Vec | null>>();
+const questionUses = new LifeMemo<Map<string, Vec | null>>(() => new Map());
 function useOf(
   ctx: MindContext,
   bytes: Uint8Array,
@@ -1328,8 +1292,7 @@ function useOf(
 ): Vec | null {
   const memo = "context" in owner
     ? derivationCache(ctx)?.uses
-    : questionUses.get(owner.question) ??
-      questionUses.set(owner.question, new Map()).get(owner.question);
+    : questionUses.of(owner.question);
   const key = "context" in owner
     ? `${owner.context}:${from}:${to}`
     : `${from}:${to}`;
@@ -1449,8 +1412,7 @@ export function licensedSubstitution(
   let memo: Map<string, "shown" | "refuted" | "unread"> | undefined;
   let key = "";
   if (life !== null) {
-    memo = licenceMemo.get(life);
-    if (memo === undefined) licenceMemo.set(life, memo = new Map());
+    memo = licenceMemo.of(life);
     key = bytesKey(stored, asked);
     const hit = memo.get(key);
     if (hit !== undefined) return hit;
@@ -1461,10 +1423,9 @@ export function licensedSubstitution(
   memo?.set(key, out);
   return out;
 }
-const licenceMemo = new WeakMap<
-  object,
+const licenceMemo = new LifeMemo<
   Map<string, "shown" | "refuted" | "unread">
->();
+>(() => new Map());
 
 function licenceOf(
   ctx: MindContext,
@@ -1496,8 +1457,7 @@ function licenceBytes(
   const key = `${canon ? "c" : "r"}${id}`;
   let memo: Map<string, Uint8Array> | undefined;
   if (life !== null) {
-    memo = licenceBytesMemo.get(life);
-    if (memo === undefined) licenceBytesMemo.set(life, memo = new Map());
+    memo = licenceBytesMemo.of(life);
     const hit = memo.get(key);
     if (hit !== undefined) return hit;
   }
@@ -1506,7 +1466,7 @@ function licenceBytes(
   memo?.set(key, out);
   return out;
 }
-const licenceBytesMemo = new WeakMap<object, Map<string, Uint8Array>>();
+const licenceBytesMemo = new LifeMemo<Map<string, Uint8Array>>(() => new Map());
 
 /** A node's first continuations (`n`) or establishing contexts (`p`), as the
  *  licence reads them — once per response, like its holders and their bytes:
@@ -1521,8 +1481,7 @@ function licenceEdges(
   const key = `${side}${id}:${limit}`;
   let memo: Map<string, number[]> | undefined;
   if (life !== null) {
-    memo = licenceEdgeMemo.get(life);
-    if (memo === undefined) licenceEdgeMemo.set(life, memo = new Map());
+    memo = licenceEdgeMemo.of(life);
     const hit = memo.get(key);
     if (hit !== undefined) return hit;
   }
@@ -1532,7 +1491,7 @@ function licenceEdges(
   memo?.set(key, out);
   return out;
 }
-const licenceEdgeMemo = new WeakMap<object, Map<string, number[]>>();
+const licenceEdgeMemo = new LifeMemo<Map<string, number[]>>(() => new Map());
 
 /** CONVERGENCE — the equivalence shown across two frames: a context holding
  *  `asked` and another holding `stored`, saying the same of the same thing
@@ -2837,8 +2796,7 @@ export function canonHeldPoints(
 /** One reading per climb: the points are an array the climb hands over once
  *  per response, and the cover, the instance reading and the pipeline ask the
  *  same question of it (3.5 times per question on the 900). */
-const canonHeldMemo = new WeakMap<
-  readonly number[],
+const canonHeldMemo = new LifeMemo<
   Map<
     number,
     {
@@ -2847,7 +2805,7 @@ const canonHeldMemo = new WeakMap<
       out: Array<{ start: number; end: number; payload: number }>;
     }
   >
->();
+>(() => new Map());
 
 function canonHeldOf(
   ctx: MindContext,
@@ -2857,8 +2815,7 @@ function canonHeldOf(
   if (asked === null || asked.points === undefined || ctx.canon === null) {
     return [];
   }
-  let memo = canonHeldMemo.get(asked.points);
-  if (memo === undefined) canonHeldMemo.set(asked.points, memo = new Map());
+  const memo = canonHeldMemo.of(asked.points);
   const hit = memo.get(minLen);
   if (hit !== undefined && hit.canon === ctx.canon && hit.raw === asked.raw) {
     return hit.out;
@@ -2932,7 +2889,7 @@ function relationFrames(
   // A co-instance is the question's frame around ONE other filler, so it is
   // read at most to twice the question's length.
   const formCap = instanceCap(asked.bytes.length);
-  const hit = frameMemo.get(asked);
+  const hit = frameMemo.peek(asked);
   if (hit !== undefined && !ctx.trace) return hit;
   const whole = ctx._edgeAsked;
   // THE PROPOSALS ARE THE RESPONSE'S INVENTORY (`instanceProposals`): the
@@ -2942,7 +2899,7 @@ function relationFrames(
   const points = whole?.points;
   if (points === undefined) return [];
   const frames: RelationFrame[] = [];
-  frameMemo.set(asked, frames);
+  frameMemo.put(asked, frames);
   const W = ctx.space.maxGroup;
   const cache = getStructCache(ctx);
   // What a form says as an instance does not depend on the material it is
@@ -3504,13 +3461,11 @@ interface InstanceBook {
   held?: number[];
   entity: Map<string, SlotReading | null>;
 }
-const bookMemo = new WeakMap<object, InstanceBook>();
+const bookMemo = new LifeMemo<InstanceBook>(
+  () => ({ forms: new Map(), entity: new Map() }),
+);
 function instanceBook(whole: object): InstanceBook {
-  let b = bookMemo.get(whole);
-  if (b === undefined) {
-    bookMemo.set(whole, b = { forms: new Map(), entity: new Map() });
-  }
-  return b;
+  return bookMemo.of(whole);
 }
 
 /** THE INSTANCE READING of one proposed form: a deposited form, read onto the
@@ -4139,7 +4094,7 @@ export interface ConvergenceReading {
   frames: Convergence[];
 }
 
-const convergenceMemo = new WeakMap<object, ConvergenceReading | null>();
+const convergenceMemo = new LifeMemo<ConvergenceReading | null>();
 
 /** A question that names two things around one frame (`Who is both the
  *  mother of · and the spouse of ·?`) is read the way a one-slot question is
@@ -4153,10 +4108,10 @@ const convergenceMemo = new WeakMap<object, ConvergenceReading | null>();
 export function convergenceOf(ctx: MindContext): ConvergenceReading | null {
   const whole = ctx._edgeAsked;
   if (whole === null || whole.points === undefined) return null;
-  const hit = convergenceMemo.get(whole);
+  const hit = convergenceMemo.peek(whole);
   if (hit !== undefined && !ctx.trace) return hit;
   const out = readConvergence(ctx, whole);
-  convergenceMemo.set(whole, out);
+  convergenceMemo.put(whole, out);
   return out;
 }
 
@@ -4832,7 +4787,7 @@ function siblingInstances(
   pastHub.add(out);
   return out;
 }
-const frameMemo = new WeakMap<object, RelationFrame[]>();
+const frameMemo = new LifeMemo<RelationFrame[]>();
 /** Sibling lists read PAST a hub (`oldestContexts`) — what their readers
  *  stop reading once two instances agree. */
 const pastHub = new WeakSet<number[]>();
@@ -4861,8 +4816,7 @@ export function oldestContexts(
   let memo: Map<string, number[]> | undefined;
   const key = `${id}:${allowance}:${leadsOn}`;
   if (life !== null) {
-    memo = oldestMemo.get(life);
-    if (memo === undefined) oldestMemo.set(life, memo = new Map());
+    memo = oldestMemo.of(life);
     const hit = memo.get(key);
     if (hit !== undefined) return hit;
   }
@@ -4870,7 +4824,7 @@ export function oldestContexts(
   memo?.set(key, out);
   return out;
 }
-const oldestMemo = new WeakMap<object, Map<string, number[]>>();
+const oldestMemo = new LifeMemo<Map<string, number[]>>(() => new Map());
 
 function oldestContextsOf(
   ctx: MindContext,
@@ -5141,10 +5095,7 @@ export function allWindowsAreScaffolding(
  *  reading counts them (scaffolding; see the floor below) — else 0.  Memoised
  *  per byte array while the store is unwritten. */
 export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
-  let memo = hubWindowMemo.get(ctx._structMemoKey);
-  if (memo === undefined) {
-    hubWindowMemo.set(ctx._structMemoKey, memo = new WeakMap());
-  }
+  const memo = hubWindowMemo.of(ctx._structMemoKey);
   const hit = memo.get(bytes);
   if (hit !== undefined) return hit;
   const W = ctx.space.maxGroup;
@@ -5162,7 +5113,9 @@ export function hubWindows(ctx: MindContext, bytes: Uint8Array): Uint8Array {
 }
 /** Per store state (`_structMemoKey`), then per byte array: a write makes the
  *  reading of the same bytes another one. */
-const hubWindowMemo = new WeakMap<object, WeakMap<Uint8Array, Uint8Array>>();
+const hubWindowMemo = new LifeMemo<WeakMap<Uint8Array, Uint8Array>>(() =>
+  new WeakMap()
+);
 
 /** The query's SCAFFOLDING CORE, as spans: the bytes every W-window over which
  *  is a hub (see {@link hubWindows}) — what is nothing but frame, where

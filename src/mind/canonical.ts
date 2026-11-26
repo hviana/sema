@@ -27,6 +27,7 @@
 // what training indexed, which no type checker catches.
 
 import type { MindContext } from "./types.js";
+import { LifeMemo } from "../memo.js";
 import { flatBytesKids } from "../store.js";
 
 /** The two sliding-window lengths the WRITE side interns over a stream's leaf
@@ -126,16 +127,17 @@ export function windowIds(
 }
 
 interface WindowTable {
-  key: object;
   at: Map<number, number | null>;
   all?: Map<number, number>;
 }
-const windowTables = new WeakMap<Uint8Array, WindowTable>();
+/** Per store state, then per byte array: a write makes the reading of the
+ *  same bytes another one. */
+const windowTables = new LifeMemo<WeakMap<Uint8Array, WindowTable>>(() =>
+  new WeakMap()
+);
 function tableOf(ctx: MindContext, bytes: Uint8Array): WindowTable {
-  let t = windowTables.get(bytes);
-  if (t === undefined || t.key !== ctx._structMemoKey) {
-    t = { key: ctx._structMemoKey, at: new Map() };
-    windowTables.set(bytes, t);
-  }
+  const tables = windowTables.of(ctx._structMemoKey);
+  let t = tables.get(bytes);
+  if (t === undefined) tables.set(bytes, t = { at: new Map() });
   return t;
 }

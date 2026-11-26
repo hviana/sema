@@ -31,6 +31,7 @@
 // change and no index.
 
 import { addInto, cosine, Vec } from "../vec.js";
+import { LifeMemo } from "../memo.js";
 import { bindSeat, companySignature } from "../sema.js";
 import { chainReach, phraseCap, significanceBar } from "../geometry.js";
 import { bytesEqual, indexOf } from "../bytes.js";
@@ -96,8 +97,7 @@ function roleOf(ctx: MindContext, id: number): Role {
   const life = ctx.climbMemo;
   let memo: Map<number, Role> | undefined;
   if (life !== null) {
-    memo = roleMemo.get(life);
-    if (memo === undefined) roleMemo.set(life, memo = new Map());
+    memo = roleMemo.of(life);
     const hit = memo.get(id);
     if (hit !== undefined) return hit;
   }
@@ -136,7 +136,7 @@ function roleOf(ctx: MindContext, id: number): Role {
   memo?.set(id, role);
   return role;
 }
-const roleMemo = new WeakMap<object, Map<number, Role>>();
+const roleMemo = new LifeMemo<Map<number, Role>>(() => new Map());
 
 /** How far into a holder a role is read: one occurrence of the form near its
  *  start, and the seats beyond it. */

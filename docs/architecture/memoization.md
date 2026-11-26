@@ -49,9 +49,9 @@ content-keyed, until a write or another canon.
 | `_edgeChoice` (the pick memo), `_edgeAsked`            | node / question       | response; cleared at the end                     |
 | `sharedReachMemo`, probes, derivations (`traverse.ts`) | node / form           | write, canon (derivations), budget (`caches.md`) |
 
-Elsewhere a per-response memo is a `WeakMap` keyed by the response's lifecycle
-object (`climbMemo`), so it dies with the response: the bridge, halo siblings,
-the licence, the oldest contexts, the instance book.
+Elsewhere a per-response memo is a `LifeMemo` (`src/memo.ts`) kept for the
+response's lifecycle object (`climbMemo`), so it dies with the response: the
+bridge, halo siblings, the licence, the oldest contexts, the instance book.
 
 `foldTree` takes the `_resolvedSubtrees` fast path only when no visitor is
 passed. A walk that emits sites always descends in full, and the cache only

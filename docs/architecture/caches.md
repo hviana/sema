@@ -27,17 +27,15 @@ O(1) over a persistent cursor. It has two settings:
 
 ## Store caches — budgets in `StoreConfig` (`src/config.ts`)
 
-| Cache                        | Field                        | Default budget              | Eviction         | A miss costs                           |
-| ---------------------------- | ---------------------------- | --------------------------- | ---------------- | -------------------------------------- |
-| dedup keys                   | `_branchKey`                 | `dedupCacheMax`, 1M entries | lru              | a durable content probe                |
-| flat-branch hits             | `_flatKey`                   | `dedupCacheMax`             | lru + clock      | a hashed probe                         |
-| reconstructed bytes          | `_bytesCache`                | `bytesCacheMax`, 20 MB      | smallest + clock | a subtree walk                         |
-| content length               | `_lenCache`                  | `bytesCacheMax`             | lru + clock      | a capped walk                          |
-| node records                 | `_recCache`                  | `recCacheBytes`, 10 MB      | lru + clock      | a row read                             |
-| pending gists                | `_pendingGist`               | `pendingGistBytes`, 16 MB   | lru              | a re-fold of the stored node           |
-| halos read                   | `_haloNorm`                  | `haloCacheBytes`, 16 MB     | lru              | reading the stored halo                |
-| indexed ids, walked subtrees | `_indexedIds` / `_walkedIds` | `coveredIdsMax`, 100K       | lru              | a re-probe, a re-walk                  |
-| transparent chains           | `_chainMemo`                 | `chainCacheBytes`, 16 MB    | lru              | a walk; dropped when a write breaks it |
+| Cache               | Field                    | Default budget            | Eviction         | A miss costs                           |
+| ------------------- | ------------------------ | ------------------------- | ---------------- | -------------------------------------- |
+| lookup hits         | `_branchKey`, `_flatKey` | `lookupKeyMax`, 1M each   | lru + clock      | a hashed probe                         |
+| reconstructed bytes | `_bytesCache`            | `bytesCacheMax`, 20 MB    | smallest + clock | a subtree walk                         |
+| content length      | `_lenCache`              | `bytesCacheMax`           | lru + clock      | a capped walk                          |
+| node records        | `_recCache`              | `recCacheBytes`, 10 MB    | lru + clock      | a row read                             |
+| pending gists       | `_pendingGist`           | `pendingGistBytes`, 16 MB | lru              | a re-fold of the stored node           |
+| walked subtrees     | `_walkedIds`             | `coveredIdsMax`, 100K     | lru              | a re-walk                              |
+| transparent chains  | `_chainMemo`             | `chainCacheBytes`, 16 MB  | lru + clock      | a walk; dropped when a write breaks it |
 
 - `_bytesCache` never caches a truncated prefix.
 - The ANN read caches (`_resonateCache`, `_resonateHaloCache`) are keyed by
@@ -55,10 +53,11 @@ O(1) over a persistent cursor. It has two settings:
   its suffix (`fold-contract.md`). Both reset past 64 lengths.
 - **`_internIds`** (a `WeakMap`, tree node → id): skips re-interning a shared
   subtree; its ids are permanent.
-- **Structural memos** (`traverse.ts`, `junction.ts`): the climb's reach (32 MB)
-  and what is read off instances (16 MB) charge an entry when set and drop whole
-  at the budget; a hit costs a `Map`'s. Probe entries and the junction walk's
-  reads (`walkCache`) drop whole at 100K entries.
+- **Lifetime memos** are one structure, `LifeMemo` (`src/memo.ts`): kept for a
+  response, a store state or a question, made on the first ask, dropped whole
+  past the budget (`test/137.8`). The climb's reach (32 MB) and what is read off
+  instances (16 MB) charge an entry when set (`MemoMap`); probe entries and the
+  junction walk's reads (`walkCache`) drop at 100K entries.
 
 Per-response memos are in `memoization.md`.
 

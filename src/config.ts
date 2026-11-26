@@ -45,9 +45,9 @@ export interface StoreConfig {
    *  (content + halo). Higher ⇒ fewer, larger flushes into the in-memory
    *  indices and fewer write-transaction commits. */
   batchSize: number;
-  /** Max entries in the store's exact-content dedup map (bounds RAM on huge
-   *  corpora; a miss only risks a duplicate node, never incorrectness). */
-  dedupCacheMax: number;
+  /** Max entries of each content-lookup hit memo (`findBranch`,
+   *  `findFlatBranch`).  A miss asks the store again. */
+  lookupKeyMax: number;
   /** Max bytes of reconstructed content cached in memory (regenerable).
    *  Large branch nodes cost more budget than small leaves, so the cache
    *  naturally favours cheap, frequently-hit entries. */
@@ -63,9 +63,6 @@ export interface StoreConfig {
    *  A miss re-derives the gist from the node's stored structure, so the
    *  budget costs time only. */
   pendingGistBytes: number;
-  /** Max bytes of halos kept in memory for reads (D·4 each).  A miss reads
-   *  the stored halo again. */
-  haloCacheBytes: number;
   /** Size, in MiB, of each `rabitq-ivf` `VectorDatabase`'s memory budget
    *  (forwarded as its `cacheSizeMb` — its SQLite page cache).  A PURE latency
    *  optimisation — the index reads chunk blobs from SQLite on demand, so its
@@ -80,10 +77,8 @@ export interface StoreConfig {
    *  it, so every probe pays a file read.  A PURE latency knob — correctness
    *  and result identical at any value. */
   sqliteCacheMb: number;
-  /** Max entries of the indexed-id and walked-subtree records: an indexed id
-   *  skips a durable index probe, a walked subtree (one a completed
-   *  `indexSubtree` walk indexed whole) is pruned.  A miss re-probes or
-   *  re-walks. */
+  /** Max entries of the walked-subtree record: a subtree a completed
+   *  `indexSubtree` walk indexed whole is pruned.  A miss re-walks. */
   coveredIdsMax: number;
   /** Max bytes of transparent-chain runs ({@link Store.chainRun}) cached for
    *  the store's lifetime (~4 bytes per chain node).  Valid until any write
@@ -153,11 +148,10 @@ export const DEFAULT_CONFIG: MindConfig = {
     overfetch: 4,
     batchSize: 256,
     nearDedup: true,
-    dedupCacheMax: 1_000_000,
+    lookupKeyMax: 1_000_000,
     bytesCacheMax: 20_000_000,
     recCacheBytes: 10_000_000,
     pendingGistBytes: 16_000_000,
-    haloCacheBytes: 16_000_000,
     vectorCacheMb: 64,
     sqliteCacheMb: 64,
     coveredIdsMax: 100_000,
@@ -199,16 +193,14 @@ export function resolveConfig(opts: Partial<MindConfig> = {}): MindConfig {
       overfetch: opts.store?.overfetch ?? DEFAULT_CONFIG.store.overfetch,
       batchSize: opts.store?.batchSize ?? DEFAULT_CONFIG.store.batchSize,
       nearDedup: opts.store?.nearDedup ?? DEFAULT_CONFIG.store.nearDedup,
-      dedupCacheMax: opts.store?.dedupCacheMax ??
-        DEFAULT_CONFIG.store.dedupCacheMax,
+      lookupKeyMax: opts.store?.lookupKeyMax ??
+        DEFAULT_CONFIG.store.lookupKeyMax,
       bytesCacheMax: opts.store?.bytesCacheMax ??
         DEFAULT_CONFIG.store.bytesCacheMax,
       recCacheBytes: opts.store?.recCacheBytes ??
         DEFAULT_CONFIG.store.recCacheBytes,
       pendingGistBytes: opts.store?.pendingGistBytes ??
         DEFAULT_CONFIG.store.pendingGistBytes,
-      haloCacheBytes: opts.store?.haloCacheBytes ??
-        DEFAULT_CONFIG.store.haloCacheBytes,
       vectorCacheMb: opts.store?.vectorCacheMb ??
         DEFAULT_CONFIG.store.vectorCacheMb,
       sqliteCacheMb: opts.store?.sqliteCacheMb ??

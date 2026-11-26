@@ -419,3 +419,38 @@ test("137.7 no transition of the derivation is built by hand outside the law", a
       "step to the law (`admissible` + `advance`) instead",
   );
 });
+
+test("137.8 a memo kept for a lifetime is a LifeMemo, and there is one", async () => {
+  // A memo that lives as long as a response, a store state or a question was
+  // spelled by hand in six modules — a `WeakMap` and the same "make it on the
+  // first ask" lines, twenty times, three of them with a budget rule of their
+  // own.  `src/memo.ts` says it once.  What stays a bare `WeakMap` is identity,
+  // not lifetime: the tree-node → id maps a Mind and a conversation hold, the
+  // search's own licences, and the per-byte-array tables INSIDE a LifeMemo.
+  const { text } = await graph();
+  const bare = Object.fromEntries(
+    [...text.entries()]
+      .filter(([f]) => !/^src\/(alu|derive|rabitq-ivf)\//.test(f))
+      .map(([f, s]) => [f, (s.match(/new WeakMap\b/g) ?? []).length])
+      .filter(([, n]) => n > 0),
+  );
+  assert.deepEqual(bare, {
+    "src/memo.ts": 1, // the structure itself
+    "src/mind/canonical.ts": 1, // per byte array, inside a LifeMemo
+    "src/mind/traverse.ts": 1, // per byte array, inside a LifeMemo
+    "src/mind/graph-search.ts": 1, // a search's own licences
+    "src/mind/mind.ts": 2, // tree node → id: a Mind's, a conversation's
+  }, "a lifetime-keyed memo spelled by hand — declare a LifeMemo instead");
+
+  const { LifeMemo } = await import("../dist/src/memo.js");
+  let made = 0;
+  const memo = new LifeMemo(() => ({ n: ++made, used: 0 }), (m) => m.used >= 2);
+  const a = {}, b = {};
+  assert.equal(memo.of(a), memo.of(a), "one per life, made once");
+  assert.notEqual(memo.of(a), memo.of(b), "another life, another memo");
+  assert.equal(made, 2);
+  memo.of(a).used = 2;
+  assert.equal(memo.of(a).n, 3, "past its budget it is dropped whole");
+  assert.equal(memo.peek({}), undefined, "a life never asked keeps nothing");
+  assert.equal(memo.of(b, () => ({ n: -1, used: 0 })).n, 2, "kept, not remade");
+});

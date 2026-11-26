@@ -51,15 +51,8 @@ export interface NodeRec {
  *  wholesale (repeat-query hits re-warm it; a miss only re-runs the ANN). */
 const RESONATE_CACHE_MAX = 4096;
 
-/** Longest dedup-cache KEY worth retaining, in string length.  Branch keys
- *  are `kids.join(",")`; structural branches stay tiny (≤ maxGroup kids), but
- *  the whole-stream flat branches deposit interns (one leaf id PER INPUT
- *  BYTE) produce keys of ~4–5 chars per content byte — one per deposit.  The
- *  dedup caches are bounded by ENTRY count, so retaining those keys grows
- *  memory with total ingested content.  Past this bound the cache is
- *  bypassed: the durable content-addressed probe still answers (dedup never
- *  depends on the cache), at one indexed SQLite lookup per re-encounter —
- *  and true input-level repeats are already absorbed by the ingest cache. */
+/** Longest content whose lookup hit is worth a key (`_flatKey`,
+ *  `_branchKey`): past it the probe answers alone. */
 const DEDUP_KEY_MAX = 4096;
 
 /** Safety depth bound for one {@link Store.chainRun} read.  Semantics never
@@ -941,8 +934,7 @@ export abstract class AbstractStore implements Store {
     ef: number,
   ): Array<{ id: number; distance: number }>;
   /** Whether `id` is already a live entry of the content index — one point
-   *  query, used to recognise durably-indexed nodes across sessions (the
-   *  in-memory `_indexedIds` cache starts empty on every open). */
+   *  query: the index itself says what it holds, whatever session wrote it. */
   protected abstract _vecContentHas(id: NodeId): boolean;
   protected abstract _vecContentSize(): number;
   protected abstract _vecContentLastReads(): number;
@@ -1051,11 +1043,13 @@ export abstract class AbstractStore implements Store {
 
   // ── Caches ─────────────────────────────────────────────────────────────
 
-  /** Exact-content dedup: a branch's kid ids → its node id.  (A leaf is one
-   *  byte, named by arithmetic: it needs no key.) */
+  /** {@link findBranch}'s hits for a branch of branches, keyed by its packed
+   *  kids: a response resolves the same subtrees over and over.  Only what
+   *  the store answered is kept, so a hit never differs from the probe. */
   protected readonly _branchKey: BoundedMap<string, NodeId>;
-  /** {@link findFlatBranch}'s hits, keyed by the bytes themselves (latin1 —
-   *  exact, unlike the hash keys above). */
+  /** {@link findFlatBranch}'s hits, keyed by the bytes themselves (latin1):
+   *  a response asks the same few-byte segments over and over, from every
+   *  span that contains them. */
   protected readonly _flatKey: BoundedMap<string, NodeId>;
   /** Reconstructed-bytes read cache (regenerable), keyed by node id. */
   protected readonly _bytesCache: BoundedMap<NodeId, Uint8Array>;
@@ -1071,15 +1065,6 @@ export abstract class AbstractStore implements Store {
    *  means that node is reached by the DAG climb instead of by direct
    *  resonance. */
   protected _pendingGist!: BoundedMap<NodeId, Vec>;
-  /** NORMALIZED halo read cache — the decoded, normalized vector {@link halo}
-   *  returns, cached by id so repeat reads skip the per-call 2-bit decode and
-   *  normalize of a full D-element row (measured on a trained store: ~15K
-   *  halo() calls per deep query over ~50 distinct ids — all but the first
-   *  per id pure re-decode).  Point-invalidated by {@link pourHalo}, the one
-   *  halo mutation site.  Callers receive a COPY, so the cached vector is
-   *  never aliased.  Regenerable — a miss re-decodes the durable row. */
-  protected _haloNorm!: BoundedMap<NodeId, Vec>;
-
   /** Nodes whose whole subtree an {@link indexSubtree} walk has indexed: the
    *  walk prunes there.  Only a completed walk records a node, so a miss
    *  re-walks and costs time only; an indexed node is NOT a walked one (a halo
@@ -1087,10 +1072,6 @@ export abstract class AbstractStore implements Store {
   protected _walkedIds!: BoundedMap<NodeId, true>;
   /** The caller's gist re-derivation ({@link Store.setGistSource}). */
   protected _gistSource: ((id: NodeId) => Vec | null) | null = null;
-  /** Live content-index id set, LRU-bounded so a massive ingest never leaks
-   *  memory; an evicted entry is still indexed (the row is durable), so the
-   *  only cost of an eviction is a duplicate index probe on next visit. */
-  protected _indexedIds!: BoundedMap<NodeId, true>;
 
   // ── ANN read cache ─────────────────────────────────────────────────────
   // The index is read-only between writes, so the same (v,k) always returns
@@ -1150,9 +1131,14 @@ export abstract class AbstractStore implements Store {
     this.overfetch = config.overfetch;
     this.batchSize = config.batchSize;
     this.compactEveryNWrites = config.compactEveryNWrites;
-    this._branchKey = new BoundedMap(config.dedupCacheMax);
+    this._branchKey = new BoundedMap(
+      config.lookupKeyMax,
+      undefined,
+      "lru",
+      "clock",
+    );
     this._flatKey = new BoundedMap(
-      config.dedupCacheMax,
+      config.lookupKeyMax,
       undefined,
       "lru",
       "clock",
@@ -1179,19 +1165,14 @@ export abstract class AbstractStore implements Store {
       config.pendingGistBytes,
       (v) => v.byteLength,
     );
-    this._haloNorm = new BoundedMap<NodeId, Vec>(
-      config.haloCacheBytes,
-      (v) => v.byteLength,
-    );
     this._walkedIds = new BoundedMap<NodeId, true>(
-      config.coveredIdsMax,
-    );
-    this._indexedIds = new BoundedMap<NodeId, true>(
       config.coveredIdsMax,
     );
     this._chainMemo = new BoundedMap<NodeId, NodeId[]>(
       config.chainCacheBytes,
       (v) => v.length * 4 + 32,
+      "lru",
+      "clock",
     );
   }
 
@@ -1567,21 +1548,19 @@ export abstract class AbstractStore implements Store {
   }
 
   findBranch(kids: NodeId[]): NodeId | null {
-    if (this.meter) this.meter.branchLookups++;
-    const key = kids.join(",");
-    const cached = this._branchKey.get(key);
-    if (cached !== undefined) return cached;
+    // A run of single-byte leaves is its bytes in another spelling: the one
+    // flat lookup answers it ({@link findFlatBranch}).
     const flat = flatKidsBytes(kids);
-    let id: NodeId | null;
-    if (flat) {
-      id = this._dbFindBranchByLeaf(hashOf(flat), flat);
-    } else {
-      const packed = packKids(kids);
-      id = this._dbFindBranchByKids(hashOf(packed), packed);
+    if (flat) return this._findFlatHashed(hashOf(flat), flat);
+    if (this.meter) this.meter.branchLookups++;
+    const packed = packKids(kids);
+    const key = packed.length <= DEDUP_KEY_MAX ? latin1(packed) : null;
+    if (key !== null) {
+      const hit = this._branchKey.get(key);
+      if (hit !== undefined) return hit;
     }
-    if (id !== null && key.length <= DEDUP_KEY_MAX) {
-      this._branchKey.set(key, id);
-    }
+    const id = this._dbFindBranchByKids(hashOf(packed), packed);
+    if (id !== null && key !== null) this._branchKey.set(key, id);
     return id;
   }
 
@@ -1728,13 +1707,9 @@ export abstract class AbstractStore implements Store {
    *  that first became a resonance target long after it was minted (an early
    *  interior later reused as an edge/halo-bearing deposit root was silently
    *  unreachable by resonance).  The durable index itself is the arbiter:
-   *  one point query, cached in `_indexedIds` on a hit so repeats are O(1). */
+   *  one point query ({@link indexed}). */
   private captureIfUnindexed(id: NodeId, gist: Vec): void {
-    if (this._indexedIds.has(id) || this._pendingGist.has(id)) return;
-    if (this._vecContentHas(id)) {
-      this._indexedIds.set(id, true);
-      return;
-    }
+    if (this._pendingGist.has(id) || this.indexed(id)) return;
     this._pendingGist.set(id, normalize(copy(gist)));
     // A node that ALREADY bridges experiences but was never indexed (its 1→2
     // transition fired while its gist was evicted, or in a pre-transition
@@ -1779,15 +1754,11 @@ export abstract class AbstractStore implements Store {
     const current = this._pendingGist.get(id);
     // Same direction — the ordinary case, where the bytes folded identically.
     if (current !== undefined && dot(current, v) >= 1 - 1e-6) return;
-    if (
-      current === undefined && !this._indexedIds.has(id) &&
-      !this._vecContentHas(id)
-    ) {
+    if (current === undefined && !this.indexed(id)) {
       this.captureIfUnindexed(id, gist);
       return;
     }
     this._pendingGist.set(id, v);
-    this._indexedIds.set(id, true);
     this._contentBuffer.push({ id, vector: v });
     this._bufferedIds.add(id);
   }
@@ -1802,12 +1773,8 @@ export abstract class AbstractStore implements Store {
     // 1. Exact dedup — equal content → one id, no vector work. Primary
     //    compression mechanism, intrinsic to the store.
     //
-    //    findLeaf/findBranch are the content-addressed lookups: in-memory cache
-    //    first, then a durable probe that repopulates the cache on a hit.
-    //    Using them here (rather than only the cache) makes dedup survive a cold
-    //    cache — a resumed/checkpointed training run, or one whose dedup cache
-    //    has evicted old keys, still recognises content already on disk and
-    //    reuses its id instead of minting a duplicate.
+    //    findLeaf/findBranch are the content-addressed lookups, so content
+    //    already on disk is recognised whatever session wrote it.
     const hit = leaf !== null ? this.findLeaf(leaf) : this.findBranch(kids!);
     if (hit !== null) {
       this.captureIfUnindexed(hit, gist);
@@ -1840,9 +1807,6 @@ export abstract class AbstractStore implements Store {
       }
     }
 
-    const cache = leaf !== null ? null : this._branchKey;
-    const key = leaf !== null ? "" : kids!.join(",");
-
     // 2. Near dedup — BRANCHES ONLY (a leaf is one byte: exact dedup already
     //    collapses identical leaves, and near-merging distinct ones only
     //    corrupts bytes), onto a form a deposit learnt WHOLE, decided the same
@@ -1853,10 +1817,7 @@ export abstract class AbstractStore implements Store {
     if (kids) { for (const k of kids) blen += this.contentLen(k); }
     if (leaf === null && this.nearDedup) {
       const near = this.nearDedupTarget(kids!, gist, blen);
-      if (near !== null) {
-        if (key.length <= DEDUP_KEY_MAX) cache?.set(key, near);
-        return near;
-      }
+      if (near !== null) return near;
     }
 
     // 3. Mint a fresh node. A FLAT branch (every kid an implicit single-byte
@@ -1902,7 +1863,6 @@ export abstract class AbstractStore implements Store {
         this.promoteBridge(c);
       }
     }
-    if (key.length <= DEDUP_KEY_MAX) cache?.set(key, id);
     if (leaf) this._bytesCache.set(id, new Uint8Array(leaf));
     else if (flat) this._bytesCache.set(id, flat);
     // Capture the gist; it is pushed into the content index lazily, the first
@@ -2052,6 +2012,12 @@ export abstract class AbstractStore implements Store {
 
   // ── Lazy content indexing ──────────────────────────────────────────────
 
+  /** Whether `id`'s gist is in the content index, or buffered on its way
+   *  there.  The index is the one record of that: asked, never mirrored. */
+  private indexed(id: NodeId): boolean {
+    return this._bufferedIds.has(id) || this._vecContentHas(id);
+  }
+
   /** Promote a node's captured gist into the content (resonance) index, once.
    *  Called the first time a node becomes a target — i.e. from `link` (it bears
    *  or receives a continuation edge) or `pourHalo` (it gains distributional
@@ -2059,23 +2025,13 @@ export abstract class AbstractStore implements Store {
    *  from the bounded pending map, is a no-op.
    */
   protected indexGist(id: NodeId): boolean {
-    if (this._indexedIds.has(id)) return true;
-    // Already durably indexed by a previous session?  A node id names its
-    // content, and the gist is a pure function of the content, so the stored
-    // vector can only be identical — re-buffering it would spend an encode
-    // and an upsert on a guaranteed no-op.  One point query recognises this;
-    // it costs ~nothing for genuinely new nodes (a miss on a covering index).
-    // This is what makes a RESUMED training run replay already-deposited
-    // content at read speed instead of re-upserting the recent-id window.
-    if (this._vecContentHas(id)) {
-      this._indexedIds.set(id, true);
-      return true;
-    }
+    // A node id names its content and the gist is a function of the content,
+    // so an indexed node's vector can only be the same one: nothing to add.
+    if (this.indexed(id)) return true;
     // The pending capture, or — evicted, or captured in another session — the
     // same gist re-derived from the node's stored structure.
     const v = this.gistOf(id);
     if (v === null) return false;
-    this._indexedIds.set(id, true);
     this._contentBuffer.push({ id, vector: v });
     this._bufferedIds.add(id);
     return true;
@@ -2139,9 +2095,8 @@ export abstract class AbstractStore implements Store {
       }
       if (isRoot) continue;
       // Index unconditionally — every interior node is a valid resonance
-      // anchor for partial-query recall.  The _indexedIds cache and the
-      // durable-index check in indexGist prevent duplicate indexing across
-      // multiple encounters of the same shared subtree.
+      // anchor for partial-query recall.  indexGist adds a node once however
+      // many encounters of a shared subtree reach it.
       if (!this.indexGist(id)) complete = false;
       walked.push(id);
     }
@@ -2290,11 +2245,6 @@ export abstract class AbstractStore implements Store {
     for (let i = 0; i < toRemove.length; i += BATCH) {
       const batch = toRemove.slice(i, i + BATCH);
       this._vecContentDeleteMany(batch);
-      // Purge the "already indexed" cache for removed ids: without this, a
-      // node that LATER becomes a resonance target again (gains an edge or
-      // halo) hits the stale cache entry in indexGist and is silently never
-      // re-indexed for the rest of the session.
-      for (const id of batch) this._indexedIds.delete(id);
       await yieldToEventLoop();
     }
     // Persist the scan watermark so the next pass starts where this one
@@ -2356,10 +2306,8 @@ export abstract class AbstractStore implements Store {
     this._dbClearDerived();
     this._dbCommitTx();
     // The in-memory mirrors of derived state.
-    this._indexedIds.clear();
     this._walkedIds.clear();
     this._pendingGist.clear();
-    this._haloNorm.clear();
     this._chainMemo.clear();
     this._contentBuffer = [];
     this._bufferedIds.clear();
@@ -2403,8 +2351,7 @@ export abstract class AbstractStore implements Store {
 
   /** {@link Store.reindexGist} */
   reindexGist(id: NodeId, gist: Vec): void {
-    if (this._indexedIds.has(id)) return;
-    this._indexedIds.set(id, true);
+    if (this.indexed(id)) return;
     this._contentBuffer.push({ id, vector: gist });
     this._bufferedIds.add(id);
     if (this.pending() >= this.batchSize) this.flush();
@@ -2458,22 +2405,15 @@ export abstract class AbstractStore implements Store {
 
       if (id < 0) continue; // byte leaves: implicit, never repaired
 
-      // Already indexed in memory — skip.
-      if (this._indexedIds.has(id)) continue;
-
       // Must be a structural bridge: ≥ minParents parents in the DAG.
       // One LIMITed probe per candidate.
       if (this._dbGetParentsFirst(id, minParents).length < minParents) {
         continue;
       }
 
-      // Already durably indexed by a previous session — record and skip.
       // Probed AFTER the structural filters: candidates are few, so this
       // point query runs rarely instead of once per node in the store.
-      if (this._vecContentHas(id)) {
-        this._indexedIds.set(id, true);
-        continue;
-      }
+      if (this.indexed(id)) continue;
 
       // Regenerate the gist from bytes.  The callback is async (the Mind's
       // perception is synchronous, but the interface allows a disk-backed
@@ -2483,7 +2423,6 @@ export abstract class AbstractStore implements Store {
 
       // Index it — same code path as indexGist, but the vector is injected
       // directly rather than read from the (empty) pending-gist cache.
-      this._indexedIds.set(id, true);
       this._contentBuffer.push({ id, vector: gist });
       this._bufferedIds.add(id);
       // Repaired nodes are reach-indexed, never dedup targets: their gist is
@@ -2607,13 +2546,8 @@ export abstract class AbstractStore implements Store {
 
   halo(id: NodeId): Vec | null {
     if (this.meter) this.meter.haloReads++;
-    const cached = this._haloNorm.get(id);
-    if (cached !== undefined) return copy(cached);
     const r = this._dbGetHalo(id);
-    if (!r) return null;
-    const v = normalize(haloDecode(r.vec, this.D));
-    this._haloNorm.set(id, v);
-    return copy(v);
+    return r ? normalize(haloDecode(r.vec, this.D)) : null;
   }
 
   /** {@link Store.hasHalo} — MUST mirror {@link halo}'s null condition
@@ -2641,7 +2575,6 @@ export abstract class AbstractStore implements Store {
     addInto(acc, add);
     const mass = (r?.mass ?? 0) + 1;
     const row = haloEncode(acc);
-    this._haloNorm.delete(id); // the normalized read cache is now stale
     this._dbBeginTx();
     this._dbUpsertHalo(id, row, mass);
 

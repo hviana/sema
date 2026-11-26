@@ -30,6 +30,7 @@
 // threshold — isSpanShaped — lives here beside the matchers it gates.
 
 import { cosine, Vec } from "../vec.js";
+import { LifeMemo } from "../memo.js";
 import type { Hit } from "../store.js";
 import {
   conceptThreshold,
@@ -936,7 +937,7 @@ export function bestHaloMate<T>(
  *  instead of refetched (one read per relation).  Returns [] for a node with
  *  no halo.  The one sibling enumeration behind the concept hop, the
  *  reasoning stage's synonym expansion, and the analogy matcher below. */
-const haloSiblingMemo = new WeakMap<object, Map<number, Hit[]>>();
+const haloSiblingMemo = new LifeMemo<Map<number, Hit[]>>(() => new Map());
 export async function haloSiblings(
   ctx: MindContext,
   id: number,
@@ -955,10 +956,7 @@ export async function haloSiblings(
     bar === conceptThreshold(ctx.store.D) && ctx.climbMemo !== null;
   let memo: Map<number, Hit[]> | undefined;
   if (memoable) {
-    memo = haloSiblingMemo.get(ctx.climbMemo!);
-    if (memo === undefined) {
-      haloSiblingMemo.set(ctx.climbMemo!, memo = new Map());
-    }
+    memo = haloSiblingMemo.of(ctx.climbMemo!);
     const hit = memo.get(id);
     if (hit !== undefined) return hit;
   }

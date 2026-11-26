@@ -6,6 +6,7 @@ import {
   rng,
   Vec,
 } from "./vec.js";
+import { LifeMemo } from "./memo.js";
 
 /** The one structure. A node's vector is the gist of its whole subtree; it also
  *  carries the structure the DAG store interns — its leaf bytes, or its kids. */
@@ -77,15 +78,14 @@ export function twoEndedSeat(
 // halos are per-store training artifacts that are never compared across
 // stores.
 
-const _sigCache = new WeakMap<Space, Map<number, Vec>>();
+const _sigCache = new LifeMemo<Map<number, Vec>>(() => new Map());
 /** The signatures' byte budget (caches.md): D·4 bytes each, dropped whole at
  *  the budget — a miss re-draws one from the node id. */
 const SIG_CACHE_BYTES = 64_000_000;
 
 /** The company signature of node `id` — the halo's pour unit (see above). */
 export function companySignature(space: Space, id: number): Vec {
-  let cache = _sigCache.get(space);
-  if (!cache) _sigCache.set(space, cache = new Map());
+  const cache = _sigCache.of(space);
   const hit = cache.get(id);
   if (hit) return hit;
   const v = randomUnit(space.D, rng((id ^ 0x9e3779b9) >>> 0));

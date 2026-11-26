@@ -10,6 +10,7 @@
 import { addInto, copy, normalize, Vec, zeros } from "./vec.js";
 import { bindRow, Sema, sema, Space, twoEndedSeat } from "./sema.js";
 import { Alphabet } from "./alphabet.js";
+import { LifeMemo } from "./memo.js";
 
 // ---- geometric constants ----
 //
@@ -915,17 +916,12 @@ interface FoldAlgebra<T> {
 }
 
 /** The vector fold — perception's algebra. */
-const vectorFolds = new WeakMap<Space, FoldAlgebra<Folded>>();
+const vectorFolds = new LifeMemo<FoldAlgebra<Folded>>();
 function vectorFold(space: Space): FoldAlgebra<Folded> {
-  let alg = vectorFolds.get(space);
-  if (alg === undefined) {
-    alg = {
-      join: (items) => joinFlat(space, items),
-      key: (item) => itemKey(item.tree.v),
-    };
-    vectorFolds.set(space, alg);
-  }
-  return alg;
+  return vectorFolds.of(space, () => ({
+    join: (items) => joinFlat(space, items),
+    key: (item) => itemKey(item.tree.v),
+  }));
 }
 
 /** An item of the identity fold: the node it names (null = names nothing),

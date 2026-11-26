@@ -13,6 +13,7 @@
 // non-adjacent QUERY regions) ascend by the same disciplined, bounded walk.
 
 import type { Hit } from "../store.js";
+import { LifeMemo } from "../memo.js";
 import type { MindContext } from "./types.js";
 import { read, resolve } from "./primitives.js";
 import { windowIds } from "./canonical.js";
@@ -201,24 +202,13 @@ interface Page {
   ids: number[];
   limit: number;
 }
-const walkCaches = new WeakMap<object, WalkCache>();
 const WALK_CACHE_MAX = 100_000;
+const walkCaches = new LifeMemo<WalkCache>(
+  () => ({ reads: new Map(), parents: new Map(), containers: new Map() }),
+  (c) => c.reads.size + c.parents.size + c.containers.size >= WALK_CACHE_MAX,
+);
 export function walkCache(ctx: MindContext): WalkCache | null {
-  if (ctx.climbMemo === null) return null;
-  let c = walkCaches.get(ctx._structMemoKey);
-  if (c === undefined) {
-    walkCaches.set(
-      ctx._structMemoKey,
-      c = { reads: new Map(), parents: new Map(), containers: new Map() },
-    );
-  } else if (
-    c.reads.size + c.parents.size + c.containers.size >= WALK_CACHE_MAX
-  ) {
-    c.reads.clear();
-    c.parents.clear();
-    c.containers.clear();
-  }
-  return c;
+  return ctx.climbMemo === null ? null : walkCaches.of(ctx._structMemoKey);
 }
 
 export function cachedRead(

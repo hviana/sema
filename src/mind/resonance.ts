@@ -6,6 +6,7 @@
 import { rItem } from "./trace.js";
 
 import { cosine, Vec } from "../vec.js";
+import { LifeMemo } from "../memo.js";
 import { mergeThreshold } from "../geometry.js";
 import { concat2, concatBytes, indexOf, latin1 } from "../bytes.js";
 import type { MindContext } from "./types.js";
@@ -131,7 +132,9 @@ function junctionEdges(
  *  cover already resolved — each unique (left, right, allowance) is walked
  *  once per response.  Outside a response (climbMemo null) nothing is
  *  memoised, preserving standalone behaviour. */
-const bridgeMemo = new WeakMap<object, Map<string, Uint8Array | null>>();
+const bridgeMemo = new LifeMemo<Map<string, Uint8Array | null>>(() =>
+  new Map()
+);
 
 /** The connector that belongs BETWEEN two adjacent results — the graded
  *  junction ladder described in the module note above.  Returns null when
@@ -150,8 +153,7 @@ export async function bridge(
     // Per guide: the pick among several junctions reads the question's gist
     // (`pickJunction`), and a conversation's memos outlive one question.
     const life = ctx._edgeGuide ?? ctx.climbMemo;
-    memo = bridgeMemo.get(life);
-    if (memo === undefined) bridgeMemo.set(life, memo = new Map());
+    memo = bridgeMemo.of(life);
     // KEYED ON BYTES, NOT ON TEXT.  This key used to be built with
     // `decodeText`, which decodes lossily AND strips NUL — so it is not
     // injective on raw bytes, and a cache key that is not injective returns
@@ -357,24 +359,17 @@ export async function pivotInto(
  *  perceived gists.  Each anchor form's gist is memoised; the span's gist
  *  is matched against them.  Returns null when nothing resonates closely
  *  enough — the caller declines rather than guessing. */
-const anchorGists = new WeakMap<
-  object,
-  Array<{ name: string; v: Vec }>
->();
+const anchorGists = new LifeMemo<Array<{ name: string; v: Vec }>>();
 export async function meaningOf(
   ctx: MindContext,
   bytes: Uint8Array,
   anchors: ReadonlyArray<{ name: string; form: Uint8Array }>,
 ): Promise<string | null> {
   if (bytes.length === 0 || anchors.length === 0) return null;
-  let gists = anchorGists.get(anchors);
-  if (!gists) {
-    gists = anchors.map((a) => ({
-      name: a.name,
-      v: gistOf(ctx, a.form),
-    }));
-    anchorGists.set(anchors, gists);
-  }
+  const gists = anchorGists.of(
+    anchors,
+    () => anchors.map((a) => ({ name: a.name, v: gistOf(ctx, a.form) })),
+  );
   const qv = gistOf(ctx, bytes);
   const found = argmaxCosine(
     qv,
