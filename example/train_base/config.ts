@@ -125,6 +125,13 @@ export const STORE_BATCH = Math.max(
   Math.floor(Number(env("STORE_BATCH", "16384"))) || 16384,
 );
 
+// Consolidate the store's write-ahead logs on a thread of their own, so a
+// deposit seldom waits for the disk (`SQliteStoreOptions.walThread`).  Measured
+// on a 900 MB store, alternating four dialogue segments: 98 s and 110 s with
+// the consolidation inside the commits, 87 s and 103 s beside them — about a
+// tenth, bounded by the disk itself.  WAL_THREAD=0 disables.
+export const WAL_THREAD = env("WAL_THREAD", "1") !== "0";
+
 // Optional ceiling on how much LEARNED CONTENT to train, in megabytes (decimal,
 // like CHECKPOINT_MB). Default Infinity = unbounded. The cap is checked against
 // trainedContentBytes after each deposit, so a run stops at the first item that

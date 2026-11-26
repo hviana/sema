@@ -1402,3 +1402,63 @@ test("a derived layer behind the base, or lost, catches up and answers the same"
     rmSync(`${stem}.behind`, { force: true });
   }
 });
+
+test("a WAL thread consolidates beside the writer: same store, no log left", async () => {
+  // A checkpoint inside a commit stops the one thread that ingests.  With
+  // `walThread` another connection consolidates while the writer appends.
+  // Nothing the store holds may depend on who did it, and closing must leave
+  // no log behind.
+  const { mkdtempSync, rmSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { DatabaseSync } = await import("node:sqlite");
+  const pairs = [];
+  for (let i = 0; i < 60; i++) {
+    pairs.push([
+      `Which relay feeds the pump of station ${i}?`,
+      `Relay ${i % 9} feeds the pump of station ${i}.`,
+    ]);
+  }
+  const build = async (walThread) => {
+    const dir = mkdtempSync(join(tmpdir(), "wal-"));
+    const stem = join(dir, "s");
+    const store = new SQliteStore({
+      path: stem,
+      D: 256,
+      batchSize: 64,
+      walThread,
+    });
+    const mind = new Mind({ seed: 7, store });
+    await mind.ingest(pairs);
+    const answer = await mind.respondText(pairs[41][0]);
+    await store.close();
+    const rows = {};
+    for (
+      const [f, tables] of [
+        [".sqlite", ["node", "edge", "halo", "whole"]],
+        [".derived.sqlite", ["kid", "whole_kid", "contain", "sketch"]],
+        [".content.vec", ["vmap"]],
+        [".halo.vec", ["vmap"]],
+      ]
+    ) {
+      assert.equal(existsSync(stem + f + "-wal"), false, `${f}: a log is left`);
+      const db = new DatabaseSync(stem + f, { readOnly: true });
+      for (const t of tables) {
+        rows[f + ":" + t] =
+          db.prepare(`SELECT count(*) AS n FROM ${t}`).get().n;
+      }
+      if (f === ".sqlite") {
+        rows.nodes = db.prepare(
+          "SELECT group_concat(h) AS s FROM (SELECT h FROM node ORDER BY id)",
+        ).get().s;
+      }
+      db.close();
+    }
+    rmSync(dir, { recursive: true, force: true });
+    return { answer, rows };
+  };
+  const beside = await build(true), inside = await build(false);
+  assert.deepEqual(beside.rows, inside.rows, "the same rows, node for node");
+  assert.equal(beside.answer, inside.answer);
+  assert.ok(beside.answer.length > 0, "and it answers");
+});

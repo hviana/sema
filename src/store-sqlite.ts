@@ -28,7 +28,9 @@
 //     own files on every write — no separate serialisation step is needed.
 
 import { DatabaseSync } from "node:sqlite";
-import { unlinkSync } from "node:fs";
+import { statSync, unlinkSync } from "node:fs";
+import { Worker } from "node:worker_threads";
+import { WAL_PAUSE, WAL_RUN, WAL_STOP } from "./store-wal-worker.js";
 
 import {
   AbstractStore,
@@ -52,6 +54,11 @@ export interface SQliteStoreOptions extends Partial<StoreConfig> {
   maxGroup?: number;
   /** Query-side RaBitQ estimator precision for both vector indices. */
   queryBits?: number;
+  /** Consolidate the write-ahead logs on a thread of their own
+   *  (`store-wal-worker.ts`), so a commit seldom waits for the database
+   *  file.  For a store being trained: the files it comes to hold are the
+   *  same. */
+  walThread?: boolean;
 }
 
 // THE BASE — what only ingestion can write (store.ts, "The record and what is
@@ -271,6 +278,10 @@ function bloomLog2For(n: number): number {
  *  on-disk footprint. */
 const BLOOM_PERSIST_MIN_NODES = 65_536;
 
+/** How large a write-ahead log may grow before the writer ends it, under a
+ *  WAL thread ({@link SQliteStore.boundWal}): transient disk, gone at close. */
+const WAL_BOUND_BYTES = 256 * 1024 * 1024;
+
 export class SQliteStore extends AbstractStore implements Store {
   private readonly opts: SQliteStoreOptions;
   private readonly vectorCacheMb: number;
@@ -415,7 +426,15 @@ export class SQliteStore extends AbstractStore implements Store {
     // rewrites and amortizes the checkpoint's fixed cost; crash-safety is
     // unchanged (WAL recovery replays it), the only trade is a bounded,
     // fixed-size WAL file.
-    db.exec("PRAGMA wal_autocheckpoint = 65536;");
+    //
+    // With a WAL thread the writer never consolidates on a commit's account:
+    // the thread does, and the writer only ends a log grown past its bound
+    // ({@link boundWal}), waiting out the thread's pass if one is running.
+    db.exec(
+      this.opts.walThread
+        ? "PRAGMA wal_autocheckpoint = 0; PRAGMA busy_timeout = 60000;"
+        : "PRAGMA wal_autocheckpoint = 65536;",
+    );
     // Page cache for the DAG tables.  Content-addressed dedup (findLeaf /
     // findBranch), parent probes and contain appends are millions of point
     // queries per session against a file that outgrows SQLite's ~2 MiB
@@ -496,6 +515,31 @@ export class SQliteStore extends AbstractStore implements Store {
 
     this.content = this.openVectorDB("content");
     this.halos = this.openVectorDB("halo");
+    if (this.opts.walThread && sp !== ":memory:") {
+      const flag = new Int32Array(new SharedArrayBuffer(4));
+      const worker = new Worker(
+        new URL("./store-wal-worker.js", import.meta.url),
+        {
+          workerData: {
+            walFlag: flag.buffer,
+            walFiles: [
+              sp,
+              `${stem}.derived.sqlite`,
+              this.vectorDbPath("content"),
+              this.vectorDbPath("halo"),
+            ],
+          },
+        },
+      );
+      // A store nobody closes must not hold the process open; and a thread
+      // that fails leaves the writer consolidating, as without one.
+      worker.unref();
+      worker.on("error", (e) => {
+        this._wal = null;
+        console.warn("sema: the WAL thread stopped; commits consolidate:", e);
+      });
+      this._wal = { worker, flag };
+    }
 
     // Ids are dense (0,1,2,…) and never deleted, so MAX(id)+1 IS the next id
     // — one rightmost B-tree descent on the rowid, O(log n).  (COUNT(*) gives
@@ -668,6 +712,34 @@ export class SQliteStore extends AbstractStore implements Store {
       this._dbSetMeta("derived.base", String(this._nextId));
     }
     this.derived!.exec("COMMIT");
+    this.boundWal();
+  }
+
+  /** End a log that has grown past {@link WAL_BOUND_BYTES}.  The store keeps
+   *  a write transaction open from one commit to the next, and a log restarts
+   *  only when a writer finds ALL of it consolidated — which, the thread
+   *  always being one commit behind, would never happen: the file would grow
+   *  with the run.  Here, between two transactions, the writer finishes what
+   *  the thread has left (one commit's pages) and the log starts over. */
+  private boundWal(): void {
+    if (this._wal === null) return;
+    const stem = this.opts.path!;
+    for (
+      const [db, file] of [
+        [this.sqlite!, `${stem}.sqlite`],
+        [this.derived!, `${stem}.derived.sqlite`],
+      ] as const
+    ) {
+      let size = 0;
+      try {
+        size = statSync(`${file}-wal`).size;
+      } catch {
+        continue; // no log yet
+      }
+      if (size >= WAL_BOUND_BYTES) {
+        db.prepare("PRAGMA wal_checkpoint(RESTART)").get();
+      }
+    }
   }
 
   // -- Node CRUD --
@@ -1408,6 +1480,8 @@ export class SQliteStore extends AbstractStore implements Store {
    *  The vector indexes live in their own files, so they are closed, removed
    *  and opened empty. */
   protected _dbClearDerived(): void {
+    // The vector files are replaced below: the WAL thread lets go of them.
+    this.askWalThread(WAL_PAUSE);
     this.derived!.exec(
       "DELETE FROM kid; DELETE FROM whole_kid; DELETE FROM contain; " +
         "DELETE FROM bloom; " +
@@ -1431,6 +1505,31 @@ export class SQliteStore extends AbstractStore implements Store {
       if (name === "content") this.content = this.openVectorDB(name);
       else this.halos = this.openVectorDB(name);
     }
+    if (this._wal) Atomics.store(this._wal.flag, 0, WAL_RUN);
+  }
+
+  /** The WAL thread ({@link SQliteStoreOptions.walThread}) and the word the
+   *  store asks it through. */
+  private _wal: { worker: Worker; flag: Int32Array } | null = null;
+
+  /** Ask the WAL thread to pause or stop, and wait for its answer: it closes
+   *  its connections first, so the caller may replace or close the files. */
+  private askWalThread(ask: number): void {
+    const w = this._wal;
+    if (w === null) return;
+    Atomics.store(w.flag, 0, ask);
+    Atomics.wait(w.flag, 0, ask, 60_000);
+  }
+
+  /** The store's connections close first, so the WAL thread's are the last:
+   *  leaving, they consolidate what is left and remove the logs. */
+  override async close(): Promise<void> {
+    await super.close();
+    const w = this._wal;
+    if (w === null) return;
+    this.askWalThread(WAL_STOP);
+    this._wal = null;
+    await w.worker.terminate();
   }
 
   /** {@link AbstractStore._dbEachBranch} */

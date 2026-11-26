@@ -118,6 +118,7 @@ import {
   SQLITE_CACHE_MB,
   STORE_BATCH,
   VECTOR_CACHE_MB,
+  WAL_THREAD,
 } from "./config.js";
 import { createRuntime } from "./runtime.js";
 import { runStage } from "./stage.js";
@@ -143,6 +144,7 @@ async function main(): Promise<void> {
     vectorCacheMb: VECTOR_CACHE_MB,
     sqliteCacheMb: SQLITE_CACHE_MB,
     batchSize: STORE_BATCH,
+    walThread: WAL_THREAD,
   });
 
   // The store IS the model: memories, progress, and metadata all persist in
