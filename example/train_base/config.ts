@@ -63,7 +63,7 @@ export const DOWNLOAD_TRIES = 5;
 export const PART_SUFFIX = ".part";
 
 // The checkpoint recall is a best-effort diagnostic — it must NEVER stall
-// training. We bound it so a slow/large store cannot freeze the deposit loop.
+// training. It answers in a worker (recall.ts), terminated at this deadline.
 export const INFER_TIMEOUT_MS = Number(env("INFER_TIMEOUT_MS", "15000"));
 
 // How long the run may make NO progress before it gives up and exits non-zero.

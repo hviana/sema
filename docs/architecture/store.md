@@ -35,14 +35,15 @@ with distinct content, and every span the fold produced is addressable.
    within `W` of its length: an end past the hub bound is a template's chunk and
    passed by one probe; any other reads that band once (`whole_kid`). **Decided
    by bytes, then the bar:** identical except one span of at most `W` bytes
-   (`differsByOneWindow`), and the gist clears the length-aware `identityBar`
-   (`X date of birth` is not `X date of death`). This is the only place two
-   different contents share an id; `nearDedup: false` keeps every distinct byte
-   sequence its own node.
+   (`differsByOneWindow`), and the exact gists clear the length-aware
+   `identityBar` (`X date of birth` is not `X date of death`). This is the only
+   place two different contents share an id; `nearDedup: false` keeps every
+   distinct byte sequence its own node.
 4. **Mint** a new id.
 
 Refuted: near targets from the unflushed write buffer (the flush schedule
-decides identity) or the content index per mint (ten times the training time).
+decides identity); the content index per mint (10× the training time) or per
+proposal (a flush each: 2Wiki fell to ~1 KB/s).
 
 ## Relations on the nodes
 

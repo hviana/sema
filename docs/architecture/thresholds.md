@@ -51,9 +51,9 @@ Three length scales live in `geometry.ts`: `phraseCap(len, W) = len·W` (a
 question's frame around another filler) and `twoQuanta(W) = 2W` (the least a
 composition, a meet or a carried slot stands on).
 
-The vector bars meet RaBitQ estimates, not exact cosines: benign for inequality
-gates over broad regions, and why no bar ever decides identity
-(`exact-vs-approximate.md`).
+The vector bars meet RaBitQ estimates, not exact cosines (near dedup's alone
+reads exact gists): benign for inequality gates over broad regions, and why no
+bar ever decides identity (`exact-vs-approximate.md`).
 
 The formulas live in `src/geometry.ts`, `src/mind/traverse.ts` (corpus scale)
 and `src/mind/canonical.ts` (windows). A new bar is added there, never to

@@ -318,6 +318,47 @@ test("near dedup is the same whatever the batch size or session, and `nearDedup:
   assert.equal(await run({ nearDedup: false }), false, "disabled: both kept");
 });
 
+test("near dedup decides on the gists alone: nothing reaches the vector index before the batch does", async () => {
+  // Reading the bar from the content index meant flushing the write buffer
+  // into it first — one vector-index transaction per proposal.  On templated
+  // facts (2Wiki: 18% of deposits propose) that wrote ~40 KB per ~77-byte
+  // deposit where a batch writes nothing, and training fell to ~1 KB/s.
+  // The decision must stand, and the index must see no row until the batch
+  // commits.
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { DatabaseSync } = await import("node:sqlite");
+  const { Mind, Meter } = await import("../dist/src/index.js");
+  const a =
+    "Wire transfer of 1000 dollars to account 4417 approved by the manager.";
+  const b =
+    "Wire transfer of 9000 dollars to account 4417 approved by the manager.";
+  const dir = mkdtempSync(join(tmpdir(), "nd-"));
+  const store = new SQliteStore({ path: join(dir, "s"), batchSize: 1e6 });
+  const mind = new Mind({ seed: 7, store });
+  const rows = () => {
+    const db = new DatabaseSync(join(dir, "s.content.vec"), { readOnly: true });
+    const n = db.prepare("SELECT count(*) AS n FROM vmap").get().n;
+    db.close();
+    return n;
+  };
+  await mind.ingest(a);
+  const before = rows();
+  const m = new Meter();
+  store.meter = m;
+  await mind.ingest(b);
+  store.meter = null;
+  assert.ok(m.nearDedupNear >= 1, "the bar was read");
+  assert.equal(m.nearDedupMerges, 1, "and the one-window twin merged");
+  assert.equal(rows(), before, "no vector-index write inside the batch");
+  assert.equal(mind.resolve(enc(a)), mind.resolve(enc(b)));
+  store.commit();
+  assert.ok(rows() > before, "the batch writes them when it commits");
+  await store.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("near dedup reads each end kid's wholes once — nothing above them", async () => {
   // A near-duplicate is a PARENT of the branch's first or last kid.  The
   // proposal used to climb ancestors W levels deep, each node up to the hub

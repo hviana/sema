@@ -16,20 +16,18 @@ import { type CachedIngest, type Mind, type Store } from "../../src/index.js";
 import {
   CACHE_DIR,
   CHECKPOINT_BYTES,
+  D,
   DB_PATH,
   DOWNLOAD_TRIES,
   INFER_TIMEOUT_MS,
   MAX_BYTES,
   PROGRESS_MS,
+  SEED,
   STALL_MS,
 } from "./config.js";
+import { recallInWorker } from "./recall.js";
 import type { TrainingItem } from "./items.js";
-import {
-  headSize,
-  type HttpOptions,
-  throttleNotifier,
-  withTimeout,
-} from "./http.js";
+import { headSize, type HttpOptions, throttleNotifier } from "./http.js";
 import { cacheSize, downloadFile, ensureCacheRoom } from "./cache.js";
 import type { ReadContext } from "./readers.js";
 import {
@@ -393,40 +391,45 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
   const checkpoint = () => mind.save();
   const maintain = () => runIndexMaintenance(mind, (m) => progress.log(m));
 
-  // The checkpoint recall is a best-effort diagnostic. It is time-bounded so a
-  // slow/large store can never freeze the deposit loop, and guarded so a still
-  // running recall is never stacked on top of another.
+  // The checkpoint recall is a best-effort diagnostic, answered in a worker
+  // (recall.ts): in this thread `respond` would stop the deposit loop for as
+  // long as it ran, and no timer could end it. The loop waits only for the
+  // worker to open the store; the answer is shown when it arrives, and a
+  // still-running recall is never stacked on top of another.
   let inferBusy = false;
   const runRecall = async (item: TrainingItem, n: number): Promise<void> => {
     if (inferBusy) return;
     inferBusy = true;
-    try {
-      const info = promptOf(item);
-      const r = await unwatched(() =>
-        withTimeout(
-          mind.respond(info.prompt),
-          INFER_TIMEOUT_MS,
-          "recall",
-        )
-      );
-      const resp = new TextDecoder().decode(r.bytes).replace(/\u0000+/g, "");
-      const box = renderInferenceBox(
-        info.prompt,
-        info.expected,
-        resp,
-        info.kind,
-        n,
-      );
-      state.lastSample = box;
-      if (!progress.interactive) progress.log(box);
-      tick(true);
-    } catch (err) {
+    const info = promptOf(item);
+    const skipped = (err: unknown) =>
       progress.log(
         `  ${DIM}· checkpoint #${n} recall skipped: ${
           err instanceof Error ? err.message : String(err)
         }${R}`,
       );
-    } finally {
+    try {
+      const job = recallInWorker(
+        { path: DB_PATH, D, seed: SEED, prompt: info.prompt },
+        INFER_TIMEOUT_MS,
+      );
+      void job.answer.then((bytes) => {
+        const resp = new TextDecoder().decode(bytes).replace(/\u0000+/g, "");
+        const box = renderInferenceBox(
+          info.prompt,
+          info.expected,
+          resp,
+          info.kind,
+          n,
+        );
+        state.lastSample = box;
+        if (!progress.interactive) progress.log(box);
+        tick(true);
+      }, skipped).finally(() => {
+        inferBusy = false;
+      });
+      await unwatched(() => job.opened);
+    } catch (err) {
+      skipped(err);
       inferBusy = false;
     }
   };
@@ -521,7 +524,6 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
         const item = sampleItem;
         sampleItem = null;
         seenInWindow = 0;
-        if (item) await runRecall(item, n);
         try {
           await unwatched(async () => {
             await maintain();
@@ -531,6 +533,8 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
           // the position and the counters that describe it can be recorded.
           // Without this a unit could only be resumed from its first row.
           await saveCursor(snapCursor());
+          // After the commit: the worker reads what was just made durable.
+          if (item) await runRecall(item, n);
         } catch (err) {
           progress.log(
             `  ${YEL}⚠ checkpoint failed${R}: ${

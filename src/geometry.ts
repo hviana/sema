@@ -19,15 +19,17 @@ import { Alphabet } from "./alphabet.js";
 //
 // MEASUREMENT CAVEAT: these thresholds are compared against RaBitQ-ESTIMATED
 // cosines (1-bit stored codes scored against an 8-bit-quantized query; the
-// index never reranks with exact vectors).  The derivations assume an exact
+// index never reranks with exact vectors) — all but the near dedup's, which
+// scores the two gists exactly (store.ts `nearDedupTarget`).  The derivations assume an exact
 // cosine; the estimator adds a small, rotation-uniformised error the bars do
 // not model.  This is benign for the inequality thresholds (they gate broad
 // regions), but it means NO decision may treat an estimated score as exact —
 // identity in particular is decided by content-addressed resolve(), never by
 // `score >= 1` (see recallByResonance tier 0).
 
-/** The store's geometric identity bar: cosine ≥ 1 − 1/√D is the similarity at
- *  which `intern` already treats two gists as the SAME node.  Recall reuses it
+/** The store's geometric identity bar: cosine ≥ 1 − 1/√D, the space's own
+ *  crosstalk (1/√D) away from identical, the floor at which `intern`'s near
+ *  dedup treats two gists as the SAME node.  Recall reuses it
  *  to accept a near-identical query, and the climb to accept a containing form —
  *  one derived constant, never a tuned threshold.  NOTE: this fixed bar is
  *  the ESTIMATOR floor of an identity claim; a whole-span claim over a span
@@ -44,8 +46,9 @@ export function mergeThreshold(D: number): number {
  *  windows of foreign content while still claiming "near-identical".  An
  *  identity claim may tolerate at most ONE river window W — the perception
  *  quantum, the same single-window budget near-dedup's differsByOneWindow
- *  grants — so the bar is 1 − W/len, floored at mergeThreshold(D), below
- *  which the RaBitQ estimator cannot certify identity anyway.  This is the
+ *  grants — so the bar is 1 − W/len, floored at mergeThreshold(D): closer
+ *  than the space's crosstalk, no reading — exact gists or the RaBitQ
+ *  estimate — can tell one window from noise.  This is the
  *  angle+magnitude form of the identity test: the ANGLE carries the shared
  *  fraction, the span's MAGNITUDE (√len, the linear fold's own norm) converts
  *  the tolerated fraction into tolerated bytes.  Derived from W, D and the

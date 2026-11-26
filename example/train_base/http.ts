@@ -27,36 +27,6 @@ export const waitMs = (ms: number, signal: AbortSignal): Promise<void> =>
     signal.addEventListener("abort", done, { once: true });
   });
 
-/** Resolve `p`, but reject with a TimeoutError if it takes longer than `ms`.
- *  The underlying promise is left to settle on its own (we just stop waiting),
- *  so a slow black-box call can never wedge the caller. */
-export function withTimeout<T>(
-  p: Promise<T>,
-  ms: number,
-  label = "operation",
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => {
-      const e: Error & { name: string } = new Error(
-        `${label} timed out after ${ms}ms`,
-      );
-      e.name = "TimeoutError";
-      reject(e);
-    }, ms);
-    if (typeof (t as any).unref === "function") (t as any).unref();
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
-      },
-    );
-  });
-}
-
 /** An HTTP error the caller tagged as transient. `.fatal` skips all retries;
  *  `.throttle` (a 429/503 rate-limit or overload) is retried indefinitely and
  *  does NOT consume the bounded attempt budget — the server told us to wait, not

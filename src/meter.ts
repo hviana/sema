@@ -106,8 +106,8 @@ export class Meter {
   nearDedupHubs = 0;
   /** Whole forms the climb proposed (length window + learnt whole). */
   nearDedupProposals = 0;
-  /** Proposals that passed the byte test — each set is scored by ONE
-   *  content-index query. */
+  /** Proposals that passed the byte test — each scored by its exact gist
+   *  cosine against the identity bar. */
   nearDedupNear = 0;
   /** Branches the near dedup merged onto an existing whole form. */
   nearDedupMerges = 0;

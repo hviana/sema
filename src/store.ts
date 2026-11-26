@@ -1948,9 +1948,13 @@ export abstract class AbstractStore implements Store {
    *  learnt WHOLE, identical but for one span of at most W bytes, and its gist
    *  must clear the length-aware identity bar: bytes one window apart can
    *  mean different things (`X date of birth` / `X date of death` merged
-   *  without it, and ten answers were lost).  The bar reads ONE place — the
-   *  content index, the write buffer flushed into it first (rare: only a
-   *  branch that has a proposal), scored by its one estimator. */
+   *  without it, and ten answers were lost).  The bar reads the two GISTS,
+   *  exactly ({@link gistOf}: a function of the content alone), never the
+   *  content index: reading the index meant flushing the write buffer into it
+   *  first, one vector-index transaction per proposal — on templated facts
+   *  (2Wiki: 18% of deposits) ~40 KB written and ~250 KB read per deposit,
+   *  where a batch writes nothing — and scoring by an estimator whose value
+   *  hung on the index's history. */
   private nearDedupTarget(
     kids: NodeId[],
     gist: Vec,
@@ -1977,23 +1981,28 @@ export abstract class AbstractStore implements Store {
     );
     if (near.length === 0) return null;
     if (this.meter) this.meter.nearDedupNear += near.length;
-    if (this._contentBuffer.length > 0) this.flushContent();
     const bar = identityBar(this.D, W, blen);
-    const scored = new Map<NodeId, number>();
-    for (
-      const h of this._vecContentQuery(
-        normalize(copy(gist)),
-        this.overfetch * near.length,
-        this.efSearch,
-      )
-    ) scored.set(h.id, 1 - h.distance);
+    const v = normalize(copy(gist));
     for (const id of near) {
-      if ((scored.get(id) ?? -1) >= bar) {
+      const target = this.gistOf(id);
+      if (target !== null && dot(v, target) >= bar) {
         if (this.meter) this.meter.nearDedupMerges++;
         return id;
       }
     }
     return null;
+  }
+
+  /** A node's unit gist: its pending capture, else re-derived from its stored
+   *  content by the Mind's gist source — the same vector either way (a pure
+   *  function of the content), so which one answers is a saving, never a
+   *  decision.  Null only for a store with no gist source whose capture was
+   *  evicted.  Read-only: callers must not mutate the result. */
+  private gistOf(id: NodeId): Vec | null {
+    const v = this._pendingGist.get(id);
+    if (v !== undefined) return v;
+    const g = this._gistSource?.(id) ?? null;
+    return g === null ? null : normalize(copy(g));
   }
 
   /** Whether the byte content under `kids` and the byte content of `targetId`
@@ -2075,12 +2084,8 @@ export abstract class AbstractStore implements Store {
     }
     // The pending capture, or — evicted, or captured in another session — the
     // same gist re-derived from the node's stored structure.
-    let v = this._pendingGist.get(id);
-    if (v === undefined) {
-      const g = this._gistSource?.(id) ?? null;
-      if (g === null) return false;
-      v = normalize(copy(g));
-    }
+    const v = this.gistOf(id);
+    if (v === null) return false;
     this._indexedIds.set(id, true);
     this._contentBuffer.push({ id, vector: v });
     this._bufferedIds.add(id);
