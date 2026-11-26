@@ -1013,9 +1013,13 @@ export async function voteRegions(
       : edgeAncestors(ctx, own, N, reachMemo);
     const ownVotes = ownReach !== null && !ownReach.saturated &&
       ownReach.roots.length > 0;
-    let canonicalId = subWindow ? null : ownVotes ? own! : (chunk
-      ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
-      : (regions[ri].id ?? null));
+    let canonicalId = subWindow
+      ? null
+      : ownVotes
+      ? own!
+      : (chunk
+        ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
+        : (regions[ri].id ?? null));
     let canonicalUsable = canonicalId !== null &&
       (ownVotes || heldWithin(ctx, canonicalId));
     let hits: readonly Hit[] | null = null;
