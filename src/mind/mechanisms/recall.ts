@@ -62,9 +62,14 @@ function spelledWholes(ctx: MindContext, query: Uint8Array): number[] {
   const open = head + ends[ends.length - 1];
   const from = resolve(ctx, query.subarray(0, open));
   if (from === null) return [];
+  // A read that comes back full may have been cut off: an opening that
+  // leads to that many turns names none of them (bounded-reads.md).
+  const bound = hubBound(ctx);
+  const turns = ctx.store.nextFirst(from, bound);
+  if (turns.length >= bound) return [];
   const out: number[] = [];
   const rest = n - open;
-  for (const a of ctx.store.nextFirst(from, hubBound(ctx))) {
+  for (const a of turns) {
     const la = ctx.store.contentLen(a, rest + W + 1);
     for (let sep = 0; sep <= W && sep < rest; sep++) {
       if (Math.abs(open + sep + la - n) > W) continue;
