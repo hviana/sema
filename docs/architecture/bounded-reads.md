@@ -18,6 +18,7 @@ hubBound(ctx)    = ⌈√corpusN⌉                        // the store cap
 hubCap(ctx, ids) = ids.slice(0, hubBound(ctx))       // the list-side reading
 boundFor(n)      = ⌈√max(2, n)⌉                      // geometry.ts, any n
 readAllowance    = max(hubBound, chainReach(W))      // hub bar and read allowance
+searchReads      = max(hubBound, chainReach(W)²)     // contexts one derivation search reads
 ```
 
 Import these, and never re-derive them inline: no `edgeSourceCount()` or

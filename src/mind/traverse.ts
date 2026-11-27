@@ -147,6 +147,7 @@ interface DerivationCache {
   facts: MemoMap<string, Map<string, Step>>;
   described: MemoMap<string, Step[] | null>;
   entities: MemoMap<number, Array<{ span: [number, number]; id: number }>>;
+  opened: MemoMap<string, Opened | null>;
   uses: MemoMap<string, Vec | null>;
 }
 const DERIVATION_MEMO_BYTES = 16_000_000;
@@ -167,6 +168,15 @@ function derivationCache(ctx: MindContext): DerivationCache | null {
         (ws) => ws.reduce((a, w) => a + steps(w.length), RECORD_BYTES),
       ),
       entities: new MemoMap(spent, (xs) => steps(xs.length)),
+      opened: new MemoMap(spent, (os) =>
+        (os?.facts ?? []).reduce(
+          (a, o) =>
+            a + steps(o.held.length) + o.steps.reduce(
+              (x, t) => x + RECORD_BYTES + t.prefix.length + t.suffix.length,
+              0,
+            ),
+          RECORD_BYTES,
+        )),
       described: new MemoMap(spent, (xs) => steps(xs?.length ?? 0)),
       facts: new MemoMap(spent, (m) => steps(m.size)),
       slots: new MemoMap(spent, () => RECORD_BYTES),
@@ -609,6 +619,14 @@ export function hubBound(ctx: MindContext): number {
  *  made over a question's instances. */
 export function readAllowance(ctx: MindContext): number {
   return Math.max(hubBound(ctx), chainReach(ctx.space.maxGroup));
+}
+
+/** The establishing contexts ONE derivation search may read — every entity
+ *  it stands on, together: the same √N, floored at one naming's own floor
+ *  (`chainReach(W)` contexts) for each of the `chainReach(W)` entities the
+ *  smallest store lets a search stand on. */
+function searchReads(ctx: MindContext): number {
+  return Math.max(hubBound(ctx), chainReach(ctx.space.maxGroup) ** 2);
 }
 
 /** Cap a candidate list at the hub bound √N (insertion order) — the ONE
@@ -3887,8 +3905,9 @@ function pathSteps(
  *  holds it with something around it (`stepsInto`): so every arrival is among
  *  `f`'s own predecessors, spelled inside another of them.  False is exact —
  *  no derivation of any length ends at `f` — and spares the whole
- *  breadth-first search; null where the predecessors come back at the
- *  allowance, or pairing them would cost more than it, and nothing is known.
+ *  breadth-first search, as where the predecessors come back at the
+ *  allowance and name no step (`establishers`); null where pairing them would
+ *  cost more than the allowance, and nothing is known.
  *  The start `z` may arrive spelled as the instance spells it (`filler`). */
 function arrivesAt(
   ctx: MindContext,
@@ -3899,19 +3918,26 @@ function arrivesAt(
   formCap: number,
   except: number,
 ): boolean | null {
-  const prev = ctx.store.prevFirst(f, allowance);
-  if (prev.length >= allowance || prev.length * prev.length > allowance) {
-    return null;
-  }
+  const prev = establishers(ctx, f, allowance);
+  if (prev === null) return false;
+  if (prev.length * prev.length > allowance) return null;
   const holders = prev
     .filter((c) => c !== except && !heldWithin(ctx, c))
     .map((c) => read(ctx, c, formCap + 1));
   if (holders.length === 0) return false;
-  const held = (x: Uint8Array): boolean =>
-    holders.some((cb) => {
-      const step = stepAround(cb, x);
-      return step !== null && !emptyStep(step);
-    });
+  // An entity is stood on as the fact that reached it spells it, and a
+  // spelling the response's equivalence folds onto the entity (`resolve`) is
+  // one a holder may hold: read as written, then under the canon.
+  const under = holders.map((cb) => offsetCanon(ctx, cb));
+  const around = (cb: Uint8Array, x: Uint8Array): boolean => {
+    const step = stepAround(cb, x);
+    return step !== null && !emptyStep(step);
+  };
+  const held = (x: Uint8Array): boolean => {
+    if (holders.some((cb) => around(cb, x))) return true;
+    const ux = offsetCanon(ctx, x);
+    return under.some((cb) => around(cb, ux));
+  };
   for (const s of prev) {
     if (held(read(ctx, s, formCap + 1)) || (s === z && held(filler))) {
       return true;
@@ -3920,19 +3946,35 @@ function arrivesAt(
   return false;
 }
 
-/** The steps that reach fact `g` from an entity spelled `bytes`: g's
- *  establishing contexts that hold the entity, with it cut out. */
+/** The contexts that establish fact `g`, the read every step into it is cut
+ *  from — or null when they come back at the allowance: a read that comes
+ *  back full may have been cut off, so which of them holds an entity is not
+ *  known and none is named (bounded-reads.md), metered. */
+function establishers(
+  ctx: MindContext,
+  g: number,
+  allowance: number,
+): number[] | null {
+  const prev = ctx.store.prevFirst(g, allowance);
+  if (prev.length < allowance) return prev;
+  if (ctx.meter) ctx.meter.derivationReadsSaturated++;
+  return null;
+}
+
+/** The steps that reach fact `g` from an entity spelled `bytes`: those of
+ *  g's establishing contexts `prev` ({@link establishers}) that hold the
+ *  entity, with it cut out. */
 function stepsInto(
   ctx: MindContext,
   bytes: Uint8Array,
   g: number,
-  allowance: number,
+  prev: readonly number[],
   formCap: number,
   except?: number,
 ): Step[] {
   const steps: Step[] = [];
   let fact: Uint8Array | undefined;
-  for (const c of ctx.store.prevFirst(g, allowance)) {
+  for (const c of prev) {
     if (heldWithin(ctx, c) || c === except) continue;
     const step = stepAround(read(ctx, c, formCap + 1), bytes);
     if (step === null || emptyStep(step)) continue;
@@ -3952,21 +3994,80 @@ function stepsInto(
  *  reached it spells it, with every way the search reached it at this depth. */
 type Stand = { id: number; bytes: Uint8Array; ways: Step[][] };
 
+/** One fact an entity opens: the steps a context holding the entity
+ *  establishes it by, and the entities the fact holds whole, as it spells
+ *  them. */
+type Opening = {
+  steps: Step[];
+  held: Array<{ id: number; bytes: Uint8Array }>;
+};
+/** What an entity opens, and the establishing contexts read to know it —
+ *  past the allowance nothing is kept (`facts` empty): no search can afford
+ *  to stand there. */
+type Opened = { facts: Opening[]; reads: number };
+
+/** WHAT STANDING ON AN ENTITY OPENS — its facts a context holding it
+ *  establishes, in the store's order, and what reading them cost — or null
+ *  for a hub, whose facts come back at the bound.  It depends on the entity
+ *  and its spelling alone, never on where a search is headed, so it is read
+ *  once (`DerivationCache`) and every search standing there — an instance's
+ *  other continuation, another instance of the same filler, the cohort's
+ *  arrival — walks what is kept and is charged what it cost. */
+function opensFrom(
+  ctx: MindContext,
+  s: { id: number; bytes: Uint8Array },
+  allowance: number,
+  formCap: number,
+): Opened | null {
+  const memo = derivationCache(ctx);
+  const key = `${s.id}:${formCap}:${allowance}:${latin1(s.bytes)}`;
+  const hit = memo?.opened.get(key);
+  if (hit !== undefined) return hit;
+  const bound = hubBound(ctx);
+  const most = searchReads(ctx);
+  const facts = ctx.store.nextFirst(s.id, bound);
+  let out: Opened | null = null;
+  if (facts.length < bound) {
+    out = { facts: [], reads: 0 };
+    for (const g of facts) {
+      const prev = establishers(ctx, g, allowance);
+      if (prev === null) continue;
+      out.reads += prev.length;
+      if (out.reads > most) {
+        out.facts = [];
+        break;
+      }
+      const steps = stepsInto(ctx, s.bytes, g, prev, formCap);
+      if (steps.length === 0) continue;
+      const { fact, held } = entitiesIn(ctx, g);
+      out.facts.push({
+        steps,
+        held: held.map((e) => ({
+          id: e.id,
+          bytes: fact.subarray(e.span[0], e.span[1]),
+        })),
+      });
+    }
+  }
+  memo?.opened.set(key, out);
+  return out;
+}
+
 /** The breadth-first search a derivation is read by (`pathSearch`,
  *  `pathTo`): from `z`, through facts each established by a context holding
  *  the entity the search stands on, until `arrive` completes some ways at the
  *  depth it stands at — the shortest the corpus holds.  Each entity expanded
- *  is one read of its facts out of `allowance`; a hub is not expanded, and a
- *  search that spends the allowance reads nothing (`pathReadsSaturated`). */
+ *  is one read of its facts out of `allowance`, each establishing context read
+ *  one out of `searchReads`; a hub is not expanded, and a search that spends
+ *  either reads nothing (`pathReadsSaturated`). */
 function searchWays(
   ctx: MindContext,
   z: number,
   filler: Uint8Array,
   allowance: number,
   formCap: number,
-  arrive: (s: Stand) => Step[][],
+  arrive: (s: Stand, charge: (reads: number) => void) => Step[][],
 ): Step[][] {
-  const bound = hubBound(ctx);
   // An entity stands once per depth, with EVERY way the search reached it
   // there: two relations that lead to the same child (`· child`, `· heir`)
   // are two derivations an instance carries, and which one the corpus
@@ -3975,29 +4076,37 @@ function searchWays(
   let front: Stand[] = [{ id: z, bytes: filler, ways: [[]] }];
   const seen = new Set<number>([z]);
   let budget = allowance;
+  // …AND EVERY ESTABLISHING CONTEXT READ IS WORK, of its own account
+  // (`searchReads`): an entity expanded reads the contexts of each fact it
+  // leads to, and counted by entities alone a search that found nothing had
+  // read a hundred thousand of them (measured on the trained store, where
+  // the searches that found a derivation read 13 at the median).
+  let reads = searchReads(ctx);
+  const spent = (): Step[][] => {
+    if (ctx.meter) ctx.meter.pathReadsSaturated++;
+    return [];
+  };
+  const charge = (n: number): void => {
+    reads -= n;
+  };
   while (front.length > 0) {
-    const out = front.flatMap(arrive);
+    const out = front.flatMap((s) => arrive(s, charge));
+    if (reads < 0) return spent();
     if (out.length > 0) return out;
     const next = new Map<number, Stand>();
     for (const s of front) {
-      if (budget-- <= 0) {
-        if (ctx.meter) ctx.meter.pathReadsSaturated++;
-        return [];
-      }
+      if (budget-- <= 0) return spent();
       if (ctx.meter) ctx.meter.pathExpansions++;
-      const facts = ctx.store.nextFirst(s.id, bound);
-      if (facts.length >= bound) continue;
-      for (const g of facts) {
-        const steps = stepsInto(ctx, s.bytes, g, allowance, formCap);
-        if (steps.length === 0) continue;
-        const { fact, held } = entitiesIn(ctx, g);
+      const opened = opensFrom(ctx, s, allowance, formCap);
+      if (opened === null) continue;
+      if ((reads -= opened.reads) < 0) return spent();
+      for (const { steps, held } of opened.facts) {
         for (const e of held) {
           let at = next.get(e.id);
           if (at === undefined) {
             if (seen.has(e.id)) continue;
             seen.add(e.id);
-            const bytes = fact.subarray(e.span[0], e.span[1]);
-            next.set(e.id, at = { id: e.id, bytes, ways: [] });
+            next.set(e.id, at = { id: e.id, bytes: e.bytes, ways: [] });
           }
           const to = { id: e.id, bytes: at.bytes };
           for (const step of steps) {
@@ -4008,10 +4117,7 @@ function searchWays(
               // allowance — chained fans multiply ways while entities only
               // add up, and a search that would carry more than its allowance
               // reads nothing, metered, rather than materialising them.
-              if (at.ways.length > 0 && budget-- <= 0) {
-                if (ctx.meter) ctx.meter.pathReadsSaturated++;
-                return [];
-              }
+              if (at.ways.length > 0 && budget-- <= 0) return spent();
               if (ctx.meter) ctx.meter.pathWays++;
               at.ways.push([...way, { ...step, to }]);
             }
@@ -4109,22 +4215,16 @@ function pathToFact(
 ): Array<{ steps: Step[]; fact: number; stand: Uint8Array }> {
   const bound = hubBound(ctx);
   let found: Array<{ steps: Step[]; fact: number; stand: Uint8Array }> = [];
-  searchWays(ctx, z, filler, allowance, formCap, (s) => {
+  const ways = searchWays(ctx, z, filler, allowance, formCap, (s, charge) => {
     const out: Step[][] = [];
     const facts = ctx.store.nextFirst(s.id, bound);
     if (facts.length >= bound) return out;
     for (const g of facts) {
       if (!goal(g)) continue;
-      for (
-        const step of stepsInto(
-          ctx,
-          s.bytes,
-          g,
-          allowance,
-          formCap,
-          except,
-        )
-      ) {
+      const prev = establishers(ctx, g, allowance);
+      if (prev === null) continue;
+      charge(prev.length);
+      for (const step of stepsInto(ctx, s.bytes, g, prev, formCap, except)) {
         for (const way of s.ways) {
           if (refused?.([...way, step])) continue;
           out.push([...way, step]);
@@ -4134,6 +4234,8 @@ function pathToFact(
     }
     return out;
   });
+  // A search that spent its allowance reads nothing, arrivals included.
+  if (ways.length === 0) return [];
   // Only the depth the search stopped at: the shortest.
   const depth = Math.min(...found.map((f) => f.steps.length));
   found = found.filter((f) => f.steps.length === depth);

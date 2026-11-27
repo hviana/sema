@@ -325,11 +325,12 @@ export class Meter {
   /** Derivation searches not run: the fact they would end at shows, from its
    *  own predecessors, that no entity can arrive (traverse.ts `arrivesAt`). */
   pathsUnarrivable = 0;
-  /** Searches run without that reading: the fact's predecessors came back at
-   *  the allowance, or pairing them would have cost more than it. */
+  /** Searches run without that reading: pairing the fact's predecessors
+   *  would have cost more than the allowance. */
   pathArrivalsUnread = 0;
-  /** Path searches that spent the allowance without reaching the instance's
-   *  answer, and so read no derivation (traverse.ts, `pathSteps`). */
+  /** Path searches that spent an allowance — entities and ways, or the
+   *  establishing contexts read (`searchReads`) — without reaching the
+   *  instance's answer, and so read no derivation (traverse.ts, `pathSteps`). */
   pathReadsSaturated = 0;
   /** Ways a derivation's path search carried into the entities it stood on —
    *  each further way into one entity charged to the search's allowance
@@ -337,7 +338,8 @@ export class Meter {
   pathWays = 0;
   /** A derivation's exact lookups whose continuations came back at the
    *  allowance: the oldest were read, any beyond them unseen
-   *  (bounded-reads.md) — a step's naming or its replay (traverse.ts). */
+   *  (bounded-reads.md) — a step's naming or its replay — and facts whose
+   *  establishing contexts did, which name no step (traverse.ts). */
   derivationReadsSaturated = 0;
   /** Continuations a derivation's step did not name because they hold no
    *  entity that is what every instance's was there (traverse.ts,

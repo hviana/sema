@@ -752,3 +752,74 @@ test("157.19 a search no entity can end is not run, and a frame is read where an
   }
   await mind.store.close();
 });
+
+test("157.20 a search is charged the contexts it reads, and a fact too many establish names no step", async () => {
+  // A derivation search was budgeted in the entities it expanded, and each
+  // entity read the establishing contexts of every fact it leads to: on the
+  // trained store a search that found nothing had read up to 134 thousand
+  // of them (1.6 million over 63 questions), where the searches that found a
+  // derivation read 13 at the median.  The contexts are the reads, so they
+  // are what the allowance counts (`searchReads`); and a fact as many
+  // contexts establish as one read returns comes back cut, so none of them
+  // is taken for the one that holds the entity (`establishers`).
+  // Contexts that differ in two places, more than a window apart: none is
+  // another's near-duplicate.
+  const syl = "ba ke mi ro tu za ne pi so du la ve gi".split(" ");
+  const word = (i) =>
+    syl[i % 13] + syl[Math.floor(i / 13) % 13] + syl[Math.floor(i / 169) % 13];
+  const world = async (traits, spellings, crowd, ledger) => {
+    const mind = new Mind({ seed: 7, profile: true });
+    for (let i = 0; i < ledger; i++) {
+      await mind.ingest(
+        `${word(i)} ${word(31 * i + 5)} archive ${word(17 * i + 2)}`,
+        word(i),
+      );
+    }
+    const z = "Ana Vidal";
+    for (let k = 0; k < traits; k++) {
+      const fact = `The ${word(k)} of ${z} is ${word(k + 40)}.`;
+      await mind.ingest(z, fact);
+      for (let m = 0; m < spellings; m++) {
+        await mind.ingest(
+          `${z} ${word(k)} ${word(m + 60)} holds ${word(m + 90)}`,
+          fact,
+        );
+      }
+    }
+    const crowded = `The crowd of ${z} is large.`;
+    await mind.ingest(z, crowded);
+    for (let m = 0; m < crowd; m++) {
+      await mind.ingest(
+        `${z} crowd ${word(m + 60)} holds ${word(m + 90)}`,
+        crowded,
+      );
+    }
+    // The derivation: Ana's mentor, then the mentor's home.
+    await mind.ingest(z, `The mentor of ${z} is Bia Costa.`);
+    await mind.ingest(`${z} mentor`, `The mentor of ${z} is Bia Costa.`);
+    await mind.ingest("Bia Costa", "The home of Bia Costa is Porto.");
+    await mind.ingest("Bia Costa home", "The home of Bia Costa is Porto.");
+    await mind.ingest(`Who raised ${z}?`, "The home of Bia Costa is Porto.");
+    await mind.ingest("Enzo Rocha", "The mentor of Enzo Rocha is Fabi Melo.");
+    await mind.respondText("Who raised Enzo Rocha?");
+    const c = mind.lastCost.counters;
+    await mind.store.close();
+    return c;
+  };
+  // Few contexts: the search stands on Ana and reads its way; the crowded
+  // fact — more contexts than one read returns — is passed over, metered.
+  const read = await world(4, 2, 30, 150);
+  assert.ok((read.pathExpansions ?? 0) >= 1, "the search stood on the filler");
+  assert.equal(read.pathReadsSaturated ?? 0, 0, "within its reads");
+  assert.ok(
+    (read.derivationReadsSaturated ?? 0) >= 1,
+    "the crowded fact came back cut and named no step",
+  );
+  // Eighteen facts of twelve contexts each (and the pieces of them that
+  // inherit the fact): more than a search may read.
+  const spent = await world(18, 12, 0, 900);
+  assert.ok(
+    (spent.pathReadsSaturated ?? 0) >= 1,
+    "the search spent its reads and read no derivation",
+  );
+});
