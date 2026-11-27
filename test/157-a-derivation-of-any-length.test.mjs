@@ -685,3 +685,70 @@ test("157.18 a description the corpus reads two ways names nothing", async () =>
     );
   }
 });
+
+test("157.19 a search no entity can end is not run, and a frame is read where an entity can stand", async () => {
+  // Two readings the instance tier made the expensive way.  (a) A
+  // derivation search toward an instance's answer expands entity after
+  // entity until its allowance is gone; whether ANY entity can arrive is
+  // written on the answer itself — an arrival leads to it and is spelled
+  // inside another context of it (`arrivesAt`) — so where none can, nothing
+  // is searched.  (b) A description's sibling forms were each swept span by
+  // span for the entities they hold; the frame says where one may open and
+  // close (`entitiesBetween`).  On the 900 MB store: the slowest question
+  // 12.4 s → 3.9 s, two draws 308 s → 250 s, every answer the same.
+  const { entitiesIn, entitiesBetween } = await import(
+    "../dist/src/mind/traverse.js"
+  );
+  const mind = new Mind({ seed: 7, profile: true });
+  const people = [
+    ["Ana Vidal", "Bia Costa"],
+    ["Caio Prado", "Dora Lins"],
+    ["Enzo Rocha", "Fabi Melo"],
+    ["Gil Souto", "Hebe Paz"],
+  ];
+  for (const [x, y] of people) {
+    await mind.ingest(x, `The mentor of ${x} is ${y}.`);
+    await mind.ingest(`${x} mentor`, `The mentor of ${x} is ${y}.`);
+    await mind.ingest(y, `The city of ${y} is Porto.`);
+  }
+  // Two instances whose answers no entity leads to.
+  await mind.ingest("Who raised Ana Vidal?", "Nobody knows.");
+  await mind.ingest("Who raised Caio Prado?", "It was never told.");
+  await mind.respondText("Who raised Enzo Rocha?");
+  const c = mind.lastCost.counters;
+  assert.equal(c.pathsUnarrivable, 2, "both searches were spared");
+  assert.equal(c.pathExpansions ?? 0, 0, "and no entity was expanded");
+
+  // (b) is exact: between any two sides of a form, the entities are those
+  // the whole-form reading reports there.
+  const enc = (s) => new TextEncoder().encode(s);
+  for (const [x, y] of people) {
+    const text = `The mentor of ${x} is ${y}.`;
+    const id = mind.resolve(enc(text));
+    const { fact, held } = entitiesIn(mind, id);
+    assert.ok(held.length >= 2, "the fact holds its two people");
+    for (
+      const [before, after] of [
+        ["The mentor of ", " is "],
+        [" is ", "."],
+        ["", " is "],
+        [" of ", ""],
+        ["mentor of ", ""],
+        ["", "."],
+      ]
+    ) {
+      const b = enc(before), a = enc(after);
+      const want = held.filter((z) =>
+        z.span[0] >= b.length && z.span[1] + a.length <= fact.length &&
+        text.slice(z.span[0] - b.length, z.span[0]) === before &&
+        text.slice(z.span[1], z.span[1] + a.length) === after
+      );
+      assert.deepEqual(
+        entitiesBetween(mind, fact, fact, b, a),
+        want,
+        `between ${JSON.stringify(before)} and ${JSON.stringify(after)}`,
+      );
+    }
+  }
+  await mind.store.close();
+});

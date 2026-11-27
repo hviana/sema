@@ -133,13 +133,15 @@ instances teach.
 The path is searched breadth first, so the shortest derivation the corpus holds
 is the one read, and its length comes from the corpus. Each entity expanded is
 one read of its facts out of the exact tier's allowance. A hub is not expanded,
-and a search that spends the allowance reads nothing (`pathReadsSaturated`). A
-path's entities are the ones its facts hold whole and learnt as contexts of
-their own (`entitiesIn`): `Henry IV of France`, never the `Henry` inside it, and
-never `mother`, a piece that holds continuations only by suffix inheritance. A
-fact is read whole, since a prefix cut at the material's length holds the
-shorter name. Which entities and paths a form gives does not depend on the
-question, so both are kept for the session and dropped on a write.
+and a search that spends the allowance reads nothing (`pathReadsSaturated`); one
+no entity can end, read off the answer's own predecessors, is not run
+(`arrivesAt`, `test/157.19`). A path's entities are the ones its facts hold
+whole and learnt as contexts of their own (`entitiesIn`): `Henry IV of France`,
+never the `Henry` inside it, and never `mother`, a piece that holds
+continuations only by suffix inheritance. A fact is read whole, since a prefix
+cut at the material's length holds the shorter name. Which entities and paths a
+form gives does not depend on the question, so both are kept for the session and
+dropped on a write.
 
 The sequence is replayed in order (`replayOf`). Its first step applies at the
 question's own entity. Step `i + 1` applies only at an entity the replay of

@@ -2539,13 +2539,10 @@ function describedSteps(
   const bySeq = new Spellings<{ by: number[]; steps: Step[]; key: string }>();
   for (const f of siblingInstances(ctx, bytes, spans, allowance)) {
     if (heldWithin(ctx, f) || !cachedHasNext(ctx, f, cache)) continue;
-    const fb = offsetCanon(ctx, read(ctx, f));
-    for (const z of entitiesIn(ctx, f).held) {
+    const raw = read(ctx, f);
+    const fb = offsetCanon(ctx, raw);
+    for (const z of entitiesBetween(ctx, raw, fb, before, after)) {
       if (z.id === x.id) continue;
-      const [zs, ze] = z.span;
-      if (zs < before.length || ze + after.length > fb.length) continue;
-      if (!bytesEqual(fb.subarray(zs - before.length, zs), before)) continue;
-      if (!bytesEqual(fb.subarray(ze, ze + after.length), after)) continue;
       for (
         const [one, rest] of instanceSteps(
           ctx,
@@ -3593,27 +3590,118 @@ function learntWholeSpans(
   // The ends are swept ASCENDING so one hash is extended a byte per probe
   // (`Store.flatSpans`), then tried longest first: hashed afresh per span,
   // descending, a long form paid its length on every one of its spans.
-  const flatAt = ctx.store.flatSpans?.(bytes) ??
-    ((st: number, en: number) => flatId(ctx, bytes.subarray(st, en)));
+  const flatAt = flatProbe(ctx, bytes);
   for (let st = 0; st + W <= bytes.length; st++) {
-    const ends: number[] = [];
-    for (let en = st + W; en <= bytes.length; en++) {
-      if (!whole && en - st === bytes.length) continue;
-      if (flatAt(st, en) !== null) ends.push(en);
-    }
-    for (let k = ends.length - 1; k >= 0; k--) {
-      const en = ends[k];
-      const n = resolve(ctx, bytes.subarray(st, en));
-      if (
-        n === null || !cachedHasNext(ctx, n, cache) ||
-        !ctx.store.learntWhole(n)
-      ) continue;
-      found.push({ span: [st, en], id: n });
-      if (first) return found;
-      break;
-    }
+    const hit = longestWholeFrom(ctx, bytes, st, st + W, whole, flatAt, cache);
+    if (hit === null) continue;
+    found.push(hit);
+    if (first) return found;
   }
   return found;
+}
+
+/** The flat-twin probe of every span of `bytes` (`Store.flatSpans`: one hash
+ *  extended a byte per ascending end). */
+function flatProbe(
+  ctx: MindContext,
+  bytes: Uint8Array,
+): (st: number, en: number) => number | null {
+  return ctx.store.flatSpans?.(bytes) ??
+    ((st: number, en: number) => flatId(ctx, bytes.subarray(st, en)));
+}
+
+/** The LONGEST span from `st`, ending at `from` or later, that the corpus
+ *  learnt whole as a context leading on — {@link learntWholeSpans}' reading
+ *  of one start, for a reader that knows where to look. */
+function longestWholeFrom(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  st: number,
+  from: number,
+  whole: boolean,
+  flatAt: (st: number, en: number) => number | null,
+  cache: StructCache | null,
+): { span: [number, number]; id: number } | null {
+  const ends: number[] = [];
+  for (let en = from; en <= bytes.length; en++) {
+    if (!whole && en - st === bytes.length) continue;
+    if (flatAt(st, en) !== null) ends.push(en);
+  }
+  for (let k = ends.length - 1; k >= 0; k--) {
+    const en = ends[k];
+    const n = resolve(ctx, bytes.subarray(st, en));
+    if (
+      n === null || !cachedHasNext(ctx, n, cache) ||
+      !ctx.store.learntWhole(n)
+    ) continue;
+    return { span: [st, en], id: n };
+  }
+  return null;
+}
+
+/** The entities a form holds WHOLE between `before` and `after` — exactly
+ *  those {@link entitiesIn} reports there, read where they can be instead of
+ *  off every span of the form: the frame fixes where such an entity opens or
+ *  closes, so a form that holds none costs a probe per offset, not per pair of
+ *  offsets (a description's rarest window reaches up to √N forms, and sweeping
+ *  each whole was most of a short question's time on a trained store).
+ *  `canon` is the form as the frame is compared (offset-preserving). */
+export function entitiesBetween(
+  ctx: MindContext,
+  bytes: Uint8Array,
+  canon: Uint8Array,
+  before: Uint8Array,
+  after: Uint8Array,
+): Array<{ span: [number, number]; id: number }> {
+  const W = ctx.space.maxGroup;
+  const L = bytes.length;
+  const cache = getStructCache(ctx);
+  const flatAt = flatProbe(ctx, bytes);
+  const opens = (zs: number): boolean =>
+    zs >= before.length &&
+    bytesEqual(canon.subarray(zs - before.length, zs), before);
+  const closes = (ze: number): boolean =>
+    ze + after.length <= canon.length &&
+    bytesEqual(canon.subarray(ze, ze + after.length), after);
+  // Where an entity may stand: it opens after `before` and closes before
+  // `after`.  A side the frame leaves empty leaves that end free, and then
+  // the other end names the candidates — one flat probe each.
+  const cands: Array<[number, number | null]> = [];
+  if (after.length > 0) {
+    for (let ze = W; ze <= L; ze++) {
+      if (!closes(ze)) continue;
+      for (let zs = 0; zs + W <= ze; zs++) {
+        if (zs === 0 && ze === L) continue;
+        if (!opens(zs)) continue;
+        if (flatId(ctx, bytes.subarray(zs, ze)) !== null) cands.push([zs, ze]);
+      }
+    }
+  } else {
+    for (let zs = 0; zs + W <= L; zs++) if (opens(zs)) cands.push([zs, null]);
+  }
+  const out: Array<{ span: [number, number]; id: number }> = [];
+  for (const [zs, ze] of cands) {
+    // What `entitiesIn` reports from this start: the longest learnt whole…
+    const hit = longestWholeFrom(ctx, bytes, zs, zs + W, false, flatAt, cache);
+    if (hit === null || (ze !== null && hit.span[1] !== ze)) continue;
+    if (!closes(hit.span[1])) continue;
+    // …that no other reported span contains: none from an earlier start
+    // reaches as far.
+    let contained = false;
+    for (let st = 0; st < zs && !contained; st++) {
+      contained = longestWholeFrom(
+        ctx,
+        bytes,
+        st,
+        Math.max(hit.span[1], st + W),
+        false,
+        flatAt,
+        cache,
+      ) !== null;
+    }
+    if (!contained) out.push(hit);
+  }
+  return out;
 }
 
 /** The facts an entity holds, each spelled with the entity cut out (`The
@@ -3772,7 +3860,15 @@ function pathSteps(
   if (hit !== undefined) return hit;
   // The one path search toward a fact (`pathToFact`), its goal the instance's
   // own answer — the arrival convergence reads too.
-  const found = pathToFact(
+  //
+  // WHO CAN ARRIVE IS READ OFF THE FACT FIRST (`arrivesAt`): where no entity
+  // can, no search from `z` arrives at any depth, and none is run.
+  const arrives = arrivesAt(ctx, f, z, filler, allowance, formCap, q);
+  if (ctx.meter) {
+    if (arrives === false) ctx.meter.pathsUnarrivable++;
+    else if (arrives === null) ctx.meter.pathArrivalsUnread++;
+  }
+  const found = arrives === false ? [] : pathToFact(
     ctx,
     z,
     filler,
@@ -3783,6 +3879,45 @@ function pathSteps(
   ).map((p) => p.steps);
   memo?.paths.set(key, found);
   return found;
+}
+
+/** WHETHER ANY ENTITY CAN ARRIVE AT FACT `f` — the arrival `pathToFact` asks
+ *  of every entity it stands on, read once from the fact's side.  An entity
+ *  arrives when it leads to `f` and a context of `f` other than `except`
+ *  holds it with something around it (`stepsInto`): so every arrival is among
+ *  `f`'s own predecessors, spelled inside another of them.  False is exact —
+ *  no derivation of any length ends at `f` — and spares the whole
+ *  breadth-first search; null where the predecessors come back at the
+ *  allowance, or pairing them would cost more than it, and nothing is known.
+ *  The start `z` may arrive spelled as the instance spells it (`filler`). */
+function arrivesAt(
+  ctx: MindContext,
+  f: number,
+  z: number,
+  filler: Uint8Array,
+  allowance: number,
+  formCap: number,
+  except: number,
+): boolean | null {
+  const prev = ctx.store.prevFirst(f, allowance);
+  if (prev.length >= allowance || prev.length * prev.length > allowance) {
+    return null;
+  }
+  const holders = prev
+    .filter((c) => c !== except && !heldWithin(ctx, c))
+    .map((c) => read(ctx, c, formCap + 1));
+  if (holders.length === 0) return false;
+  const held = (x: Uint8Array): boolean =>
+    holders.some((cb) => {
+      const step = stepAround(cb, x);
+      return step !== null && !emptyStep(step);
+    });
+  for (const s of prev) {
+    if (held(read(ctx, s, formCap + 1)) || (s === z && held(filler))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** The steps that reach fact `g` from an entity spelled `bytes`: g's

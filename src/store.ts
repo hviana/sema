@@ -1487,6 +1487,13 @@ export abstract class AbstractStore implements Store {
         runH[start] = h;
         shortH[start] = prev;
       }
+      // The negative filter answers on the hash alone, so a span that is not
+      // stored costs no view of its bytes: a sweep of every span of a form
+      // asks this tens of millions of times a question on a trained store.
+      if (!this._dbFlatMayExist(h, bytes)) {
+        if (this.meter) this.meter.branchLookups++;
+        return null;
+      }
       return this._findFlatHashed(h, bytes.subarray(start, end));
     };
   }

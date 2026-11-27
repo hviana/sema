@@ -322,6 +322,12 @@ export class Meter {
   /** Entities a derivation's path search expanded — one read of their facts
    *  each, out of the exact tier's allowance (traverse.ts, `pathSteps`). */
   pathExpansions = 0;
+  /** Derivation searches not run: the fact they would end at shows, from its
+   *  own predecessors, that no entity can arrive (traverse.ts `arrivesAt`). */
+  pathsUnarrivable = 0;
+  /** Searches run without that reading: the fact's predecessors came back at
+   *  the allowance, or pairing them would have cost more than it. */
+  pathArrivalsUnread = 0;
   /** Path searches that spent the allowance without reaching the instance's
    *  answer, and so read no derivation (traverse.ts, `pathSteps`). */
   pathReadsSaturated = 0;
