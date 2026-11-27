@@ -10,8 +10,9 @@
 // and the worker must answer as the training Mind would without writing.
 
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Mind, SQliteStore } from "../dist/src/index.js";
@@ -83,9 +84,7 @@ test("187.3 the run's journal tells a suspended machine from a busy run", async 
   const { openJournal } = await import(
     "../dist/example/train_base/journal.js"
   );
-  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
+  const { readFileSync } = await import("node:fs");
   const dir = mkdtempSync(join(tmpdir(), "sema-journal-"));
   const path = join(dir, "run.train.jsonl");
   let wall = Date.UTC(2026, 10, 3, 9, 0, 0), mono = 0;
@@ -125,4 +124,67 @@ test("187.3 the run's journal tells a suspended machine from a busy run", async 
   assert.equal(busy.slept, undefined);
   // Disabled, it writes nothing and costs nothing.
   openJournal(join(dir, "none.jsonl"), 0).beat({ deposits: 1, bytes: 1 });
+});
+
+// ── the stall watchdog ──────────────────────────────────────────────────────
+// It watched from inside the thread it watches: a timer there cannot fire
+// while ingestion holds the event loop, which is exactly when a run hangs.
+// Each case below is a child process, because the failure in question is a
+// main thread that never yields.
+const watchdogChild = (body) => {
+  const url = new URL(
+    "../dist/example/train_base/watchdog.js",
+    import.meta.url,
+  );
+  // A file, not `-e`: a worker inherits the process's flags, and an eval
+  // script among them is no module it can start from.
+  const dir = mkdtempSync(join(tmpdir(), "sema-watchdog-"));
+  const file = join(dir, "run.mjs");
+  writeFileSync(
+    file,
+    `
+    import { startWatchdog } from ${JSON.stringify(url.href)};
+    const dog = startWatchdog(400, (min) => { console.log("asked"); process.exit(75); }, "BLOCKED\\n");
+    const busy = (ms, each) => { const end = performance.now() + ms; while (performance.now() < end) each?.(); };
+    ${body}
+  `,
+  );
+  const r = spawnSync(process.execPath, [file], {
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  rmSync(dir, { recursive: true });
+  return r;
+};
+
+test("187.4 a run whose thread never yields is ended from outside it", () => {
+  // No beat, and a main thread busy for far longer than the allowance: no
+  // timer of its own could fire.  The watchdog asks, gets no answer, and
+  // ends the process itself.
+  const r = watchdogChild(`busy(15000);`);
+  assert.equal(r.signal, "SIGKILL");
+  assert.match(r.stderr, /BLOCKED/);
+});
+
+test("187.5 a busy thread that still deposits is not a stall", () => {
+  // The same blocked loop, beating as deposits do: progress is read from
+  // shared memory, so it needs no yield to be seen.
+  const r = watchdogChild(
+    `busy(2500, () => dog.beat()); dog.stop(); console.log("done");`,
+  );
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /done/);
+});
+
+test("187.6 an idle run that can still answer ends itself, and quiet work is no stall", () => {
+  // Alive but going nowhere: the training thread is asked, and exits with
+  // the code a supervisor reads as "resume".
+  const idle = watchdogChild(`setInterval(() => {}, 1000);`);
+  assert.equal(idle.status, 75);
+  assert.match(idle.stdout, /asked/);
+  // Declared deposit-free work (index maintenance, the recall) is waited for.
+  const quiet = watchdogChild(
+    `dog.quiet(1); setTimeout(() => { dog.quiet(-1); dog.stop(); console.log("done"); }, 2500);`,
+  );
+  assert.equal(quiet.status, 0, quiet.stderr);
 });

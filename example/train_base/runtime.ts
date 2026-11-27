@@ -28,6 +28,7 @@ import {
 } from "./config.js";
 import { recallInWorker } from "./recall.js";
 import { openJournal } from "./journal.js";
+import { startWatchdog } from "./watchdog.js";
 import type { TrainingItem } from "./items.js";
 import { headSize, type HttpOptions, throttleNotifier } from "./http.js";
 import { cacheSize, downloadFile, ensureCacheRoom } from "./cache.js";
@@ -352,41 +353,44 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
   // So: any progress at all is a beat. If none arrives for STALL_MS, exit
   // non-zero. Resume costs at most the work since the last checkpoint, and the
   // durable cursor means that work is bounded and re-done exactly once.
-  let lastBeat = Date.now();
-  let quiet = 0; // depth of legitimately deposit-free work
-  const beat = () => (lastBeat = Date.now());
-  /** Run `fn` without the watchdog counting its silence. For work that is
-   *  bounded and known to deposit nothing: index maintenance, the recall. */
-  const unwatched = async <T>(fn: () => Promise<T>): Promise<T> => {
-    quiet++;
-    try {
-      return await fn();
-    } finally {
-      quiet--;
-      beat();
-    }
-  };
+  //
+  // The check itself runs in a worker, against a counter in shared memory and
+  // the monotonic clock (watchdog.ts): a timer in this thread cannot fire
+  // while this thread is the thing that hangs, and the wall clock calls a
+  // suspended machine a stalled run.
   let swallowed = 0; // uncaught errors the run chose to survive
-  if (STALL_MS > 0) {
-    const stallTimer = setInterval(() => {
-      if (quiet > 0) return beat();
-      if (Date.now() - lastBeat < STALL_MS) return;
+  const stalled = (minutes: number, how: string): string =>
+    `\n${RED}✗ no progress for ${minutes} min${R} — the run is not ` +
+    `advancing, so it is ${how} to be resumed.\n` +
+    `  Nothing is lost: training continues from the last checkpoint.\n` +
+    `  Set STALL_MIN=0 to disable this check.\n`;
+  const watchdog = startWatchdog(
+    STALL_MS,
+    (minutes) => {
       process.stderr.write(SHOW);
       process.stderr.write(
-        `\n${RED}✗ no progress for ${
-          Math.round((Date.now() - lastBeat) / 60_000)
-        } min${R} — the run is not advancing, so it is exiting to be resumed.\n` +
-          `  Nothing is lost: training continues from the last checkpoint.\n` +
+        stalled(minutes, "exiting") +
           (swallowed > 0
             ? `  ${swallowed} error(s) were swallowed earlier; the last one` +
               ` probably left an operation unfinished.\n`
-            : "") +
-          `  Set STALL_MIN=0 to disable this check.\n`,
+            : ""),
       );
       process.exit(75); // EX_TEMPFAIL: "try again", for a supervisor
-    }, 30_000);
-    if (typeof stallTimer.unref === "function") stallTimer.unref();
-  }
+    },
+    // Said by the watchdog itself where this thread can no longer speak.
+    SHOW + stalled(Math.round(STALL_MS / 60_000), "being killed (blocked)"),
+  );
+  const beat = () => watchdog.beat();
+  /** Run `fn` without the watchdog counting its silence. For work that is
+   *  bounded and known to deposit nothing: index maintenance, the recall. */
+  const unwatched = async <T>(fn: () => Promise<T>): Promise<T> => {
+    watchdog.quiet(1);
+    try {
+      return await fn();
+    } finally {
+      watchdog.quiet(-1);
+    }
+  };
 
   const checkpoint = () => mind.save();
   const maintain = () => runIndexMaintenance(mind, (m) => progress.log(m));
@@ -781,6 +785,7 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
     async finish(why: string): Promise<void> {
       if (finishing) return;
       finishing = true;
+      watchdog.stop(); // the shutdown has its own watchdog, below
       shutdown.abort(); // unblock any straggling fetch/pipeTo
       tick(true);
       // An interrupted run is not a completed one, in the store or in the exit
