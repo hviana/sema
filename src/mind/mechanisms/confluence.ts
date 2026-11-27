@@ -247,7 +247,16 @@ export async function confluenceJoin(
         ctx,
         read(ctx, cand.anchor, instanceCap(query.length) + 1),
       ) !== null
-    ) continue;
+    ) {
+      ctx.trace?.step(
+        "coInstanceStream",
+        [rItem(query, "query"), rNode(ctx, cand.anchor, "anchor")],
+        [],
+        "refused — the anchor is another instance of the question's frame: " +
+          "it binds the frame, and constrains nothing the question asks about",
+      );
+      continue;
+    }
     const ids = new Set(windowsOfAnchor(cand.anchor).values());
     if (ids.size === 0) continue;
     const heldAt: number[] = [];
