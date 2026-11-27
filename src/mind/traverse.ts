@@ -1786,6 +1786,10 @@ export function discriminates(
     const [pa, pb] = sharedEnds(offsetCanon(ctx, raw), own);
     if (pa < s || pb < form.length - e) continue;
     if (raw.length - pb <= pa) continue; // nothing between: no other part
+    // A form that opens or closes with ALL of this one is this one written
+    // on (an exchange's next turn): what it adds stands beyond the form, not
+    // at the position.
+    if (pa >= form.length || pb >= form.length) continue;
     if (!ctx.store.nextFirst(p, hubBound(ctx)).some((n) => mine.has(n))) {
       return true;
     }
@@ -2873,6 +2877,14 @@ function heldPointsOf(
     { start: number; end: number; payload: number; leftOut?: true }
   > = [];
   memo.set(minLen, { canon, raw: asked.raw, out });
+  const short: Array<{
+    start: number;
+    end: number;
+    payload: number;
+    leftOut: true;
+    form: Uint8Array;
+    note: string;
+  }> = [];
   const W = ctx.space.maxGroup;
   // A form with a span left out is at most twice what the question holds of
   // it (`leftOut`): the instance scale.
@@ -2907,33 +2919,66 @@ function heldPointsOf(
         ...(asked.forms ?? []),
       ])
     ) continue;
-    // …and so does a proposed form that holds what the question writes there
-    // byte for byte: `Frances Carpenter Jr.` beside `Frances Aretta
-    // Carpenter`.  The exact reading found the bytes elsewhere, and what was
-    // left out cannot say which is meant (tempting-but-wrong 12).
-    const written = asked.bytes.subarray(lo.start, lo.end);
+    short.push({
+      start: lo.start,
+      end: lo.end,
+      payload: id,
+      leftOut: true,
+      form,
+      note: `the question writes this form's opening (${lo.open} bytes) and ` +
+        `its close (${lo.close}) with ${
+          raw.length - lo.open - lo.close
+        } left out between, and no other proposed form tells that position apart`,
+    });
+  }
+  // TWO FORMS THE SAME BYTES ARE SHORT FOR, leading to different things, name
+  // neither: `Frances Carpenter` is `Frances Aretta Carpenter` without her
+  // middle name and `Frances Carpenter Jr.` without his suffix.  (A form held
+  // over MORE of the question is another matter — an exchange and the same
+  // exchange a turn longer — and the composition weighs the two.)
+  const leads = (id: number) => ctx.store.nextFirst(id, hubBound(ctx));
+  for (const h of short) {
+    const mine = new Set(leads(h.payload));
     if (
-      [...asked.points, ...(asked.forms ?? [])].some((p) =>
-        p !== id && ctx.store.hasNext(p) &&
-        indexOf(canon(read(ctx, p, cap)), written, 0) >= 0
+      short.some((o) =>
+        o.payload !== h.payload && o.start === h.start && o.end === h.end &&
+        !leads(o.payload).some((n) => mine.has(n))
       )
+    ) continue;
+    // …and so does a proposed form that holds what the question writes there
+    // byte for byte (a `Frances Carpenter` of the corpus's own, or a longer
+    // name that opens so): the exact reading found the bytes elsewhere, and
+    // what was left out cannot say which is meant (tempting-but-wrong 12).
+    // Unless that form holds this very one too: then it is this form written
+    // on, and what the question writes is this form's inside it.
+    const written = asked.bytes.subarray(h.start, h.end);
+    if (
+      [...asked.points, ...(asked.forms ?? [])].some((p) => {
+        if (p === h.payload || !ctx.store.hasNext(p)) return false;
+        if (short.some((o) => o.payload === p)) return false;
+        const other = canon(read(ctx, p, cap));
+        return indexOf(other, written, 0) >= 0 &&
+          indexOf(other, h.form, 0) < 0;
+      })
     ) continue;
     if (ctx.meter) ctx.meter.heldLeftOut++;
     ctx.trace?.step(
       "heldLeftOut",
-      [rItemShort(ctx, id, "point")],
+      [rItemShort(ctx, h.payload, "point")],
       [{
-        text: decodeText(asked.raw.subarray(lo.start, lo.end)),
-        node: id,
+        text: decodeText(asked.raw.subarray(h.start, h.end)),
+        node: h.payload,
         role: "held",
-        span: [lo.start, lo.end],
+        span: [h.start, h.end],
       }],
-      `the question writes this form's opening (${lo.open} bytes) and its ` +
-        `close (${lo.close}) with ${
-          raw.length - lo.open - lo.close
-        } left out between, and no other proposed form tells that position apart`,
+      h.note,
     );
-    out.push({ start: lo.start, end: lo.end, payload: id, leftOut: true });
+    out.push({
+      start: h.start,
+      end: h.end,
+      payload: h.payload,
+      leftOut: true,
+    });
   }
   return out;
 }
@@ -2955,11 +3000,21 @@ function leftOut(
   const head = form.subarray(0, W);
   for (let at = indexOf(q, head, 0); at >= 0; at = indexOf(q, head, at + 1)) {
     let open = W;
-    while (open < L - W - 1 && q[at + open] === form[open]) open++;
+    while (open < L - 1 && q[at + open] === form[open]) open++;
     for (; open >= W; open--) {
       const most = Math.min(L - open - 1, q.length - at - open);
-      for (let close = most; close >= W; close--) {
-        if (q[at + open + close - 1] !== form[L - 1]) continue;
+      // A close shorter than one window is no evidence of the form's close —
+      // unless what is left out is itself within one window, the tolerance
+      // identity has everywhere (`identityBar`): the form's last mark, a
+      // letter of its last word.
+      for (let close = most; close >= 0; close--) {
+        if (close < W && L - open - close > W) break;
+        // …and with no close at all, only where the question ends too: what
+        // it writes on stands in the left-out bytes' place, and that is
+        // another thing said there (`the answer is 2+2` for `the answer is
+        // 4`), not the form with its end left out.
+        if (close === 0 && at + open !== q.length) break;
+        if (close > 0 && q[at + open + close - 1] !== form[L - 1]) continue;
         if (
           !bytesEqual(
             q.subarray(at + open, at + open + close),

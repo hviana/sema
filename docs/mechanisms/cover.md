@@ -19,15 +19,18 @@ left out. A span named only under the equivalence stands where its member does
 **A form with one span left out.** The question writes a stored form's opening
 and its close one after the other (`leftOut`): `Frances Carpenter` for
 `Frances Aretta Carpenter`, an exchange asked without one of its words or bytes.
-Each side is at least one window and what is held is most of the form
-(`dominates`), so every byte of the site is the form's own. The climb proposes
-and the bytes decide; the span left out names nothing by itself, so the reading
-refuses where another proposed form opens and closes alike around something else
-and leads elsewhere (`discriminates`), where one holds what the question writes
-byte for byte (`Frances Carpenter Jr.`), and where a recognised site covers the
-span (`test/188`). Measured, the second set of each pair held out: 2Wiki 204 →
-213 of 240; the trained store's gate 149 → 165 of 188 (one byte deleted 32 of
-32, one word removed 23 of 30); none lost.
+Each side is at least one window — or, where what is left out is itself within
+one window, the form's last mark with the question ending there — and what is
+held is most of the form (`dominates`), so every byte of the site is the form's
+own. The climb proposes and the bytes decide; the span left out names nothing by
+itself, so the reading refuses where another proposed form opens and closes
+alike around something else and leads elsewhere (`discriminates`; a form that
+opens with all of this one is this one written on, no other reading of it),
+where one holds what the question writes byte for byte or is short for it too
+(`Frances Carpenter Jr.`), and where a recognised site covers the span
+(`test/188`). Measured, the second set of each pair held out: 2Wiki 204 → 213 of
+240; the trained store's gate 149 → 168 of 188 (one byte deleted 32 of 32, one
+word removed 23 of 30); none lost.
 
 ## Gates
 

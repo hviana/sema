@@ -31,8 +31,11 @@
 //   188.4 what the question writes is itself a form that leads somewhere:
 //         the exact reading stands;
 //   188.5 holding less than most of the form is holding two pieces of it;
-//   188.6 another form holds what the question writes byte for byte: the
-//         left-out span cannot say which is meant.
+//   188.6 another form holds what the question writes byte for byte, or is
+//         short for it too: the left-out span cannot say which is meant;
+//   188.7 one window missing at the form's end — its last mark — is held
+//         too, and the form written on (the exchange's next context) is no
+//         other reading of that position.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -188,6 +191,31 @@ test("188.6 another form holds what the question writes: neither is named", asyn
     },
   );
   assert.equal(notes.length, 0);
-  assert.ok(!answer.includes("Nanking"), answer);
+  assert.ok(!answer.includes("Nanking") && !answer.includes("surgeon"), answer);
+  await mind.store.close();
+});
+
+test("188.7 a form asked without its last mark is that form; written on, it is still", async () => {
+  // One window missing at the form's end, with the question ending there, is
+  // the tolerance identity has everywhere.  Read by its pieces, the question
+  // was answered by the shorter opening it also holds (`Hello there,`).  The
+  // exchange's next context opens with all of this one: it is this form
+  // written on, not another reading of its last byte.
+  const mind = new Mind({ seed: 7 });
+  const first = "Hello there, I would like to take an Uber ride.";
+  await mind.ingest([
+    [first, "How may I help you?"],
+    ["Hello there,", "Hi! I'm here to help you."],
+    [
+      "Hello there, I would like to order a pizza for dinner.",
+      "Sure, which size?",
+    ],
+    ["Hello there, I would like to book a table for two.", "For what time?"],
+    [first + "\nHow may I help you?\nTake me downtown.", "On my way."],
+  ]);
+  assert.equal(
+    await mind.respondText(first.slice(0, -1)),
+    "How may I help you?",
+  );
   await mind.store.close();
 });
