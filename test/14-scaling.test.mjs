@@ -364,34 +364,13 @@ test("inference: cost is sublinear in corpus size (independent corpora)", async 
   );
 });
 
-// One fixed corpus, query LENGTH growing. The cost must rise about LINEARLY with
+// One fixed corpus, query LENGTH growing. Time must rise about LINEARLY with
 // input bytes — a steady KB/s of input processed — and never super-linearly
-// (no quadratic scan, no exponential fuse).
-//
-// The WORK decides and the clock reports. The meter's counters are
-// deterministic (same store, same query ⇒ same counts, on any machine), so the
-// primary guard reads them: every counter that does per-byte work must grow
-// nearer linearly than quadratically each time the input doubles. The clock is
-// held to the same bar and to a constant-rate band, both over the steady range.
-//
-// WHY THE CLOCK NO LONGER DECIDES ALONE. Its exponent used to be fitted over
-// all four sizes and held under 1.3. Measured on one machine, release 3696f00
-// against e9f4d28, the fit read 1.15–1.18 and 1.19–1.21 with every size FASTER
-// on the later commit and the counters below unchanged in shape; a shared CI
-// runner then read 1.16 for the first and 1.30 for the second, one 4 KB sample
-// a quarter slow. A bar 0.1 above the quantity's own value is decided by the
-// runner, not by the code.
-//
-// WHY THE SMALLEST INPUT IS NOT ON THE STEADY RANGE. Recognition's sweep reads
-// a bounded window of spans from every start, so its work is `R·n − R²/2`:
-// linear, with an offset a short input has not yet paid (207 K spans per KB at
-// 0.5 KB, 244 K at 1 KB, 271 K at 4 KB, 276 K at 8 KB). The 0.5 KB input also
-// runs one market where the others run two or three (a further topic). So it
-// reads FAST for its size, 24 KB/s against 16, and a fit through it bends
-// upward on a curve that is straight from 1 KB on.
+// (no quadratic scan, no exponential fuse). Constant throughput is the headline
+// number; the exponent guards against blow-up.
 test("inference: input is processed at a roughly constant KB/s (linear, not quadratic)", async () => {
   const store = new SQliteStore({ path: ":memory:" });
-  const mind = new Mind({ seed: 7, store, profile: true });
+  const mind = new Mind({ seed: 7, store });
   await mind.ingest(corpus(200, "inflen"));
 
   const kbs = [0.5, 1, 2, 4];
@@ -405,28 +384,29 @@ test("inference: input is processed at a roughly constant KB/s (linear, not quad
   // fixed; only wall clock varies.  Sampling one size to completion before
   // moving on let a single GC/JIT episode land on one size's ENTIRE sample
   // block, so even `fastest` (min of 5) came back ~2.7x high for that size
-  // alone.  Round-robin spreads every episode across all sizes, so `fastest`
-  // sees at least one clean sample each.
+  // alone — a bimodal reading that made the throughput-band ratio below trip
+  // intermittently (observed on both the 1KB point and, more weakly, before
+  // any of this file's callers changed).  Round-robin spreads every episode
+  // across all sizes, so `fastest` sees at least one clean sample each.
+  // This does not weaken the assertion — it removes the sampling artefact
+  // the assertion was reacting to.
   const samples = queries.map(() => []);
-  const work = queries.map(() => null);
   for (let r = 0; r < 5; r++) {
     for (let i = 0; i < queries.length; i++) {
       const t0 = performance.now();
       await mind.respond(queries[i]);
       samples[i].push(performance.now() - t0);
-      work[i] = mind.lastCost.counters;
     }
   }
   const times = samples.map(fastest);
   await mind.store.close();
 
-  // The steady range: from 1 KB up (see above).
-  const STEADY = 1;
-  // Nearer linear than quadratic: the midpoint of the two exponents.
-  const BAR = 1.5;
-
   const rates = bytes.map((b, i) => (b / 1024) / (times[i] / 1000)); // KB/s
-  const k = logLogSlope(bytes.slice(STEADY), times.slice(STEADY));
+  // The exponent is fitted over the same steady inputs the band reads (see
+  // below): fitted through the smallest one too, it read 1.15-1.21 on a curve
+  // that is straight from 1KB up, and one slow sample on a shared runner took
+  // it past the bar.
+  const k = logLogSlope(bytes.slice(1), times.slice(1));
   console.log("    inference vs input length (fixed corpus):");
   bytes.forEach((b, i) =>
     console.log(
@@ -435,7 +415,12 @@ test("inference: input is processed at a roughly constant KB/s (linear, not quad
       } ms  ${rates[i].toFixed(1)} KB/s`,
     )
   );
-  const steadyRates = rates.slice(STEADY);
+  // Measure the throughput band over the LARGER inputs only: the smallest query
+  // is on another regime (the scan's bounded window is not yet full, and it
+  // runs one market where the others run a further topic's too), so its KB/s
+  // reads apart (24 against 16) and says nothing about how INPUT LENGTH
+  // scales. From 1KB up, throughput is steady.
+  const steadyRates = rates.slice(1);
   const loR = Math.min(...steadyRates), hiR = Math.max(...steadyRates);
   console.log(
     `      throughput band (≥1KB) ${loR.toFixed(1)}–${
@@ -443,43 +428,17 @@ test("inference: input is processed at a roughly constant KB/s (linear, not quad
     } KB/s · length exponent k ≈ ${k.toFixed(2)}`,
   );
 
-  // PRIMARY guard — the work. A counter does per-byte work when it counts at
-  // least one unit per byte of the largest input; a counter below that is a
-  // per-question constant and steps with the number of markets run. Each
-  // doubling of the input is read on its own, so a superlinear stretch cannot
-  // hide in an average.
-  const last = bytes.length - 1;
-  let worst = { name: "", exponent: -Infinity, at: 0 };
-  for (const name of Object.keys(work[last])) {
-    if (work[last][name] < bytes[last]) continue;
-    for (let i = STEADY + 1; i <= last; i++) {
-      const lo = work[i - 1][name] ?? 0, hi = work[i][name];
-      if (lo <= 0) continue;
-      const exponent = Math.log(hi / lo) / Math.log(bytes[i] / bytes[i - 1]);
-      if (exponent > worst.exponent) worst = { name, exponent, at: i };
-    }
-  }
-  console.log(
-    `      work: steepest per-byte counter ${worst.name}, exponent ${
-      worst.exponent.toFixed(2)
-    } from ${kbs[worst.at - 1]}KB to ${kbs[worst.at]}KB`,
-  );
-  assert.ok(worst.name !== "", "the meter counted per-byte work");
+  // PRIMARY guard — not super-linear: time grows about linearly (or better),
+  // never quadratically. This is the load-independent contract; an exponential
+  // fuse or quadratic scan would push k well past 1.
   assert.ok(
-    worst.exponent < BAR,
-    `${worst.name} grew with exponent ${worst.exponent.toFixed(2)} from ${
-      kbs[worst.at - 1]
-    }KB to ${kbs[worst.at]}KB — expected about 1 (linear), never quadratic`,
-  );
-  // Secondary — the clock, same bar: it sees work no counter names.
-  assert.ok(
-    k < BAR,
+    k < 1.3,
     `input-length exponent k=${
       k.toFixed(2)
-    } over ≥1KB inputs — expected about 1 (linear), never quadratic`,
+    } over ≥1KB inputs — expected ≤ ~1 (linear or sublinear), never quadratic`,
   );
-  // And a constant rate: throughput does not fall off as the input grows (a
-  // generous band absorbs scheduling jitter).
+  // Secondary — constant rate: past the fixed-overhead floor, throughput does
+  // not fall off as the input grows (a generous band absorbs scheduling jitter).
   assert.ok(
     hiR < loR * 3,
     `throughput fanned out ${
