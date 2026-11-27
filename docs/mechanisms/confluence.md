@@ -11,7 +11,10 @@ The streams are the consensus climb's ranked anchors (`pre.attention()`,
 `crossRegionVotes`), each bound by identity to a discriminating span of the
 question. Two streams are independent when their spans are disjoint. The meet is
 a set intersection by content-addressed window identity (`windowsOf`): a window
-present in both constraints' evidence and absent from the question.
+present in both constraints' evidence and absent from the question. The windows
+propose a run and the bytes decide it: a meet is a run one text of each holds
+whole (`heldRuns`), else windows held apart weave `oln is Thomas Li`. Another
+instance of the question is no stream (`otherInstance`, `evidence.md`).
 
 **A constraint says what its anchor establishes.** An anchor binds the question
 by its own bytes, but what it says of the open seat may be in its continuation.
@@ -42,7 +45,8 @@ rarer than an entity. Where the question names nothing learnt whole
 (`Which material is translucent and featherlight?`), bytes are the evidence. One
 exception: where the question spelled part of a thing a fact learnt whole, the
 run (what the facts share minus the windows the question wrote) voices that
-whole thing (`entitiesIn`). In
+whole thing (`entitiesIn`): the thing that holds the run or, where none does,
+the one thing a window of it lies in. In
 `Which country Thomas Lyon-Bowes, Lord Glamis's father is from?` the meet
 `s, 11th Earl of Strathmore and Kinghorne` voices the father, and the walk goes
 on to his citizenship.

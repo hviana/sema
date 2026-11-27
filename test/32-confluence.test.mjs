@@ -507,3 +507,78 @@ test("another instance of the question is no constraint", async () => {
   );
   await m.store.close();
 });
+
+test("a meet is a run both hold, and voices the thing it lies in", async () => {
+  // The windows two evidence texts share PROPOSE the meet, and each is held
+  // somewhere: woven in one text's order they made `oln is Thomas Li` from
+  // the other's `…Lincoln is Illinois.` and `…of Thomas Lincoln…` — a run it
+  // does not hold — and that was the answer (2Wiki, held-out fixture).  The
+  // bytes decide the run; and a run that opens on the byte before a thing, or
+  // stops where the question spells the thing's close, voices that thing.
+  const m = mk();
+  // The fourteen deposits delta debugging left of the fixture.
+  for (
+    const [context, fact] of [
+      [
+        "Gerald FitzGerald, 3rd Earl of Desmond",
+        "The sibling of Gerald FitzGerald, 3rd Earl of Desmond is Maurice FitzGerald, 2nd Earl of Desmond.",
+      ],
+      [
+        "Nancy Hanks Lincoln",
+        "The spouse of Nancy Hanks Lincoln is Thomas Lincoln.",
+      ],
+      [
+        "Thomas Lincoln place of burial",
+        "The place of burial of Thomas Lincoln is Illinois.",
+      ],
+      ["Thomas Lincoln", "The place of burial of Thomas Lincoln is Illinois."],
+      [
+        "The Case of the Black Parrot",
+        "The director of The Case of the Black Parrot is Noel M. Smith.",
+      ],
+      [
+        "Theophilus Clinton, 4th Earl of Lincoln",
+        "The date of death of Theophilus Clinton, 4th Earl of Lincoln is 21 May 1667.",
+      ],
+      [
+        "Cengaver Katrancı",
+        "The date of death of Cengaver Katrancı is October 30, 1972.",
+      ],
+      [
+        "Teresa d'Entença spouse",
+        "The spouse of Teresa d'Entença is Alfonso IV of Aragon.",
+      ],
+      [
+        "Teresa d'Entença",
+        "The spouse of Teresa d'Entença is Alfonso IV of Aragon.",
+      ],
+      [
+        "Alfonso IV of Aragon place of death",
+        "The place of death of Alfonso IV of Aragon is Barcelona.",
+      ],
+      [
+        "Alfonso IV of Aragon",
+        "The place of death of Alfonso IV of Aragon is Barcelona.",
+      ],
+      [
+        "Bruce McCandless date of birth",
+        "The date of birth of Bruce McCandless is August 12, 1911.",
+      ],
+      [
+        "Bruce McCandless",
+        "The date of birth of Bruce McCandless is August 12, 1911.",
+      ],
+      ["The Ride director", "The director of The Ride is Jan Svěrák."],
+    ]
+  ) await m.ingest(context, fact);
+  await m.buildCanonIndex();
+  const answer = await ask(
+    m,
+    "Where was the place of burial of Nancy Lincoln's husband?",
+  );
+  assert.ok(
+    answer.startsWith("The place of burial of Thomas Lincoln is Illinois."),
+    answer,
+  );
+  await m.store.close();
+});

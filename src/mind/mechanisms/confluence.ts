@@ -55,6 +55,7 @@ import {
 import { dominates, instanceCap, twoQuanta } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
 import { insideAnsweredTurn, unionSpans, windowSpans } from "../derivation.js";
+import { indexOf } from "../../bytes.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
 import { rItem, rNode } from "../trace.js";
 
@@ -352,10 +353,18 @@ export async function confluenceJoin(
         for (const [off, wid] of wa) {
           if (wb.has(wid) && !queryIds.has(wid)) meet.push(off);
         }
-        const spans = unionSpans(windowSpans(meet, W));
-        if (spans.length === 0) continue;
+        const woven = unionSpans(windowSpans(meet, W));
+        if (woven.length === 0) continue;
 
         const aBytes = read(ctx, text);
+        // …AND THE BYTES DECIDE THAT BOTH HOLD IT.  The windows proposed the
+        // span; each is held by B somewhere, but not in A's order: `The
+        // spouse of Nancy Hanks Lincoln is Thomas Lincoln.` wove `oln is
+        // Thomas Li` from B's `…Lincoln is Illinois.` and `…of Thomas
+        // Lincoln…`, a run no evidence of B holds, and it was voiced.  A meet
+        // is a run one of B's own texts holds whole (`heldRuns`).
+        const bTexts = evidenceOf(b).map((t) => read(ctx, t));
+        const spans = woven.flatMap(([s, e]) => heldRuns(aBytes, s, e, bTexts));
         for (const [s, e] of spans) {
           // ONE WINDOW IS NOT AN ENTITY.  The reach below is read at the
           // finest grain the fold can address, where content-defined window
@@ -404,9 +413,18 @@ export async function confluenceJoin(
             if (thing === null) continue;
             piece = thing.bytes;
           } else {
-            const cut = entitiesIn(ctx, text).held.find(({ span: [hs, he] }) =>
-              hs <= s && he >= e && (hs < s || he > e)
+            const held = entitiesIn(ctx, text).held;
+            // …or, where none holds all of it, the ONE thing a window of the
+            // run lies in: the run opens on the byte both facts write before
+            // the thing, or stops where the question spells its close (the
+            // husband of `Nancy Lincoln` met at ` Thomas Li`, the `Lincoln`
+            // being the question's too).
+            const within = held.filter(({ span: [hs, he] }) =>
+              Math.min(he, e) - Math.max(hs, s) >= W
             );
+            const cut = held.find(({ span: [hs, he] }) =>
+              hs <= s && he >= e && (hs < s || he > e)
+            ) ?? (within.length === 1 ? within[0] : undefined);
             piece = cut === undefined
               ? raw
               : aBytes.subarray(cut.span[0], cut.span[1]);
@@ -457,6 +475,33 @@ export async function confluenceJoin(
     accounted,
     moves: 3 * STEP,
   };
+}
+
+/** The maximal runs of `bytes[s, e)` that one of `texts` holds whole, in
+ *  order: what two evidence texts share as BYTES, where their windows only
+ *  proposed it. */
+function heldRuns(
+  bytes: Uint8Array,
+  s: number,
+  e: number,
+  texts: readonly Uint8Array[],
+): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let reached = s;
+  for (let p = s; p < e; p++) {
+    let end = Math.max(p, reached);
+    // A run from `p` cannot end before the one from `p − 1` did: it is its
+    // tail.  So each start extends from where the last one reached.
+    while (
+      end < e &&
+      texts.some((t) => indexOf(t, bytes.subarray(p, end + 1), 0) >= 0)
+    ) end++;
+    if (end > reached && end > p) {
+      out.push([p, end]);
+      reached = end;
+    }
+  }
+  return out;
 }
 
 // ── Pipeline mechanism ──────────────────────────────────────────────────────
