@@ -999,29 +999,33 @@ export async function voteRegions(
     // remaining inference sink — with the anchor choice unchanged (the
     // canonical branch already ignored hits[0]).
     //
-    // A REGION THE STORE HOLDS VOTES AS ITSELF.  The fold node of these bytes
-    // is content-addressed too (`collectRegions` resolved it), and its own
-    // climb — up its structural parents — is the exact reading of which
-    // contexts hold the region.  A W-window inside it is the coarser anchor:
-    // past a few thousand contexts nearly every window is a hub and abstains,
-    // so a region that names one context exactly would fall to the estimator
-    // to find the very node the store can address.  The window anchor stands
-    // where the region's own node decides nothing.
+    // A REGION THE STORE HOLDS IS READ BY ITS OWN NODE.  The fold node of
+    // these bytes is content-addressed too (`collectRegions` resolved it), and
+    // its own climb — up its structural parents — is the exact reading of
+    // which contexts hold the region.  A W-window inside it is the coarser
+    // anchor: past a few thousand contexts nearly every window is a hub and
+    // abstains, so a region that names one context exactly would fall to the
+    // estimator to find the very node the store can address.  What the node
+    // says stands either way: it votes for the contexts it names, and where
+    // more than √N hold it the region is common and abstains — no window
+    // inside it, and no estimate, may say otherwise (tempting-but-wrong 12).
+    // The window anchor stands only where no context leading anywhere holds
+    // the node at all.
     const own = subWindow ? undefined : regions[ri].node;
     const ownReach = own === undefined
       ? null
       : edgeAncestors(ctx, own, N, reachMemo);
-    const ownVotes = ownReach !== null && !ownReach.saturated &&
-      ownReach.roots.length > 0;
+    const ownDecides = ownReach !== null &&
+      (ownReach.saturated || ownReach.roots.length > 0);
     let canonicalId = subWindow
       ? null
-      : ownVotes
+      : ownDecides
       ? own!
       : (chunk
         ? canonicalChunkId(ctx, query.subarray(start, end), N, reachMemo)
         : (regions[ri].id ?? null));
     let canonicalUsable = canonicalId !== null &&
-      (ownVotes || heldWithin(ctx, canonicalId));
+      (ownDecides || heldWithin(ctx, canonicalId));
     let hits: readonly Hit[] | null = null;
     const ensureHits = async (): Promise<readonly Hit[]> => {
       if (hits === null) {

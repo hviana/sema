@@ -91,9 +91,11 @@ is under a window (`reasoning.ts`).
 
 ## The ranking is an estimate
 
-A region votes through its nearest resonance hit. An orphan top hit hands the
-vote to the nearest hit that climbs, and a saturated one abstains for the region
-only when nearest beyond `estimatorNoise` (`anchorFallback`, `test/52`).
+A region the store holds is read by its own node: it votes for the contexts the
+node names, or abstains past `√N` of them (`test/52`). Else it votes through its
+nearest resonance hit: an orphan top hit hands the vote to the nearest hit that
+climbs; a saturated one abstains only when nearest beyond `estimatorNoise`
+(`anchorFallback`).
 
 ## Pins
 

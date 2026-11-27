@@ -1412,6 +1412,13 @@ test("a WAL thread consolidates beside the writer: same store, no log left", asy
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { DatabaseSync } = await import("node:sqlite");
+  // The thread and the word the store asks it through exist (a store that
+  // merely ignored the option would pass everything below).
+  const wal = await import("../dist/src/store-wal-worker.js");
+  assert.deepEqual(
+    [wal.WAL_RUN, wal.WAL_PAUSE, wal.WAL_PAUSED, wal.WAL_STOP, wal.WAL_STOPPED],
+    [0, 1, 2, 3, 4],
+  );
   const pairs = [];
   for (let i = 0; i < 60; i++) {
     pairs.push([

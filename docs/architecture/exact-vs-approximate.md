@@ -24,7 +24,8 @@ Three relations, never standing in for one another:
   identical (`identicalAt`) within one window each side, of like size, its raw
   parts at `conceptThreshold`, or where no stored form tells the position apart
   (`discriminates`): `sea-level` is `sea level`; `melting point` is not a stored
-  `boiling point`.
+  `boiling point`. An exchange asked with one span of its last turn changed is
+  that exchange (`spelledWholes`; `test/13` F).
 - **Company**: halo similarity on the windows touching the mismatch
   (`partingHalo`). It proposes; alone it is a hypothesis (grade 1), never
   testimony.

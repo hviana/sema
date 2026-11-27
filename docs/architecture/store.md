@@ -124,9 +124,8 @@ capability. Without it, `resolve` has no equivalence fallback.
 
 Every in-memory cache is a budgeted `BoundedMap` (`caches.md`).
 
-`walThread` consolidates the write-ahead logs on a thread of their own
-(`store-wal-worker.ts`): the files come to hold the same, and a log is ended
-past 256 MiB (`test/08`).
+`walThread` consolidates the logs on their own thread (`store-wal-worker.ts`):
+same files, each log capped at 256 MiB (`test/08`).
 
 Maintenance is incremental:
 

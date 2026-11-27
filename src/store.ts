@@ -32,7 +32,7 @@ import { addInto, copy, dot, normalize, Vec } from "./vec.js";
 import type { StoreConfig } from "./config.js";
 import { boundFor, chainReach, identityBar } from "./geometry.js";
 import type { Meter } from "./meter.js";
-import { concatBytes, latin1, sharedEnds } from "./bytes.js";
+import { concatBytes, latin1, oneSpanApart } from "./bytes.js";
 
 /** A node id: a dense, non-negative integer assigned in creation order. */
 export type NodeId = number;
@@ -1946,8 +1946,7 @@ export abstract class AbstractStore implements Store {
     const a = concatBytes(kids.map((k, i) => this.bytesPrefix(k, lens[i] + 1)));
     const b = this.bytesPrefix(targetId, lb + 1);
     if (Math.abs(a.length - b.length) > W) return false;
-    const [i, j] = sharedEnds(a, b);
-    return a.length - i - j <= W && b.length - i - j <= W;
+    return oneSpanApart(a, b, W) !== null;
   }
 
   async putLeaf(bytes: Uint8Array, gist: Vec): Promise<NodeId> {

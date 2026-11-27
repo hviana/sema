@@ -99,3 +99,17 @@ export function sharedEnds(
   while (s < max - p && a[ae - 1 - s] === b[be - 1 - s]) s++;
   return [p, s];
 }
+
+/** ONE LOCAL SPAN APART — two byte runs that are the same but for one span of
+ *  at most `W` bytes on either side: how many bytes they share around it, or
+ *  null when what differs is longer.  The one byte reading of "the same form
+ *  written differently" (the near dedup's at write time, recall's at read
+ *  time); each caller adds its own floor on what is shared. */
+export function oneSpanApart(
+  a: Uint8Array,
+  b: Uint8Array,
+  W: number,
+): number | null {
+  const [i, j] = sharedEnds(a, b);
+  return a.length - i - j <= W && b.length - i - j <= W ? i + j : null;
+}

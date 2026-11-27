@@ -12,11 +12,12 @@ import {
   phraseCap,
   reachThreshold,
   significanceBar,
+  twoQuanta,
 } from "../../geometry.js";
 import type { MindContext } from "../types.js";
 import { gistOf, read, resolve } from "../primitives.js";
-import { indexOf, sharedEnds } from "../../bytes.js";
-import { flatId } from "../canonical.js";
+import { indexOf, oneSpanApart } from "../../bytes.js";
+import { flatId, keyEnds } from "../canonical.js";
 import {
   allWindowsAreScaffolding,
   answersOtherQuestions,
@@ -35,60 +36,48 @@ import { rItem, rNode } from "../trace.js";
 import { substitutionBridge } from "../bridge.js";
 
 /** A recall result. */
-/** THE CONTEXTS THE QUESTION ALMOST IS, PROPOSED BY STRUCTURE.  A question
+/** THE EXCHANGES THE QUESTION ALMOST IS, PROPOSED BY STRUCTURE.  A question
  *  that goes on from a stored context with (nearly) that context's own learnt
  *  continuation is, to one local span, the context that continuation
- *  completes — an accumulated exchange asked with its last mark changed, a
- *  word of its last turn dropped.  The vector cannot be trusted to propose it
- *  (every context of the same exchange is its near neighbour), and the
- *  structure can, exactly: the longest stored form the question OPENS with,
- *  each of its continuations, and between them the question's own bytes (up
- *  to W — read from the question, never assumed).  The question's last turn
- *  and the learnt one must share a window and part in one span of at most W
- *  on either side — the near dedup's byte reading of "the same form"
- *  (`store.ts`), taken where the difference is — and the join must itself be
+ *  completes — an accumulated exchange asked with one span of its last turn
+ *  changed.  The vector cannot be trusted to propose it (every context of the
+ *  same exchange is its near neighbour), and the structure can, exactly: the
+ *  longest stored form the question OPENS with (`keyEnds`), each of its
+ *  continuations, and between them the question's own bytes (up to W — read
+ *  from the question, never assumed).  The question's last turn and the
+ *  learnt one are one local span apart (`oneSpanApart`) and share a window at
+ *  least — below one, byte identity is not evidence — and the join is itself
  *  a stored form.  The question as written is stored nowhere (the exact tier
  *  ran first), so the corpus never told the two apart.  One hash per opening,
  *  one probe per join. */
 function spelledWholes(ctx: MindContext, query: Uint8Array): number[] {
   const W = ctx.space.maxGroup;
   const n = query.length;
-  const probe = ctx.store.flatSpans?.(query) ??
-    ((s: number, e: number) => flatId(ctx, query.subarray(s, e)));
-  // The stored openings, shortest first: past two windows a flat form is a
-  // deposit's whole stream, never a window.
-  const opens: number[] = [];
-  for (let e = 2 * W; e < n; e++) if (probe(0, e) !== null) opens.push(e);
+  // Past two windows a flat form is a deposit's whole stream, never a window.
+  const head = twoQuanta(W) - 1;
+  if (n <= head) return [];
+  const ends = keyEnds(ctx, query.subarray(0, head), query.subarray(head));
+  if (ends.at(-1) === n - head) ends.pop(); // the question itself: exact
+  if (ends.length === 0) return [];
+  const open = head + ends[ends.length - 1];
+  const from = resolve(ctx, query.subarray(0, open));
+  if (from === null) return [];
   const out: number[] = [];
-  // The longest opening that leads somewhere names the exchange; a shorter
-  // one is an earlier turn of it.  W + 1 are tried, as the reads are bounded.
-  for (let k = opens.length - 1; k >= 0 && k >= opens.length - 1 - W; k--) {
-    const open = opens[k];
-    const from = resolve(ctx, query.subarray(0, open));
-    if (from === null || !ctx.store.hasNext(from)) continue;
-    const rest = n - open;
-    for (const a of ctx.store.nextFirst(from, hubBound(ctx))) {
-      const la = ctx.store.contentLen(a, rest + W + 1);
-      for (let sep = 0; sep <= W && sep < rest; sep++) {
-        if (Math.abs(open + sep + la - n) > W) continue;
-        // The turn the question writes against the one that was learnt: they
-        // share a window at least (below one, byte identity is not evidence)
-        // and part in one span of at most W on either side.
-        const turn = query.subarray(open + sep);
-        const learnt = read(ctx, a, la);
-        const [i, j] = sharedEnds(turn, learnt);
-        if (
-          i + j < W || turn.length - i - j > W || learnt.length - i - j > W
-        ) continue;
-        const join = new Uint8Array(open + sep + la);
-        join.set(query.subarray(0, open + sep), 0);
-        join.set(learnt, open + sep);
-        if (flatId(ctx, join) === null) continue;
-        const id = resolve(ctx, join);
-        if (id !== null && !out.includes(id)) out.push(id);
-      }
+  const rest = n - open;
+  for (const a of ctx.store.nextFirst(from, hubBound(ctx))) {
+    const la = ctx.store.contentLen(a, rest + W + 1);
+    for (let sep = 0; sep <= W && sep < rest; sep++) {
+      if (Math.abs(open + sep + la - n) > W) continue;
+      const learnt = read(ctx, a, la);
+      const shared = oneSpanApart(query.subarray(open + sep), learnt, W);
+      if (shared === null || shared < W) continue;
+      const join = new Uint8Array(open + sep + la);
+      join.set(query.subarray(0, open + sep), 0);
+      join.set(learnt, open + sep);
+      if (flatId(ctx, join) === null) continue;
+      const id = resolve(ctx, join);
+      if (id !== null && !out.includes(id)) out.push(id);
     }
-    break;
   }
   return out;
 }
@@ -198,8 +187,13 @@ export async function recallByResonance(
   // byte off the end of a stream regroups its last chunk, and the whole
   // gist moves by more than the bar allows (measured 0.84–0.97 on three
   // exchanges of ~100 bytes asked without their last mark).
-  for (const id of spelledWholes(ctx, query)) {
-    if (id === qId || restates(read(ctx, id))) continue;
+  //
+  // ONE exchange named answers; several are an ambiguity the exact reading
+  // found, and the estimate below may not override it (tempting-but-wrong 12).
+  const spelled = spelledWholes(ctx, query).filter((id) =>
+    id !== qId && !restates(read(ctx, id))
+  );
+  for (const id of spelled.length === 1 ? spelled : []) {
     const g = await project(ctx, id, queryGist);
     if (g !== null) {
       return ground(
@@ -210,7 +204,7 @@ export async function recallByResonance(
       );
     }
   }
-  if (top.score >= idBar) {
+  if (spelled.length < 2 && top.score >= idBar) {
     for (const h of whole) {
       // The identity claim is PER HIT, not per tier: hits are ranked
       // nearest-first, and grounding one below the bar under this tier's

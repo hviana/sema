@@ -64,10 +64,10 @@ Cross-cutting contracts (single-definition, imported everywhere):
 `src/mind/derivation.ts` the closure law, its engine (`closeOver`) and the span
 algebra; `src/mind/canonical.ts` the canonical segmentation;
 `src/mind/junction.ts` the shared content-addressed ascent; `Precomputed`
-(`src/mind/pipeline-mechanism.ts`) the per-response memo; `src/memo.ts` every
-memo kept for a lifetime; `src/meter.ts` the write-only work accounting.
-Ownership: `docs/INDEX.md`, `factored-machinery.md`. Tie-breaks are
-corpus-determined, not interchangeable (`determinism.md`).
+(`src/mind/pipeline-mechanism.ts`) the per-response memo; `src/memo.ts` the
+lifetime memos; `src/meter.ts` the write-only work accounting. Ownership:
+`docs/INDEX.md`, `factored-machinery.md`. Tie-breaks are corpus-determined, not
+interchangeable (`determinism.md`).
 
 ## 3. Where things live
 
