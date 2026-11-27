@@ -54,9 +54,10 @@ O(1) over a persistent cursor. It has two settings:
   subtree; its ids are permanent.
 - **Lifetime memos** are one structure, `LifeMemo` (`src/memo.ts`): kept for a
   response, a store state or a question, made on the first ask, dropped whole
-  past the budget (`test/137.8`). The climb's reach (32 MB) and what is read off
-  instances (16 MB) charge an entry when set (`MemoMap`); probe entries and the
-  junction walk's reads (`walkCache`) drop at 100K entries.
+  past the budget (`test/137.8`). The climb's reach (32 MB; a saturated climb
+  keeps its verdict, not its roots, `test/27`) and what is read off instances
+  (16 MB) charge an entry when set (`MemoMap`); probe entries and the junction
+  walk's reads (`walkCache`) drop at 100K entries.
 
 Per-response memos are in `memoization.md`.
 

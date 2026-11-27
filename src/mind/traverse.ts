@@ -532,7 +532,14 @@ export function edgeAncestors(
     ...(saturated && satStop ? { saturation: satStop } : {}),
     ...(depths ? { visited: visitedCount, maxDepth } : {}),
   };
-  memo?.set(id, reach);
+  // AN ABSTENTION KEEPS ITS VERDICT ALONE.  A saturated climb gathered up to
+  // √N roots on its way to deciding, and no reader of the memo reads them —
+  // only that it saturated, and the contexts it had counted.  Kept, they made
+  // each common form the dearest entry of the memo (ten kilobytes on the
+  // trained store), so its budget held a few thousand of the forms every
+  // question climbs again; without them it holds them all.  A traced climb
+  // keeps what it reports.
+  memo?.set(id, saturated && !ctx.trace ? { ...reach, roots: [] } : reach);
   return reach;
 }
 

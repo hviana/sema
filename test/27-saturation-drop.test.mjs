@@ -644,3 +644,40 @@ test("heldElsewhere answers held, apart or saturated — exhaustion is not a hol
   assert.equal(await world(1), "held");
   assert.equal(await world(200), "saturated");
 });
+
+test("a saturated climb is remembered by its verdict alone", async () => {
+  // The memo of reaches is budgeted in bytes, and a saturated climb's roots —
+  // which no reader of the memo reads — were most of them: on the trained
+  // store ten kilobytes per common form, so a session's budget held a few
+  // thousand of the forms every question climbs.
+  const { edgeAncestors } = await import("../dist/src/mind/traverse.js");
+  const m = mk();
+  const syl = "ba ke mi ro tu za ne pi so du la ve gi".split(" ");
+  const word = (i) => syl[i % 13] + syl[Math.floor(i / 13) % 13];
+  for (let i = 0; i < 60; i++) {
+    await m.ingest([[
+      `${word(i)} holds the common ground of ${word(i + 60)}`,
+      `reply ${word(i + 120)}`,
+    ]]);
+  }
+  const N = m.store.edgeSourceCount();
+  // A window of the phrase every context holds, whose climb gathered roots
+  // on its way to saturating.
+  const phrase = new TextEncoder().encode(" holds the common ground of ");
+  let hub = null, fresh = null;
+  for (let o = 0; o + 4 <= phrase.length && hub === null; o++) {
+    const id = m.store.findFlatBranch(phrase.subarray(o, o + 4));
+    if (id === null) continue;
+    const r = edgeAncestors(m, id, N);
+    if (r.saturated && r.roots.length > 0) [hub, fresh] = [id, r];
+  }
+  assert.notEqual(hub, null, "a common window saturates with roots gathered");
+  const memo = new Map();
+  edgeAncestors(m, hub, N, memo);
+  const kept = memo.get(hub);
+  assert.ok(kept.saturated, "the verdict is kept");
+  assert.equal(kept.contextsReached, fresh.contextsReached);
+  assert.equal(kept.roots.length, 0, "and none of the roots");
+  assert.equal(edgeAncestors(m, hub, N, memo), kept, "read back as kept");
+  await m.store.close();
+});
