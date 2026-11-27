@@ -459,3 +459,51 @@ test("a meet the question's spelling cut voices the thing it cuts", async () => 
     "The country of citizenship of Corwin Ashdale, 4th Baron of Tressick is Norvane.",
   );
 });
+
+test("another instance of the question is no constraint", async () => {
+  // A stored form that asks the same of another thing holds the question's
+  // frame, so it bound `What is the place of birth of …?` as a constituent —
+  // and its evidence met the `composer` stream at ITS filler: the question
+  // about Body Melt's composer was answered with Bernard Fanning's
+  // birthplace (two questions of the 2Wiki fixtures; these nine deposits are
+  // the least that showed it).  Every other reader of such a form refuses by
+  // `otherInstance`; so does the join.
+  const m = mk();
+  for (
+    const [context, fact] of [
+      ["Don Giovanni composer", "The composer of Don Giovanni is Mozart."],
+      ["Body Melt", "The composer of Body Melt is Philip Brophy."],
+      [
+        "Philip Brophy place of birth",
+        "The place of birth of Philip Brophy is Melbourne.",
+      ],
+      ["Philip Brophy", "The place of birth of Philip Brophy is Melbourne."],
+      ["Songbird composer", "The composer of Songbird is Bernard Fanning."],
+      [
+        "Bernard Fanning",
+        "The place of birth of Bernard Fanning is Brisbane.",
+      ],
+      [
+        "What is the place of birth of Bernard Fanning (Bernard Fanning Song)?",
+        "The place of birth of Bernard Fanning is Brisbane.",
+      ],
+      [
+        "What is the place of birth of Menno Meyjes?",
+        "The place of birth of Menno Meyjes is Eindhoven.",
+      ],
+      [
+        "Never Too Far/Hero Medley performer",
+        "The performer of Never Too Far/Hero Medley is Mariah Carey.",
+      ],
+    ]
+  ) await m.ingest(context, fact);
+  await m.buildCanonIndex();
+  assert.equal(
+    await ask(
+      m,
+      "What is the place of birth of the composer of film Body Melt?",
+    ),
+    "The place of birth of Philip Brophy is Melbourne.",
+  );
+  await m.store.close();
+});

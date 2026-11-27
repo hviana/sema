@@ -36,7 +36,8 @@ Each row is a contract that broke at least once when it existed twice:
   other forms, several or only inherited continuations, the question partly
   outside (`evidence.md`).
 - `otherInstance` (`mind/traverse.ts`): another instance of the question,
-  refused by recall's anchor and bridge, fusion and CAST (`evidence.md`).
+  refused by recall's anchor and bridge, fusion, CAST and the join
+  (`evidence.md`).
 - `heldWithin` (`mind/traverse.ts`): the piece: a node a larger form holds
   (parents or containers); its negation is a deposited top.
 - `thingsIn` (`mind/recognition.ts`): the things a span holds, exact or

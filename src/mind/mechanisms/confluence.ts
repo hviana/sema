@@ -48,10 +48,11 @@ import {
   entitiesIn,
   heldEntity,
   hubBound,
+  otherInstance,
   reachOf,
   thingIn,
 } from "../traverse.js";
-import { dominates, twoQuanta } from "../../geometry.js";
+import { dominates, instanceCap, twoQuanta } from "../../geometry.js";
 import { STEP } from "../graph-search.js";
 import { insideAnsweredTurn, unionSpans, windowSpans } from "../derivation.js";
 import type { PipelineMechanism, Precomputed } from "../pipeline-mechanism.js";
@@ -230,6 +231,22 @@ export async function confluenceJoin(
   let exitAfter = earlyExit;
   for (const cand of rankedCapped) {
     if (streams.some((s) => s.anchor === cand.anchor)) continue;
+    // ANOTHER INSTANCE OF THE QUESTION CONSTRAINS NOTHING.  A stored form
+    // that is the question's frame around another filler (traverse.ts,
+    // `otherInstance`) holds the question's windows because it asks the same
+    // of something else: what it binds is the frame, and the entity its
+    // evidence meets another stream at is ITS filler, never what this
+    // question asks about.  Measured on the 2Wiki fixtures: `What is the
+    // place of birth of the composer of film Body Melt?` met `composer` with
+    // `What is the place of birth of Bernard Fanning?` at `Bernard Fanning`,
+    // and his birthplace was voiced — the one reading every consumer of such
+    // a form already refuses by.
+    if (
+      otherInstance(
+        ctx,
+        read(ctx, cand.anchor, instanceCap(query.length) + 1),
+      ) !== null
+    ) continue;
     const ids = new Set(windowsOfAnchor(cand.anchor).values());
     if (ids.size === 0) continue;
     const heldAt: number[] = [];

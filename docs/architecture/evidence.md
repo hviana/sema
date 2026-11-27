@@ -292,7 +292,9 @@ filler. A form witnessing all the question's slot says the question and more
   question, as does the substitution bridge;
 - fusion does not fuse it as another topic;
 - no CAST schema transfers through it, else Shakira's birthplace is set against
-  `John Lennon`.
+  `John Lennon`;
+- the join takes it for no constraint: it binds the frame, and its evidence
+  meets another stream at its own filler (`test/32`).
 
 ## Why another instance makes a step available
 
