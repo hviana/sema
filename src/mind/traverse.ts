@@ -2126,6 +2126,7 @@ function witnessedEntry(
   // are compared afterwards in the continuations' own order.
   const allowance = readAllowance(ctx);
   let budget = allowance;
+  const heads = contextHeads.of(asked);
   // A continuation only `id` establishes (support 1) has no other context
   // whose bytes could witness it, so it cannot score: it is not read.  The
   // decision is the same either way; the allowance is not, since the reads
@@ -2158,9 +2159,16 @@ function witnessedEntry(
       // The form's FIRST window decides most refusals: one short prefix read
       // before the whole form is reconstructed (a conversation-length
       // predecessor would otherwise be read in full to fail on its opening).
-      const head = offsetCanon(ctx, read(ctx, c, W));
-      if (head.length < W) continue;
-      if (!indexes.some((ix) => ix.has(latin1(head)))) continue;
+      // It is the context's own, whichever node is asked about: read once
+      // per question (`contextHeads`).
+      let head = heads.get(c);
+      if (head === undefined) {
+        if (ctx.meter) ctx.meter.askedOpeningsRead++;
+        const opening = offsetCanon(ctx, read(ctx, c, W));
+        heads.set(c, head = opening.length < W ? null : latin1(opening));
+      }
+      if (head === null) continue;
+      if (!indexes.some((ix) => ix.has(head))) continue;
       // AN ESTABLISHING CONTEXT IS A DEPOSITED ONE.  A span interned inside
       // bigger forms inherits their edges (the fragment ` born?` leads to the
       // fact of every `Where was … born?` question), so witnessing it names
@@ -2217,6 +2225,13 @@ function witnessedEntry(
   for (const c of scored) if (best.includes(c.n)) evidence.set(c.n, c.spans);
   return { entry: { named: best, spans: evidence }, bytes: bestBytes };
 }
+
+/** Per question material: the first window of each establishing context
+ *  witnessing has read, under the response's equivalence — null where the
+ *  context is shorter than one.  A dialogue's turns are continuations of
+ *  every piece of it the question holds, so each node asked about reads the
+ *  same contexts (measured on the trained store: five reads of each). */
+const contextHeads = new LifeMemo<Map<number, string | null>>(() => new Map());
 
 /** A CO-INSTANCE of the question: a stored form that shares the question's
  *  FRAME — the same opening and the same close, byte for byte under the

@@ -413,7 +413,9 @@ answers (`How are you today?`, `failures/tempting-but-wrong.md`, trap 8).
 The exact tier reads at most `√N` establishing contexts per decision, floored at
 `chainReach(W)`, asking the cheapest first. It abstains (`askedReadsSaturated`)
 when the read hits the cap, or when the question holds no window the node lacks.
-A derivation's lookups read the oldest continuations up to the allowance
+A context's opening, which decides most refusals, is read once per question
+(`askedOpeningsRead`, `test/13` G2): every piece of an exchange leads to its
+turns. A derivation's lookups read the oldest continuations up to the allowance
 (`derivationReadsSaturated`).
 
 ## Measured

@@ -305,6 +305,9 @@ export class Meter {
   askedContinuations = 0;
   /** Predecessor rows that exact tier read, against its shared √N budget. */
   askedPredecessorReads = 0;
+  /** Establishing contexts whose opening that tier read: each once per
+   *  question, however many nodes were asked about (`contextHeads`). */
+  askedOpeningsRead = 0;
   /** Times the tier abstained on a read it could not trust: the continuations
    *  came back at the √N cap, or its predecessor budget ran out before every
    *  continuation was asked about — the distributional ladder decided. */

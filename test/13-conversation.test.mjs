@@ -568,3 +568,26 @@ test("G1: an exchange asked verbatim does not ask its earlier turns anything", a
   );
   await mind.store.close();
 });
+
+test("G2: a context's opening is read once per question, however many pieces lead on from it", async () => {
+  // Every piece of a learnt exchange the question holds leads to the same
+  // turns, so each node asked what it names read the same establishing
+  // contexts: on the trained store 2.1 million rows for 420 thousand contexts
+  // over 63 perturbed questions.  The opening is the context's own.
+  const mind = new Mind({ seed: 7, profile: true });
+  for (const turns of [ORDER, RIDE]) {
+    let context = "";
+    for (let i = 0; i + 1 < turns.length; i++) {
+      context += (i > 0 ? "\n" : "") + turns[i];
+      await mind.ingest(context, turns[i + 1]);
+    }
+  }
+  await mind.respondText("Please, " + ORDER.slice(0, 5).join("\n"));
+  const c = mind.lastCost.counters;
+  assert.ok((c.askedOpeningsRead ?? 0) > 0, "contexts were read");
+  assert.ok(
+    c.askedOpeningsRead < c.askedPredecessorReads,
+    `${c.askedOpeningsRead} openings for ${c.askedPredecessorReads} rows`,
+  );
+  await mind.store.close();
+});
