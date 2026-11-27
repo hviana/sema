@@ -176,8 +176,9 @@ attention's job, the consensus climb (`attention.ts`).
    cannot discriminate (`saturation.md`).
 4. **Weigh by rarity.** A region that reaches `c` of `N` contexts weighs
    `ln(N/c)`. This is inverse document frequency, read over structure.
-5. **Agree.** Independent regions add, pooled in the (+, +) semiring of the same
-   deduction engine the search uses.
+5. **Agree.** Independent regions add, pooled by the same deduction engine the
+   search uses: where the search keeps the lightest of alternative derivations,
+   this rule sums them.
 6. **Join.** When two regions point to different contexts, the stored whole that
    contains both is sought, by exact junction first, then through halo synonyms,
    then by an imagined whole. Exact joint evidence explains the separate votes
