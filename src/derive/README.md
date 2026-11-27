@@ -36,10 +36,10 @@ a left-to-right stitch decided afterwards.
 
 ## Two combinators
 
-| `Rule.combine`    | Semiring           | At the conclusion                                                                                                                    |
-| ----------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `"min"` (default) | (min, +), tropical | the cheapest route wins and every other is discarded. This is the search proper.                                                     |
-| `"sum"`           | (+, +)             | every firing adds its cost to the same conclusion, in `system.pool`. Independent lines of evidence corroborate instead of competing. |
+| `Rule.combine`    | Algebra                         | At the conclusion                                                                                                                    |
+| ----------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `"min"` (default) | (min, +), the tropical semiring | the cheapest route wins and every other is discarded. This is the search proper.                                                     |
+| `"sum"`           | (+, +), a sum: no semiring      | every firing adds its cost to the same conclusion, in `system.pool`. Independent lines of evidence corroborate instead of competing. |
 
 A pooled conclusion never enters the agenda and is never a premise. It is a
 terminal aggregate the caller reads from `pool` once the search has exhausted

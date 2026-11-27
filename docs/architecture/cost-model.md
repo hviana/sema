@@ -23,13 +23,13 @@ The order `MICRO < STEP < CONCEPT < PASS` is the contract; ratios set horizons
 ladder, `moves + PASS·unaccounted`, compared at `STEP` grade
 (`mechanism-market.md`).
 
-## Two semirings, one engine (`src/derive`)
+## Two combinators, one engine (`src/derive`)
 
 - **(min, +), the tropical semiring:** the lightest derivation. Costs add along
   a derivation, and the cheapest route to a conclusion wins. This powers
   `cover`, form and continuation rules, edge following, fusion, and the A\*
   agenda.
-- **(+, +), the arithmetic semiring:** pooled evidence. Rules with
+- **(+, +), a sum and no semiring:** pooled evidence. Rules with
   `combine: "sum"` add every independent line of evidence for a conclusion
   instead of keeping the cheapest. This powers the consensus climb's votes
   (`poolVotes`).
