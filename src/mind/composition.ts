@@ -239,6 +239,18 @@ export function coverSites(
   const traced = run ? ctx.trace : null;
   let sites = pre.rec.sites;
 
+  // THE QUESTION ITSELF, HELD WHOLE, IS THE COVER.  A site that is all of the
+  // question is one move with nothing left unaccounted: no cover over its
+  // pieces can weigh less (each further piece is a further move, each byte
+  // left out a PASS).  So its pieces are not read at all — judging each of
+  // them (`answersOtherQuestions`) was four fifths of a verbatim question's
+  // cover on the 900 MB store.
+  const whole = sites.find((s) => s.start === 0 && s.end === query.length);
+  if (
+    whole !== undefined &&
+    !answersOtherQuestions(ctx, whole.payload, query.length, query.length)
+  ) return [whole];
+
   // A FRAGMENT ANSWERS OTHER QUESTIONS (traverse.ts) — and the cover used to
   // account the fragment's bytes as explained by the stranger's answer.  So
   // does a piece of such a site: the question's subject is the whole it was

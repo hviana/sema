@@ -531,3 +531,40 @@ test("F2: a last turn that shares no window with the learnt one is another turn"
   assert.equal(notes.length, 0);
   await mind.store.close();
 });
+
+// ═══════════════════════════════════════
+// Section G — a question the store holds whole reads none of its pieces
+//
+// A site that is all of the question is one move with nothing unaccounted:
+// no cover over its pieces can weigh less.  Judging each piece — every
+// earlier turn of the exchange is one, each with continuations of its own —
+// was four fifths of a verbatim question's cover on the 900 MB store
+// (435 ms → ~60 ms at the median).
+// ═══════════════════════════════════════
+
+test("G1: an exchange asked verbatim does not ask its earlier turns anything", async () => {
+  const mind = new Mind({ seed: 7, profile: true });
+  for (const turns of [ORDER, RIDE]) {
+    let context = "";
+    for (let i = 0; i + 1 < turns.length; i++) {
+      context += (i > 0 ? "\n" : "") + turns[i];
+      await mind.ingest(context, turns[i + 1]);
+    }
+  }
+  assert.equal(
+    await mind.respondText(ORDER.slice(0, 5).join("\n")),
+    "Any toppings?",
+  );
+  const c = mind.lastCost.counters;
+  assert.equal(
+    c.askedContinuations ?? 0,
+    0,
+    "no piece was asked what it names",
+  );
+  assert.equal(
+    c.askedPredecessorReads ?? 0,
+    0,
+    "and none of its contexts read",
+  );
+  await mind.store.close();
+});
