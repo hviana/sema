@@ -459,3 +459,75 @@ test("E10: an empty turn neither grows the context nor marks a boundary", async 
   mind.endConversation(conv);
   await mind.store.close();
 });
+
+// ═══════════════════════════════════════
+// Section F — an exchange asked with one local span changed
+//
+// An accumulated exchange is stored whole at every turn, so a question that
+// is one of those wholes answers by identity.  Asked with its last mark gone
+// it is none of them: the only whole the question still holds EXACTLY is the
+// exchange one turn earlier, whose learnt continuation the question goes on
+// to write itself — and answering with that turn echoes the asker.  On the
+// 900 MB store such questions went from 9 to 17 answered of 32 with this
+// reading (recall's self-match, proposed by structure: `spelledWholes`).
+// ═══════════════════════════════════════
+
+const ORDER = [
+  "I would like to place an order.",
+  "For delivery?",
+  "No, pickup.",
+  "What size would you like?",
+  "Large.",
+  "Any toppings?",
+];
+const RIDE = [
+  "I would like to place an order.",
+  "For delivery?",
+  "Yes, to my office.",
+  "What size would you like?",
+  "Small.",
+  "Which crust?",
+];
+
+async function taught() {
+  const mind = newMind();
+  for (const turns of [ORDER, RIDE]) {
+    let context = "";
+    for (let i = 0; i + 1 < turns.length; i++) {
+      context += (i > 0 ? "\n" : "") + turns[i];
+      await mind.ingest(context, turns[i + 1]);
+    }
+  }
+  return mind;
+}
+
+test("F1: an exchange asked without its last mark is still that exchange", async () => {
+  const mind = await taught();
+  const whole = ORDER.slice(0, 5).join("\n");
+  assert.equal(await mind.respondText(whole), "Any toppings?", "by identity");
+  const notes = [];
+  const out = await mind.respondText(whole.slice(0, -1), (s) => {
+    if (/learnt exchange but for one local span/.test(s.note ?? "")) {
+      notes.push(s.note);
+    }
+  });
+  assert.equal(out, "Any toppings?");
+  assert.ok(notes.length > 0, "read by the structure, not by the estimate");
+  await mind.store.close();
+});
+
+test("F2: a last turn that shares no window with the learnt one is another turn", async () => {
+  // `Tiny.` for `Large.`: within W bytes of each other in length, and nothing
+  // in common.  Below one window byte identity is not evidence — the question
+  // is not that exchange, and its continuation is not offered as if it were.
+  const mind = await taught();
+  const other = [...ORDER.slice(0, 4), "Tiny."].join("\n");
+  const notes = [];
+  await mind.respondText(other, (s) => {
+    if (/learnt exchange but for one local span/.test(s.note ?? "")) {
+      notes.push(s.note);
+    }
+  });
+  assert.equal(notes.length, 0);
+  await mind.store.close();
+});
