@@ -206,8 +206,9 @@ description. The rest of the slot is read in order:
 
 - **Less than one window** says nothing.
 - **A description other forms hold** around another entity is read off them
-  (`describedSteps`). `Y's dad` is held by `Who is Z's dad?` (`· father`) and by
-  `Where was Z's dad born?` (`· father → · place of birth`). A description is
+  (`describedSteps`), each where the frame lets an entity stand
+  (`entitiesBetween`). `Y's dad` is held by `Who is Z's dad?` (`· father`) and
+  by `Where was Z's dad born?` (`· father → · place of birth`). A description is
   applied first, nearest its entity, so it reads as the beginning those
   derivations share: the shortest sequence two forms spell alike, if every other
   sequence two forms spell begins with it — two readings that part ways name
@@ -344,7 +345,8 @@ written) and for a single continuation, only a licensed use names
 (`test/154.15`): the licence is asked of the pair the company chose.
 
 A fragment that answers other questions is set aside before the cover takes it
-as a site (`answersOtherQuestions`). The same predicate refuses CAST's
+as a site (`answersOtherQuestions`); a site that is all of the question is the
+cover, its pieces unread (`test/13` G1). The same predicate refuses CAST's
 substitution subject and redirection substitute (`ong)?`, the tail of every
 `… (… Song)?` question).
 
