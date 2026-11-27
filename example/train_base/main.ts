@@ -124,7 +124,9 @@ import { createRuntime } from "./runtime.js";
 import { runStage } from "./stage.js";
 import { sweepPartials } from "./cache.js";
 import { CURRICULUM, enabledLabels, storedLabels } from "./corpora/index.js";
-import { bytes, DIM, dur, num, R, RED, SHOW } from "./ui.js";
+import { bytes, DIM, dur, num, R, RED, SHOW, YEL } from "./ui.js";
+import { freeBytes } from "./journal.js";
+import { statSync } from "node:fs";
 
 // The parser/representation surface this module used to define itself. Kept
 // exported from here so importing `example/train_base/main.js` still reaches every
@@ -208,6 +210,26 @@ async function main(): Promise<void> {
 
   // ── resume — restore counters and the per-source tally from the store ──
   await ctx.restore();
+
+  // A FULL DISK ENDS A RUN AS A CRASH DOES, and later. The store grows with
+  // what it learns, so a run that is to learn as much again needs about as
+  // much room again: less than the store's own size free is said up front
+  // (and the journal carries the room left on every line).
+  const room = freeBytes(DB_PATH);
+  const held = [".sqlite", ".derived.sqlite", ".content.vec", ".halo.vec"]
+    .reduce((n, ext) => {
+      try {
+        return n + statSync(DB_PATH + ext).size;
+      } catch {
+        return n; // not created yet
+      }
+    }, 0);
+  if (room !== null && held > 0 && room < held) {
+    ctx.progress.log(
+      `  ${YEL}⚠ ${bytes(room)} free beside a ${bytes(held)} store${R} — ` +
+        `a run that learns as much again needs about as much again.`,
+    );
+  }
 
   // What the STORE contains, which is only knowable after the resume: this
   // run's stages plus whatever earlier runs deposited. The panel header above

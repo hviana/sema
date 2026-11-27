@@ -62,6 +62,11 @@ export const DOWNLOAD_TRIES = 5;
 // ceiling that nothing frees.
 export const PART_SUFFIX = ".part";
 
+// The run's journal ({DB_PATH}.train.jsonl, journal.ts): one line per this many
+// seconds of deposits, and one per checkpoint. JOURNAL_S=0 disables it.
+export const JOURNAL_MS = Math.max(0, Number(env("JOURNAL_S", "60")) * 1000) ||
+  0;
+
 // The checkpoint recall is a best-effort diagnostic — it must NEVER stall
 // training. It answers in a worker (recall.ts), terminated at this deadline.
 export const INFER_TIMEOUT_MS = Number(env("INFER_TIMEOUT_MS", "15000"));

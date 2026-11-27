@@ -20,12 +20,14 @@ import {
   DB_PATH,
   DOWNLOAD_TRIES,
   INFER_TIMEOUT_MS,
+  JOURNAL_MS,
   MAX_BYTES,
   PROGRESS_MS,
   SEED,
   STALL_MS,
 } from "./config.js";
 import { recallInWorker } from "./recall.js";
+import { openJournal } from "./journal.js";
 import type { TrainingItem } from "./items.js";
 import { headSize, type HttpOptions, throttleNotifier } from "./http.js";
 import { cacheSize, downloadFile, ensureCacheRoom } from "./cache.js";
@@ -388,6 +390,14 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
 
   const checkpoint = () => mind.save();
   const maintain = () => runIndexMaintenance(mind, (m) => progress.log(m));
+  // The run's record of WHEN (journal.ts): the store keeps no clock.
+  const journal = openJournal(`${DB_PATH}.train.jsonl`, JOURNAL_MS);
+  const counts = () => ({
+    deposits: counters.depositCount,
+    bytes: counters.trainedContentBytes,
+  });
+  // Opened by the first deposit, once a resumed run has its counters back.
+  let journalStarted = false;
 
   // The checkpoint recall is a best-effort diagnostic, answered in a worker
   // (recall.ts): in this thread `respond` would stop the deposit loop for as
@@ -399,18 +409,20 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
     if (inferBusy) return;
     inferBusy = true;
     const info = promptOf(item);
-    const skipped = (err: unknown) =>
-      progress.log(
-        `  ${DIM}· checkpoint #${n} recall skipped: ${
-          err instanceof Error ? err.message : String(err)
-        }${R}`,
-      );
+    const asked = performance.now();
+    const took = () => +((performance.now() - asked) / 1000).toFixed(1);
+    const skipped = (err: unknown) => {
+      const why = err instanceof Error ? err.message : String(err);
+      journal.event("recall", counts(), { n, tookS: took(), skipped: why });
+      progress.log(`  ${DIM}· checkpoint #${n} recall skipped: ${why}${R}`);
+    };
     try {
       const job = recallInWorker(
         { path: DB_PATH, D, seed: SEED, prompt: info.prompt },
         INFER_TIMEOUT_MS,
       );
       void job.answer.then((bytes) => {
+        journal.event("recall", counts(), { n, tookS: took() });
         const resp = new TextDecoder().decode(bytes).replace(/\u0000+/g, "");
         const box = renderInferenceBox(
           info.prompt,
@@ -503,6 +515,10 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
     // ── per-example callback: gates MAX_MB, drives checkpoints + samples ──
     async onDeposit(contentBytes: number): Promise<boolean> {
       beat(); // the primary sign of life
+      if (!journalStarted) {
+        journalStarted = true;
+        journal.event("start", counts(), { pid: process.pid });
+      }
       counters.depositCount++;
       counters.trainedContentBytes += contentBytes;
       // Tallied HERE rather than added in a lump when the unit finishes: a lump
@@ -522,16 +538,26 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
         sampleItem = null;
         seenInWindow = 0;
         try {
+          const began = performance.now();
+          let maintained = began;
           await unwatched(async () => {
             await maintain();
+            maintained = performance.now();
             await checkpoint();
           });
           // A checkpoint is the natural resume point: the data is flushed, so
           // the position and the counters that describe it can be recorded.
           // Without this a unit could only be resumed from its first row.
           await saveCursor(snapCursor());
+          const saved = performance.now();
           // After the commit: the worker reads what was just made durable.
           if (item) await runRecall(item, n);
+          journal.event("checkpoint", counts(), {
+            n,
+            maintainS: +((maintained - began) / 1000).toFixed(1),
+            saveS: +((saved - maintained) / 1000).toFixed(1),
+            recallOpenS: +((performance.now() - saved) / 1000).toFixed(1),
+          });
         } catch (err) {
           progress.log(
             `  ${YEL}⚠ checkpoint failed${R}: ${
@@ -543,6 +569,7 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
       } else {
         tick();
       }
+      journal.beat(counts());
 
       // Stop AFTER the deposit is counted/displayed so the final item is never
       // lost from the totals. A pending signal stops at this same boundary, so a
@@ -763,6 +790,7 @@ export function createRuntime(opts: RuntimeOptions): TrainCtx {
       // one that was killed halfway. A MAX_MB cap DOES count as finished: the
       // run stopped where it was asked to, which is why it reports "done".
       const completed = !ctx.stopRequested;
+      journal.event(completed ? "done" : "interrupted", counts(), { why });
       await store.setMeta(
         completed ? "train.completedAt" : "train.interruptedAt",
         new Date().toISOString(),
