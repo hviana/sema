@@ -321,3 +321,33 @@ test("a role agrees only where every side it is read on agrees", async () => {
   );
   await m.store.close();
 });
+
+test("the asker's wording that holds a form under the equivalence is no re-voicing of it", async () => {
+  // Articulation splices the asker's wording over an answer form it is a
+  // synonym of — never where that wording already HOLDS the form.  The bytes
+  // decide that, and they were read raw: `ashoka country of citizenship`
+  // does not hold `Ashoka`, so the whole question was spliced over the name
+  // (`The country of citizenship of ashoka country of citizenship is …`, one
+  // lowercased key of the trained store's gate).  The wording is read as the
+  // response reads it, under its equivalence.
+  const m = new Mind({ seed: 7, store: new SQliteStore({ path: ":memory:" }) });
+  for (
+    const [entity, value] of [
+      ["Ashoka", "Maurya dynasty"],
+      ["Kanishka", "Kushan Empire"],
+      ["Harsha", "Pushyabhuti dynasty"],
+    ]
+  ) {
+    const fact = `The country of citizenship of ${entity} is ${value}.`;
+    await m.ingest(entity, fact);
+    await m.ingest(`${entity} country of citizenship`, fact);
+  }
+  await m.buildCanonIndex();
+  const exact = await m.respondText("Ashoka country of citizenship");
+  assert.equal(
+    exact,
+    "The country of citizenship of Ashoka is Maurya dynasty.",
+  );
+  assert.equal(await m.respondText("ashoka country of citizenship"), exact);
+  await m.store.close();
+});

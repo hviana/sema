@@ -8,7 +8,7 @@ import { indexOf } from "../bytes.js";
 import type { MindContext } from "./types.js";
 import { spliceAll } from "./types.js";
 import { recognise } from "./recognition.js";
-import { answers, contains, substitutes } from "./traverse.js";
+import { answers, contains, offsetCanon, substitutes } from "./traverse.js";
 import { bestHaloMate } from "./match.js";
 import { noLicence } from "./graph-search.js";
 import { rItem, rNode, traceDerivation } from "./trace.js";
@@ -72,11 +72,19 @@ export async function articulate(
     // miss.  Measured (test/106's chain): the answer's `eva`, a halo mate of the
     // asker's `eva director` because both lead to the same fact, was revoiced
     // as "The director of eva director is Gustaf Molander."
+    // …under the response's equivalence, as the asker's wording was read:
+    // `ashoka country of citizenship` holds the stored `Ashoka`, and read by
+    // raw bytes it did not — `The country of citizenship of ashoka country of
+    // citizenship is …`.
     const formBytes = store.bytesPrefix(s.payload, voice.bytes.length + 1);
     if (
       voice.node === s.payload || contains(ctx, voice.node, s.payload) ||
       (formBytes.length <= voice.bytes.length &&
-        indexOf(voice.bytes, formBytes, 0) >= 0) ||
+        indexOf(
+            offsetCanon(ctx, voice.bytes),
+            offsetCanon(ctx, formBytes),
+            0,
+          ) >= 0) ||
       answers(ctx, voice.node, s.payload)
     ) {
       continue;
