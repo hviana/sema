@@ -24,6 +24,7 @@ import {
   answersUnasked,
   corpusN,
   hubBound,
+  omissionToldApart,
   otherInstance,
   unlicensedSwap,
   writesTheQuestion,
@@ -430,7 +431,19 @@ export async function recallByResonance(
       // subject's more specific questions, and voices one of its facts:
       // `What nationality was Nicolás Echevarría?` elected `Nicolás Echevarría
       // date of birth`.
-      const unasked = co === null && swap === null && (
+      // …and the question with one span left out, where another form the
+      // response proposed opens and closes alike around something else: the
+      // bytes are short for both, and the consensus may not voice one of them
+      // over what the exact reading found (traverse.ts, `heldPoints`;
+      // tempting-but-wrong 12).
+      const told = co === null && swap === null &&
+        omissionToldApart(ctx, forest[0].anchor, [
+          ...forest.map((r) => r.anchor),
+          ...whole.map((h) => h.id),
+          ...(ctx._edgeAsked?.points ?? []),
+          ...(ctx._edgeAsked?.forms ?? []),
+        ]);
+      const unasked = co === null && swap === null && !told && (
         answersOtherQuestions(
           ctx,
           forest[0].anchor,
@@ -461,6 +474,14 @@ export async function recallByResonance(
           ],
           "refused — the anchor is the question with one span swapped, and " +
             "the corpus licenses no equivalence between the two",
+        );
+      } else if (told) {
+        ctx.trace?.step(
+          "omissionToldApart",
+          [rItem(query, "query"), rNode(ctx, forest[0].anchor, "anchor")],
+          [],
+          "refused — the anchor is the question with one span left out, and " +
+            "another proposed form opens and closes alike around something else",
         );
       } else if (unasked) {
         ctx.trace?.step(

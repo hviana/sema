@@ -101,6 +101,7 @@ import { windowAt, windowIds } from "./canonical.js";
 import { unexplainedSpans } from "./derivation.js";
 import {
   allWindowsAreScaffolding,
+  discriminates,
   hubBound,
   hubWindows,
   identicalAt,
@@ -760,6 +761,18 @@ async function bridgeImpl(
       const cGap = gaps.reduce((n, g) => n + (g.ce - g.cs), 0);
       if (cBytes.length - covered - cGap > W) continue;
       if (!gaps.every((g) => explainedSpan(cBytes, g.cs, g.ce))) continue;
+      // …AND COMMON BYTES ARE NOT FILLER WHERE THE CORPUS TELLS THE POSITION
+      // APART.  `explainedSpan` reads how common a gap's windows are in the
+      // corpus at large; what stands at THIS position is another question
+      // (`discriminates`): `Whispering director` is `Whispering City
+      // director` up to ` City` — windows of thousands of places — and the
+      // corpus holds `Whispering Footsteps director` too, leading elsewhere.
+      // The candidate is then one of several the question's bytes are short
+      // for, and an identity claim names none of them.
+      const proposed = candidates.map((c) => c.use);
+      if (
+        gaps.some((g) => discriminates(ctx, cBytes, g.cs, g.ce, sid, proposed))
+      ) continue;
     }
     if (diagnostics) diagnostics.identityValid++;
 

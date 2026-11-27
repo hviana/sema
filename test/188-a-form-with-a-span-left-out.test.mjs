@@ -33,6 +33,9 @@
 //   188.5 holding less than most of the form is holding two pieces of it;
 //   188.6 another form holds what the question writes byte for byte, or is
 //         short for it too: the left-out span cannot say which is meant;
+//   188.8 …whoever proposes one of them: neither the consensus's anchor nor
+//         an identity claim over common bytes voices one of two forms the
+//         question's bytes are short for;
 //   188.7 one window missing at the form's end — its last mark — is held
 //         too, and the form written on (the exchange's next context) is no
 //         other reading of that position.
@@ -216,6 +219,46 @@ test("188.7 a form asked without its last mark is that form; written on, it is s
   assert.equal(
     await mind.respondText(first.slice(0, -1)),
     "How may I help you?",
+  );
+  await mind.store.close();
+});
+
+test("188.8 two forms the bytes are short for are named by no reading", async () => {
+  // `Whispering director` is `Whispering City director` without ` City`, and
+  // `Whispering Footsteps director` without ` Footsteps`.  The exact reading
+  // names neither (188.3) — and two approximate ones then voiced the first:
+  // the consensus grounded its anchor, and an identity claim wrote ` City`
+  // off as filler because its windows are common in the corpus at large
+  // (forty towns here).  How common bytes are says nothing of what stands at
+  // THIS position; the corpus tells it apart, and no reading names one of
+  // the two.  On the trained store's gate: two wrong answers silenced, no
+  // right one lost (188 questions, and 240 of 2Wiki).
+  const mind = new Mind({ seed: 7 });
+  const syl = "ba ke mi ro tu za ne pi so du la ve gi".split(" ");
+  const word = (i) =>
+    syl[i % 13] + syl[Math.floor(i / 13) % 13] + syl[Math.floor(i / 169) % 13];
+  for (let i = 0; i < 40; i++) {
+    await mind.ingest(
+      `${word(i + 400)} City population`,
+      `The population of ${word(i + 400)} City is ${word(i + 900)}.`,
+    );
+  }
+  for (
+    const [work, director] of [
+      ["Whispering City", "Fedor Ozep"],
+      ["Whispering Footsteps", "Howard Bretherton"],
+      ["Whispering Smith", "Leslie Fenton"],
+    ]
+  ) {
+    const fact = `The director of ${work} is ${director}.`;
+    await mind.ingest(work, fact);
+    await mind.ingest(`${work} director`, fact);
+  }
+  await mind.buildCanonIndex();
+  assert.equal(await mind.respondText("Whispering director"), "");
+  assert.equal(
+    await mind.respondText("Whispering City director"),
+    "The director of Whispering City is Fedor Ozep.",
   );
   await mind.store.close();
 });

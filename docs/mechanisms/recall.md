@@ -23,7 +23,7 @@ cover's site, not a recall tier (`cover.md`).
 | 2    | scaffolding-dominated | resonance `≥ significanceBar`; the climb's anchor clears `consensusFloor(N)` (or is broad with a peak above `ln 2`); the question is not all scaffolding | `project` the anchor at `CONCEPT`                            |
 | 3b   | substitution bridge   | only after every gist tier failed (below)                                                                                                                | align and substitute                                         |
 
-**Tier 2 refuses five things.** Each would voice the anchor's own occupant, or
+**Tier 2 refuses six things.** Each would voice the anchor's own occupant, or
 another question's answer, as the asker's:
 
 - a continuation that voices the anchor's displaced filler
@@ -33,6 +33,10 @@ another question's answer, as the asker's:
 - an anchor that is the question with one piece swapped, unlicensed
   (`unlicensedSwap`, `exact-vs-approximate.md`): `… largest planet …` is no
   answer to `… largest ocean …`, while `sea-level` is `sea level`;
+- an anchor that is the question with one span left out, where another proposed
+  form opens and closes alike around something else (`omissionToldApart`,
+  `test/188.8`): `Whispering director` names neither `Whispering City director`
+  nor `Whispering Footsteps director`;
 - an unasked answer about a subject the anchor shares nothing past
   (`answersOtherQuestions`, `answersUnasked`; trace `unaskedAnchor`).
 
@@ -66,7 +70,9 @@ may hide known content (`dismissedKnownContent`). Each substitution costs
 `CONCEPT`, and the substituted spans are accounted. A question made only of
 scaffolding abstains, because one substituted word cannot carry it. A context
 that is another instance of the question is refused, as tier 2's anchor is. A
-zero-substitution identity bridge is `complete`.
+zero-substitution identity bridge is `complete`, and writes off no gap the
+corpus tells apart at that position (`discriminates`): how common a gap's bytes
+are at large says nothing of what stands there.
 
 ## Cost
 

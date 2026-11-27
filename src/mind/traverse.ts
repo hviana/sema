@@ -2984,6 +2984,36 @@ function heldPointsOf(
 }
 const same = (b: Uint8Array): Uint8Array => b;
 
+/** WHETHER A FORM IS THE QUESTION WITH ONE SPAN LEFT OUT, AT A POSITION THE
+ *  CORPUS TELLS APART — the refusal {@link heldPoints} makes, asked of one
+ *  form: the question writes its opening and its close (`leftOut`), and
+ *  another of `proposals` opens and closes alike around something else and
+ *  leads elsewhere (`discriminates`).  The question names neither, whoever
+ *  proposes one of them. */
+export function omissionToldApart(
+  ctx: MindContext,
+  id: number,
+  proposals: readonly number[],
+): boolean {
+  const asked = ctx._edgeAsked;
+  if (asked === null) return false;
+  const cap = instanceCap(asked.bytes.length);
+  const raw = read(ctx, id, cap);
+  if (raw.length >= cap) return false;
+  const form = (ctx.canon ?? same)(raw);
+  if (form.length !== raw.length) return false;
+  const lo = leftOut(asked.bytes, form, ctx.space.maxGroup);
+  if (lo === null) return false;
+  return discriminates(
+    ctx,
+    raw,
+    lo.open,
+    raw.length - lo.close,
+    id,
+    proposals,
+  );
+}
+
 /** WHERE `q` HOLDS `form` WITH ONE SPAN LEFT OUT: the form's opening and its
  *  close, each at least one window, written one after the other — `Frances
  *  Carpenter` for the stored `Frances Aretta Carpenter`, a learnt exchange
