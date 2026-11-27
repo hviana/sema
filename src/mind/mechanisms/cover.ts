@@ -8,10 +8,10 @@
 import { twoQuanta } from "../../geometry.js";
 import {
   asksAbsentRelation,
-  canonHeldPoints,
+  heldPoints,
   subjectOfSeveral,
 } from "../traverse.js";
-import { canonSites, compose, coverSites } from "../composition.js";
+import { compose, coverSites, heldSites } from "../composition.js";
 import type { PipelineMechanism } from "../pipeline-mechanism.js";
 
 export const coverMechanism: PipelineMechanism = {
@@ -22,7 +22,7 @@ export const coverMechanism: PipelineMechanism = {
   },
   // What the climb's points add to a cover read before them, beyond the
   // instances' relations every pick reads: a site the question holds under
-  // its equivalence (`canonSites`), on the sites the run itself stands on.
+  // its equivalence (`heldSites`), on the sites the run itself stands on.
   readsPoints(ctx, query, pre) {
     // A site refused before the points — a subject of several questions, or
     // one asked a relation it lacks — may be named by its use once they are
@@ -34,10 +34,10 @@ export const coverMechanism: PipelineMechanism = {
     ) {
       return true;
     }
-    if (canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length === 0) {
+    if (heldPoints(ctx, twoQuanta(ctx.space.maxGroup)).length === 0) {
       return false;
     }
-    return canonSites(ctx, query, coverSites(ctx, query, pre, false)).length >
+    return heldSites(ctx, query, coverSites(ctx, query, pre, false)).length >
       0;
   },
   run: (ctx, query, pre) => compose(ctx, query, pre),

@@ -10,10 +10,24 @@ same composition again with every piece the market grounded
 ## Matcher — recognition sites
 
 Sites are the spans of the question that name a stored form (`recognition.ts`),
-and the climb's points it holds under the equivalence (`Man At Bath` for a
-stored `Man at Bath`; `canonHeldPoints`), which the cover declares it reads
-(`readsPoints`, `mechanism-market.md`). A span named only under the equivalence
-stands where its member does (`role.ts`): `father` is no film `Father`.
+and the climb's points it holds otherwise than byte for byte (`heldPoints`),
+which the cover declares it reads (`readsPoints`, `mechanism-market.md`): under
+the equivalence (`Man At Bath` for a stored `Man at Bath`), or with one span
+left out. A span named only under the equivalence stands where its member does
+(`role.ts`): `father` is no film `Father`.
+
+**A form with one span left out.** The question writes a stored form's opening
+and its close one after the other (`leftOut`): `Frances Carpenter` for
+`Frances Aretta Carpenter`, an exchange asked without one of its words or bytes.
+Each side is at least one window and what is held is most of the form
+(`dominates`), so every byte of the site is the form's own. The climb proposes
+and the bytes decide; the span left out names nothing by itself, so the reading
+refuses where another proposed form opens and closes alike around something else
+and leads elsewhere (`discriminates`), where one holds what the question writes
+byte for byte (`Frances Carpenter Jr.`), and where a recognised site covers the
+span (`test/188`). Measured, the second set of each pair held out: 2Wiki 204 →
+213 of 240; the trained store's gate 149 → 165 of 188 (one byte deleted 32 of
+32, one word removed 23 of 30); none lost.
 
 ## Gates
 

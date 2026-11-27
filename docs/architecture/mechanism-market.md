@@ -94,10 +94,11 @@ points, so other instances of the question could not name its pick
 where the reading would differ: instances carry a relation
 (`readsOffInstances`), or the mechanism declares what it reads off the points
 (`readsPoints`: the cover admits a site held under its equivalence,
-`Man At Bath`, or a subject of several questions). Recall's
-`The place of birth of John Lennon is Liverpool.` owes 49 bytes before the
-climb, 28 after. Rerunning on every climb read 26% more bytes on the 31.7M-node
-store (cover and recall rerun on 52 of 100 2Wiki questions), changing no answer.
+`Man At Bath`, or with a span left out, or a subject of several questions).
+Recall's `The place of birth of John Lennon is Liverpool.` owes 49 bytes before
+the climb, 28 after. Rerunning on every climb read 26% more bytes on the
+31.7M-node store (cover and recall rerun on 52 of 100 2Wiki questions), changing
+no answer.
 
 ## Accounting rules
 

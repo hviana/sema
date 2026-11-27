@@ -2812,69 +2812,166 @@ export function readsOffInstances(ctx: MindContext): boolean {
   return relationFrames(ctx, whole, readAllowance(ctx)).length > 0;
 }
 
-/** THE POINTS THE QUESTION HOLDS ONLY UNDER ITS EQUIVALENCE.  Recognition
- *  matches bytes, so `Man At Bath` (2Wiki title-cases its questions) is no
- *  site of the stored `Man at Bath`.  The consensus climb PROPOSES it (its
- *  points), and the question's bytes DECIDE — under the response's
- *  canonicalizer, which must keep offsets: a point whose canonical spelling
- *  the canonical question contains is held there, at that span.  A point the
- *  question spells byte for byte there is recognition's, not this reading's.
- *  Only once the climb has run; at least `minLen` bytes, and never the whole
- *  question. */
-export function canonHeldPoints(
+/** THE POINTS THE QUESTION HOLDS OTHERWISE THAN BYTE FOR BYTE.  Recognition
+ *  matches bytes, so two spellings of a stored form are no site of it.  The
+ *  consensus climb PROPOSES the form (its points), and the question's bytes
+ *  DECIDE, by one of two readings:
+ *
+ *  - UNDER THE EQUIVALENCE — `Man At Bath` (2Wiki title-cases its questions)
+ *    for the stored `Man at Bath`: the canonical question contains the point's
+ *    canonical spelling (a canonicalizer that keeps offsets), at that span;
+ *  - WITH ONE SPAN LEFT OUT (`leftOut`) — `Frances Carpenter` for the stored
+ *    `Frances Aretta Carpenter`, an exchange asked without one of its words
+ *    or one of its bytes: the question writes the form's opening and its
+ *    close one after the other.  Every byte the question spells there is the
+ *    form's, so nothing is claimed that the question does not witness; what
+ *    it leaves out names the form only where the corpus does not tell that
+ *    position apart (`discriminates`, over the response's proposals) and no
+ *    other proposed form holds what the question writes there byte for byte
+ *    (the exact reading stands, tempting-but-wrong 12).
+ *
+ *  A point the question spells byte for byte is recognition's, not this
+ *  reading's.  Only once the climb has run; at least `minLen` bytes held. */
+export function heldPoints(
   ctx: MindContext,
   minLen: number,
-): Array<{ start: number; end: number; payload: number }> {
+): Array<{ start: number; end: number; payload: number; leftOut?: true }> {
   return ctx.meter
-    ? ctx.meter.timeSync("canonHeld", () => canonHeldOf(ctx, minLen))
-    : canonHeldOf(ctx, minLen);
+    ? ctx.meter.timeSync("heldPoints", () => heldPointsOf(ctx, minLen))
+    : heldPointsOf(ctx, minLen);
 }
 
 /** One reading per climb: the points are an array the climb hands over once
  *  per response, and the cover, the instance reading and the pipeline ask the
  *  same question of it (3.5 times per question on the 900). */
-const canonHeldMemo = new LifeMemo<
+const heldPointsMemo = new LifeMemo<
   Map<
     number,
     {
       canon: (b: Uint8Array) => Uint8Array;
       raw: Uint8Array;
-      out: Array<{ start: number; end: number; payload: number }>;
+      out: Array<
+        { start: number; end: number; payload: number; leftOut?: true }
+      >;
     }
   >
 >(() => new Map());
 
-function canonHeldOf(
+function heldPointsOf(
   ctx: MindContext,
   minLen: number,
-): Array<{ start: number; end: number; payload: number }> {
+): Array<{ start: number; end: number; payload: number; leftOut?: true }> {
   const asked = ctx._edgeAsked;
-  if (asked === null || asked.points === undefined || ctx.canon === null) {
-    return [];
-  }
-  const memo = canonHeldMemo.of(asked.points);
+  if (asked === null || asked.points === undefined) return [];
+  const canon = ctx.canon ?? same;
+  const memo = heldPointsMemo.of(asked.points);
   const hit = memo.get(minLen);
-  if (hit !== undefined && hit.canon === ctx.canon && hit.raw === asked.raw) {
+  if (hit !== undefined && hit.canon === canon && hit.raw === asked.raw) {
     return hit.out;
   }
-  const out: Array<{ start: number; end: number; payload: number }> = [];
-  memo.set(minLen, { canon: ctx.canon, raw: asked.raw, out });
+  const out: Array<
+    { start: number; end: number; payload: number; leftOut?: true }
+  > = [];
+  memo.set(minLen, { canon, raw: asked.raw, out });
+  const W = ctx.space.maxGroup;
+  // A form with a span left out is at most twice what the question holds of
+  // it (`leftOut`): the instance scale.
+  const cap = instanceCap(asked.bytes.length);
   for (const id of asked.points) {
     // The length decides most points, and the store sums it under the cap
-    // (memoised once exact): no bytes are rebuilt for a point too short or not
-    // shorter than the question.
-    const len = ctx.store.contentLen(id, asked.bytes.length);
-    if (len < minLen || len >= asked.bytes.length) continue;
-    const raw = read(ctx, id, asked.bytes.length);
-    if (raw.length < minLen || raw.length >= asked.bytes.length) continue;
-    const form = ctx.canon(raw);
+    // (memoised once exact): no bytes are rebuilt for a point too short or
+    // too long to be held.
+    const len = ctx.store.contentLen(id, cap);
+    if (len < minLen || len >= cap) continue;
+    const raw = read(ctx, id, cap);
+    if (raw.length < minLen || raw.length >= cap) continue;
+    const form = canon(raw);
     if (form.length !== raw.length) continue;
-    const at = indexOf(asked.bytes, form, 0);
-    if (at < 0) continue;
-    if (bytesEqual(asked.raw.subarray(at, at + raw.length), raw)) continue;
-    out.push({ start: at, end: at + raw.length, payload: id });
+    const at = raw.length < asked.bytes.length
+      ? indexOf(asked.bytes, form, 0)
+      : -1;
+    if (at >= 0) {
+      if (
+        ctx.canon !== null &&
+        !bytesEqual(asked.raw.subarray(at, at + raw.length), raw)
+      ) out.push({ start: at, end: at + raw.length, payload: id });
+      continue;
+    }
+    const lo = leftOut(asked.bytes, form, W);
+    if (lo === null || lo.end - lo.start < minLen) continue;
+    // Another form that opens and closes so, around something else, and
+    // leads elsewhere, tells the position apart: the question names neither.
+    if (
+      discriminates(ctx, raw, lo.open, raw.length - lo.close, id, [
+        ...asked.points,
+        ...(asked.forms ?? []),
+      ])
+    ) continue;
+    // …and so does a proposed form that holds what the question writes there
+    // byte for byte: `Frances Carpenter Jr.` beside `Frances Aretta
+    // Carpenter`.  The exact reading found the bytes elsewhere, and what was
+    // left out cannot say which is meant (tempting-but-wrong 12).
+    const written = asked.bytes.subarray(lo.start, lo.end);
+    if (
+      [...asked.points, ...(asked.forms ?? [])].some((p) =>
+        p !== id && ctx.store.hasNext(p) &&
+        indexOf(canon(read(ctx, p, cap)), written, 0) >= 0
+      )
+    ) continue;
+    if (ctx.meter) ctx.meter.heldLeftOut++;
+    ctx.trace?.step(
+      "heldLeftOut",
+      [rItemShort(ctx, id, "point")],
+      [{
+        text: decodeText(asked.raw.subarray(lo.start, lo.end)),
+        node: id,
+        role: "held",
+        span: [lo.start, lo.end],
+      }],
+      `the question writes this form's opening (${lo.open} bytes) and its ` +
+        `close (${lo.close}) with ${
+          raw.length - lo.open - lo.close
+        } left out between, and no other proposed form tells that position apart`,
+    );
+    out.push({ start: lo.start, end: lo.end, payload: id, leftOut: true });
   }
   return out;
+}
+const same = (b: Uint8Array): Uint8Array => b;
+
+/** WHERE `q` HOLDS `form` WITH ONE SPAN LEFT OUT: the form's opening and its
+ *  close, each at least one window, written one after the other — `Frances
+ *  Carpenter` for the stored `Frances Aretta Carpenter`, a learnt exchange
+ *  asked without one of its words.  What is held must be most of the form
+ *  (`dominates`): less, and the question spells two of its pieces, not it.
+ *  The longest opening is read first, then the longest close after it. */
+function leftOut(
+  q: Uint8Array,
+  form: Uint8Array,
+  W: number,
+): { start: number; end: number; open: number; close: number } | null {
+  const L = form.length;
+  if (L < 2 * W + 1) return null;
+  const head = form.subarray(0, W);
+  for (let at = indexOf(q, head, 0); at >= 0; at = indexOf(q, head, at + 1)) {
+    let open = W;
+    while (open < L - W - 1 && q[at + open] === form[open]) open++;
+    for (; open >= W; open--) {
+      const most = Math.min(L - open - 1, q.length - at - open);
+      for (let close = most; close >= W; close--) {
+        if (q[at + open + close - 1] !== form[L - 1]) continue;
+        if (
+          !bytesEqual(
+            q.subarray(at + open, at + open + close),
+            form.subarray(L - close),
+          )
+        ) continue;
+        if (!dominates(open + close, L)) break;
+        return { start: at, end: at + open + close, open, close };
+      }
+    }
+  }
+  return null;
 }
 
 /** ONE INVENTORY.  The forms proposed as instances of the question: the

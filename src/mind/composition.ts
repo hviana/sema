@@ -24,8 +24,8 @@ import { indexOf } from "../bytes.js";
 import {
   answersOtherQuestions,
   askedEvidence,
-  canonHeldPoints,
   guidedFirst,
+  heldPoints,
   hubBound,
   offsetCanon,
   scaffoldSpans,
@@ -283,22 +283,28 @@ export function coverSites(
 }
 
 /** A FORM THE QUESTION HOLDS UNDER ITS EQUIVALENCE IS A SITE TOO
- *  (traverse.ts, `canonHeldPoints`): the climb proposed it, the canonical
+ *  (traverse.ts, `heldPoints`): the climb proposed it, the canonical
  *  question's bytes decided it — `Man At Bath` holds the stored `Man at Bath`.
  *  Read once the climb has run (the pipeline reads the cover again then, when
  *  this admits one: `readsPoints`); where recognition already read bytes, its
  *  site stands.  The same bar an argument clears (two quanta), leading
  *  somewhere, and not a piece that answers other questions. */
-export function canonSites(
+export function heldSites(
   ctx: MindContext,
   query: Uint8Array,
   sites: ReadonlyArray<{ start: number; end: number }>,
 ): Array<{ start: number; end: number; payload: number }> {
   const out: Array<{ start: number; end: number; payload: number }> = [];
-  for (const p of canonHeldPoints(ctx, twoQuanta(ctx.space.maxGroup))) {
+  for (const p of heldPoints(ctx, twoQuanta(ctx.space.maxGroup))) {
     if (!ctx.store.hasNext(p.payload)) continue;
+    // A form held with a span left out is a longer reading than the pieces
+    // recognition read inside it: only a site that covers it stands instead.
     if (
-      [...sites, ...out].some((s) => s.start < p.end && p.start < s.end)
+      [...sites, ...out].some((s) =>
+        p.leftOut === true
+          ? s.start <= p.start && s.end >= p.end
+          : s.start < p.end && p.start < s.end
+      )
     ) continue;
     if (
       answersOtherQuestions(ctx, p.payload, query.length, p.end - p.start)
@@ -333,7 +339,7 @@ export async function compose(
     const { rec } = pre;
     let sites = coverSites(ctx, query, pre, true);
 
-    sites = [...sites, ...canonSites(ctx, query, sites)];
+    sites = [...sites, ...heldSites(ctx, query, sites)];
 
     if (sites.length === 0 && pieces.length === 0) return [];
 

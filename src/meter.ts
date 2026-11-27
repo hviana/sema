@@ -305,6 +305,9 @@ export class Meter {
   askedContinuations = 0;
   /** Predecessor rows that exact tier read, against its shared √N budget. */
   askedPredecessorReads = 0;
+  /** Points the question holds with one span left out, admitted as held
+   *  (traverse.ts, `heldPoints`). */
+  heldLeftOut = 0;
   /** Establishing contexts whose opening that tier read: each once per
    *  question, however many nodes were asked about (`contextHeads`). */
   askedOpeningsRead = 0;
