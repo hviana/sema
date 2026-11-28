@@ -111,6 +111,17 @@ export class BoundedMap<K, V> {
   // SECOND-CHANCE (CLOCK) RECENCY BITS — see `get`.  Populated only under
   // `recency: "clock"`; the default policy leaves this empty and unread.
   private _used = new Set<K>();
+  // THE LAP'S END (clock recency only): the first key appended since the
+  // sweep in progress began.  A sweep is over the entries that were there
+  // when it began; reaching this key ends it and the next one starts from the
+  // front.  It has to be said, because the cursor cannot say it: a Map
+  // iterator standing at the end is not done — it yields the next key
+  // appended — and eviction only ever runs right after an append.  A second
+  // chance leaves a kept entry BEHIND the cursor, so each one brings the
+  // cursor a step nearer the tail; once there, with no end to the lap, it
+  // evicted every key as it arrived and the cache held what it had forever.
+  private _lapEnd: K | undefined = undefined;
+  private _hasLapEnd = false;
   constructor(
     readonly maxBytes: number,
     private readonly sizeOf: (v: V) => number = () => 1,
@@ -131,7 +142,8 @@ export class BoundedMap<K, V> {
     private readonly recency: "reorder" | "clock" = "reorder",
   ) {}
   /** Next key in insertion (≈ LRU) order, resuming where the last call left
-   *  off; wraps to the front when exhausted. Undefined only when empty. */
+   *  off; wraps to the front when the lap is over — the iterator exhausted,
+   *  or the lap's end reached (`_lapEnd`). Undefined only when empty. */
   private nextOldest(): K | undefined {
     // SECOND CHANCE (clock recency only): a key whose bit is set is not a
     // victim — the bit is CLEARED and the sweep moves on, so it survives this
@@ -142,17 +154,31 @@ export class BoundedMap<K, V> {
     for (let wrapped = false;;) {
       if (this._cursor === null) this._cursor = this.m.keys();
       const n = this._cursor.next();
-      if (!n.done) {
+      if (!n.done && !(this._hasLapEnd && n.value === this._lapEnd)) {
         if (this._used.size > 0 && this._used.has(n.value) && skips-- > 0) {
           this._used.delete(n.value);
           continue;
         }
         return n.value;
       }
-      this._cursor = null;
+      this.endLap();
       if (this.m.size === 0 || wrapped) return undefined;
       wrapped = true;
     }
+  }
+  /** End the sweep in progress: the next one starts from the front, over
+   *  every entry there is then.  Always safe — the oldest are met first. */
+  private endLap(): void {
+    this._cursor = null;
+    this._hasLapEnd = false;
+    this._lapEnd = undefined;
+  }
+  /** Remove `k` from the map and the recency bits.  A lap whose end is the
+   *  key removed has lost its mark, and ends here. */
+  private drop(k: K): void {
+    this.m.delete(k);
+    this._used.delete(k);
+    if (this._hasLapEnd && k === this._lapEnd) this.endLap();
   }
   /** RECENCY WITHOUT MUTATING THE MAP (clock policy only).
    *
@@ -196,10 +222,19 @@ export class BoundedMap<K, V> {
     const old = this.m.get(k);
     if (old !== undefined) {
       this._bytes -= this.sizeOf(old);
+      // Set again, a key moves to the tail: were it the lap's end, the mark
+      // would move with it, past entries appended after it.
       this.m.delete(k);
+      if (this._hasLapEnd && k === this._lapEnd) this.endLap();
     }
     this.m.set(k, v);
     this._bytes += this.sizeOf(v);
+    if (
+      this.recency === "clock" && this._cursor !== null && !this._hasLapEnd
+    ) {
+      this._lapEnd = k;
+      this._hasLapEnd = true;
+    }
     while (this._bytes > this.maxBytes && this.m.size > 0) {
       if (this.evict === "smallest") {
         // Among the oldest LRU candidates, evict the cheapest to rebuild.
@@ -227,16 +262,14 @@ export class BoundedMap<K, V> {
         const bestK = this._candidates[bestI];
         this._candidates.splice(bestI, 1);
         this._bytes -= bestSz;
-        this.m.delete(bestK);
-        this._used.delete(bestK);
+        this.drop(bestK);
       } else {
         const lru = this.nextOldest();
         if (lru === undefined) break;
         const lruv = this.m.get(lru);
         if (lruv === undefined) continue;
         this._bytes -= this.sizeOf(lruv);
-        this.m.delete(lru);
-        this._used.delete(lru);
+        this.drop(lru);
       }
     }
   }
@@ -251,15 +284,14 @@ export class BoundedMap<K, V> {
     const v = this.m.get(k);
     if (v === undefined) return;
     this._bytes -= this.sizeOf(v);
-    this.m.delete(k);
-    this._used.delete(k);
+    this.drop(k);
   }
   /** Drop every entry (bulk invalidation) — O(1) amortised via fresh maps. */
   clear(): void {
     if (this.m.size === 0) return;
     this.m = new Map();
     this._bytes = 0;
-    this._cursor = null;
+    this.endLap();
     this._candidates = [];
     if (this._used.size > 0) this._used = new Set();
   }

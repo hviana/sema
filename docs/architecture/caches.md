@@ -23,7 +23,9 @@ O(1) over a persistent cursor. It has two settings:
 
 - `"reorder"`, the default — exact LRU.
 - `"clock"` — a use bit, a fraction of the hot-path time (the table's "clock"
-  rows); a worse victim only costs a re-read.
+  rows); a worse victim only costs a re-read. A sweep covers the entries present
+  when it began: the first key appended since ends it, so what is new is never
+  the victim of the sweep it arrived in (`test/189`).
 
 ## Store caches — budgets in `StoreConfig` (`src/config.ts`)
 
